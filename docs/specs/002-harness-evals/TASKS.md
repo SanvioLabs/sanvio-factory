@@ -2,7 +2,7 @@
 spec: SPEC-002
 status: in-progress
 created: 2026-10-31
-updated: 2026-11-01
+updated: 2026-11-02
 ---
 
 # Tasks: SPEC-002
@@ -121,15 +121,15 @@ python3 -m unittest discover -s tests -p 'test_eval_harness.py'
 
 Nothing from these tasks enters this repo. Each run spends model tokens, so a person starts it.
 
-- [ ] T018 Build the Repair suite in the private suites repo and validate it
+- [x] T018 Build the Repair suite in the private suites repo and validate it
   - Requirements: Evaluation Requirements
   - Depends on: T003
   - Verification: `python3 scripts/eval_harness.py validate <private suite path>`
-- [ ] T019 Build the Migrate suite and validate it
+- [x] T019 Build the Migrate suite and validate it
   - Requirements: Evaluation Requirements
   - Depends on: T003
   - Verification: `python3 scripts/eval_harness.py validate <private suite path>`
-- [ ] T020 Build the Build suite and validate it
+- [x] T020 Build the Build suite and validate it
   - Requirements: Evaluation Requirements
   - Depends on: T003
   - Verification: `python3 scripts/eval_harness.py validate <private suite path>`
@@ -212,7 +212,7 @@ example's start command now waits for it. That attempt's repo is kept, as every 
 
 ### The Repair suite
 
-Built in a local folder outside this repo. T018 stays open until it's in the private suites repo.
+Built in a local folder outside this repo. In the private suites repo since 2026-11-02.
 
 Command:
 
@@ -228,7 +228,7 @@ repair: the seed fails, each wrong answer fails, the reference passes. Exit 0.
 
 ### The Migrate suite
 
-Built in a local folder outside this repo. T019 stays open until it's in the private suites repo.
+Built in a local folder outside this repo. In the private suites repo since 2026-11-02.
 
 Result:
 
@@ -238,7 +238,7 @@ migrate: the seed fails, each wrong answer fails, the reference passes. Exit 0.
 
 ### The Build suite
 
-A new job, built in a local folder outside this repo. T020 stays open until it's in the private suites repo.
+A new job, built in a local folder outside this repo. In the private suites repo since 2026-11-02.
 
 Result:
 
@@ -327,7 +327,7 @@ Phases 1 and 2 were watched failing first. Phases 3 to 5 were written with their
 | SEC-002 | T005, T007 | scripts/eval_harness.py | TESTS | PASS |
 | SEC-003 | T005, T017 | scripts/eval_harness.py | TESTS | PASS |
 | SEC-004 | T006, T009 | scripts/eval_harness.py | TESTS | PASS |
-| Evaluation Requirements | T003, T018, T019, T020 | scripts/eval_harness.py, private suites | validate | IN PROGRESS |
+| Evaluation Requirements | T003, T018, T019, T020 | scripts/eval_harness.py, private suites | validate | PASS |
 | NFR: standard library only | T017 | tests/test_eval_harness.py | TESTS | PASS |
 | NFR: suite added without runner change | T003 | tests/test_eval_harness.py | TESTS | PASS |
 
