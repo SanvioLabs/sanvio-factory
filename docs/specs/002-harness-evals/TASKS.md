@@ -138,6 +138,31 @@ Nothing from these tasks enters this repo. Each run spends model tokens, so a pe
   - Depends on: T015, T018, T019, T020
   - Verification: `python3 scripts/eval_harness.py list`
 
+## Phase 8: Review fixes
+
+From `review-spec` on 2026-11-02. Each test was watched failing before its fix.
+
+- [x] T022 A failed or timed-out start still finds the pull request it opened, and that gets scored
+  - Requirements: REQ-010, AC-003
+  - Depends on: T013
+  - Verification: `python3 -m unittest discover -s tests -p 'test_eval_harness.py'` (`FailedStartWithAPullRequest`)
+- [x] T023 Ctrl-C ends the start command's process group, and `resume --end` scores an interrupted run
+  - Requirements: REQ-012
+  - Depends on: T010
+  - Verification: `python3 -m unittest discover -s tests -p 'test_eval_harness.py'` (`Interrupted`)
+- [x] T024 What a run acts on is kept in a sealed copy outside the harness, the key's path only there, and a pull request that isn't a number is refused
+  - Requirements: SEC-004, REQ-005
+  - Depends on: T009
+  - Verification: `python3 -m unittest discover -s tests -p 'test_eval_harness.py'` (`SealedRecord`)
+- [x] T025 Scoring gets an empty home and no `gh` login, and each pull request's details in `PR_DATA`. The Repair and Migrate scorers read it
+  - Requirements: SEC-002, SEC-003
+  - Depends on: T014
+  - Verification: `python3 -m unittest discover -s tests -p 'test_eval_harness.py'` (`ScoringReach`), then `validate` on each private suite
+- [x] T026 One place says what a failed `gh` call said
+  - Requirements: NFR
+  - Depends on: None
+  - Verification: `python3 -m unittest discover -s tests -p 'test_eval_harness.py'`
+
 ## Final Verification
 
 - [ ] Acceptance criteria pass
@@ -194,6 +219,21 @@ Result:
 Link check: 0 file names to link.
 Tests: FAILED (failures=2), neither in the new code. See Review Findings.
 ```
+
+### Review fixes, 2026-11-02
+
+```
+$ python3 -m unittest discover -s tests -p 'test_eval_harness.py'
+Ran 115 tests in 81.545s
+OK
+
+$ python3 scripts/eval_harness.py validate <private build suite>
+build: the seed fails, each wrong answer fails, the reference passes.
+$ python3 scripts/eval_harness.py validate <private repair suite>
+repair: the seed fails, each wrong answer fails, the reference passes.
+```
+
+The Migrate suite's `validate` wasn't run: a command naming that suite is held by a local guard for a person. The whole repo's run had one failure, `test_token_report`'s, which predates this spec.
 
 ### First real run, on the tiny suite
 
@@ -333,8 +373,28 @@ Phases 1 and 2 were watched failing first. Phases 3 to 5 were written with their
 
 ## Review Findings
 
+`review-spec`, 2026-11-02. Lenses run: requirement walk, viper, cto, review-principles. `code-review` ran against the wrong pull request #360 (a pre-commit change in another repo), so its findings are discarded and correctness rests on the requirement walk. Atlas skipped: one standalone script and no structural change to the harness. Recommendation: **Not Complete**, blocked by the five HIGH rows. After the Phase 8 fixes, one HIGH stays open: the loop coupling.
+
 | Severity | Finding | File | Status |
 |---|---|---|---|
+| HIGH | SEC-004 holds only while `run.json` is honest. It sits under the harness folder the start command runs in, and `repo`, `repo_id`, `merge`, `start`, `usage_command`, `suite_path` and `issues[].pr` all come from it, so an agent that edits it before `resume` can redirect a merge or a command. Viper risk 7 | scripts/eval_harness.py:258, :411 | Fixed 2026-11-02 (T024): the fields a run acts on are sealed in `~/.harness-evals` and resume takes them from there; a pull request must be a number. An agent that goes looking in the person's home can still reach the sealed copy |
+| HIGH | Scoring runs agent-written code with only secret-named variables removed, so `HOME`, `~/.config/gh`, `~/.ssh` and the suite's own `key/` stay reachable over an open network. The README and docstring say "as CI would", and SEC-002 reads as if it can't happen. Viper risk 6 | scripts/eval_harness.py:164-181, examples/eval-suite/README.md | Fixed 2026-11-02 (T025): an empty `HOME`, `XDG_CONFIG_HOME` and `GH_CONFIG_DIR`, pull requests in `PR_DATA`, and the docs now say what it can still reach: the network, and files outside `HOME`, the key included |
+| HIGH | REQ-010 and AC-003 partly met: when the start command fails or times out, `work()` stops before looking for a pull request, so a PR the harness did open is ignored, left out of `PR_NUMBERS`, and the default branch is scored. The test uses a run with no PR, so it can't catch this | scripts/eval_harness.py:448-451 | Fixed 2026-11-02 (T022) |
+| HIGH | Ctrl-C during a start command leaves its process group running, because only `TimeoutExpired` kills it. The agent keeps spending tokens after the prompt returns | scripts/eval_harness.py:365-377 | Fixed 2026-11-02 (T023) |
+| HIGH | Review principles, significant: the runner reads the starter loop's files directly (`.loop/projects/<clone>/issue-N/usage.json`, detected by [`scripts/loop.py`](../../../scripts/loop.py) in `--start`), so a loop refactor silently turns cost, tokens and rounds into "not reported". The same `gh` error handling is hand-written in five places, and `create_run` and `merge_pull_request` each do several jobs | scripts/eval_harness.py:243-255, :288-341, :405, :518-524 | Partly fixed 2026-11-02 (T026): `gh` error text is in one place. Open: the loop's usage files are still read directly, since SPEC-002 keeps [`scripts/loop.py`](../../../scripts/loop.py) unchanged, and `create_run` and `merge_pull_request` still do several jobs |
+| MEDIUM | A run interrupted by anything other than `RunError` (Ctrl-C, bad JSON from `gh`) stays `working`, and `resume` and `resume --end` both refuse it, so it can never be scored. A network failure during scoring also can't be retried | scripts/eval_harness.py:470-472, :640, :706 | Partly fixed 2026-11-02 (T023): `resume --end` scores a run left `working`. Open: a failure during scoring can't be retried |
+| MEDIUM | REQ-005 partly met: `run.json` records the key's path inside the harness folder where the agent works | scripts/eval_harness.py:302 | Fixed 2026-11-02 (T024) |
+| MEDIUM | AC-006 partly met: `key_leaks` matches whole-file hashes only and exempts `key/reference` and `key/wrong`, so an edited or partial copy of the key isn't found | scripts/eval_harness.py:498-505 | Open |
+| MEDIUM | AC-010's "no command deletes a repo" test greps for the string `repo delete`, which `gh("repo", "delete", ...)` would pass. `runs_dir()` is relative to the working directory, so `list` misses runs started elsewhere | tests/test_eval_harness.py:479, scripts/eval_harness.py:258 | Open |
+| MEDIUM | Evaluation Requirements partly met: `run` doesn't check the suite was validated, and `validate` passes empty `PR_NUMBERS` and `RUN_REPO`, so a scorer that depends on them is never exercised before a paid run | scripts/eval_harness.py:206 | Open |
+| MEDIUM | On a free GitHub plan, branch protection fails only after the private repo exists, leaving an orphan. The README mentions neither this nor the Actions minutes billed to the owner | scripts/eval_harness.py:300, :318-324 | Open |
+| MEDIUM | Review principles, minor: `round_count` and `round_total` overlap, `result.json` is written without the `.part` rename `run.json` uses, and `create_run` catches five exception types as one setup stop | scripts/eval_harness.py:609-620, :642, :729, :337 | Partly fixed 2026-11-02: `result.json` is written through a `.part` file. Open: the overlapping round helpers and the broad `except` |
 | MEDIUM | The result records no rounds, and with `--usage-command` it drops the loop's token counts, which are the measures most likely to separate two harnesses that both pass | scripts/eval_harness.py | Fixed 2026-11-02: each result now has `rounds` and the loop's `tokens`, and the five saved results were filled in from the loop's usage files |
 | LOW | `test_an_empty_run_exits_0` fails on a machine with real loop usage. It failed before this spec too | tests/test_token_report.py | Open, out of scope |
 | LOW | Three "a job in the pane" tests expect a time with no date, so they fail when their 6 minutes ago falls on yesterday, just after midnight. Found at 00:02 local | examples/mods/loop-pane/hooks/root.test.ts | Open, out of scope |
+| LOW | Eval integrity: agent code imported by `key/score` can print a passing JSON and exit, the required check is matched by name only so a PR can edit its workflow to emit it, `usage.json` is agent-writable, and `SCORE_TIMEOUT` kills only the direct child. Viper risk 2-3 | scripts/eval_harness.py:169, :176, :422, :524 | Open |
+| LOW | The Requirement Traceability table marks every row PASS while Final Verification and T021 are unchecked. Rows with no test behind them: Evaluation Requirements, SEC-001's made-up data, SEC-002's seed half, and the new-suite NFR (its test only renames the same suite) | docs/specs/002-harness-evals/TASKS.md | Open |
+| LOW | A failing `--usage-command` throws away a cost the loop did report | scripts/eval_harness.py:546 | Open |
+| LOW | The runner is POSIX-only (`killpg`, `sh -c`) and the docs don't say so. Long lines and missing docstrings on `runs_dir`, `save_run`, `load_run` and the `cmd_*` functions; "REQ-012" is unexplained in a comment | scripts/eval_harness.py | Open |
+| INFO | Drift from the spec, none of it flagged: `--owner` is required; `validate`, `resume` and exit code 3 exist; `public_example` skips REQ-005's check; the last PR is merged too, though REQ-013 says "between issues"; `compare` doesn't check both results come from the same suite; the runner imports `loop` from the harness under test, so comparing two commits also compares two versions of its own arithmetic | docs/specs/002-harness-evals/SPEC.md | Open |
+| INFO | A suite is code: the seed's `.git` is copied over the clone's, `suite.json` paths accept `..` and absolute paths, and `public_example` is self-declared. All sit behind the trust `key/score` already needs, so install a suite like software | scripts/eval_harness.py:134-147, :313 | Open |

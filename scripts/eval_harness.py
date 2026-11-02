@@ -17,8 +17,9 @@ A suite is a folder:
     seed/           the repo's starting contents, including its CI workflow. Made-up data only
     issues/         one Markdown file per issue, its first line the title
     key/
-      score         executable: reads RUN_DIR, BASE_SHA, PR_NUMBERS and RUN_REPO, and prints
-                    {"tests": [{"name", "passed"}], "traps": [{"name", "avoided"}]}
+      score         executable: reads RUN_DIR, BASE_SHA, PR_NUMBERS, RUN_REPO and PR_DATA (a JSON file of
+                    each pull request's number, state, headRefName, baseRefOid, headRefOid, body and
+                    comments), and prints {"tests": [{"name", "passed"}], "traps": [{"name", "avoided"}]}
       reference/    files that overlay the seed to make the right answer
       wrong/<name>/ files that overlay the seed to make a known wrong answer
 
@@ -43,9 +44,16 @@ validate spends no model tokens and creates no repo. It passes only when the see
 answer fails, and the reference passes every test and trap. Exits 0 when sound, 1 when not, 2 when the
 suite can't be read.
 
-Scoring runs key/score on the checkout, and that usually runs code an agent wrote, as CI would. Keep a
-private suite's folder somewhere its agents aren't allowed to read: this tool refuses a key inside the
-harness or the clone folder, and finds a key committed to a run repo, but can't see what an agent read.
+Scoring runs key/score on the checkout, and that usually runs code an agent wrote, on this machine. It gets
+an empty HOME and no gh login, so it reads pull requests from PR_DATA, not GitHub. It still has the network
+and whatever this user can read outside HOME, the suite's key included. Keep a private suite's folder
+somewhere its agents aren't allowed to read: this tool refuses a key inside the harness or the clone folder,
+and finds a key committed to a run repo, but can't see what an agent read.
+
+What a run acts on (its repo, the merge flag, the start and usage commands, the suite's path) is kept in a
+sealed copy in ~/.harness-evals, or HARNESS_EVALS_HOME, and resume takes it from there, so an agent editing
+the harness's copy can't redirect it. Ctrl-C ends the start command too; resume --end then scores what the
+interrupted run got to. Needs a POSIX system.
 
 From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
 """
@@ -72,7 +80,12 @@ SCORE_TIMEOUT = 900
 USAGE_TIMEOUT = 120
 CI_POLL_SECONDS = 30
 MERGE_TRIES = 3
+PULL_FIELDS = "number,state,headRefName,baseRefOid,headRefOid,body,comments"  # what key/score gets in PR_DATA
 WAITING = 3  # the exit code while a run waits for a person
+# What a run acts on: kept in a sealed copy outside the harness, and taken from there over the harness's copy.
+SEALED = ("repo", "repo_id", "merge", "start", "usage_command", "suite_path", "harness", "clone", "timeout_minutes",
+          "base_sha", "harness_commit", "harness_dirty")
+OUTSIDE_ONLY = ("suite_path",)
 # So a commit works on a machine with no git identity set.
 GIT_IDENTITY = ["-c", "user.name=eval-harness", "-c", "user.email=eval-harness@example.invalid"]
 
@@ -161,15 +174,23 @@ def git(*args, cwd):
     return done.stdout.strip()
 
 
-def score_checkout(key, run_dir, base_sha, pr_numbers=(), repo=""):
-    """key/score's verdict on run_dir: {"tests": [...], "traps": [...]}, or {"not_scored": why}."""
-    env = dict(loop.env_for_tests(os.environ), RUN_DIR=str(run_dir), BASE_SHA=base_sha,
-               PR_NUMBERS=" ".join(str(number) for number in pr_numbers), RUN_REPO=repo)
-    try:
-        done = subprocess.run([str(Path(key) / "score")], cwd=str(run_dir), env=env, capture_output=True,
-                              text=True, timeout=SCORE_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired) as err:
-        return {"not_scored": "key/score didn't finish: {}".format(err)}
+def score_checkout(key, run_dir, base_sha, pulls=(), repo=""):
+    """key/score's verdict on run_dir: {"tests": [...], "traps": [...]}, or {"not_scored": why}.
+
+    It runs code an agent wrote, so it gets an empty home and no gh login, and reads each pull request's
+    details from the PR_DATA file rather than from GitHub."""
+    with tempfile.TemporaryDirectory() as home:
+        pulls_file = Path(home) / "pull-requests.json"
+        pulls_file.write_text(json.dumps(list(pulls)))
+        (Path(home) / "gh").mkdir()
+        env = dict(loop.env_for_tests(os.environ), RUN_DIR=str(run_dir), BASE_SHA=base_sha, RUN_REPO=repo,
+                   PR_NUMBERS=" ".join(str(pull["number"]) for pull in pulls), PR_DATA=str(pulls_file),
+                   HOME=home, XDG_CONFIG_HOME=str(Path(home) / ".config"), GH_CONFIG_DIR=str(Path(home) / "gh"))
+        try:
+            done = subprocess.run([str(Path(key) / "score")], cwd=str(run_dir), env=env, capture_output=True,
+                                  text=True, timeout=SCORE_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired) as err:
+            return {"not_scored": "key/score didn't finish: {}".format(err)}
     if done.returncode:
         return {"not_scored": "key/score exited {}".format(done.returncode)}
     try:
@@ -246,32 +267,63 @@ def gh(*args, stdin=None):
     return done.returncode, done.stdout.strip(), done.stderr.strip()
 
 
+def said(code, out, err):
+    """What a failed gh call said. gh api puts its error on stdout."""
+    return err or out or "gh exited {}".format(code)
+
+
 def gh_ok(why, *args, stdin=None):
     """gh's stdout, or RunError saying why it was called and what it said."""
     code, out, err = gh(*args, stdin=stdin)
     if code:
-        # gh api puts its error on stdout.
-        raise RunError("{}: {}".format(why, err or out or "gh exited {}".format(code)))
+        raise RunError("{}: {}".format(why, said(code, out, err)))
     return out
 
 
 def runs_dir():
+    """Each run's state, logs and result, in the harness. Its agents can write here."""
     return Path.cwd() / ".harness" / "harness-evals"
 
 
+def sealed_dir():
+    """Where each run's sealed copy lives: outside the harness, so an agent working there doesn't edit it."""
+    return Path(os.environ.get("HARNESS_EVALS_HOME") or Path.home() / ".harness-evals")
+
+
+def write_json(path, data):
+    """Write through a .part file, so a reader never sees half of it."""
+    part = Path(str(path) + ".part")
+    part.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(str(part), str(path))
+
+
 def save_run(record):
+    """The sealed fields go outside the harness, and the rest in it. The key's location only goes outside."""
     folder = runs_dir() / record["id"]
     folder.mkdir(parents=True, exist_ok=True)
-    part = folder / "run.json.part"
-    part.write_text(json.dumps(record, indent=2) + "\n")
-    os.replace(str(part), str(folder / "run.json"))
+    sealed_dir().mkdir(parents=True, exist_ok=True)
+    write_json(sealed_dir() / "{}.json".format(record["id"]), {field: record.get(field) for field in SEALED})
+    write_json(folder / "run.json", {field: value for field, value in record.items() if field not in OUTSIDE_ONLY})
 
 
-def load_run(run_id):
+def load_run(run_id, sealed=True):
+    """The run's record, with its sealed copy over whatever the harness folder says. RunError when either is
+    missing, or a pull request isn't a number."""
     try:
-        return json.loads((runs_dir() / run_id / "run.json").read_text())
+        record = json.loads((runs_dir() / run_id / "run.json").read_text())
     except (OSError, ValueError):
         raise RunError("no run called {} in {}".format(run_id, runs_dir()))
+    if not sealed:
+        return record
+    try:
+        record.update(json.loads((sealed_dir() / "{}.json".format(run_id)).read_text()))
+    except (OSError, ValueError):
+        raise RunError("run {} has no sealed copy in {}, so it can't be carried on".format(run_id, sealed_dir()))
+    record["id"] = run_id
+    for issue in record["issues"]:
+        if issue.get("pr") is not None and type(issue["pr"]) is not int:
+            raise RunError("run {}: {!r} isn't a pull request number".format(run_id, issue["pr"]))
+    return record
 
 
 def issue_title_and_body(path):
@@ -318,8 +370,7 @@ def create_run(suite, options):
         code, out, err = gh("api", "--method", "PUT", "repos/{}/branches/main/protection".format(repo), "--input", "-",
                             stdin=json.dumps(protection_for(suite["required_checks"])))
         if code:
-            # gh api puts its error on stdout.
-            why = err or out or "gh exited {}".format(code)
+            why = said(code, out, err)
             hint = " (a private repo's protection needs a paid plan)" if "upgrade" in why.lower() else ""
             raise RunError("couldn't protect its main branch{}: {}".format(hint, why))
         record.update(repo_id=found["id"], harness_commit=git("rev-parse", "HEAD", cwd=harness),
@@ -368,23 +419,34 @@ def start_issue(record, number):
         try:
             code = process.wait(timeout=limit)
         except subprocess.TimeoutExpired:
-            # Its own session, so whatever it started goes with it.
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+            end_session(process)
             return "the start command timed out on issue {} after {:g} minutes".format(number, record["timeout_minutes"])
+        except BaseException:
+            # Ctrl-C included: the agent doesn't go on spending once the prompt is back.
+            end_session(process)
+            raise
     return "the start command exited {} on issue {}".format(code, number) if code else None
+
+
+def end_session(process):
+    """End the start command and, since it has its own session, whatever it started."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    except ProcessLookupError:
+        pass
 
 
 def new_pull_request(record, number):
     """(the pull request this issue produced, None) or (None, why there isn't exactly one)."""
-    code, out, err = gh("pr", "list", "-R", record["repo"], "--state", "all", "--limit", "200",
-                        "--json", "number,state")
-    if code:
-        return None, "couldn't list pull requests: {}".format(err or out)
+    try:
+        out = gh_ok("couldn't list pull requests", "pr", "list", "-R", record["repo"], "--state", "all",
+                    "--limit", "200", "--json", "number,state")
+    except RunError as err:
+        return None, str(err)
     found = [pr["number"] for pr in json.loads(out) if pr["number"] not in record["seen_prs"]]
     record["seen_prs"].extend(found)
     if len(found) == 1:
@@ -396,10 +458,8 @@ def new_pull_request(record, number):
 
 
 def pull_request_state(record, number):
-    code, out, err = gh("pr", "view", str(number), "-R", record["repo"], "--json", "state")
-    if code:
-        raise RunError("couldn't read pull request {}: {}".format(number, err or out))
-    return json.loads(out)["state"]
+    return json.loads(gh_ok("couldn't read pull request {}".format(number), "pr", "view", str(number), "-R",
+                            record["repo"], "--json", "state"))["state"]
 
 
 def merge_pull_request(record, number, required):
@@ -434,7 +494,7 @@ def merge_pull_request(record, number, required):
             return
         if attempt + 1 < MERGE_TRIES:
             time.sleep(CI_POLL_SECONDS)
-    raise RunError("couldn't merge pull request {} in {} tries: {}".format(number, MERGE_TRIES, err or out))
+    raise RunError("couldn't merge pull request {} in {} tries: {}".format(number, MERGE_TRIES, said(code, out, err)))
 
 
 def work(record, suite):
@@ -445,15 +505,14 @@ def work(record, suite):
         began = time.monotonic()
         try:
             if issue["state"] == "pending":
-                why = start_issue(record, issue["number"])
-                if why:
-                    add_stop(record, why, "run")
-                    return "ended"
+                failed = start_issue(record, issue["number"])
                 issue["pr"], why = new_pull_request(record, issue["number"])
-                if why:
-                    add_stop(record, why, "run")
+                if issue["pr"]:
+                    issue["state"] = "open"
+                if failed or why:
+                    # What a failed start left behind still gets scored.
+                    add_stop(record, failed or why, "run")
                     return "ended"
-                issue["state"] = "open"
                 save_run(record)
             state = pull_request_state(record, issue["pr"])
             if state == "CLOSED":
@@ -557,15 +616,17 @@ def score_run(record):
     """Score a fresh clone outside the harness. Returns the fields the result takes from it."""
     suite_key = Path(record["suite_path"]) / json.loads(
         (Path(record["suite_path"]) / "suite.json").read_text())["key"]
-    prs = [issue["pr"] for issue in record["issues"] if issue["pr"]]
     fields = {"tests": [], "traps": [], "key_leaks": []}
     try:
+        pulls = [json.loads(gh_ok("couldn't read pull request {}".format(issue["pr"]), "pr", "view", str(issue["pr"]),
+                                  "-R", record["repo"], "--json", PULL_FIELDS))
+                 for issue in record["issues"] if issue["pr"]]
         with tempfile.TemporaryDirectory() as workspace:
             clone = Path(workspace) / "scored"
             gh_ok("couldn't clone {}".format(record["repo"]), "repo", "clone", record["repo"], str(clone))
             fields["scored_at"] = check_out_for_scoring(record, clone)
             fields["key_leaks"] = key_leaks(suite_key, clone)
-            fields.update(score_checkout(suite_key, clone, record["base_sha"], prs, record["repo"]))
+            fields.update(score_checkout(suite_key, clone, record["base_sha"], pulls, record["repo"]))
     except (RunError, subprocess.CalledProcessError, OSError, ValueError, KeyError) as err:
         fields["not_scored"] = str(err)
     return fields
@@ -639,7 +700,7 @@ def finish(record):
     result["cost"], result["tokens"], result["rounds"] = read_usage(record)
     record["state"] = "ended"
     save_run(record)
-    (runs_dir() / record["id"] / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    write_json(runs_dir() / record["id"] / "result.json", result)
     print_scorecard(result)
     return 0 if all_clean(result) and not result["key_leaks"] else 1
 
@@ -703,10 +764,14 @@ def cmd_run(args):
 def cmd_resume(args):
     try:
         record = load_run(args.run)
+        if args.end and record["state"] in ("waiting", "working"):
+            # working here means it was interrupted: what it got to still gets scored.
+            return finish(record)
+        if record["state"] == "working":
+            raise RunError("run {} was interrupted. Score what it got to with: eval_harness.py resume {} --end"
+                           .format(args.run, args.run))
         if record["state"] != "waiting":
             raise RunError("run {} isn't waiting: it's {}".format(args.run, record["state"]))
-        if args.end:
-            return finish(record)
         suite = load_suite(record["suite_path"], record["harness"], clone_into=Path(record["clone"]).parent)
     except (RunError, SuiteError) as err:
         print(err, file=sys.stderr)
@@ -716,17 +781,18 @@ def cmd_resume(args):
 
 def cmd_stop(args):
     try:
-        record = load_run(args.run)
+        # Only stops change, so the harness's copy is enough, and it's all an older run has.
+        record = load_run(args.run, sealed=False)
     except RunError as err:
         print(err, file=sys.stderr)
         return 2
     add_stop(record, args.why, "person")
-    save_run(record)
-    result_path = runs_dir() / record["id"] / "result.json"
+    write_json(runs_dir() / args.run / "run.json", record)
+    result_path = runs_dir() / args.run / "result.json"
     if result_path.exists():
         result = json.loads(result_path.read_text())
         result["stops"] = record["stops"]
-        result_path.write_text(json.dumps(result, indent=2) + "\n")
+        write_json(result_path, result)
     return 0
 
 
