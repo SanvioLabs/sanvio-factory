@@ -28,7 +28,7 @@
     {
       "name": "loop-crew",
       "source": "./examples/mods/loop-crew",
-      "description": "A pane of animated figures, one for each issue the loop is working on, each acting out its step"
+      "description": "A pane with a lane for each issue the loop is working on, its steps left to right, and a figure running to its step and working there"
     },
     {
       "name": "stelliad",
