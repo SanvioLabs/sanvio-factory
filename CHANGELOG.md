@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-01: Loop crew map
+
+`/loop-crew`'s pane now draws a map of a work floor with a station for each loop step: a door, a planning table, a test bench, a workbench, a review desk and a loading dock. Each issue being worked on is a small figure that walks to its step's station when the step changes and acts out the work there, and walks back to the door when its pull request opens. A legend under the floor lists the issues. The terminal paints the floor in place, wide or compact to fit, and the other surfaces animate an Svg. It hasn't yet been tried on any surface.
+Files: [`examples/mods/loop-crew/`](examples/mods/loop-crew/), [`AGENTS.md`](AGENTS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update`, then `/reload-plugins` or a new session, picks it up.
+
 ## 2026-10-31: Loop crew
 
 A new mod: `/loop-crew` opens a pane with an animated figure for each issue the loop is working on, acting out its step: at a drafting board, writing on a board, swinging a hammer, holding up a magnifying glass or carrying a box. `/loop-crew <project>` shows a project's loop. It only reads the loop's files and spends no model tokens. The terminal paints the frames in place and the other surfaces animate an Svg. It hasn't yet been tried on any surface, and the animation on the mobile app is expected but untried.
