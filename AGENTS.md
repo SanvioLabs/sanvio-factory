@@ -140,6 +140,8 @@ instructions.
 catches. Run it after changing an agent's file, a job's brief or the model. It starts real
 sessions, so it isn't part of the gate; [`examples/proposal/evals/`](examples/proposal/evals/) has the reviewer's cases, and [`examples/typescript/evals/`](examples/typescript/evals/) the security reviewer's.
 
+[`scripts/eval_harness.py`](scripts/eval_harness.py) runs a whole harness through a suite of jobs and prints a scorecard, and `compare` shows what a harness change did. It creates a private repo and spends model tokens, so only start a run when a person asks. [`examples/eval-suite/`](examples/eval-suite/) shows a suite's format. A private suite's `key/` never goes in this repo, or anywhere an agent working on the run can read.
+
 ## Examples
 
 [`examples/`](examples/) holds worked jobs to read and copy. Before working in one, read its

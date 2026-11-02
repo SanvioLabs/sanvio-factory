@@ -27,6 +27,12 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-02: Harness evals
+
+[`scripts/eval_harness.py`](scripts/eval_harness.py) runs a harness through a suite of jobs in a new private repo, then scores the result with hidden tests and traps: tests passed, traps avoided, time, stops, build rounds, tokens and cost. `compare` names what changed between two runs, `validate` checks a suite is a fair test without spending tokens, and `list` names the run repos, which only a person deletes. Merging between issues is off unless you pass `--merge-in-run-repo`.
+Files: [`scripts/eval_harness.py`](scripts/eval_harness.py), [`tests/test_eval_harness.py`](tests/test_eval_harness.py), [`examples/eval-suite/`](examples/eval-suite/), [`docs/specs/002-harness-evals/SPEC.md`](docs/specs/002-harness-evals/SPEC.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, read [`examples/eval-suite/README.md`](examples/eval-suite/README.md).
 ## 2026-11-01: Loop crew map
 
 `/loop-crew`'s pane now draws a map of a work floor with a station for each loop step: a door, a planning table, a test bench, a workbench, a review desk and a loading dock. Each issue being worked on is a small figure that walks to its step's station when the step changes and acts out the work there, and walks back to the door when its pull request opens. A legend under the floor lists the issues. The terminal paints the floor in place, wide or compact to fit, and the other surfaces animate an Svg. It hasn't yet been tried on any surface.

@@ -1,0 +1,8 @@
+{
+  "name": "tiny-example",
+  "public_example": true,
+  "seed": "seed",
+  "key": "key",
+  "issues": ["issues/01-tax-total.md"],
+  "required_checks": ["checks"]
+}
