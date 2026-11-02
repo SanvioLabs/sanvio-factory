@@ -1,14 +1,15 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACTS, BOX_PIXELS, FIGURE_MARK, FIGURE_PALETTE, FLOOR, FRAME_MS, FURNITURE, GUTTER, LAYOUTS, NOTHING, STATIONS, TEXT_BG, TEXT_FG, WALK, clip, findRoot, floorAlt, floorCells, floorSvg, layoutFor, legend, legendFit, lockPid, numberText, parseStatus, place, positionAt, roundText, scene, showsFloor, spotAt, stationOf, stepLine, word } from './logic'
-import type { LayoutName, Station } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, SVG_SCALE, boardColumns, clip, easeInOut, effectAt, findRoot, headCells, headSvg, inkFor, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseStatus, place, poseAt, roundText, scene, showsBoard, stationOf, stationX, stepLine, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import type { Lane, Station } from './logic'
 import type { Row, Seen } from '../types'
 
 const NOW = 1_800_000_000_000
 const row = (over: Partial<Row>): Row => ({ number: 1, title: 'A job', step: 'BUILD', state: 'working', round: 1, ...over })
 const look = (over: Partial<Seen>): Seen => ({ status: { issues: [] }, isLive: true, ...over })
 const reading = (...issues: Row[]): Seen => look({ status: { issues } })
-const ALL_FRAMES = [...Object.values(ACTS).flat(), WALK]
+const lane = (station: Station, over: Partial<Row> = {}): Lane => ({ row: row(over), station, walk: null })
+const ALL_FRAMES = [...Object.values(ACTS).flat().map(pose => pose.frame), ...RUN]
 
 // The cells back from a Raster's base64, as [code point, foreground, background].
 function decode(text: string): [number, number, number][] {
@@ -19,38 +20,50 @@ function decode(text: string): [number, number, number][] {
   return out
 }
 
-// A floor's text cells as lines, every pixel cell a space.
-function textOf(cells: string, columns: number): string[] {
-  const decoded = decode(cells)
-  const lines: string[] = []
-  for (let i = 0; i < decoded.length; i += columns) {
-    lines.push(decoded.slice(i, i + columns).map(([code]) => (code === 0x2580 ? ' ' : String.fromCodePoint(code))).join(''))
-  }
-  return lines
+// The columns of a lane's top pixel row painted in the head colour: where each figure stands.
+function heads(cells: string, columns: number, ink = DARK): number[] {
+  return decode(cells).slice(0, columns).flatMap(([code, fg], x) => (code === 0x2580 && fg === ink.head ? [x] : []))
 }
+
+// Every pixel colour a lane paints, top and bottom halves.
+function colours(cells: string): number[] {
+  return decode(cells).flatMap(([code, fg, bg]) => (code === 0x2580 ? [fg, bg] : code === 0x2584 ? [fg] : []))
+}
+
+// Two numbers within `by` of each other. The kit has no toBeCloseTo.
+const near = (a: number, b: number, by = 1e-6): void => expect(Math.abs(a - b) <= by).toBe(true)
+
+// A number as the Svg writes it, to 3 places.
+const svgOf = (value: number): string => String(Math.round(value * 1000) / 1000)
+
+// Where a standing figure's head is: its station's middle, rounded.
+const home = (index: number, columns: number): number => Math.round(stationX(index, columns))
 
 group('a step, its station and its word', () => {
   test('each step goes to its station and has its word', () => {
     const steps: [string, Station, string][] = [
-      ['SHAPE', 'planning', 'planning'], ['TEST', 'tests', 'writing tests'], ['BUILD', 'workshop', 'building'],
-      ['VALIDATE', 'review', 'checking'], ['SCALE', 'dock', 'opening the pull request'],
+      ['SHAPE', 'plan', 'planning'], ['TEST', 'test', 'writing tests'], ['BUILD', 'build', 'building'],
+      ['VALIDATE', 'check', 'checking'], ['SCALE', 'ship', 'opening the pull request'],
     ]
     for (const [step, station, text] of steps) {
       expect(stationOf(step)).toBe(station)
       expect(word(step)).toBe(text)
     }
   })
-  test('an empty step is starting, at the door', () => {
-    expect(word('')).toBe('starting')
-    expect(stationOf('')).toBe('door')
+  test('the stations run start to ship, left to right', () => {
+    expect(STATIONS).toEqual(['start', 'plan', 'test', 'build', 'check', 'ship'])
   })
-  test('an unknown step is lowercased as written, at the door', () => {
+  test('an empty step is starting, at the start', () => {
+    expect(word('')).toBe('starting')
+    expect(stationOf('')).toBe('start')
+  })
+  test('an unknown step is lowercased as written, at the start', () => {
     expect(word('DEPLOY')).toBe('deploy')
-    expect(stationOf('DEPLOY')).toBe('door')
+    expect(stationOf('DEPLOY')).toBe('start')
   })
   test("a step named like an object's own property is still unknown", () => {
     expect(word('constructor')).toBe('constructor')
-    expect(stationOf('constructor')).toBe('door')
+    expect(stationOf('constructor')).toBe('start')
   })
   test('a zero round says nothing, and any other says its number', () => {
     expect(roundText(0)).toBe('')
@@ -60,391 +73,320 @@ group('a step, its station and its word', () => {
   })
 })
 
-group('the layouts', () => {
-  for (const name of ['wide', 'compact'] as LayoutName[]) {
-    const layout = LAYOUTS[name]
-    test(`${name}: every box sits inside the floor`, () => {
-      for (const station of STATIONS) {
-        const box = layout.boxes[station]
-        expect(box.x).toBeGreaterThan(-1)
-        expect(box.y).toBeGreaterThan(-1)
-        expect(box.x + layout.boxColumns).toBeLessThan(layout.columns + 1)
-        expect(box.y + BOX_PIXELS).toBeLessThan(layout.rows * 2 + 1)
-      }
-    })
-    test(`${name}: each station's box touches the next along the path`, () => {
-      const step = layout.boxColumns + 2
-      for (let i = 1; i < STATIONS.length; i++) {
-        const a = layout.boxes[STATIONS[i - 1]!]
-        const b = layout.boxes[STATIONS[i]!]
-        expect(Math.abs(a.x - b.x) / step + Math.abs(a.y - b.y) / BOX_PIXELS).toBe(1)
-      }
-    })
-    test(`${name}: a spot's figure and its 4-digit number fit its box`, () => {
-      for (const spot of layout.spots) expect(spot + 6).toBeLessThan(layout.boxColumns + 1)
-    })
-  }
-  test('the wide floor is 64 by 24, door to tests along the top and workshop to dock back along the bottom', () => {
-    const { columns, rows, boxes, spots } = LAYOUTS.wide
-    expect([columns, rows]).toEqual([64, 24])
-    expect(spots).toEqual([0, 7, 14])
-    expect(STATIONS.map(s => [boxes[s].x, boxes[s].y])).toEqual([[0, 0], [22, 0], [44, 0], [44, 24], [22, 24], [0, 24]])
+group('the board', () => {
+  test(`a terminal under ${MIN_COLUMNS} columns draws no board, and one wider draws it at most 120 wide`, () => {
+    expect(boardColumns(MIN_COLUMNS - 1)).toBeNull()
+    expect(boardColumns(MIN_COLUMNS)).toBe(MIN_COLUMNS)
+    expect(boardColumns(72)).toBe(72)
+    expect(boardColumns(400)).toBe(120)
   })
-  test('the compact floor is 32 by 36, snaking down', () => {
-    const { columns, rows, boxes, spots } = LAYOUTS.compact
-    expect([columns, rows]).toEqual([32, 36])
-    expect(spots).toEqual([0, 7])
-    expect(STATIONS.map(s => [boxes[s].x, boxes[s].y])).toEqual([[0, 0], [17, 0], [17, 24], [0, 24], [0, 48], [17, 48]])
+  test('the stations spread evenly, leaving room after the last for its work', () => {
+    for (const columns of [40, 72, 120]) {
+      expect(stationX(0, columns)).toBe(2)
+      const gaps = STATIONS.slice(1).map((_, i) => stationX(i + 1, columns) - stationX(i, columns))
+      for (const gap of gaps) near(gap, gaps[0]!)
+      // The last figure's work ends inside the board.
+      expect(home(STATIONS.length - 1, columns) - 1 + 5 + 6).toBeLessThan(columns)
+    }
   })
-  test('the width picks the floor, at each edge', () => {
-    expect(layoutFor(64)).toBe('wide')
-    expect(layoutFor(63)).toBe('compact')
-    expect(layoutFor(32)).toBe('compact')
-    expect(layoutFor(31)).toBeNull()
+  test('a lane is 3 cell rows, 6 pixels, its rail along the bottom pixel row', () => {
+    expect(LANE_ROWS).toBe(3)
+    expect(LANE_PIXELS).toBe(6)
+    expect(RAIL_Y).toBe(5)
   })
 })
 
-group('the drawings', () => {
-  test('every furniture grid is 13 by 6, each pixel naming a colour in its palette', () => {
-    for (const station of STATIONS) {
-      const { grid, palette, name } = FURNITURE[station]
-      expect(name).toBe(station)
-      expect(grid.length).toBe(6)
-      for (const line of grid) {
-        expect(line.length).toBe(13)
-        for (const pixel of line) expect(palette[pixel]).toBeDefined()
-      }
-    }
-  })
-  test('every act frame and the WALK frame is 6 by 8, each pixel naming a colour in the palette', () => {
+group('the figures', () => {
+  test('every frame is 5 rows, each row the same width of 3 or 4, in its own letters', () => {
     for (const frame of ALL_FRAMES) {
-      expect(frame.length).toBe(8)
+      expect(frame.length).toBe(5)
+      const width = frame[0]!.length
+      expect([3, 4]).toContain(width)
       for (const line of frame) {
-        expect(line.length).toBe(6)
-        for (const pixel of line) expect(FIGURE_PALETTE[pixel]).toBeDefined()
+        expect(line.length).toBe(width)
+        expect(/^[.hat]+$/.test(line)).toBe(true)
       }
     }
   })
-  test('the door has one frame and every other act two to four', () => {
-    expect(ACTS.door.length).toBe(1)
-    for (const station of STATIONS.filter(s => s !== 'door')) {
-      expect(ACTS[station].length).toBeGreaterThan(1)
-      expect(ACTS[station].length).toBeLessThan(5)
-    }
-  })
-  test('each frame of an act differs from the one before, last to first included', () => {
-    for (const station of STATIONS.filter(s => s !== 'door')) {
-      const frames = ACTS[station]
-      frames.forEach((frame, i) => expect(frame.join()).not.toBe(frames[(i + 1) % frames.length]!.join()))
-    }
-  })
-  test('FIGURE_MARK is at column 2 of row 1 of every frame, and nowhere else in any', () => {
+  test('the head is one pixel, at column 1 of the top row, in every frame', () => {
     for (const frame of ALL_FRAMES) {
-      frame.forEach((line, y) => {
-        for (let x = 0; x < line.length; x++) expect(FIGURE_PALETTE[line[x]!] === FIGURE_MARK).toBe(x === 2 && y === 1)
-      })
+      const at = frame.flatMap((line, y) => [...line].flatMap((c, x) => (c === 'h' ? [[x, y]] : [])))
+      expect(at).toEqual([[1, 0]])
     }
   })
-  test('nothing else on the floor uses FIGURE_MARK', () => {
-    expect(Object.values(FIGURE_PALETTE).filter(colour => colour === FIGURE_MARK).length).toBe(1)
-    for (const station of STATIONS) expect(Object.values(FURNITURE[station].palette)).not.toContain(FIGURE_MARK)
-    for (const colour of [FLOOR, GUTTER, TEXT_FG, TEXT_BG]) expect(colour).not.toBe(FIGURE_MARK)
+  test('the start has one pose and every other station two to four, each held a while', () => {
+    expect(ACTS.start.length).toBe(1)
+    for (const station of STATIONS.slice(1)) {
+      expect(ACTS[station].length).toBeGreaterThanOrEqual(2)
+      expect(ACTS[station].length).toBeLessThanOrEqual(4)
+    }
+    for (const pose of Object.values(ACTS).flat()) expect(pose.ms).toBeGreaterThan(0)
   })
-})
-
-group('the spots', () => {
-  const spots = (name: LayoutName, seen: Seen) => place(name, seen, null, NOW).figures.map(f => [f.row.number, f.station, f.spot])
-  const four = reading(row({ number: 9 }), row({ number: 3 }), row({ number: 7 }), row({ number: 5 }))
-  test('wide: issues take a station\'s three spots in number order, the rest hidden', () => {
-    expect(spots('wide', four)).toEqual([[3, 'workshop', 0], [5, 'workshop', 1], [7, 'workshop', 2], [9, 'workshop', null]])
-    expect(textOf(floorCells(place('wide', four, null, NOW), NOW), 64).join('\n')).toContain('workshop +1')
+  test('each pose of a station differs from the one before it, last to first included', () => {
+    for (const station of STATIONS.slice(1)) {
+      const frames = ACTS[station].map(pose => pose.frame.join('/'))
+      frames.forEach((frame, i) => expect(frame).not.toBe(frames[(i + frames.length - 1) % frames.length]))
+    }
   })
-  test('compact: two spots, so two are hidden', () => {
-    expect(spots('compact', four)).toEqual([[3, 'workshop', 0], [5, 'workshop', 1], [7, 'workshop', null], [9, 'workshop', null]])
-    expect(textOf(floorCells(place('compact', four, null, NOW), NOW), 32).join('\n')).toContain('workshop +2')
+  test('a pose holds for its time, and the act wraps', () => {
+    const [first, second] = ACTS.plan
+    expect(poseAt(ACTS.plan, 0)).toBe(0)
+    expect(poseAt(ACTS.plan, first!.ms - 1)).toBe(0)
+    expect(poseAt(ACTS.plan, first!.ms)).toBe(1)
+    expect(poseAt(ACTS.plan, first!.ms + second!.ms)).toBe(0)
   })
-  test('an unknown step is placed at the door', () => {
-    expect(spots('wide', reading(row({ step: 'DEPLOY' })))).toEqual([[1, 'door', 0]])
-  })
-  test('the rows a scene leaves out take no spot', () => {
-    expect(spots('wide', reading(row({ state: 'blocked' })))).toEqual([])
-    expect(spots('wide', look({ isLive: false, status: { issues: [row({})] } }))).toEqual([])
+  test('a station\'s work stays in the 5 rows above the rail and its 7 columns, and never uses the head colour', () => {
+    for (const station of STATIONS) {
+      for (let ms = 0; ms < 3000; ms += 40) {
+        for (const ink of [DARK, LIGHT]) {
+          for (const px of effectAt(station, ms, ink)) {
+            expect(px.y).toBeGreaterThanOrEqual(0)
+            expect(px.y).toBeLessThan(RAIL_Y)
+            expect(px.x).toBeGreaterThanOrEqual(0)
+            expect(px.x).toBeLessThan(7)
+            expect(px.colour).not.toBe(ink.head)
+          }
+        }
+      }
+    }
   })
 })
 
 group('the walks', () => {
-  const first = (seen: Seen, name: LayoutName = 'wide') => place(name, seen, null, NOW)
-  const planning = reading(row({ number: 12, step: 'SHAPE' }))
-  const tests = reading(row({ number: 12, step: 'TEST' }))
-  test('a walk runs straight from the old spot to the new over 1000 ms', () => {
-    const walk = place('wide', tests, first(planning), NOW).figures[0]!.walk!
-    expect(walk).toEqual({ from: { x: 22, y: 8 }, to: { x: 44, y: 8 }, start: NOW, end: NOW + 1000 })
-    expect(positionAt(walk, NOW)).toEqual({ x: 22, y: 8 })
-    expect(positionAt(walk, NOW + 500)).toEqual({ x: 33, y: 8 })
-    expect(positionAt(walk, NOW + 1000)).toEqual({ x: 44, y: 8 })
-    expect(positionAt(walk, NOW + 5000)).toEqual({ x: 44, y: 8 })
+  test('a longer way takes longer, up to 1.5 seconds', () => {
+    expect(walkMs(1, 2)).toBe(650)
+    expect(walkMs(0, 5)).toBe(1330)
+    expect(walkMs(0, 50)).toBe(1500)
   })
-  test('no previous placement walks nobody, as after a reload', () => {
-    const placement = place('wide', tests, null, NOW)
-    expect(placement.figures[0]!.walk).toBeNull()
-    expect(placement.outs).toEqual([])
-    expect(place('wide', reading(row({ number: 12, state: 'pr' })), null, NOW).outs).toEqual([])
+  test('a walk eases: its middle is halfway, and it ends where it was going', () => {
+    const walk = { from: 1, to: 2, start: NOW, end: NOW + 650 }
+    expect(unitsAt(walk, NOW)).toBe(1)
+    near(unitsAt(walk, NOW + 325), 1.5)
+    expect(unitsAt(walk, NOW + 650)).toBe(2)
+    expect(unitsAt(walk, NOW + 5000)).toBe(2)
+    expect(easeInOut(0.25)).toBeLessThan(0.25)
   })
-  test('the same spot walks nobody', () => {
-    expect(place('wide', planning, first(planning), NOW + 2000).figures[0]!.walk).toBeNull()
+  test('no previous placement walks nobody, as after a reload, an open or a switch', () => {
+    const placement = place(reading(row({ number: 1, step: 'TEST' }), row({ number: 2, step: 'SCALE' })), null, NOW)
+    expect(placement.figures.map(f => f.walk)).toEqual([null, null])
   })
-  test('a walk under way on an unchanged spot keeps its record, and a finished one is dropped', () => {
-    const walking = place('wide', tests, first(planning), NOW)
-    expect(place('wide', tests, walking, NOW + 400).figures[0]!.walk).toEqual(walking.figures[0]!.walk)
-    expect(place('wide', tests, walking, NOW + 1000).figures[0]!.walk).toBeNull()
+  test('a new step walks from the old station to the new', () => {
+    const before = place(reading(row({ step: 'SHAPE' })), null, NOW)
+    const after = place(reading(row({ step: 'TEST' })), before, NOW + 100)
+    expect(after.figures[0]!.walk).toEqual({ from: 1, to: 2, start: NOW + 100, end: NOW + 750 })
   })
-  test('a new walk starts from the previous placement\'s spot', () => {
-    const walking = place('wide', tests, first(planning), NOW)
-    const again = place('wide', reading(row({ number: 12, step: 'BUILD' })), walking, NOW + 400).figures[0]!.walk!
-    expect(again.from).toEqual(spotAt(LAYOUTS.wide, 'tests', 0))
-    expect(again.to).toEqual(spotAt(LAYOUTS.wide, 'workshop', 0))
-    expect(again.end).toBe(NOW + 1400)
+  test('the same station walks nobody, and a walk under way there keeps its record', () => {
+    const before = place(reading(row({ step: 'SHAPE' })), null, NOW)
+    const walking = place(reading(row({ step: 'TEST' })), before, NOW)
+    expect(place(reading(row({ step: 'SHAPE' })), before, NOW).figures[0]!.walk).toBeNull()
+    expect(place(reading(row({ step: 'TEST' })), walking, NOW + 300).figures[0]!.walk).toBe(walking.figures[0]!.walk)
+    expect(place(reading(row({ step: 'TEST' })), walking, NOW + 5000).figures[0]!.walk).toBeNull()
   })
-  test('spots shifting at a station walks the figures that moved', () => {
-    const two = reading(row({ number: 5, step: 'SHAPE' }), row({ number: 12, step: 'SHAPE' }))
-    const walk = place('wide', reading(row({ number: 12, step: 'SHAPE' })), first(two), NOW).figures[0]!.walk!
-    expect(walk.from).toEqual(spotAt(LAYOUTS.wide, 'planning', 1))
-    expect(walk.to).toEqual(spotAt(LAYOUTS.wide, 'planning', 0))
+  test('a step that changes mid-walk carries on from where the figure is, with no jump back', () => {
+    const before = place(reading(row({ step: 'SHAPE' })), null, NOW)
+    const walking = place(reading(row({ step: 'BUILD' })), before, NOW)
+    const midway = unitsAt(walking.figures[0]!.walk!, NOW + 300)
+    const turned = place(reading(row({ step: 'VALIDATE' })), walking, NOW + 300)
+    near(turned.figures[0]!.walk!.from, midway)
+    expect(turned.figures[0]!.walk!.to).toBe(4)
   })
-  test('an issue missing from the previous read walks in from the door\'s first spot', () => {
-    const empty = first(reading())
-    expect(place('wide', tests, empty, NOW).figures[0]!.walk!.from).toEqual(spotAt(LAYOUTS.wide, 'door', 0))
+  test('an issue missing from the previous read walks in from the start, unless it is starting', () => {
+    const before = place(reading(row({ number: 1, step: 'SHAPE' })), null, NOW)
+    const after = place(reading(row({ number: 1, step: 'SHAPE' }), row({ number: 2, step: 'TEST' }), row({ number: 3, step: '' })), before, NOW)
+    expect(after.figures.map(f => f.walk && [f.walk.from, f.walk.to])).toEqual([null, [0, 2], null])
   })
-  test('one arriving at the door\'s first spot has nowhere to walk', () => {
-    expect(place('wide', reading(row({ step: '' })), first(reading()), NOW).figures[0]!.walk).toBeNull()
+  test('a walker stands at its station once there, and goes back as the mirror image of going forward', () => {
+    const walk = { from: 3, to: 1, start: NOW, end: NOW + 820 }
+    const columns = 72
+    const at = (ms: number) => heads(laneCells({ row: row({}), station: 'plan', walk }, columns, NOW + ms), columns)
+    expect(at(0)).toEqual([home(3, columns)])
+    expect(at(410)[0]!).toBeLessThan(home(3, columns))
+    expect(at(410)[0]!).toBeGreaterThan(home(1, columns))
+    expect(at(820)).toEqual([home(1, columns)])
+    near(walkLeft(walk, columns, NOW + 410), stationX(2, columns) - 1)
   })
-  test('each layout walks between its own spots', () => {
-    const walk = place('compact', tests, first(planning, 'compact'), NOW).figures[0]!.walk!
-    expect(walk.from).toEqual({ x: 17, y: 8 })
-    expect(walk.to).toEqual({ x: 17, y: 32 })
-  })
-  test('a hidden issue that gains a spot appears there without walking', () => {
-    const four = [1, 2, 3, 4].map(number => row({ number }))
-    const next = place('wide', reading(...four.slice(1)), first(reading(...four)), NOW)
-    expect(next.figures.map(f => f.spot)).toEqual([0, 1, 2])
-    expect(next.figures[2]!.row.number).toBe(4)
-    expect(next.figures[2]!.walk).toBeNull()
-  })
-  test('one whose new station has no spot for it is not drawn walking', () => {
-    const full = [1, 2, 3].map(number => row({ number }))
-    const before = first(reading(...full, row({ number: 8, step: 'SHAPE' })))
-    const next = place('wide', reading(...full, row({ number: 8, step: 'BUILD' })), before, NOW)
-    expect(next.figures[3]!.spot).toBeNull()
-    expect(next.figures[3]!.walk).toBeNull()
-    expect(floorSvg(next, NOW)).not.toContain('<animateTransform')
+  test('a walker carries its tool in front: right of its head going forward, left going back', () => {
+    const columns = 72
+    for (const [from, to, side] of [[1, 3, 1], [3, 1, -1]] as const) {
+      const cells = laneCells({ row: row({}), station: 'plan', walk: { from, to, start: NOW, end: NOW + 820 } }, columns, NOW + 300)
+      const [head] = heads(cells, columns)
+      // The tool is in the second pixel row: the lower half of the top row of cells.
+      const tools = decode(cells).slice(0, columns).flatMap(([code, fg, bg], x) =>
+        (code === 0x2584 && fg === DARK.tool) || (code === 0x2580 && bg === DARK.tool) ? [x] : [])
+      expect(tools).toEqual([head! + side])
+    }
+    for (const frame of RUN) expect(frame.map(line => [...line].reverse().join(''))).not.toEqual(frame)
   })
 })
 
 group('walking out', () => {
-  const working = reading(row({ number: 12, step: 'BUILD', round: 2 }))
-  const opened = reading(row({ number: 12, step: 'BUILD', round: 2, state: 'pr' }))
-  const before = place('wide', working, null, NOW)
-  test('a row gone to pr walks from its spot to the door\'s first spot', () => {
-    const { figures, outs } = place('wide', opened, before, NOW)
-    expect(figures).toEqual([])
-    expect(outs[0]!.walk).toEqual({ from: spotAt(LAYOUTS.wide, 'workshop', 0), to: spotAt(LAYOUTS.wide, 'door', 0), start: NOW, end: NOW + 1000 })
+  const before = place(reading(row({ number: 12, step: 'BUILD' })), null, NOW)
+  const out = place(reading(row({ number: 12, step: 'BUILD', state: 'pr' })), before, NOW)
+  test('a row gone to pr walks from its station off past the last one, and is no longer a figure', () => {
+    expect(out.figures).toEqual([])
+    expect(out.outs.map(o => [o.row.number, o.walk.from, o.walk.to, o.walk.isOut, o.walk.end - NOW])).toEqual([[12, 3, 5, true, OUT_MS]])
   })
-  test('its legend line says it\'s opening the pull request, keeping its round, until the walk ends', () => {
-    const placement = place('wide', opened, before, NOW)
-    expect(legend(placement, NOW + 999).map(l => l.line)).toEqual(['#12 A job · opening the pull request, round 2'])
-    expect(legend(placement, NOW + 1000)).toEqual([])
+  test('its lane says it is opening the pull request, keeping its round, until the walk ends', () => {
+    expect(lanesOf(out, NOW).map(l => [l.row.number, l.station, stepLine(l.row)])).toEqual([[12, 'ship', 'opening the pull request, round 1']])
+    expect(lanesOf(out, NOW + OUT_MS)).toEqual([])
   })
   test('it holds back only the one message, and only until the walk ends', () => {
-    const placement = place('wide', opened, before, NOW)
-    expect(showsFloor(NOTHING, placement, NOW + 999)).toBe(true)
-    expect(showsFloor(NOTHING, placement, NOW + 1000)).toBe(false)
-    expect(showsFloor("The loop isn't running.", placement, NOW + 500)).toBe(false)
-    expect(showsFloor(null, placement, NOW + 5000)).toBe(true)
-  })
-  test('it takes no spot from a station', () => {
-    const two = place('wide', reading(row({ number: 12 }), row({ number: 13 })), null, NOW)
-    const next = place('wide', reading(row({ number: 12, state: 'pr' }), row({ number: 13 })), two, NOW)
-    expect(next.figures[0]!.spot).toBe(0)
-    expect(next.outs.length).toBe(1)
+    expect(showsBoard(NOTHING, out, NOW)).toBe(true)
+    expect(showsBoard(NOTHING, out, NOW + OUT_MS)).toBe(false)
+    expect(showsBoard("The loop isn't running.", out, NOW)).toBe(false)
+    expect(walkingOut(out, NOW + OUT_MS - 1).length).toBe(1)
   })
   test('a later read keeps its walk until it ends', () => {
-    const placement = place('wide', opened, before, NOW)
-    expect(place('wide', opened, placement, NOW + 500).outs).toEqual(placement.outs)
-    expect(place('wide', opened, placement, NOW + 1000).outs).toEqual([])
+    const later = place(reading(row({ number: 12, step: 'BUILD', state: 'pr' })), out, NOW + 400)
+    expect(later.outs.map(o => o.walk)).toEqual(out.outs.map(o => o.walk))
+    expect(place(reading(row({ number: 12, step: 'BUILD', state: 'pr' })), out, NOW + OUT_MS).outs).toEqual([])
   })
-  test('a hidden row going to pr is gone at that read', () => {
-    const four = [1, 2, 3, 4].map(number => row({ number }))
-    const next = place('wide', reading(...four.slice(0, 3), row({ number: 4, state: 'pr' })), place('wide', reading(...four), null, NOW), NOW)
-    expect(next.outs).toEqual([])
-    expect(legend(next, NOW).map(l => l.number)).toEqual([1, 2, 3])
+  test('it walks past the board\'s edge', () => {
+    const walk = out.outs[0]!.walk
+    expect(walkLeft(walk, 72, NOW + OUT_MS)).toBe(73)
+    expect(heads(laneCells(lanesOf(out, NOW)[0]!, 72, NOW + OUT_MS - 1), 72)).toEqual([])
   })
   test('a row leaving working any other way is gone with no walk', () => {
-    expect(place('wide', reading(row({ number: 12, state: 'blocked' })), before, NOW).outs).toEqual([])
-    expect(place('wide', reading(), before, NOW).outs).toEqual([])
-    expect(place('wide', look({ isLive: false, status: opened.status }), before, NOW).outs).toEqual([])
+    const gone = place(reading(row({ number: 12, step: 'BUILD', state: 'blocked' })), before, NOW)
+    expect(gone).toEqual({ figures: [], outs: [] })
   })
 })
 
-group('the legend', () => {
-  test('one line per issue in number order, hidden ones too, the round left off at 0', () => {
-    const issues = [row({ number: 4, title: 'Four', round: 0 }), row({ number: 1, title: 'One' }), row({ number: 2 }), row({ number: 3 })]
-    const lines = legend(place('wide', reading(...issues), null, NOW), NOW)
-    expect(lines.map(l => l.number)).toEqual([1, 2, 3, 4])
-    expect(lines[0]!.line).toBe('#1 One · building, round 1')
-    expect(lines[3]!.line).toBe('#4 Four · building')
+group('the words', () => {
+  test('a lane says its number, its title and where it has got to', () => {
+    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2 }))).toEqual({ number: '#12', title: 'Job 12', status: '· building, round 2' })
   })
-  test('all the lines that fit', () => {
-    expect(legendFit(3, 3)).toBe(3)
-    expect(legendFit(1, 1)).toBe(1)
+  test('cut to a width, the title gives way and the status never does', () => {
+    const words = laneWords(row({ number: 1, title: 'x'.repeat(100), step: 'BUILD', round: 1 }), 40)
+    expect(words.status).toBe('· building, round 1')
+    expect(words.title).toBe(`${'x'.repeat(16)}…`)
+    expect(words.number.length + words.title.length + words.status.length + 2).toBe(40)
   })
-  test('otherwise as many as leave one row for "and n more"', () => {
-    expect(legendFit(3, 2)).toBe(1)
-    expect(legendFit(5, 4)).toBe(3)
-  })
-  test('never fewer than one', () => {
-    expect(legendFit(2, -6)).toBe(1)
-    expect(legendFit(1, -6)).toBe(1)
-  })
-  test('every line when the height is absent or not a number', () => {
-    expect(legendFit(5)).toBe(5)
-    expect(legendFit(5, Number.NaN)).toBe(5)
-    expect(legendFit(5, Number.POSITIVE_INFINITY)).toBe(5)
+  test('as many lanes as fit, or as many as leave one row for "and n more", never fewer than one', () => {
+    expect(laneFit(3, 4, 12)).toBe(3)
+    expect(laneFit(3, 4, 11)).toBe(2)
+    expect(laneFit(3, 4, 2)).toBe(1)
+    expect(laneFit(3, 4, undefined)).toBe(3)
+    expect(laneFit(3, 4, Number.NaN)).toBe(3)
   })
 })
 
 group('the Raster cells', () => {
-  const issues = [row({ number: 12345, step: 'SHAPE' }), row({ number: 13, step: 'BUILD' })]
-  for (const [name, columns, rows] of [['wide', 64, 24], ['compact', 32, 36]] as [LayoutName, number, number][]) {
-    const cells = floorCells(place(name, reading(...issues), null, NOW), NOW)
-    test(`${name}: decode to ${columns} by ${rows} triplets of half blocks or printable ASCII`, () => {
-      const decoded = decode(cells)
-      expect(decoded.length).toBe(columns * rows)
-      for (const [code, fg, bg] of decoded) {
-        expect(code === 0x2580 || (code >= 0x20 && code <= 0x7e)).toBe(true)
-        expect(fg).toBeLessThan(0x01000000)
-        expect(bg).toBeLessThan(0x01000000)
-      }
-    })
-    test(`${name}: every station's name and each issue number reads as text, cut to 4 digits`, () => {
-      const text = textOf(cells, columns).join('\n')
-      for (const station of STATIONS) expect(text).toContain(station)
-      expect(text).toContain('2345')
-      expect(text).not.toContain('12345')
-      expect(text).toContain('13')
-    })
-    test(`${name}: one FIGURE_MARK per figure, in no text cell`, () => {
-      const marks = decode(cells).filter(([, fg, bg]) => fg === FIGURE_MARK || bg === FIGURE_MARK)
-      expect(marks.length).toBe(2)
-      for (const [code] of marks) expect(code).toBe(0x2580)
+  for (const station of STATIONS) {
+    test(`a lane at ${station} decodes to its width by 3 rows of half blocks or spaces, one head at its station`, () => {
+      const columns = 72
+      const cells = decode(laneCells(lane(station), columns, NOW))
+      expect(cells.length).toBe(columns * LANE_ROWS)
+      for (const [code] of cells) expect([0x20, 0x2580, 0x2584]).toContain(code)
+      expect(heads(laneCells(lane(station), columns, NOW), columns)).toEqual([home(STATIONS.indexOf(station), columns)])
     })
   }
-  test('a number has its last 4 digits, with no #', () => {
-    expect(numberText(12345)).toBe('2345')
-    expect(numberText(13)).toBe('13')
+  test('the head colour is in a lane once, wherever its figure is', () => {
+    for (const station of STATIONS) {
+      for (let ms = 0; ms < 2000; ms += 160) {
+        expect(colours(laneCells(lane(station), 72, NOW + ms)).filter(c => c === DARK.head).length).toBe(1)
+      }
+    }
   })
-  test("a cell's top pixel is its foreground and its bottom pixel its background", () => {
-    const cells = decode(floorCells(place('wide', reading(row({ number: 1, step: 'SHAPE' })), null, NOW), NOW))
-    // The mark is at pixel (24, 9): the bottom half of cell row 4.
-    const cell = cells[4 * 64 + 24]!
-    expect(cell[2]).toBe(FIGURE_MARK)
-    expect(cell[1]).toBe(FIGURE_PALETTE.h)
+  test('the rail is lit in the colour of each station up to the figure, and dotted after it', () => {
+    const cells = decode(laneCells(lane('test'), 72, NOW))
+    const bottom = cells.slice(2 * 72, 3 * 72).map(([code, fg, bg]) => (code === 0x2580 ? bg : code === 0x2584 ? fg : -1))
+    expect(bottom[home(0, 72)]).toBe(ACCENT.start)
+    expect(bottom[home(1, 72)]).toBe(ACCENT.plan)
+    expect(bottom[home(4, 72)]).toBe(DARK.rail)
   })
-  test('the frame comes from the clock, and wraps', () => {
-    const placement = place('wide', reading(row({ step: 'BUILD' })), null, NOW)
-    const n = ACTS.workshop.length
-    expect(floorCells(placement, NOW + FRAME_MS)).not.toBe(floorCells(placement, NOW))
-    expect(floorCells(placement, NOW + FRAME_MS - 1)).toBe(floorCells(placement, NOW))
-    expect(floorCells(placement, NOW + n * FRAME_MS)).toBe(floorCells(placement, NOW))
+  test('a light theme paints its own head and rail colours', () => {
+    const cells = laneCells(lane('build'), 72, NOW, LIGHT)
+    expect(heads(cells, 72, LIGHT)).toEqual([home(3, 72)])
+    expect(colours(cells)).toContain(LIGHT.rail)
+    expect(colours(cells)).not.toContain(DARK.head)
   })
-  test('the door stands still', () => {
-    const placement = place('wide', reading(row({ step: '' })), null, NOW)
-    expect(floorCells(placement, NOW + FRAME_MS)).toBe(floorCells(placement, NOW))
+  test('the theme is light only when its name says so', () => {
+    expect(inkFor('light')).toBe(LIGHT)
+    expect(inkFor('light-daltonized')).toBe(LIGHT)
+    expect(inkFor('dark')).toBe(DARK)
+    expect(inkFor('auto')).toBe(DARK)
+    expect(inkFor(undefined)).toBe(DARK)
   })
-  test('a walker passing over a name leaves no stray letters, and walkers draw on top', () => {
-    // At the top of the door's box, the walker covers the cells of the door's name.
-    const walk = { from: { x: 0, y: 0 }, to: { x: 0, y: 8 }, start: NOW, end: NOW + 1000 }
-    const placement = { layout: 'wide' as const, figures: [], outs: [{ row: row({ number: 77 }), walk }] }
-    const text = textOf(floorCells(placement, NOW), 64)
-    expect(text[0]!.slice(0, 6)).toBe('      ')
-    expect(text.join('\n')).toContain('77')
+  test(`at ${MIN_COLUMNS} columns and over, the header's station names never touch`, () => {
+    for (let columns = MIN_COLUMNS; columns <= 120; columns++) {
+      const text = decode(headCells([], columns)).map(([code]) => String.fromCodePoint(code)).join('')
+      expect(text.trim().split(/ +/)).toEqual(STATIONS)
+    }
+  })
+  test(`at ${MIN_COLUMNS} columns and over, a station's work never covers the next station's node`, () => {
+    for (const columns of [MIN_COLUMNS, 48, 56, 64, 72]) {
+      STATIONS.forEach((station, reached) => {
+        for (let ms = 0; ms < 2400; ms += 40) {
+          const top = decode(laneCells(lane(station), columns, NOW + ms)).slice(2 * columns, 3 * columns)
+          STATIONS.forEach((other, i) => {
+            const [code, fg] = top[Math.round(stationX(i, columns))]!
+            expect([code, fg]).toEqual([0x2580, i <= reached ? ACCENT[other] : DARK.rail])
+          })
+        }
+      })
+    }
+  })
+  test('the header names every station over its node, in its colour while busy and dim otherwise', () => {
+    const columns = 72
+    const cells = decode(headCells([lane('build')], columns))
+    const text = cells.map(([code]) => String.fromCodePoint(code)).join('')
+    STATIONS.forEach((station, i) => {
+      const at = Math.max(0, home(i, columns) - 2)
+      expect(text.slice(at, at + station.length)).toBe(station)
+      expect(cells[at]![1]).toBe(station === 'build' ? ACCENT.build : DARK.dim)
+    })
   })
 })
 
 group('the Svg', () => {
-  const planning = reading(row({ number: 12, step: 'SHAPE' }))
-  const tests = reading(row({ number: 12, step: 'TEST' }))
-  const walking = place('wide', tests, place('wide', planning, null, NOW), NOW)
-  const walkingUse = /<use href="#walk"[^>]*>(.*?)<\/use>/
-  const actUse = /<use href="#act-tests"[^>]*>(.*?)<\/use>/
-  test('it is 64 by 48 in its viewBox, and the acts are defined once in its defs', () => {
-    const source = floorSvg(place('wide', planning, null, NOW), NOW)
-    expect(source).toContain('viewBox="0 0 64 48"')
-    expect(source).toContain('width="256"')
-    expect(source).toContain('height="192"')
-    const defs = source.slice(source.indexOf('<defs>'), source.indexOf('</defs>'))
-    for (const station of STATIONS) expect(defs.split(`id="act-${station}"`).length).toBe(2)
-    expect(defs.split('id="walk"').length).toBe(2)
+  const standing = laneSvg(lane('build', { number: 12 }), NOW)
+  test(`a lane is ${SVG_COLUMNS} by 6 in its viewBox, drawn at ${SVG_SCALE} times that, smooth`, () => {
+    expect(standing).toContain(`viewBox="0 0 ${SVG_COLUMNS} 6"`)
+    expect(standing).toContain(`width="${SVG_COLUMNS * SVG_SCALE}" height="${6 * SVG_SCALE}"`)
+    expect(standing).not.toContain('crispEdges')
   })
-  test('a walking figure has its outer translate at its new spot and an animateTransform from old less new', () => {
-    const source = floorSvg(walking, NOW)
-    expect(source).toContain('<g transform="translate(44 8)">')
-    expect(source).toContain('<animateTransform attributeName="transform" type="translate" from="-22 0" to="0 0" dur="1000ms" fill="freeze"/>')
+  test('its rail is a gradient line up to the figure, dotted after, with a round node at every station', () => {
+    expect(standing).toContain('<linearGradient id="lit"')
+    expect(standing).toContain('stroke="url(#lit)"')
+    expect(standing).toContain('stroke-dasharray')
+    expect(standing.split('<circle').length - 1).toBe(STATIONS.length)
   })
-  test('drawn mid-walk, the animateTransform starts from where it is, over the time left', () => {
-    expect(floorSvg(walking, NOW + 500)).toContain('from="-11 0" to="0 0" dur="500ms" fill="freeze"')
+  test('a figure standing has no motion, and its poses take turns', () => {
+    expect(standing).not.toContain('<animateTransform')
+    expect(standing).toContain('<animate attributeName="visibility"')
+    expect(standing).toContain(`<g transform="translate(${svgOf(stationX(3, SVG_COLUMNS) - 1)} 0)">`)
   })
-  test('a walking figure\'s act shows without its <set>, hidden only for the walk\'s time left', () => {
-    const source = floorSvg(walking, NOW + 250)
-    const act = source.match(actUse)!
-    expect(act[0]).not.toContain('visibility=')
-    expect(act[0].split('>')[0]).not.toContain('display=')
-    expect(act[1]).toBe('<set attributeName="display" to="none" dur="750ms"/>')
+  test('a walking figure stands at its new station and slides there from where it is, then works', () => {
+    const walk = { from: 1, to: 3, start: NOW, end: NOW + 820 }
+    const source = laneSvg({ row: row({}), station: 'build', walk }, NOW)
+    const target = stationX(3, SVG_COLUMNS) - 1
+    expect(source).toContain(`<g transform="translate(${svgOf(target)} 0)">`)
+    const values = /type="translate" values="([^"]+)" dur="820ms" fill="freeze"/.exec(source)![1]!.split(';')
+    near(Number(values[0]!.split(' ')[0]), stationX(1, SVG_COLUMNS) - 1 - target, 0.01)
+    expect(values[values.length - 1]).toBe('0 0')
+    expect(source).toContain('<set attributeName="display" to="none" dur="820ms"/>')
+    expect(source).toContain('<set attributeName="display" to="inline" dur="820ms"/>')
   })
-  test('its WALK frame is the reverse: hidden without its <set>, shown for the time left', () => {
-    const source = floorSvg(walking, NOW + 250)
-    const walk = source.match(walkingUse)!
-    expect(walk[0].split('>')[0]).toContain('visibility="hidden"')
-    expect(walk[1]).toBe('<set attributeName="visibility" to="visible" dur="750ms"/>')
+  test('a figure walking out slides off past the edge and does no work', () => {
+    const walk = { from: 3, to: 5, start: NOW, end: NOW + OUT_MS, isOut: true }
+    const source = laneSvg({ row: row({}), station: 'ship', walk }, NOW)
+    expect(source).toContain(`<g transform="translate(${SVG_COLUMNS + 1} 0)">`)
+    expect(source).not.toContain('to="none"')
   })
-  test('a figure not walking has none of these', () => {
-    for (const source of [floorSvg(place('wide', planning, null, NOW), NOW), floorSvg(walking, NOW + 1000)]) {
-      expect(source).not.toContain('<animateTransform')
-      expect(source).not.toContain('<set ')
-      expect(source).not.toContain('href="#walk"')
+  test('no title or unknown step reaches a source or alt, only the number and the station', () => {
+    const odd = lane('start', { number: 7, title: '<script>alert(1)</script>', step: '<b>X</b>' })
+    for (const text of [laneSvg(odd, NOW), headSvg([odd]), laneAlt(odd)]) {
+      expect(text).not.toContain('script')
+      expect(text).not.toContain('<b>')
+      expect(text).not.toContain('alert')
     }
+    expect(laneAlt(odd)).toBe('Issue #7 at start')
   })
-  test('no title or unknown step reaches the source or alt, only numbers and station names', () => {
-    const secret = reading(row({ number: 12, title: 'Secret <title>', step: 'SECRET-STEP' }))
-    const placement = place('wide', secret, null, NOW)
-    for (const text of [floorSvg(placement, NOW), floorAlt(placement, NOW)]) {
-      expect(text).not.toContain('Secret')
-      expect(text.toLowerCase()).not.toContain('secret-step')
-    }
-    expect(floorAlt(placement, NOW)).toBe('Issue #12 at door')
-  })
-  test('alt names each figure\'s issue and station, walking out included', () => {
-    const two = reading(row({ number: 12, step: 'SHAPE' }), row({ number: 13, step: 'BUILD' }))
-    const next = place('wide', reading(row({ number: 12, state: 'pr' }), row({ number: 13, step: 'BUILD' })), place('wide', two, null, NOW), NOW)
-    expect(floorAlt(next, NOW)).toBe('Issue #12 at door, Issue #13 at workshop')
-  })
-  test('with all 18 spots filled and two walking out it fits, one animateTransform a walker, and no script', () => {
-    const steps = ['SHAPE', 'TEST', 'BUILD', 'VALIDATE', 'SCALE', '']
-    const fill = (shift: number, start: number) => [0, 1, 2, 3, 4, 5].flatMap(s =>
-      [0, 1, 2].map(i => row({ number: start + s * 3 + i, step: steps[(s + shift) % 6]! })))
-    const before = place('wide', reading(...fill(0, 1)), null, NOW)
-    // Every issue moves on a station. Two walk out of planning, and two new ones fill the spots at tests
-    // that their moving on leaves.
-    const moved = fill(1, 1).slice(2)
-    const issues = [row({ number: 1, state: 'pr' }), row({ number: 2, state: 'pr' }), ...moved, row({ number: 500, step: 'TEST' }), row({ number: 501, step: 'TEST' })]
-    const after = place('wide', reading(...issues), before, NOW)
-    expect(after.figures.filter(f => f.spot !== null).length).toBe(18)
-    expect(after.outs.length).toBe(2)
-    const walkers = after.figures.filter(f => f.walk).length + 2
-    const source = floorSvg(after, NOW)
-    expect(source.length).toBeLessThan(131073)
-    expect(source.split('<animateTransform').length - 1).toBe(walkers)
-    expect(source).not.toContain('<script')
-    expect(/\son\w*=/.test(source)).toBe(false)
+  test('the header names every station, busy ones in their colour', () => {
+    const source = headSvg([lane('test')])
+    for (const station of STATIONS) expect(source).toContain(`>${station}</text>`)
+    expect(source).toContain(`fill="#${ACCENT.test.toString(16)}">test<`)
   })
 })
 

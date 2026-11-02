@@ -97,7 +97,7 @@ extension in VS Code 1.143.0, and Claude Desktop 3.6556.2 on macOS:
 [`/harness-dashboard`](examples/mods/harness-dashboard/) came after those tries. It's off by default and has only been
 seen in the terminal.
 
-[`/loop-crew`](examples/mods/loop-crew/) came after those tries too. It's on by default and hasn't yet been tried on any surface.
+[`/loop-crew`](examples/mods/loop-crew/) came after those tries too. It's on by default and has only been seen in Claude Code run in VS Code's integrated terminal, against a pretend loop.
 
 Two clones of the starter on one machine share one set of mods: the
 marketplace is registered under one name for the whole machine, so the mods

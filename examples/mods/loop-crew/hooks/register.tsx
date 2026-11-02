@@ -1,27 +1,37 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { LAYOUTS, PROJECTS_DIR, WALK_MS, clip, findRoot, floorAlt, floorCells, floorSvg, layoutFor, legend, legendFit, lockPid, loopDir, parseStatus, place, scene, showsFloor } from './logic'
-import type { LayoutName, Placement } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, SVG_COLUMNS, SVG_SCALE, accentText, boardColumns, findRoot, headCells, headSvg, inkFor, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseStatus, place, scene, showsBoard } from './logic'
+import type { Ink, Lane, Placement } from './logic'
 import type { Seen } from '../types'
 
 const PANE = 'loop-crew'
 const COMMAND = 'loop-crew'
 const POLL_MS = 2000
-const TICK_MS = 125
-const FLOOR_KEY = 'floor'
+// 12.5 a second: with the header and at most MAX_LANES lanes that's 112.5 blits a second at most, under
+// the 120 the engine takes. A blit that didn't land is sent again in its key's turn, not as well.
+const TICK_MS = 80
+const MAX_LANES = 8
+const HEAD_KEY = 'head'
+const laneKey = (number: number): string => `lane-${number}`
+// What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane.
+const WANT_COLUMNS = 72
+const LANE_HEIGHT = LANE_ROWS + 1
+const WANT_ROWS = 1 + 3 * LANE_HEIGHT
 
 const launchAtom = atom({ plugin: 'loop-crew', key: 'launch' } as const, null)
 const shownAtom = atom({ plugin: 'loop-crew', key: 'shown' } as const, '')
 const seenAtom = atom({ plugin: 'loop-crew', key: 'seen' } as const, null)
 
 let stopPolling: (() => void) | null = null
-let stopFloor: (() => void) | null = null
-// Not atoms: a write would redraw the pane, and a walk is painted with no redraw. Each read places the
-// issues for both layouts, because it doesn't know the pane's size, so a resize never causes a walk.
-let placed: { shown: string; wide: Placement; compact: Placement } | null = null
-// Which floor the terminal's drawing mounted, so a blit paints its size. Null: no floor is drawn.
-let mounted: LayoutName | null = null
+let stopBoard: (() => void) | null = null
+// Not atoms: a write would redraw the pane, and a walk is painted with no redraw.
+let placed: { shown: string; placement: Placement } | null = null
+// What the terminal's drawing mounted, so a tick paints only those at their size. Null: no board is drawn.
+let mounted: { columns: number; numbers: number[] } | null = null
+// What each Raster last showed, so a tick that changes nothing paints nothing.
+const painted = new Map<string, string>()
+let ink: Ink = DARK
 // Counts the reads that open or switch the pane, so a walk-out's timer knows it's been overtaken.
 let opens = 0
 
@@ -29,8 +39,14 @@ const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.pan
 
 // The placement to draw. Before any read, a draw gets one that walks nobody and doesn't store it, so
 // the first read after a reload still walks nobody.
-function placementFor(seen: Seen, name: LayoutName, now: number): Placement {
-  return placed && placed.shown === (seen.project ?? '') ? placed[name] : place(name, seen, null, now)
+function placementFor(seen: Seen, now: number): Placement {
+  return placed && placed.shown === (seen.project ?? '') ? placed.placement : place(seen, null, now)
+}
+
+// The session's theme, for what the board fades toward. Not being able to tell draws it dark.
+async function readInk($: EngineInterface): Promise<Ink> {
+  const rows = await $.config.list().catch(() => [])
+  return inkFor(rows.find(row => row.key === 'theme')?.value)
 }
 
 // The folder saved at session.start first, then the session's root: a /clear starts a new session
@@ -59,16 +75,14 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
-// When an issue's walk out ends, one redraw takes it off the floor and the legend. One timer an issue,
-// across both layouts, and it does nothing once a newer open or switch has replaced the placement or
-// the pane is gone.
-function endWalkOuts($: EngineInterface, known: Placement[], fresh: Placement[]): void {
-  const already = new Set(known.flatMap(placement => placement.outs.map(out => out.row.number)))
-  const started = new Set(fresh.flatMap(placement => placement.outs.map(out => out.row.number)))
+// When an issue's walk out ends, one redraw takes its lane away. It does nothing once a newer open or
+// switch has replaced the placement or the pane is gone.
+function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placement): void {
+  const already = new Set((known?.outs ?? []).map(out => out.row.number))
   const open = opens
-  for (const number of started) {
-    if (already.has(number)) continue
-    $.clock.after(WALK_MS, () => {
+  for (const out of fresh.outs) {
+    if (already.has(out.row.number)) continue
+    $.clock.after(OUT_MS, () => {
       void (async () => {
         if (open === opens && (await paneIsUp($))) $.ui.invalidate('ui.render')
       })().catch(() => {})
@@ -89,10 +103,9 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   if ((await read($, shownAtom)) !== name) return
   if (isOpening) opens++
   const known = !isOpening && placed?.shown === name ? placed : null
-  const wide = place('wide', next, known?.wide ?? null, now)
-  const compact = place('compact', next, known?.compact ?? null, now)
-  placed = { shown: name, wide, compact }
-  endWalkOuts($, known ? [known.wide, known.compact] : [], [wide, compact])
+  const placement = place(next, known?.placement ?? null, now)
+  placed = { shown: name, placement }
+  endWalkOuts($, known?.placement ?? null, placement)
   if (JSON.stringify(await read($, seenAtom)) === JSON.stringify(next)) return
   await update($, seenAtom, () => next)
   $.ui.invalidate('ui.render')
@@ -111,44 +124,54 @@ function startPolling($: EngineInterface): void {
   stopPolling = () => timer.cancel()
 }
 
-// A floor that isn't mounted, or one the terminal has since resized, answers with a deny or a rejection.
-// Neither matters: the next tick paints again.
-async function paint($: EngineInterface, cells: string): Promise<void> {
+// A Raster that isn't mounted, or one the terminal has since resized, answers with a deny or a rejection.
+// Neither matters: it isn't counted as painted, so the next tick paints it again.
+async function paint($: EngineInterface, key: string, cells: string): Promise<void> {
+  if (painted.get(key) === cells) return
   try {
-    await $.ui.blit({ requestId: PANE, key: FLOOR_KEY, cells })
+    const answer = await $.ui.blit({ requestId: PANE, key, cells })
+    if (!(answer && typeof answer === 'object' && 'deny' in answer)) painted.set(key, cells)
   } catch {
     // Ignored, as above.
   }
 }
 
-// Paint the floor as it stands, never by redrawing the pane. Started from a terminal drawing, so other
-// surfaces, where SMIL does this, run no timer.
-function startFloor($: EngineInterface): void {
-  if (stopFloor) return
+// Paint the board as it stands, never by redrawing the pane. Started from a terminal drawing, so other
+// surfaces, where SMIL does this, run no timer. A pane behind another paints nothing.
+function startBoard($: EngineInterface): void {
+  if (stopBoard) return
   const timer = $.clock.every(TICK_MS, () => {
     void (async () => {
-      if (!(await paneIsUp($))) {
-        stopFloor?.()
-        stopFloor = null
+      const pane = (await $.ui.panes()).find(p => p.id === PANE)
+      if (!pane) {
+        stopBoard?.()
+        stopBoard = null
         return
       }
       const seen = await read($, seenAtom)
       const now = await $.clock.now()
-      if (!mounted || !seen) return
-      const placement = placementFor(seen, mounted, now)
-      if (showsFloor(scene(seen).message, placement, now)) await paint($, floorCells(placement, now))
+      if (!mounted || !seen || !pane.isShown) return
+      const placement = placementFor(seen, now)
+      if (!showsBoard(scene(seen).message, placement, now)) return
+      const lanes = lanesOf(placement, now)
+      await paint($, HEAD_KEY, headCells(lanes, mounted.columns, ink))
+      for (const number of mounted.numbers) {
+        const lane = lanes.find(l => l.row.number === number)
+        if (lane) await paint($, laneKey(number), laneCells(lane, mounted.columns, now, ink))
+      }
     })().catch(() => {})
   })
-  stopFloor = () => timer.cancel()
+  stopBoard = () => timer.cancel()
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     // A reload fires session.start again; the directory the session started in is the first one.
     await update($, launchAtom, prev => prev ?? e.cwd)
+    ink = await readInk($)
     await $.command.register({
       name: COMMAND,
-      description: 'A pane of animated figures, one for each issue the loop is working on, each acting out its step',
+      description: 'A lane for each issue the loop is working on, and a figure running to its step and working there',
       argumentHint: '[project]',
     })
     // A pane left open across a reload keeps updating. The load's own drawing restarts its timer.
@@ -180,7 +203,7 @@ export const register: Register = on => {
       await update($, shownAtom, () => name)
       await refresh($, true)
       // On a pane already open this retitles it.
-      const opened = await $.ui.open({ id: PANE, title: name ? `Loop crew: ${name}` : 'Loop crew' })
+      const opened = await $.ui.open({ id: PANE, title: name ? `Loop crew: ${name}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
       startPolling($)
       return { text: opened.isPlaced ? 'Loop crew opened.' : 'Loop crew opened. Widen the terminal to see it.' }
     } catch {
@@ -192,43 +215,70 @@ export const register: Register = on => {
     const elements = $.ui.resolve(e)
     const { Box, Text } = elements
     const isTerminal = e.surface === 'terminal'
-    if (isTerminal) startFloor($)
+    if (isTerminal) startBoard($)
     const seen = await read($, seenAtom)
-    const floor = isTerminal ? layoutFor(e.props.bodyColumns) : 'wide'
     if (isTerminal) mounted = null
     if (!seen) return <Text dimColor>Looking for the loop…</Text>
     const { message } = scene(seen)
     const now = await $.clock.now()
-    // Too narrow for a floor, the legend still needs the issues: it reads the compact placement.
-    const placement = placementFor(seen, floor ?? 'compact', now)
-    if (message && !showsFloor(message, placement, now)) return <Text key="message" dimColor>{message}</Text>
-    const lines = legend(placement, now)
+    const placement = placementFor(seen, now)
+    if (message && !showsBoard(message, placement, now)) return <Text key="message" dimColor>{message}</Text>
+    const lanes = lanesOf(placement, now)
 
-    // The terminal draws the floor whole, even taller than the pane, and the lines that fit under it,
-    // each cut to the pane's width.
-    if (isTerminal && 'Raster' in elements) {
-      const { Raster } = elements
-      mounted = floor
-      const size = floor ? LAYOUTS[floor] : null
-      const bodyRows = e.props.scroll?.bodyRows
-      const shown = lines.slice(0, legendFit(lines.length, bodyRows === undefined ? undefined : bodyRows - (size?.rows ?? 0)))
+    // A lane's words: where it has got to in the colour of that step, and on a terminal never the part cut.
+    const words = (lane: Lane, width?: number) => {
+      const { number, title, status } = laneWords(lane.row, width)
       return (
-        <Box flexDirection="column">
-          {size && <Raster key={FLOOR_KEY} columns={size.columns} rows={size.rows} cells={floorCells(placement, now)} />}
-          {shown.map(({ number, line }) => <Text key={`line-${number}`}>{clip(line, e.props.bodyColumns)}</Text>)}
-          {shown.length < lines.length && <Text key="more" dimColor>{`and ${lines.length - shown.length} more`}</Text>}
+        <Box key={`line-${lane.row.number}`} flexDirection="row" columnGap={1}>
+          <Text weight="bold">{number}</Text>
+          <Text>{title}</Text>
+          <Text color={accentText(lane.station)}>{status}</Text>
         </Box>
       )
     }
 
-    // Every other surface shows the wide floor, animated by the document itself, and every line, wrapped.
+    // The terminal draws the lanes that fit, each with its words over it, and how many more there are.
+    if (isTerminal && 'Raster' in elements) {
+      const { Raster } = elements
+      const columns = boardColumns(e.props.bodyColumns)
+      const bodyRows = e.props.scroll?.bodyRows
+      const room = bodyRows === undefined ? undefined : bodyRows - (columns ? 1 : 0)
+      const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
+      const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
+      const more = lanes.length - shown.length
+      mounted = columns ? { columns, numbers: shown.map(lane => lane.row.number) } : null
+      const head = columns ? headCells(lanes, columns, ink) : ''
+      if (columns) painted.set(HEAD_KEY, head)
+      return (
+        <Box flexDirection="column">
+          {columns && <Raster key={HEAD_KEY} columns={columns} rows={1} cells={head} />}
+          {shown.map(lane => {
+            const cells = columns ? laneCells(lane, columns, now, ink) : ''
+            if (columns) painted.set(laneKey(lane.row.number), cells)
+            return (
+              <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
+                {words(lane, e.props.bodyColumns)}
+                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS} cells={cells} />}
+              </Box>
+            )
+          })}
+          {more > 0 && <Text key="more" dimColor>{`and ${more} more`}</Text>}
+        </Box>
+      )
+    }
+
+    // Every other surface shows every lane, animated by the document itself, its words wrapped.
     const Svg = 'Svg' in elements ? elements.Svg : null
+    const width = SVG_COLUMNS * SVG_SCALE
     return (
       <Box flexDirection="column" rowGap={1}>
-        {Svg && <Svg key={FLOOR_KEY} source={floorSvg(placement, now)} alt={floorAlt(placement, now)} width={256} height={192} isInteractive />}
-        <Box flexDirection="column">
-          {lines.map(({ number, line }) => <Text key={`line-${number}`}>{line}</Text>)}
-        </Box>
+        {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink)} alt="The loop's steps, left to right" width={width} height={4 * SVG_SCALE} />}
+        {lanes.map(lane => (
+          <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
+            {words(lane)}
+            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink)} alt={laneAlt(lane)} width={width} height={LANE_ROWS * 2 * SVG_SCALE} isInteractive />}
+          </Box>
+        ))}
       </Box>
     )
   })
