@@ -34,6 +34,13 @@ Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md
 
 **Do:** nothing.
 
+## 2026-11-02: Project focus
+
+`/project <name>` puts one project under [`projects/`](projects/) in focus for the session: the GitHub line shows that project's repo with `<name>: ` at the start, in every state, and the model is told that an unnamed "the project" means that one. `/project off` clears it and `/project` says which it is. The focus is one file per session, `.harness/project/<id>`, which a `/clear` leaves behind and doesn't carry over, and the 15-second timer now runs whether or not the harness has a GitHub remote, and reads the file each time. The mod now writes that file, where it only read before.
+Files: [`examples/mods/github-status/`](examples/mods/github-status/), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update github-status@sanvio-harness-starter`, then `/reload-plugins` or a new session.
+
 ## 2026-11-02: Safer harness eval runs
 
 A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.
