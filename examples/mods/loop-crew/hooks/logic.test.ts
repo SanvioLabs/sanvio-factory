@@ -1,7 +1,7 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, SVG_SCALE, boardColumns, clip, easeInOut, effectAt, findRoot, headCells, headSvg, inkFor, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseStatus, place, poseAt, roundText, scene, showsBoard, stationOf, stationX, stepLine, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
-import type { Lane, Station } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, easeInOut, effectAt, findRoot, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseStatus, place, poseAt, roundText, scene, showsBoard, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import type { Lane, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
 const NOW = 1_800_000_000_000
@@ -276,8 +276,8 @@ group('the Raster cells', () => {
     test(`a lane at ${station} decodes to its width by 3 rows of half blocks or spaces, one head at its station`, () => {
       const columns = 72
       const cells = decode(laneCells(lane(station), columns, NOW))
-      expect(cells.length).toBe(columns * LANE_ROWS)
-      for (const [code] of cells) expect([0x20, 0x2580, 0x2584]).toContain(code)
+      expect(cells.length).toBe(columns * (LANE_ROWS + 1))
+      for (const [code] of cells.slice(0, columns * LANE_ROWS)) expect([0x20, 0x2580, 0x2584]).toContain(code)
       expect(heads(laneCells(lane(station), columns, NOW), columns)).toEqual([home(STATIONS.indexOf(station), columns)])
     })
   }
@@ -341,9 +341,11 @@ group('the Raster cells', () => {
 
 group('the Svg', () => {
   const standing = laneSvg(lane('build', { number: 12 }), NOW)
-  test(`a lane is ${SVG_COLUMNS} by 6 in its viewBox, drawn at ${SVG_SCALE} times that, smooth`, () => {
-    expect(standing).toContain(`viewBox="0 0 ${SVG_COLUMNS} 6"`)
-    expect(standing).toContain(`width="${SVG_COLUMNS * SVG_SCALE}" height="${6 * SVG_SCALE}"`)
+  test(`a lane is ${SVG_COLUMNS} by 14 in its viewBox, with no size of its own, smooth`, () => {
+    const root = /<svg[^>]*>/.exec(standing)![0]
+    expect(root).toContain(`viewBox="0 0 ${SVG_COLUMNS} 14"`)
+    expect(root).not.toContain('width=')
+    expect(root).not.toContain('height=')
     expect(standing).not.toContain('crispEdges')
   })
   test('its rail is a gradient line up to the figure, dotted after, with a round node at every station', () => {
@@ -382,11 +384,207 @@ group('the Svg', () => {
       expect(text).not.toContain('alert')
     }
     expect(laneAlt(odd)).toBe('Issue #7 at start')
+    // Nor text in the times: a step name, a value or a start time, whether a Row built in code carries it
+    // or the status file does.
+    const times = { step_seconds: { '<script>alert(1)</script>': 5, BUILD: '<b>X</b>' as unknown as number }, step_started: '<b>X</b><script>alert(1)</script>' }
+    const parsed = parseStatus(JSON.stringify({ issues: [{ number: 7, step: 'BUILD', state: 'working', ...times }] }))!.issues[0]!
+    const carrying: Lane[] = [lane('build', { number: 7, ...times }), { row: parsed, station: 'build', walk: null }]
+    for (const odder of carrying) {
+      const row4 = decode(laneCells(odder, 72, NOW)).slice(72 * LANE_ROWS).map(([code]) => String.fromCodePoint(code)).join('')
+      expect(/^[0-9smh—… ]*$/.test(row4)).toBe(true)
+      for (const text of [laneSvg(odder, NOW), laneSvg(odder, NOW, DARK, 126), headSvg([odder]), laneAlt(odder), row4]) {
+        expect(text).not.toContain('script')
+        expect(text).not.toContain('<b>')
+        expect(text).not.toContain('alert')
+      }
+    }
   })
   test('the header names every station, busy ones in their colour', () => {
     const source = headSvg([lane('test')])
     for (const station of STATIONS) expect(source).toContain(`>${station}</text>`)
     expect(source).toContain(`fill="#${ACCENT.test.toString(16)}">test<`)
+  })
+})
+
+// A time as loop.py writes it: local, to the second, with no zone. As loop-pane's tests build it, so
+// these pass in any time zone.
+function local(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+const STEP_OF: Record<Station, string> = { start: '', plan: 'SHAPE', test: 'TEST', build: 'BUILD', check: 'VALIDATE', ship: 'SCALE' }
+
+// A lane whose row records times, its current step begun `ago` ms before NOW, or not counting at null.
+const timed = (station: Station, seconds: Record<string, number>, ago: number | null, walk: Walk | null = null): Lane =>
+  ({ row: row({ step: STEP_OF[station], step_seconds: seconds, step_started: ago === null ? null : local(NOW - ago) }), station, walk })
+
+// A lane's 4th row of cells, under its 3 rows of lane.
+const timeRowOf = (cells: string, columns: number): [number, number, number][] => decode(cells).slice(LANE_ROWS * columns, (LANE_ROWS + 1) * columns)
+const textOf = (cells: [number, number, number][]): string => cells.map(([code]) => String.fromCodePoint(code)).join('')
+// Where a station's name starts in the header.
+const labelAt = (index: number, columns: number): number => Math.max(0, home(index, columns) - 2)
+const hexOf = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`
+
+// Every text in an Svg, as [x, y, fill, words].
+function svgTexts(source: string): [number, number, string, string][] {
+  const out: [number, number, string, string][] = []
+  const re = /<text x="([\d.]+)" y="(\d+)" font-family="monospace" font-size="2\.6" fill="(#[0-9a-f]{6})">([^<]*)<\/text>/g
+  for (let m = re.exec(source); m; m = re.exec(source)) out.push([Number(m[1]!), Number(m[2]!), m[3]!, m[4]!])
+  return out
+}
+
+const OUT = { from: 3, to: 5, start: NOW, end: NOW + OUT_MS, isOut: true }
+
+group('the times', () => {
+  test("the status file keeps a row's times only when it has them, and only the five steps at 0 or more", () => {
+    const text = '{"issues": [' +
+      '{"number": 4, "title": "T", "step": "BUILD", "state": "working", "round": 1, ' +
+      '"step_seconds": {"SHAPE": 30, "TEST": 0, "BUILD": 1.5, "VALIDATE": -1, "SCALE": 1e999, "DEPLOY": 9, "constructor": 3, "__proto__": 5}, ' +
+      '"step_started": "2027-01-15T08:00:00"}, ' +
+      '{"number": 5, "step_seconds": {"SCALE": "60"}, "step_started": "soon"}, ' +
+      '{"number": 6, "step_seconds": [5], "step_started": 1800000000}, ' +
+      '{"number": 7, "step_seconds": null, "step_started": null}, ' +
+      '{"number": 8, "step_started": "2027-01-15T08:00:00"}, ' +
+      '{"number": 9}]}'
+    const [a, b, c, d, e, f] = parseStatus(text)!.issues
+    expect(a).toEqual({ number: 4, title: 'T', step: 'BUILD', state: 'working', round: 1, step_seconds: { SHAPE: 30, TEST: 0, BUILD: 1.5 }, step_started: '2027-01-15T08:00:00' })
+    expect([b!.step_seconds, b!.step_started]).toEqual([{}, null])
+    expect([c!.step_seconds, c!.step_started]).toEqual([{}, null])
+    expect([d!.step_seconds, d!.step_started]).toEqual([{}, null])
+    expect('step_seconds' in e!).toBe(false)
+    expect(e!.step_started).toBe('2027-01-15T08:00:00')
+    // A row with neither, as an older loop writes, parses as it always has.
+    expect(f).toEqual({ number: 9, title: '', step: '', state: '', round: 0 })
+    expect('step_seconds' in f! || 'step_started' in f!).toBe(false)
+  })
+  test('a time reads in seconds, then minutes, then hours and two-digit minutes, floored, and none as a dash', () => {
+    const cases: [number | null, string][] = [
+      [0, '0s'], [42, '42s'], [59, '59s'], [60, '1m'], [3599, '59m'], [3600, '1h00'], [3900, '1h05'],
+      [59.9, '59s'], [36_300, '10h05'], [null, '—'],
+    ]
+    for (const [seconds, text] of cases) expect(timeText(seconds)).toBe(text)
+  })
+  test('each station takes its time from its step, and the start never has one', () => {
+    const all = { SHAPE: 10, TEST: 20, BUILD: 30, VALIDATE: 40, SCALE: 50 }
+    expect(stageTimes(timed('build', all, null), NOW)).toEqual({ start: null, plan: 10, test: 20, build: 30, check: 40, ship: 50 })
+    expect(stageTimes(timed('start', all, 5000), NOW)).toEqual({ start: null, plan: 10, test: 20, build: 30, check: 40, ship: 50 })
+  })
+  test('a station with no entry has no time, unless it is the current one and counting', () => {
+    expect(stageTimes(timed('build', { SHAPE: 10 }, null), NOW)).toEqual({ start: null, plan: 10, test: null, build: null, check: null, ship: null })
+    expect(stageTimes(timed('build', { SHAPE: 10 }, 5000), NOW)).toEqual({ start: null, plan: 10, test: null, build: 5, check: null, ship: null })
+  })
+  test('a row from an older loop, with neither field, has no times at all', () => {
+    for (const station of STATIONS) {
+      expect(Object.values(stageTimes(lane(station), NOW)).every(t => t === null)).toBe(true)
+      expect(isCounting(lane(station))).toBe(false)
+    }
+  })
+  test('the current step adds the time since it began, by the clock it is given, floored and never below 0', () => {
+    const counting = timed('build', { SHAPE: 10, BUILD: 30 }, 42_000)
+    expect(stageTimes(counting, NOW).build).toBe(72)
+    expect(stageTimes(counting, NOW + 999).build).toBe(72)
+    expect(stageTimes(counting, NOW + 1000).build).toBe(73)
+    // Only the current step counts.
+    expect(stageTimes(counting, NOW + 60_000).plan).toBe(10)
+    expect(stageTimes(counting, NOW + 60_000).test).toBeNull()
+    // A step begun after the clock's now adds nothing.
+    expect(stageTimes(timed('build', { BUILD: 30 }, -60_000), NOW).build).toBe(30)
+  })
+  test("a step_started that doesn't read as a time adds nothing", () => {
+    const odd: Lane = { row: row({ step_seconds: { BUILD: 30 }, step_started: 'soon' }), station: 'build', walk: null }
+    expect(stageTimes(odd, NOW).build).toBe(30)
+  })
+  test('a lane counts when it is not walking out, is past the start, and its step has begun', () => {
+    expect(isCounting(timed('build', {}, 1000))).toBe(true)
+    expect(isCounting(timed('build', {}, 1000, { from: 1, to: 3, start: NOW, end: NOW + 820 }))).toBe(true)
+    expect(isCounting(timed('start', {}, 1000))).toBe(false)
+    expect(isCounting(timed('build', {}, null))).toBe(false)
+    expect(isCounting(timed('ship', {}, 1000, OUT))).toBe(false)
+  })
+  test('a lane walking out shows its times with nothing counting', () => {
+    const leaving = timed('ship', { BUILD: 300, SCALE: 4 }, 1000, OUT)
+    expect(stageTimes(leaving, NOW)).toEqual({ start: null, plan: null, test: null, build: 300, check: null, ship: 4 })
+    expect(stageTimes(leaving, NOW + 60_000)).toEqual(stageTimes(leaving, NOW))
+    expect(timeRowOf(laneCells(leaving, 72, NOW + 600), 72)).toEqual(timeRowOf(laneCells(leaving, 72, NOW), 72))
+    // Its current stage is ship, in ship's colour.
+    expect(timeRowOf(laneCells(leaving, 72, NOW), 72)[labelAt(5, 72)]![1]).toBe(ACCENT.ship)
+  })
+  test("the other surfaces draw 3 columns for each of the pane's, from 64 to 240", () => {
+    expect(svgColumns(42)).toBe(126)
+    expect(svgColumns(10)).toBe(64)
+    expect(svgColumns(200)).toBe(240)
+    expect(svgColumns(50.3)).toBe(151)
+    expect(svgColumns(Number.NaN)).toBe(64)
+    expect(svgColumns(Number.POSITIVE_INFINITY)).toBe(64)
+  })
+  test("on a terminal each time is in the lane's 4th row, from where its station's name starts, in its colour", () => {
+    const columns = 72
+    const counting = timed('build', { SHAPE: 90, TEST: 3900, BUILD: 0 }, 42_000)
+    const times = timeRowOf(laneCells(counting, columns, NOW), columns)
+    const head = textOf(decode(headCells([counting], columns)))
+    const expected: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+    expected.forEach(([text, colour], i) => {
+      const at = labelAt(i, columns)
+      expect(head.slice(at, at + STATIONS[i]!.length)).toBe(STATIONS[i]!)
+      expect(textOf(times.slice(at, at + text.length))).toBe(text)
+      for (const [, fg, bg] of times.slice(at, at + text.length)) expect([fg, bg]).toEqual([colour, 0x01000000])
+    })
+    // The rest of the row is blank.
+    expect(times.filter(([code]) => code !== 0x20).length).toBe(expected.reduce((n, [text]) => n + text.length, 0))
+    // And a light theme uses its own.
+    const light = timeRowOf(laneCells(counting, columns, NOW, LIGHT), columns)
+    expect([light[labelAt(0, columns)]![1], light[labelAt(1, columns)]![1]]).toEqual([LIGHT.dim, LIGHT.tool])
+  })
+  test('a time that would reach the next station is cut, leaving a blank column before it', () => {
+    const columns = 42
+    const times = timeRowOf(laneCells(timed('build', { TEST: 36_300 }, null), columns, NOW), columns)
+    const [test, build] = [labelAt(2, columns), labelAt(3, columns)]
+    expect(textOf(times.slice(test, build - 1))).toBe('10h…')
+    expect(times[build - 1]![0]).toBe(0x20)
+    expect(textOf(times.slice(build, build + 1))).toBe('—')
+    const long = { SHAPE: 363_000, TEST: 363_000, BUILD: 363_000, VALIDATE: 363_000, SCALE: 363_000 }
+    for (let width = MIN_COLUMNS; width <= 120; width++) {
+      const row4 = timeRowOf(laneCells(timed('build', long, null), width, NOW), width)
+      for (let i = 1; i < STATIONS.length; i++) expect(row4[labelAt(i, width) - 1]![0]).toBe(0x20)
+    }
+  })
+  test("the times leave the lane's 3 rows and the header as they were", () => {
+    for (const station of STATIONS) {
+      for (let ms = 0; ms < 2000; ms += 160) {
+        const plain = decode(laneCells(lane(station), 72, NOW + ms)).slice(0, 72 * LANE_ROWS)
+        const withTimes = decode(laneCells(timed(station, { SHAPE: 5, BUILD: 7 }, 3000), 72, NOW + ms)).slice(0, 72 * LANE_ROWS)
+        expect(withTimes).toEqual(plain)
+      }
+    }
+    expect(headCells([timed('build', { BUILD: 7 }, 3000)], 72)).toBe(headCells([lane('build')], 72))
+  })
+  test("a lane's Svg names each station at y 9 and gives its time at y 13, as of the drawing", () => {
+    const columns = 126
+    const counting = timed('build', { SHAPE: 90, TEST: 3900, BUILD: 0 }, 42_000)
+    const at = (now: number) => svgTexts(laneSvg(counting, now, DARK, columns))
+    const times: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+    expect(at(NOW)).toEqual(STATIONS.flatMap((station, i): [number, number, string, string][] => [
+      [labelAt(i, columns), 9, hexOf(station === 'build' ? ACCENT.build : DARK.dim), station],
+      [labelAt(i, columns), 13, hexOf(times[i]![1]), times[i]![0]],
+    ]))
+    expect(at(NOW + 60_000).find(([x, y]) => y === 13 && x === labelAt(3, columns))![3]).toBe('1m')
+  })
+  test('an Svg drawn wider works out every place at that width', () => {
+    const source = laneSvg(lane('build'), NOW, DARK, 126)
+    expect(/<svg[^>]*>/.exec(source)![0]).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 14">')
+    expect(source).toContain(`<g transform="translate(${svgOf(stationX(3, 126) - 1)} 0)">`)
+    expect(source).toContain(`<circle cx="${svgOf(stationX(5, 126))}"`)
+    expect(headSvg([], DARK, 126)).toBe(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 4">${
+      STATIONS.map((station, i) => `<text x="${labelAt(i, 126)}" y="3" font-family="monospace" font-size="2.6" fill="${hexOf(DARK.dim)}">${station}</text>`).join('')}</svg>`)
+  })
+  test('an Svg drawn mid-walk starts its slide where the figure is, for the walk\'s time left', () => {
+    const walk = { from: 1, to: 3, start: NOW, end: NOW + 820 }
+    const source = laneSvg({ row: row({}), station: 'build', walk }, NOW + 410, DARK, 126)
+    const values = /type="translate" values="([^"]+)" dur="410ms" fill="freeze"/.exec(source)![1]!.split(';')
+    near(Number(values[0]!.split(' ')[0]), walkLeft(walk, 126, NOW + 410) - (stationX(3, 126) - 1), 0.01)
+    expect(values[values.length - 1]).toBe('0 0')
   })
 })
 

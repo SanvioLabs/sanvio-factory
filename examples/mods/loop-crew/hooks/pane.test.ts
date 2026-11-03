@@ -1,7 +1,7 @@
 import { describe as group, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { DARK, OUT_MS, STATIONS, stationX, walkMs } from './logic'
+import { ACCENT, DARK, OUT_MS, STATIONS, stationX, walkMs } from './logic'
 
 const ROOT = '/h/starter'
 const HARNESS = `${ROOT}/.loop`
@@ -151,7 +151,7 @@ group('the board', () => {
     for (const station of STATIONS) expect(label).toContain(station)
     for (const [number, station] of [[12, 'build'], [13, 'check']] as const) {
       const lane = await (ui as unknown as Finds).find({ key: `lane-${number}` })
-      expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 3])
+      expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 4])
       expect(heads(String(lane?.props.cells), 72)).toEqual([home(at(station), 72)])
     }
     const drawn = JSON.stringify(await ui.drawn())
@@ -168,7 +168,7 @@ group('the board', () => {
       const all = await svgs(ui)
       expect(all.map(s => s.props.alt)).toEqual(["The loop's steps, left to right", 'Issue #12 at build', 'Issue #13 at check'])
       for (const lane of all.slice(1)) {
-        expect([lane.props.width, lane.props.height, lane.props.isInteractive]).toEqual([256, 24, true])
+        expect([lane.props.width, lane.props.height, lane.props.isInteractive]).toEqual([undefined, undefined, true])
         const source = String(lane.props.source)
         expect(source).toContain('<animate')
         expect(source).not.toContain('Job 1')
@@ -209,7 +209,7 @@ group('the board', () => {
   test('a short pane shows the lanes that fit and how many more', async ($, on) => {
     const { close } = world(on, working(job(1, 'BUILD'), job(2, 'TEST'), job(3, 'SHAPE')))
     await say($)
-    // The header's row, then 4 rows a lane: 8 left of 9 is room for 2, and one row kept for the rest.
+    // The header's row, then 5 rows a lane: 8 left of 9 is room for 1, and one row kept for the rest.
     const ui = await $.ui.mount(pane(72, 9))
     expect(await (ui as unknown as Finds).find({ key: 'lane-1' })).toBeDefined()
     expect(await (ui as unknown as Finds).find({ key: 'lane-2' })).toBeUndefined()
@@ -260,10 +260,10 @@ group('the board', () => {
     await ui.unmount()
     await close()
   })
-  test('the pane asks for room for three lanes when it opens: 13 rows by 72 columns', async ($, on) => {
+  test('the pane asks for room for three lanes when it opens: 16 rows by 72 columns', async ($, on) => {
     const { sizes, close } = world(on, twoWorking())
     await say($)
-    expect(sizes).toEqual([[13, 72]])
+    expect(sizes).toEqual([[16, 72]])
     await close()
   })
 })
@@ -815,6 +815,210 @@ group('the command', () => {
     const { flip, close } = world(on, both())
     flip.unplaced = true
     expect(await say($)).toBe('Loop crew opened. Widen the terminal to see it.')
+    await close()
+  })
+})
+
+// A time as loop.py writes it: local, to the second, with no zone. As loop-pane's tests build it, so
+// these pass in any time zone.
+function local(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+// The mock clock's start, which world() sets.
+const START = 1_800_000_000_000
+
+// A lane's 4th row of cells, under its 3 rows of lane, and the text in some cells.
+const rowFour = (cells: string, columns: number): [number, number, number][] => decode(cells).slice(3 * columns, 4 * columns)
+const textOf = (cells: [number, number, number][]): string => cells.map(([code]) => String.fromCodePoint(code)).join('')
+// Where a station's name starts in the header.
+const labelAt = (index: number, columns: number): number => Math.max(0, home(index, columns) - 2)
+const rootTag = (source: string): string => /<svg[^>]*>/.exec(source)![0]
+const svgOf = (value: number): string => String(Math.round(value * 1000) / 1000)
+
+// Advance the clock `ms` in steps of `step`, working the timers after each.
+async function wait(clock: { advance: (ms: number) => Promise<unknown> }, ms: number, step: number): Promise<void> {
+  for (let done = 0; done < ms; done += step) {
+    await clock.advance(Math.min(step, ms - done))
+    await drain()
+  }
+}
+
+// #12 building, its plan and tests done, its build begun 42 seconds before the clock's start.
+const counting = (over: object = {}) =>
+  job(12, 'BUILD', { step_seconds: { SHAPE: 90, TEST: 3900, BUILD: 0 }, step_started: local(START - 42_000), ...over })
+
+group('the times', () => {
+  test('on vscode at 42 columns the header and each lane are an Svg with no size, drawn 126 wide', async ($, on) => {
+    const { close } = world(on, twoWorking())
+    await say($)
+    const ui = await $.ui.mount(pane(42, 40, 'vscode'))
+    const [head, ...lanes] = await svgs(ui)
+    expect([head!.props.width, head!.props.height]).toEqual([undefined, undefined])
+    expect(rootTag(String(head!.props.source))).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 4">')
+    expect(lanes.length).toBe(2)
+    for (const lane of lanes) {
+      expect([lane.props.width, lane.props.height]).toEqual([undefined, undefined])
+      const root = rootTag(String(lane.props.source))
+      expect(root).toContain('viewBox="0 0 126 14"')
+      expect(root).not.toContain('width=')
+      expect(root).not.toContain('height=')
+    }
+    // #12 is at build, its place worked out at that width.
+    expect(String(lanes[0]!.props.source)).toContain(`<g transform="translate(${svgOf(stationX(3, 126) - 1)} 0)">`)
+    await ui.unmount()
+    await close()
+  })
+  for (const [columns, drawn] of [[10, 64], [200, 240], [Number.NaN, 64]] as const) {
+    test(`on vscode ${columns} columns draws ${drawn} wide`, async ($, on) => {
+      const { close } = world(on, twoWorking())
+      await say($)
+      const ui = await $.ui.mount(pane(columns, 40, 'vscode'))
+      const [head, ...lanes] = await svgs(ui)
+      expect(rootTag(String(head!.props.source))).toContain(`viewBox="0 0 ${drawn} 4"`)
+      for (const lane of lanes) expect(rootTag(String(lane.props.source))).toContain(`viewBox="0 0 ${drawn} 14"`)
+      await ui.unmount()
+      await close()
+    })
+  }
+  test("on a terminal at 72 columns a lane's 4th row has each time under its stage, in its colour, counting with no redraw", async ($, on) => {
+    const { clock, blits, invalidated, close } = world(on, working(counting()))
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    const first = invalidated.length
+    const head = textOf(decode(await cellsOf(ui, 'head')))
+    const check = (cells: string, build: string): void => {
+      const times = rowFour(cells, 72)
+      const expected: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], [build, ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+      expected.forEach(([text, colour], i) => {
+        const at = labelAt(i, 72)
+        expect(head.slice(at, at + STATIONS[i]!.length)).toBe(STATIONS[i]!)
+        expect(textOf(times.slice(at, at + text.length))).toBe(text)
+        for (const [, fg] of times.slice(at, at + text.length)) expect(fg).toBe(colour)
+      })
+    }
+    check(await cellsOf(ui, 'lane-12'), '42s')
+    await wait(clock, 1040, 80)
+    check(lastBlit(blits, 'lane-12')!, '43s')
+    await wait(clock, 16_960, 80)
+    check(lastBlit(blits, 'lane-12')!, '1m')
+    expect(invalidated.length).toBe(first)
+    await ui.unmount()
+    await close()
+  })
+  test("a counting lane leaves another lane's times as they were", async ($, on) => {
+    const { clock, blits, close } = world(on, working(counting(), job(13, 'VALIDATE', { step_seconds: { SHAPE: 90 }, step_started: null })))
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    const before = textOf(rowFour(await cellsOf(ui, 'lane-13'), 72))
+    const counted = textOf(rowFour(await cellsOf(ui, 'lane-12'), 72))
+    await wait(clock, 3040, 80)
+    const painted13 = blits.filter(b => b.key === 'lane-13')
+    expect(painted13.length).toBeGreaterThan(0)
+    for (const b of painted13) expect(textOf(rowFour(b.cells, 72))).toBe(before)
+    expect(textOf(rowFour(lastBlit(blits, 'lane-12')!, 72))).not.toBe(counted)
+    await ui.unmount()
+    await close()
+  })
+  test('a lane walking out shows its times with nothing counting', async ($, on) => {
+    const files = working(counting())
+    const { clock, blits, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    files.set(STATUS, statusText(counting({ state: 'pr', step_seconds: { SHAPE: 90, TEST: 3900, BUILD: 50 } })))
+    await wait(clock, 2000, 80)
+    const from = blits.length
+    await wait(clock, OUT_MS - 80, 80)
+    const rows = blits.slice(from).filter(b => b.key === 'lane-12').map(b => rowFour(b.cells, 72))
+    expect(rows.length).toBeGreaterThan(2)
+    for (const times of rows) {
+      expect(textOf(times.slice(labelAt(3, 72), labelAt(3, 72) + 3))).toBe('50s')
+      expect(times[labelAt(3, 72)]![1]).toBe(DARK.tool)
+      expect(textOf(times.slice(labelAt(5, 72), labelAt(5, 72) + 1))).toBe('—')
+      expect(times).toEqual(rows[0]!)
+    }
+    await ui.unmount()
+    await close()
+  })
+  test('a row with neither field, from an older loop, shows a dash under every stage', async ($, on) => {
+    const { close } = world(on, working(job(12, 'BUILD')))
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    const times = rowFour(await cellsOf(ui, 'lane-12'), 72)
+    STATIONS.forEach((_, i) => expect([textOf(times.slice(labelAt(i, 72), labelAt(i, 72) + 1)), times[labelAt(i, 72)]![1]]).toEqual(['—', DARK.dim]))
+    expect(times.filter(([code]) => code !== 0x20).length).toBe(STATIONS.length)
+    await ui.unmount()
+    await close()
+  })
+  test('at 42 columns a test time of 36,300 seconds is cut, leaving a blank column before the build time', async ($, on) => {
+    const { close } = world(on, working(job(12, 'BUILD', { step_seconds: { TEST: 36_300 }, step_started: null })))
+    await say($)
+    const ui = await $.ui.mount(pane(42, 60))
+    const times = rowFour(await cellsOf(ui, 'lane-12'), 42)
+    const [test, build] = [labelAt(2, 42), labelAt(3, 42)]
+    expect(textOf(times.slice(test, build - 1))).toBe('10h…')
+    expect(times[build - 1]![0]).toBe(0x20)
+    expect(textOf(times.slice(build, build + 1))).toBe('—')
+    await ui.unmount()
+    await close()
+  })
+  test('on the desktop, with nothing changing, a counting lane redraws at 30 seconds and again at 60, and no sooner', async ($, on) => {
+    const { clock, invalidated, close } = world(on, working(counting()))
+    await say($)
+    const ui = await $.ui.mount(pane(72, 40, 'desktop'))
+    await drain()
+    // The time after build's name: the text at y 13 that follows it.
+    const buildTime = async () => /<text x="\d+" y="13"[^>]*>([^<]*)<\/text>/.exec(String((await laneSvgs(ui))[0]!.props.source).split('>build<')[1]!)![1]
+    expect(await buildTime()).toBe('42s')
+    const first = invalidated.length
+    await wait(clock, 29_900, 2000)
+    expect(invalidated.length).toBe(first)
+    await wait(clock, 100, 100)
+    expect(invalidated.length).toBe(first + 1)
+    await wait(clock, 30_000, 2000)
+    expect(invalidated.length).toBe(first + 2)
+    // Each drawing gives the time as of when it's drawn.
+    await ui.redraw()
+    expect(await buildTime()).toBe('1m')
+    await ui.unmount()
+    await close()
+  })
+  test('on the desktop, with nothing counting, there is no redraw over 60 seconds', async ($, on) => {
+    const stopped = job(12, 'BUILD', { step_seconds: { BUILD: 30 }, step_started: null })
+    const waiting = job(13, '', { step_seconds: {}, step_started: local(START - 5000) })
+    const { clock, invalidated, close } = world(on, working(stopped, waiting, job(14, 'TEST')))
+    await say($)
+    const ui = await $.ui.mount(pane(72, 40, 'desktop'))
+    await drain()
+    const first = invalidated.length
+    await wait(clock, 60_000, 2000)
+    expect(invalidated.length).toBe(first)
+    await ui.unmount()
+    await close()
+  })
+  test('the 30-second redraw stops once the pane is gone', async ($, on) => {
+    const { clock, invalidated, panes, close } = world(on, working(counting()))
+    await say($)
+    const ui = await $.ui.mount(pane(72, 40, 'desktop'))
+    await drain()
+    const first = invalidated.length
+    panes.length = 0
+    await wait(clock, 60_000, 2000)
+    expect(invalidated.length).toBe(first)
+    await ui.unmount()
+    await close()
+  })
+  test('on a terminal the 30-second redraw never runs, even while a lane counts', async ($, on) => {
+    const { clock, invalidated, close } = world(on, working(counting()))
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    const first = invalidated.length
+    await wait(clock, 60_000, 2000)
+    expect(invalidated.length).toBe(first)
+    await ui.unmount()
     await close()
   })
 })

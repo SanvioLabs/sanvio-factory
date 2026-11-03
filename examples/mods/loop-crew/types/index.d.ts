@@ -1,5 +1,16 @@
 // The part of what scripts/loop.py writes to status.json that the figures draw from.
-export type Row = { number: number; title: string; step: string; state: string; round: number }
+// step_seconds and step_started are there only when the loop that wrote the row records them.
+export type Row = {
+  number: number
+  title: string
+  step: string
+  state: string
+  round: number
+  // Whole seconds spent on each step in the current run, by step name.
+  step_seconds?: Record<string, number>
+  // When the current step began, as loop.py writes it, or null once the row has left working.
+  step_started?: string | null
+}
 
 export type Status = { issues: Row[] }
 
