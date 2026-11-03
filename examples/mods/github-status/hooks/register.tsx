@@ -158,18 +158,13 @@ const showNoRemote = ($: EngineInterface, focus: string | null) =>
 // Marks a read as started: it counts for the limit from here, and the line says so unless it already
 // shows this repo for this focus.
 async function startRead($: EngineInterface, target: Target, now: number): Promise<void> {
-  const key = keyOf(target.focus)
-  reading = key
-  try {
-    await update($, attemptAtom, () => now)
-    await update($, statusAtom, (prev): GitHubState | null =>
-      prev && prev.kind !== 'no-remote' && prev.repo === target.repo && prev.project === (target.focus ?? undefined)
-        ? prev
-        : { kind: 'reading', repo: target.repo, ...tagged(target.focus) })
-  } catch (error) {
-    if (reading === key) reading = null
-    throw error
-  }
+  await update($, attemptAtom, () => now)
+  await update($, statusAtom, (prev): GitHubState | null =>
+    prev && prev.kind !== 'no-remote' && prev.repo === target.repo && prev.project === (target.focus ?? undefined)
+      ? prev
+      : { kind: 'reading', repo: target.repo, ...tagged(target.focus) })
+  // Last, so an update that fails can't leave a read marked as under way.
+  reading = keyOf(target.focus)
 }
 
 // The read itself, and what it found. A failed read shows as unavailable, or as stale counts. A read for
@@ -222,13 +217,10 @@ async function sync($: EngineInterface, isAsked = false): Promise<void> {
   if (target) await finishRead($, target)
 }
 
-
-// Only the latest timer reads: one replaced by a reload does nothing, even if it still fires.
 function startTimer($: EngineInterface): void {
-  const mine: NonNullable<typeof timer> = $.clock.every(TICK_MS, () => {
-    if (timer === mine) void sync($).catch(() => {})
+  timer = $.clock.every(TICK_MS, () => {
+    void sync($).catch(() => {})
   })
-  timer = mine
 }
 
 // What every saved /project needs after a /clear, which fires no session.start: the harness's repo, for
