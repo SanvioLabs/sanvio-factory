@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Mod test failures by name
+
+When a mod's tests fail, [`tests/test_mods.py`](tests/test_mods.py) now reports every failing test's name, its file and its error, wherever it falls in the output, instead of the last 40 lines.
+Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-02: Project focus
 
 `/project <name>` puts one project under [`projects/`](projects/) in focus for the session: the GitHub line shows that project's repo with `<name>: ` at the start, in every state, and the model is told that an unnamed "the project" means that one. `/project off` clears it and `/project` says which it is. The focus is one file per session, `.harness/project/<id>`, which a `/clear` leaves behind and doesn't carry over, and the 15-second timer now runs whether or not the harness has a GitHub remote, and reads the file each time. The mod now writes that file, where it only read before.
