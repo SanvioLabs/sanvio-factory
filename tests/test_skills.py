@@ -360,5 +360,52 @@ class StarterUpdatesRename(unittest.TestCase):
             self.assertEqual(found, self.ALLOWED.get(name, 0), name)
 
 
+class HarnessTrendsRename(unittest.TestCase):
+    """harness-report is now harness-trends: the skill moved, and the report and its scripts didn't."""
+
+    SKILL = ROOT / "skills" / "harness-trends" / "SKILL.md"
+    PHRASES = [
+        '"my harness report"',
+        '"what did I use this sprint"',
+        '"sprint follow-up"',
+        '"what should we add to the harness"',
+        '"token burn"',
+        '"how many tokens"',
+        '"what did the loop cost"',
+    ]
+
+    def description(self):
+        return frontmatter(self.SKILL.read_text()).get("description", "")
+
+    def test_the_skill_has_its_new_name(self):
+        self.assertTrue(self.SKILL.exists())
+        self.assertEqual(frontmatter(self.SKILL.read_text())["name"], "harness-trends")
+
+    def test_the_old_folder_is_gone(self):
+        self.assertFalse((ROOT / "skills" / "harness-report").exists())
+
+    def test_the_trigger_phrases_still_reach_it(self):
+        description = self.description()
+        for phrase in self.PHRASES:
+            self.assertIn(phrase, description)
+
+    def test_the_report_keeps_its_name(self):
+        self.assertIn("harness report", self.description())
+        for script in ("usage_report.py", "token_report.py", "plugin_report.py"):
+            self.assertTrue((ROOT / "scripts" / script).exists(), script)
+
+    def test_no_tracked_file_keeps_the_old_name(self):
+        if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
+            self.skipTest("origin isn't the public starter, so this copy can mention the old name")
+        files = [name for name in (check_setup.git(ROOT, "ls-files", "-z") or "").split("\0") if name]
+        self.assertTrue(files, "git ls-files listed nothing")
+        for name in files:
+            self.assertNotIn("harness-report", name)
+            path = ROOT / name
+            if name in ("CHANGELOG.md", "tests/test_skills.py") or not path.is_file():
+                continue
+            self.assertEqual(path.read_text(errors="replace").count("harness-report"), 0, name)
+
+
 if __name__ == "__main__":
     unittest.main()

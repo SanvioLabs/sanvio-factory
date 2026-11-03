@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Harness-report is now harness-trends
+
+The `harness-report` skill is now `harness-trends`. It does the same as before, and the phrases in its description, such as "my harness report", "sprint follow-up" and "how many tokens", still reach it. `/harness-trends` replaces `/harness-report`.
+Files: [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/plugin_report.py`](scripts/plugin_report.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `git mv skills/harness-report skills/harness-trends`, then take the starter's files over it, taking [`tests/test_skills.py`](tests/test_skills.py) and the lines naming the skill in [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py) and [`scripts/plugin_report.py`](scripts/plugin_report.py) in the same step.
+
 ## 2026-11-02: Safer harness eval runs
 
 A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.

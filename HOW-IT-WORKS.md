@@ -59,7 +59,7 @@ decides what the agent knows, what it's allowed to do, and what counts as done.
 - **Mistake to rule**, across sessions: when the agent gets something wrong,
   [`skills/learn/`](skills/learn/) writes the rule into the file that governs it.
 - **Sprint report**, across people: each person's usage log records which
-  skills, agents and guards fired. At sprint end, `harness-report` turns it into
+  skills, agents and guards fired. At sprint end, `harness-trends` turns it into
   a short report with their proposals, shared as a pull request. The owner reads
   the sprint's reports together and takes what earns a place.
 
