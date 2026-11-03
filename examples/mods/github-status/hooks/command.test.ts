@@ -253,7 +253,6 @@ describe('/github all', () => {
   })
   test('the line above the prompt stays the harness\'s', async ($, on) => {
     world(on)
-    on('ui.render', async () => ({ type: 'Box', props: {}, children: [] }) as never)
     await github($, 'acme')
     const ui = await $.ui.mount({ plugin: 'github-status', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
     const drawn = JSON.stringify(await ui.drawn())
