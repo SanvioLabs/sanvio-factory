@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-02: Time per step
+
+Each issue's row in `.loop/status.json` now records how long the current run spent on each step: `step_started` says when the current step began, and `step_seconds` holds the whole seconds per step, with rounds summed. It covers the current run only, and `loop.log` and `.loop/history.jsonl` are unchanged.
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
+
+**Do:** nothing. A running loop picks it up when it's next started.
+
 ## 2026-11-02: Safer harness eval runs
 
 A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.
