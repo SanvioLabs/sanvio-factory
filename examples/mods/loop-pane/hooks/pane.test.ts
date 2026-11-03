@@ -602,20 +602,55 @@ group('project loops', () => {
     JSON.stringify({ running: false, tmux: null, queue: [{ number: 30, title }], issues: [], ...extra })
   const JOB = { number: 12, title: 'Gate', step: 'BUILD', state: 'working', round: 1, tests: null, review: null, pr: null, note: '', window: 'issue-12' }
 
+  // What fs.stat finds directly under the harness's projects/, by name. Anything not named isn't there.
+  type Kinds = Record<string, 'dir' | 'file' | 'link'>
+  type Focus = {
+    // This session's id, from a variable the test can change. Null is an id the engine refuses, the default.
+    session?: { id: string | null }
+    projects?: Kinds
+  }
+
   // The engine beneath the plugin: a harness whose loop files are `files`, by path, and an open pane.
   // The folders under .loop/projects come from those paths. The test changes `files` between polls,
-  // `panes` to stand a pane behind another, and `flip` to refuse a close or take the root away.
-  function world(on: On, files: Map<string, string>) {
+  // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away or refuse
+  // every write. fs.read records each path it reads, and fs.write each path and text, storing the text
+  // in `files`. Nothing touches the disk.
+  function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     const clock = mock.clock(on, { now: 1_800_000_000_000 })
     const toasts: string[] = []
     const ran: string[][] = []
+    const reads: string[] = []
+    const stats: string[] = []
+    const writes: { path: string; text: string }[] = []
+    const session = focus.session ?? { id: null }
+    let idsAsked = 0
     const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-    const flip = { closeFails: false, rootGone: false }
+    const flip = { closeFails: false, rootGone: false, writesFail: false }
     on('session.root', async () => ({ value: ROOT }))
+    on('session.id', async () => {
+      idsAsked++
+      return session.id === null ? { deny: 'no session id' } : { value: session.id }
+    })
     on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
     on('fs.read', async (_$, e) => {
+      reads.push(e.path)
       const text = files.get(e.path)
       return text === undefined ? { deny: `no ${e.path}` } : { value: text }
+    })
+    on('fs.write', async (_$, e) => {
+      if (flip.writesFail) return { deny: 'read-only' }
+      writes.push({ path: e.path, text: e.text })
+      files.set(e.path, e.text)
+      return { value: undefined }
+    })
+    on('fs.stat', async (_$, e) => {
+      stats.push(e.path)
+      const name = e.path.startsWith(`${ROOT}/projects/`) ? e.path.slice(`${ROOT}/projects/`.length) : ''
+      const kind = (focus.projects ?? {})[name]
+      if (kind === 'dir') return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+      if (kind === 'file') return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }
+      if (kind === 'link') return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: true } }
+      return { deny: `no ${e.path}` }
     })
     on('fs.list', async (_$, e) => {
       if (e.path !== `${ROOT}/.loop/projects`) return { deny: `no ${e.path}` }
@@ -646,7 +681,11 @@ group('project loops', () => {
       panes.length = 0
       await clock.advance(500)
     }
-    return { clock, toasts, panes, flip, close, opened: () => ran.filter(argv => argv[0] === 'open') }
+    return {
+      clock, toasts, panes, flip, close, reads, stats, writes, session,
+      idsAsked: () => idsAsked,
+      opened: () => ran.filter(argv => argv[0] === 'open'),
+    }
   }
 
   type Dollar = { command: { run: (i: object) => Promise<unknown> } }
@@ -1110,6 +1149,214 @@ group('project loops', () => {
     await drain()
     expect((await tall.find({ key: 'up' }))?.props.label).toBe('▲ 30 more')
     await tall.unmount()
+  })
+
+  // The session's project focus, the file /project and the GitHub line keep at .harness/project/<id>.
+  const A = 'aaaaaaaa-1111'
+  const B = 'bbbbbbbb-2222'
+  const FOCUS = (id: string) => `${ROOT}/.harness/project/${id}`
+  const underFocus = (path: string) => path.includes('/.harness/project/')
+  // A pick switches, then writes and reads the focus back: several engine calls, so wait out more turns.
+  const settle = async () => {
+    for (let i = 0; i < 10; i++) await drain()
+  }
+  const FOLDERS: Kinds = { alpha: 'dir', beta: 'dir', gamma: 'dir' }
+  const pickValue = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
+    ((await ui.find({ key: 'loop-pick' })) as { props: { value?: unknown } } | undefined)?.props.value
+  // threeLoops, with beta running, so an opening with no focus shows beta.
+  const betaRunning = () => {
+    const files = threeLoops()
+    files.set(`${BETA}/lock`, '4242')
+    return files
+  }
+
+  test('a pane opened with a project in focus shows it, and opening writes nothing', async ($, on) => {
+    const files = betaRunning()
+    files.set(FOCUS(A), 'alpha\n')
+    const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    expect(await pickValue(ui)).toBe('alpha')
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    expect(files.get(FOCUS(A))).toBe('alpha\n')
+    expect(writes).toEqual([])
+    await ui.unmount()
+    await close()
+  })
+  const unusable: { why: string; text: string; projects: Kinds; stat?: string }[] = [
+    { why: 'a project with no loop listed', text: 'gamma\n', projects: FOLDERS, stat: `${ROOT}/projects/gamma` },
+    { why: 'a projects/ entry that is a link', text: 'alpha\n', projects: { alpha: 'link' }, stat: `${ROOT}/projects/alpha` },
+    { why: 'a projects/ entry that is a file', text: 'alpha\n', projects: { alpha: 'file' }, stat: `${ROOT}/projects/alpha` },
+    { why: 'file text ../x', text: '../x\n', projects: FOLDERS },
+  ]
+  for (const { why, text, projects, stat } of unusable) {
+    test(`a focus on ${why} is read, and the pane opens as it did`, async ($, on) => {
+      const files = betaRunning()
+      files.set(FOCUS(A), text)
+      const { reads, stats, writes, close } = world(on, files, { session: { id: A }, projects })
+      await open($ as unknown as Dollar)
+      const ui = await $.ui.mount(PANE)
+      expect(await titles(ui)).toEqual(['#30 beta job'])
+      expect(reads).toContain(FOCUS(A))
+      if (stat) expect(stats).toContain(stat)
+      else expect(stats.filter(p => p.startsWith(`${ROOT}/projects/`))).toEqual([])
+      expect(writes).toEqual([])
+      await ui.unmount()
+      await close()
+    })
+  }
+  for (const { why, id } of [{ why: 'refused', id: null }, { why: "'../x'", id: '../x' }]) {
+    test(`a session id ${why} is asked for, no focus file is read or written, and a pick still switches`, async ($, on) => {
+      const files = threeLoops()
+      files.set(FOCUS(A), 'alpha\n')
+      const { clock, reads, writes, idsAsked, close } = world(on, files, { session: { id }, projects: FOLDERS })
+      await open($ as unknown as Dollar)
+      const ui = await $.ui.mount(PANE)
+      expect(await titles(ui)).toEqual(['#30 harness job'])
+      await ui.select({ key: 'loop-pick', value: 'alpha' })
+      await settle()
+      expect(await titles(ui)).toEqual(['#30 alpha job'])
+      await clock.advance(POLL)
+      expect(await titles(ui)).toEqual(['#30 alpha job'])
+      expect(idsAsked()).toBeGreaterThan(0)
+      expect(reads.filter(underFocus)).toEqual([])
+      expect(writes.filter(w => underFocus(w.path))).toEqual([])
+      await ui.unmount()
+      await close()
+    })
+  }
+  test('a change of focus moves the pane at the next read, and a cleared focus moves it to the harness', async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    files.set(FOCUS(A), 'beta\n')
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    expect(await pickValue(ui)).toBe('beta')
+    files.set(FOCUS(A), '')
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await pickValue(ui)).toBe('')
+    expect(writes).toEqual([])
+    await ui.unmount()
+    await close()
+  })
+  test("a focus on a project with no loop leaves the pane where it is, even once that loop appears", async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    const { clock, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    files.set(FOCUS(A), 'gamma\n')
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    files.set(`${project('gamma')}/status.json`, statusText('gamma job'))
+    await clock.advance(POLL)
+    expect((await pickOptions(ui)).map(o => o.value)).toContain('gamma')
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    await ui.unmount()
+    await close()
+  })
+  test('with the focus unchanged, a pick holds across reads, a loop with no projects/ folder included', async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    // beta has a loop but no folder under projects/, so the file naming it means no focus.
+    const { clock, close } = world(on, files, { session: { id: A }, projects: { alpha: 'dir' } })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    await ui.select({ key: 'loop-pick', value: 'beta' })
+    await settle()
+    expect(files.get(FOCUS(A))).toBe('beta\n')
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    expect(await pickValue(ui)).toBe('beta')
+    await ui.unmount()
+    await close()
+  })
+  test('a pick in the dropdown or on a mobile button writes the focus, and the harness writes it empty', async ($, on) => {
+    const { writes, close } = world(on, threeLoops(), { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    await ui.unmount()
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
+    const phone = await $.ui.mount({ ...PANE, surface: 'mobile' })
+    await phone.press({ key: 'loop' })
+    await settle()
+    await phone.press({ key: 'loop-alpha' })
+    await settle()
+    expect(writes).toEqual([
+      { path: FOCUS(A), text: 'alpha\n' },
+      { path: FOCUS(A), text: '' },
+      { path: FOCUS(A), text: 'alpha\n' },
+    ])
+    await phone.unmount()
+    await close()
+  })
+  test('a pick whose write fails still switches the pane, and holds across the next read', async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    const { clock, flip, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    flip.writesFail = true
+    await ui.select({ key: 'loop-pick', value: 'beta' })
+    await settle()
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    expect(writes).toEqual([])
+    expect(files.get(FOCUS(A))).toBe('alpha\n')
+    await ui.unmount()
+    await close()
+  })
+  test('a picked loop that disappears falls back to the harness and writes nothing', async ($, on) => {
+    const files = threeLoops()
+    const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
+    files.delete(`${ALPHA}/status.json`)
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 harness job'])
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
+    await ui.unmount()
+    await close()
+  })
+  test("each session reads and writes only its own focus file", async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    files.set(FOCUS(B), 'beta\n')
+    const { clock, reads, writes, close } = world(on, files, { session: { id: B }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    expect([...new Set(reads.filter(underFocus))]).toEqual([FOCUS(B)])
+    expect(writes).toEqual([{ path: FOCUS(B), text: 'alpha\n' }])
+    expect(files.get(FOCUS(A))).toBe('alpha\n')
+    await ui.unmount()
+    await close()
   })
 })
 

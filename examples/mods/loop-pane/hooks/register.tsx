@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
+import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
 import type { Lists, Tone } from './logic'
 import type { Row, Seen, Tab, View } from '../types'
 
@@ -17,6 +17,8 @@ const seenAtom = atom({ plugin: 'loop-pane', key: 'seen' } as const, null)
 const viewAtom = atom({ plugin: 'loop-pane', key: 'view' } as const, null)
 const loopsAtom = atom({ plugin: 'loop-pane', key: 'loops' } as const, null)
 const pickedAtom = atom({ plugin: 'loop-pane', key: 'picked' } as const, null)
+// The project in focus as last read from this session's file, or null, so a read can tell it changed.
+const focusAtom = atom({ plugin: 'loop-pane', key: 'focus' } as const, null)
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -109,6 +111,34 @@ async function rootOf($: EngineInterface): Promise<string | null> {
   return (launch && (await findRoot(launch, exists))) || findRoot(await $.session.root(), exists)
 }
 
+// This session's focus file, the one /project and the GitHub line use, or null when the id is refused
+// or can't name one. The id is asked for each time.
+async function sessionFile($: EngineInterface, root: string): Promise<string | null> {
+  return focusFile(root, await $.session.id().catch(() => null))
+}
+
+// The project in focus: a real folder directly under projects/ that this session's file names. A file,
+// a link, a missing folder, or any failure means none. Never cached.
+async function readFocus($: EngineInterface, root: string): Promise<string | null> {
+  try {
+    const file = await sessionFile($, root)
+    if (!file) return null
+    const name = focusName(await $.fs.read(file))
+    if (!name) return null
+    const stat = await $.fs.stat(`${root}/projects/${name}`).catch(() => null)
+    return stat !== null && stat.kind === 'dir' && !stat.isLink ? name : null
+  } catch {
+    return null
+  }
+}
+
+// Writes this session's focus file. False, with nothing written, when the id or the write fails.
+async function saveFocus($: EngineInterface, root: string, text: string): Promise<boolean> {
+  const file = await sessionFile($, root)
+  if (!file) return false
+  return $.fs.write(file, text).then(() => true, () => false)
+}
+
 // Whether the process named in the lock is alive. A killed run leaves its lock behind.
 async function lockHolderAlive($: EngineInterface, root: string, project?: string): Promise<boolean | null> {
   const text = await $.fs.read(`${root}/${loopDir(project)}/lock`).catch(() => null)
@@ -147,11 +177,25 @@ async function refresh($: EngineInterface): Promise<void> {
   const loops = [harness, ...(await Promise.all(names.map(name => look($, root, name))))]
   const was = (await read($, loopsAtom)) ?? []
   const before = await read($, seenAtom)
-  const picked = await read($, pickedAtom)
-  // No pick yet is an opening. A pick whose project has gone falls back to the harness.
-  const shown = (picked === null ? openingLoop(loops) : loops.find(l => (l.project ?? '') === picked)) ?? harness
+  const stored = await read($, pickedAtom)
+  let picked = stored
+  // Once a loop is on screen, a change in the session's focus moves the pane: to the project now in
+  // focus when it has a loop listed, to the harness when the focus is cleared. A focus on a project
+  // with no loop listed is remembered and moves nothing, so the loop appearing later doesn't either.
+  if (picked !== null) {
+    const focus = await readFocus($, root)
+    if (focus !== (await read($, focusAtom))) {
+      await update($, focusAtom, () => focus)
+      if (focus === null) picked = ''
+      else if (loops.some(l => l.project === focus)) picked = focus
+    }
+  }
+  // No pick yet is an opening, on the focus read as the pane opened. A pick whose project has gone
+  // falls back to the harness.
+  const shown =
+    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => (l.project ?? '') === picked)) ?? harness
   const pick = shown.project ?? ''
-  if (picked !== pick) await update($, pickedAtom, () => pick)
+  if (stored !== pick) await update($, pickedAtom, () => pick)
   if (sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops)) return
   // Another loop opens on its busiest tab, as it does when pressed.
   if (before?.project !== shown.project) await update($, viewAtom, () => null)
@@ -165,11 +209,26 @@ async function refresh($: EngineInterface): Promise<void> {
 }
 
 // Show another loop, from its last look, on its busiest tab. The pick holds until the pane is closed and
-// opened again, which picks again.
+// opened again, which picks again, or the session's focus changes.
 async function show($: EngineInterface, loop: Seen): Promise<void> {
   await update($, pickedAtom, () => loop.project ?? '')
   await update($, seenAtom, () => loop)
   await update($, viewAtom, () => null)
+  // Then the pick becomes the session's focus, after the switch so a failed or slow write never holds
+  // it up. A project whose name isn't one projectName passes as it stands is never written.
+  try {
+    const name = loop.project
+    const parsed = name ? projectName(name) : null
+    const text = !name ? '' : parsed && 'name' in parsed && parsed.name === name ? `${name}\n` : null
+    if (text === null) return
+    const root = await rootOf($)
+    if (!root || !(await saveFocus($, root, text))) return
+    // What the file now means, not the name picked: a loop with no projects/<name> folder means none.
+    const focus = await readFocus($, root)
+    await update($, focusAtom, () => focus)
+  } catch {
+    // The pane has already switched; a focus that can't be saved leaves the remembered one alone.
+  }
 }
 
 // Poll only while the pane is up, so a session that never opens it reads nothing.
@@ -225,8 +284,11 @@ export const register: Register = on => {
       }
       const root = await rootOf($)
       if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.` }
-      // Opening picks again: the first loop running, else the harness.
+      // Opening picks again: the project in focus when it has a loop, else the first loop running, else
+      // the harness. The focus read here is remembered, so it isn't a change, and opening writes nothing.
       await update($, pickedAtom, () => null)
+      const focus = await readFocus($, root)
+      await update($, focusAtom, () => focus)
       await refresh($)
       const opened = await $.ui.open({ id: PANE, title: 'Loop' })
       startPolling($)

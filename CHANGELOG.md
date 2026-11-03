@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Loop pane follows the project
+
+`/loop-pane` now opens on the session's project in focus, the one `/project` sets, when that project has a loop, and moves within two seconds when the focus changes, to the harness when it's cleared. Picking a loop in the pane puts that project in focus, or clears the focus for the harness, so the pane now writes `.harness/project/<id>` where it only read before. The pane and the GitHub line share the focus only in a session started at the harness root.
+Files: [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update loop-pane@sanvio-harness-starter`, then `/reload-plugins` or a new session.
+
 ## 2026-11-03: Mod test failures by name
 
 When a mod's tests fail, [`tests/test_mods.py`](tests/test_mods.py) now reports every failing test's name, its file and its error, wherever it falls in the output, instead of the last 40 lines.
