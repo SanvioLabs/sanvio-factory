@@ -14,6 +14,8 @@ type Options = {
   writesFail?: boolean
   // Every gh call fails while this is set.
   gh?: { isDown?: boolean; hold?: Promise<void> | null }
+  // Called with each git command as it runs.
+  onGit?: ((argv: string[]) => void) | undefined
 }
 
 // A harness at ROOT with three folders under projects/: acme and beta are clones on GitHub, notes is a plain folder.
@@ -25,11 +27,15 @@ function stage(on: On, options: Options = {}) {
   const reads: string[] = []
   const writes: { path: string; text: string }[] = []
   const files = new Map<string, string>()
+  const registered: string[] = []
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   // The engine beneath the plugins: a session that starts, and a command it takes.
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('session.root', async () => ({ value: ROOT }))
-  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('command.register', async (_$, e) => {
+    registered.push(e.name)
+    return { value: { command: e.name } }
+  })
   on('session.id', async () => {
     const id = options.session?.id ?? null
     return id === null ? { deny: 'no session id' } : { value: id }
@@ -68,6 +74,7 @@ function stage(on: On, options: Options = {}) {
     const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
     const fail = { value: { exitCode: 1, stdout: '', stderr: 'no', isStdoutTruncated: false, isStderrTruncated: false } }
     if (argv[0] === 'git') {
+      options.onGit?.(argv)
       const remotes: Record<string, string> = {
         ...(options.noRemote ? {} : { [ROOT]: 'git@github.com:SanvioLabs/sanvio-harness-starter.git' }),
         [`${ROOT}/projects/acme`]: 'https://github.com/acme/app.git',
@@ -87,7 +94,7 @@ function stage(on: On, options: Options = {}) {
     return ok('{"total_count": 0}')
   })
   on('ui.render', async () => ({ type: 'Box', props: {}, children: [] }) as never)
-  return { ran, reads, writes, files, clock }
+  return { ran, reads, writes, files, registered, clock }
 }
 
 const world = (on: On, options: Options = {}): string[][] => stage(on, options).ran
@@ -100,7 +107,10 @@ type Dollar = {
   session: { start: (i: { cwd: string; surface: null; isInteractive: boolean }) => Promise<unknown> }
   command: { run: (i: ReturnType<typeof typed>) => Promise<unknown> }
   ui: { mount: (i: never) => Promise<{ drawn: () => Promise<unknown>; unmount: () => Promise<unknown> }> }
-  prompt: { compose: (i: { model: string; promptModel: string }) => Promise<{ sections: readonly { id: string; text: string; scope: string }[] }> }
+  prompt: {
+    compose: (i: { model: string; promptModel: string; surfaces: readonly never[]; tools: readonly never[]; outputStyle: null; traits: readonly never[] }) =>
+      Promise<{ sections: readonly { id: string; text: string; scope: string }[] }>
+  }
 }
 
 async function github($: Dollar, args: string): Promise<string> {
@@ -134,10 +144,39 @@ async function drawn($: Dollar): Promise<string> {
 // How many reads of this owner's repo gh has been asked for: one graphql call per read.
 const readsOf = (ran: string[][], owner: string) => ran.filter(a => a[0] === 'gh' && a.join(' ').includes('graphql') && a.join(' ').includes(`owner=${owner}`)).length
 const ghCalls = (ran: string[][]) => ran.filter(a => a[0] === 'gh')
-const composed = async ($: Dollar) => (await $.prompt.compose({ model: 'm', promptModel: 'm' })).sections
+// Every fact a render has: next(e) hands them on, and the kit skips a hook whose next() has no outputStyle.
+const composed = async ($: Dollar) =>
+  (await $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] })).sections
+const readsOfFile = (reads: string[], path: string) => reads.filter(p => p === path).length
 
-// First in the file, so these see no timer from a test before them even if the kit keeps the module.
+// A gate gh waits at while it's in Options' hold, and what opens it.
+function gate(): { hold: Promise<void>; open: () => void } {
+  let open = () => {}
+  const hold = new Promise<void>(resolve => { open = resolve })
+  return { hold, open }
+}
+
+// First in the file. Each needs no timer and no repo to start from, so these rely on the kit loading the
+// module afresh for each test, which loop-pane's polling tests need too.
 describe('/project with no session.start, as after a /clear', () => {
+  test('alone looks up the harness and starts the timer', async ($, on) => {
+    const s = stage(on, { session: { id: A } })
+    expect(await project($)).toBe('No project in focus.')
+    await s.clock.advance(TICK)
+    expect(readsOf(s.ran, 'SanvioLabs')).toBe(1)
+    const line = await drawn($)
+    expect(line).toContain(HARNESS)
+    expect(line).not.toContain('no GitHub remote')
+  })
+  test('off looks up the harness and starts the timer', async ($, on) => {
+    const s = stage(on, { session: { id: A } })
+    await project($, 'off')
+    await s.clock.settle()
+    expect(ghCalls(s.ran)).toEqual([])
+    await s.clock.advance(TICK)
+    expect(readsOf(s.ran, 'SanvioLabs')).toBe(1)
+    expect(await drawn($)).toContain(HARNESS)
+  })
   test('saves under the session root, reads, and starts the timer', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     expect(await project($, 'acme')).toBe(ACME)
@@ -153,6 +192,14 @@ describe('/project with no session.start, as after a /clear', () => {
     await s.clock.settle()
     expect(await drawn($)).toContain(HARNESS)
     expect((await gitHub($, 'all')).split('\n')[0]).toBe(`harness: ${HARNESS}`)
+  })
+})
+
+describe('the commands', () => {
+  test('session.start registers /github and /project', async ($, on) => {
+    const s = stage(on)
+    await start($)
+    expect(s.registered).toEqual(['github', 'project'])
   })
 })
 
@@ -294,6 +341,26 @@ describe('/project off and /project alone', () => {
     release()
     await s.clock.settle()
     expect(await drawn($)).toContain(HARNESS)
+  })
+  test('off with no project in focus starts no read', async ($, on) => {
+    const s = stage(on, { session: { id: A } })
+    await start($)
+    await s.clock.settle()
+    const before = ghCalls(s.ran).length
+    await project($, 'off')
+    await s.clock.settle()
+    expect(ghCalls(s.ran).length).toBe(before)
+  })
+  test('off on a harness with no remote shows that at once', async ($, on) => {
+    const s = stage(on, { session: { id: A }, noRemote: true })
+    await start($)
+    await project($, 'acme')
+    expect(await project($, 'off')).toContain('shows the harness again')
+    const line = await drawn($)
+    expect(line).toContain('no GitHub remote')
+    expect(line).not.toContain('acme')
+    await s.clock.settle()
+    expect(readsOf(s.ran, 'SanvioLabs')).toBe(0)
   })
   test('alone prints the project in focus, or that there\'s none', async ($, on) => {
     stage(on, { session: { id: A } })
@@ -512,6 +579,92 @@ describe('the tick', () => {
     for (let i = 0; i < 10; i++) await s.clock.advance(TICK)
     expect(ghCalls(s.ran)).toEqual([])
     expect(await drawn($)).toContain('no GitHub remote')
+  })
+  test('each session.start cancels the timer before it, so a reload leaves one', async ($, on) => {
+    const s = stage(on, { session: { id: A }, noRemote: true })
+    await start($)
+    await start($)
+    await start($)
+    await s.clock.settle()
+    const before = readsOfFile(s.reads, fileOf(A))
+    await s.clock.advance(TICK)
+    expect(readsOfFile(s.reads, fileOf(A))).toBe(before + 1)
+  })
+  test('/project with a timer running starts no second one', async ($, on) => {
+    const s = stage(on, { session: { id: A }, noRemote: true })
+    await start($)
+    await project($)
+    await s.clock.settle()
+    const before = readsOfFile(s.reads, fileOf(A))
+    await s.clock.advance(TICK)
+    expect(readsOfFile(s.reads, fileOf(A))).toBe(before + 1)
+  })
+  test('a read already under way for the focus doesn\'t start a second', async ($, on) => {
+    const held = gate()
+    const gh: NonNullable<Options['gh']> = { hold: held.hold }
+    const s = stage(on, { session: { id: A }, gh })
+    s.files.set(fileOf(A), 'acme\n')
+    await start($)
+    await s.clock.settle()
+    expect(await gitHub($)).toBe('acme: acme/app · reading…')
+    expect(readsOf(s.ran, 'acme')).toBe(1)
+    gh.hold = null
+    held.open()
+    await s.clock.settle()
+    expect(await drawn($)).toContain(ACME)
+  })
+  test('an old focus\'s read that ends leaves the new focus\'s read marked as under way', async ($, on) => {
+    const first = gate()
+    const second = gate()
+    const gh: NonNullable<Options['gh']> = { hold: first.hold }
+    const s = stage(on, { session: { id: A }, gh })
+    s.files.set(fileOf(A), 'acme\n')
+    await start($)
+    await s.clock.settle()
+    gh.hold = second.hold
+    s.files.set(fileOf(A), 'beta\n')
+    await s.clock.advance(TICK)
+    expect(readsOf(s.ran, 'beta')).toBe(1)
+    first.open()
+    await s.clock.settle()
+    await gitHub($)
+    expect(readsOf(s.ran, 'beta')).toBe(1)
+    expect(await drawn($)).toContain('beta: beta/site · reading…')
+    gh.hold = null
+    second.open()
+    await s.clock.settle()
+    expect(await drawn($)).toContain(BETA)
+  })
+  test('a reload forgets a read that was under way, so the next one due can start', async ($, on) => {
+    const held = gate()
+    const gh: NonNullable<Options['gh']> = { hold: held.hold }
+    const s = stage(on, { session: { id: A }, gh })
+    await start($)
+    await s.clock.settle()
+    expect(readsOf(s.ran, 'SanvioLabs')).toBe(1)
+    await start($)
+    await s.clock.advance(LIMIT)
+    expect(readsOf(s.ran, 'SanvioLabs')).toBe(2)
+    gh.hold = null
+    held.open()
+    await s.clock.settle()
+  })
+  test('a focus that moves while its origin is looked up starts no read for the old one', async ($, on) => {
+    const options: Options = { session: { id: A } }
+    const s = stage(on, options)
+    s.files.set(fileOf(A), 'acme\n')
+    await start($)
+    await s.clock.settle()
+    options.onGit = argv => {
+      if (argv[2] === `${ROOT}/projects/acme`) s.files.set(fileOf(A), 'beta\n')
+    }
+    await gitHub($)
+    expect(readsOf(s.ran, 'acme')).toBe(1)
+    expect(readsOf(s.ran, 'beta')).toBe(0)
+    options.onGit = undefined
+    await s.clock.advance(TICK)
+    expect(readsOf(s.ran, 'beta')).toBe(1)
+    expect(await drawn($)).toContain(BETA)
   })
   test('a prompt.compose call doesn\'t stop the next tick seeing a change', async ($, on) => {
     const s = stage(on, { session: { id: A } })

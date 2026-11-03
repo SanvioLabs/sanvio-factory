@@ -253,8 +253,8 @@ async function focusOn($: EngineInterface, arg: string): Promise<string> {
     await startRead($, target, now)
     await finishRead($, target)
   }
-  const status = await read($, statusAtom)
-  return status ? lineFor(status, Date.now()).text : `${name}: nothing read yet.`
+  // Both branches above have set the status.
+  return lineFor((await read($, statusAtom)) as GitHubState, Date.now()).text
 }
 
 // /project off: the file is left empty, and the line stops showing the project at once. The harness's
@@ -282,7 +282,7 @@ export const register: Register = on => {
     await update($, launchAtom, prev => prev ?? e.cwd)
     await $.command.register({
       name: COMMAND,
-      description: "Read GitHub now: the running actions, open pull requests and open issues of the project in focus, else the harness's repo. /github <project> or /github all for repos under projects/",
+      description: "Read GitHub now: the repo's running actions, open pull requests and open issues. /github <project> or /github all for repos under projects/",
     })
     await $.command.register({
       name: PROJECT_COMMAND,
@@ -307,7 +307,7 @@ export const register: Register = on => {
     const arg = e.args.trim()
     if (arg === OFF) return { text: await focusOff($) }
     if (arg) return { text: await focusOn($, arg) }
-    if (!timer) startTimer($)
+    await afterClear($, await rootOf($))
     const focus = await readFocus($)
     return { text: focus ? `In focus: projects/${focus}.` : 'No project in focus.' }
   })
