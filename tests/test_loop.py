@@ -1384,6 +1384,225 @@ class TestAPass(unittest.TestCase):
         self.assertEqual((row["number"], row["title"], row["note"]), (12, "Add the thing", "seen"))
         self.assertNotIn("model", row)
 
+    # -- time per step: mark() called directly, in order, with the clock set before each call ------
+
+    def timed_loop(self, *rows):
+        """A Loop holding these status rows, with loop.now_stamp replaced so at() sets the time."""
+        (self.work / ".loop").mkdir(exist_ok=True)
+        (self.work / ".loop" / "status.json").write_text(json.dumps({"queue": [], "issues": list(rows)}))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            lp = loop.Loop(self.work, self.cfg)
+        patcher = mock.patch.object(loop, "now_stamp")
+        self.stamp = patcher.start()
+        self.addCleanup(patcher.stop)
+        return lp
+
+    @staticmethod
+    def at(seconds):
+        return (datetime(2026, 11, 2, 9, 0, 0) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
+
+    def mark_at(self, lp, seconds, number=12, **fields):
+        """mark() at this time. Returns the issue's row as status.json has it, not as the Loop holds it."""
+        self.stamp.return_value = self.at(seconds)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            lp.mark(number, **fields)
+        return next(r for r in self.status()["issues"] if r["number"] == number)
+
+    def start_run(self, lp, seconds, number=12, step="SHAPE"):
+        """The mark process() makes at the start of a run, with self.rounds set as it sets it."""
+        lp.rounds[number] = {"tests": [], "verdicts": []}
+        return self.mark_at(lp, seconds, number, title="Add the thing", step=step, state="working", round=0,
+                            tests=None, review=None, pr=None, note="", started=self.at(seconds))
+
+    @staticmethod
+    def left_working(step="SHAPE", started="2026-11-02T08:00:00"):
+        """A row an interrupted run left at working, under this code: it has both fields."""
+        return {"number": 12, "title": "Add the thing", "step": step, "state": "working", "round": 0, "tests": None,
+                "review": None, "pr": None, "note": "", "started": started, "updated": started,
+                "step_started": started, "step_seconds": {"TEST": 99}}
+
+    @staticmethod
+    def older_row(state="working"):
+        """A row an older loop wrote, with neither field."""
+        return {"number": 12, "title": "Add the thing", "step": "BUILD", "state": state, "round": 1, "tests": None,
+                "review": None, "pr": None, "note": "", "started": "2026-01-01T00:00:00",
+                "updated": "2026-01-01T00:00:00"}
+
+    def test_a_whole_run_totals_each_step_and_sums_the_rounds(self):
+        lp = self.timed_loop()
+        row = self.start_run(lp, 0)
+        self.assertEqual((row["step_started"], row["updated"], row["step_seconds"]), (self.at(0), self.at(0), {}))
+        for seconds, fields, totals in (
+                (10, {"step": "TEST"}, {"SHAPE": 10}),
+                (30, {"step": "BUILD", "round": 1}, {"SHAPE": 10, "TEST": 20}),
+                (60, {"step": "VALIDATE"}, {"SHAPE": 10, "TEST": 20, "BUILD": 30}),
+                (65, {"step": "BUILD", "round": 2}, {"SHAPE": 10, "TEST": 20, "BUILD": 30, "VALIDATE": 5}),
+                (105, {"step": "VALIDATE"}, {"SHAPE": 10, "TEST": 20, "BUILD": 70, "VALIDATE": 5}),
+                (112, {"step": "SCALE"}, {"SHAPE": 10, "TEST": 20, "BUILD": 70, "VALIDATE": 12})):
+            row = self.mark_at(lp, seconds, **fields)
+            self.assertEqual(row["step_seconds"], totals)
+            self.assertEqual(row["step_started"], row["updated"])
+            self.assertEqual(row["step_started"], self.at(seconds))
+        row = self.mark_at(lp, 120, state="pr", pr="https://example.test/pull/1")
+        self.assertEqual(row["step_seconds"],
+                         {"SHAPE": 10, "TEST": 20, "BUILD": 70, "VALIDATE": 12, "SCALE": 8})
+        self.assertIsNone(row["step_started"])
+        self.assertEqual(row["updated"], self.at(120))
+
+    def test_each_mark_reads_the_clock_once_and_uses_it_for_every_field(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        self.assertEqual(self.stamp.call_count, 1)
+        self.mark_at(lp, 7, step="TEST")
+        self.assertEqual(self.stamp.call_count, 2)
+        self.mark_at(lp, 9, note="seen")
+        self.assertEqual(self.stamp.call_count, 3)
+
+    def test_the_real_clock_is_written_like_updated(self):
+        stamp = loop.now_stamp()
+        self.assertEqual(datetime.fromisoformat(stamp).isoformat(timespec="seconds"), stamp)
+        self.assertIsNone(datetime.fromisoformat(stamp).tzinfo)
+
+    def test_a_run_that_ends_mid_step_adds_that_step_and_clears_the_start(self):
+        for state in ("blocked", "stopped", "skipped", "pr"):
+            with self.subTest(state=state):
+                lp = self.timed_loop()
+                self.start_run(lp, 0)
+                self.mark_at(lp, 10, step="BUILD", round=1)
+                row = self.mark_at(lp, 35, state=state, note="ended")
+                self.assertEqual(row["step_seconds"], {"SHAPE": 10, "BUILD": 25})
+                self.assertIsNone(row["step_started"])
+                self.assertEqual(row["step"], "BUILD")
+
+    def test_a_second_run_of_the_same_issue_starts_empty(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        self.mark_at(lp, 10, step="BUILD")
+        self.mark_at(lp, 30, state="blocked")
+        row = self.start_run(lp, 500)
+        self.assertEqual((row["step_seconds"], row["step_started"]), ({}, self.at(500)))
+        row = self.mark_at(lp, 503, step="TEST")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 3})
+
+    def test_a_row_left_working_by_an_interrupted_run_starts_again_empty(self):
+        lp = self.timed_loop(self.left_working("SHAPE"))
+        row = self.start_run(lp, 0)
+        self.assertEqual((row["step_seconds"], row["step_started"], row["state"]), ({}, self.at(0), "working"))
+        row = self.mark_at(lp, 4, step="TEST")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 4})
+
+    def test_starting_comes_ahead_of_adding_time(self):
+        # In self.rounds, at a step that's changing, and leaving a run that had time on it: still adds nothing.
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        row = self.start_run(lp, 50, step="BUILD")
+        self.assertEqual((row["step_seconds"], row["step_started"]), ({}, self.at(50)))
+
+    def test_a_block_not_taken_on_a_row_left_working_adds_nothing_and_clears_it(self):
+        lp = self.timed_loop(self.left_working("SHAPE"))
+        row = self.mark_at(lp, 60, state="blocked", note="not taken")
+        self.assertEqual(row["step_seconds"], {"TEST": 99})
+        self.assertIsNone(row["step_started"])
+
+    def test_a_mark_that_changes_neither_leaves_both_fields(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        self.mark_at(lp, 5, step="TEST")
+        for seconds, fields in ((6, {"note": "seen"}), (7, {"tokens": 10, "cost_usd": 0.1}), (8, {"pushed": "abc"}),
+                                (9, {"update_tried": "abc"}), (10, {"step": "TEST", "state": "working"})):
+            row = self.mark_at(lp, seconds, **fields)
+            self.assertEqual(row["updated"], self.at(seconds))
+            self.assertEqual((row["step_started"], row["step_seconds"]), (self.at(5), {"SHAPE": 5}))
+
+    def test_a_negative_duration_counts_as_zero(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 100)
+        row = self.mark_at(lp, 40, step="TEST")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 0})
+        self.assertEqual(row["step_started"], self.at(40))
+
+    def test_an_older_row_with_neither_field_still_loads_and_takes_updates(self):
+        lp = self.timed_loop(self.older_row())
+        row = self.mark_at(lp, 0, note="seen")
+        self.assertEqual((row["title"], row["note"], row["updated"]), ("Add the thing", "seen", self.at(0)))
+        self.assertNotIn("step_started", row)
+        self.assertNotIn("step_seconds", row)
+        row = self.start_run(lp, 10)
+        self.assertEqual((row["step_seconds"], row["step_started"]), ({}, self.at(10)))
+
+    def test_a_row_never_started_under_this_change_carries_neither_field(self):
+        cases = (("new row, not taken", (), 13, {"state": "blocked", "note": "not taken"}),
+                 ("older row at working, not taken", (self.older_row(),), 12, {"state": "blocked", "note": "not taken"}),
+                 ("older row at working, in a run", (self.older_row(),), 12, {"step": "VALIDATE"}))
+        for name, rows, number, fields in cases:
+            with self.subTest(name):
+                lp = self.timed_loop(*rows)
+                if "step" in fields:
+                    lp.rounds[number] = {"tests": [], "verdicts": []}
+                row = self.mark_at(lp, 5, number, **fields)
+                self.assertNotIn("step_started", row)
+                self.assertNotIn("step_seconds", row)
+
+    def test_marking_one_issue_leaves_another_alone_and_uncounted(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0, number=13)
+        lp.rounds.pop(13)  # #13 has both fields but no run in this process, as after a restart
+        self.start_run(lp, 2, number=12)
+        other = next(r for r in self.status()["issues"] if r["number"] == 13)
+        self.mark_at(lp, 10, number=12, step="TEST")
+        self.assertEqual(next(r for r in self.status()["issues"] if r["number"] == 13), other)
+        row = self.mark_at(lp, 20, number=13, state="blocked", note="not taken")
+        self.assertEqual(row["step_seconds"], {})
+        self.assertIsNone(row["step_started"])
+        self.assertEqual(self.mark_at(lp, 21, number=12, note="seen")["step_seconds"], {"SHAPE": 8})
+
+    def test_changing_step_and_state_together_adds_once(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        row = self.mark_at(lp, 10, step="SCALE", state="blocked")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 10})
+        self.assertIsNone(row["step_started"])
+
+    def test_time_is_never_added_to_an_empty_step(self):
+        lp = self.timed_loop()
+        row = self.start_run(lp, 0, step="")
+        self.assertEqual(row["step_seconds"], {})
+        row = self.mark_at(lp, 10, step="TEST")
+        self.assertEqual(row["step_seconds"], {})
+        self.assertEqual(row["step_started"], self.at(10))
+
+    def test_a_second_block_on_a_blocked_row_changes_nothing(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        self.mark_at(lp, 10, state="blocked")
+        lp.rounds[12] = {"tests": [], "verdicts": []}
+        row = self.mark_at(lp, 40, state="blocked", note="again")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 10})
+        self.assertIsNone(row["step_started"])
+
+    def test_an_unreadable_start_adds_nothing_and_does_not_raise(self):
+        for bad in ("not a time", 12345, "2026-11-02T09:00:00+00:00"):
+            with self.subTest(bad=bad):
+                lp = self.timed_loop(dict(self.left_working("SHAPE"), step_started=bad))
+                lp.rounds[12] = {"tests": [], "verdicts": []}
+                row = self.mark_at(lp, 10, step="TEST")
+                self.assertEqual(row["step_seconds"], {"TEST": 99})
+                self.assertEqual(row["step_started"], self.at(10))
+
+    def test_a_step_change_outside_a_counted_run_leaves_both_fields(self):
+        lp = self.timed_loop(self.left_working("SHAPE"))
+        row = self.mark_at(lp, 10, step="TEST")
+        self.assertEqual((row["step_started"], row["step_seconds"]), ("2026-11-02T08:00:00", {"TEST": 99}))
+
+    def test_a_timed_run_writes_the_same_history_line(self):
+        lp = self.timed_loop()
+        self.start_run(lp, 0)
+        row = self.mark_at(lp, 10, state="pr", pr="https://example.test/pull/1")
+        self.assertEqual(row["step_seconds"], {"SHAPE": 10})
+        lines = self.history()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(set(lines[0]), self.HISTORY_KEYS)
+
     def test_the_log_lines_it_already_wrote_are_unchanged(self):
         self.go()
         self.assertEqual([l.split(" ", 2)[1:] for l in self.lines()[:4]], [
