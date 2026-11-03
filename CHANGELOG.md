@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-02: Safer harness eval runs
+
+A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.
+Files: [`scripts/eval_harness.py`](scripts/eval_harness.py), [`tests/test_eval_harness.py`](tests/test_eval_harness.py), [`examples/eval-suite/README.md`](examples/eval-suite/README.md), [`docs/specs/002-harness-evals/TASKS.md`](docs/specs/002-harness-evals/TASKS.md).
+
+**Do:** if your own suite's `key/score` calls `gh` for pull request details, read them from `PR_DATA` instead, since scoring now has no `gh` login.
+
 ## 2026-11-02: Loop crew lanes
 
 `/loop-crew`'s pane is now a board of lanes in place of the floor: a header naming the loop's steps left to right, then a lane for each issue being worked on, its words over a rail with a node at each step. Each issue's figure runs along its lane to its step when the step changes and works there, beside a small drawing of the work, and runs off the end when its pull request opens. The rail is lit in the steps' colours up to where the figure is going, and on a terminal it lights up behind the figure as it runs. The board matches the session's light or dark theme as of when the session started. On a terminal the board fits the pane's width and shows the lanes that fit, up to 8, and `/loop-crew` asks for room for three. It has been seen only in Claude Code run in VS Code's integrated terminal, against a pretend loop. The VS Code extension, Claude Desktop and the mobile app haven't been tried.

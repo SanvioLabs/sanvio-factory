@@ -257,7 +257,10 @@ elif args[:2] == ["pr", "list"]:
     print(json.dumps([{"number": p["number"], "state": p["state"]} for p in repos[value("-R")]["prs"]]))
 elif args[:2] == ["pr", "view"]:
     pr = repos[value("-R")]["prs"][int(args[2]) - 1]
-    print(json.dumps({"state": pr["state"], "headRefName": pr["head"]}))
+    head = subprocess.run(["git", "--git-dir", bare(value("-R")), "rev-parse", "refs/heads/" + pr["head"]],
+                          capture_output=True, text=True).stdout.strip()
+    print(json.dumps({"number": pr["number"], "state": pr["state"], "headRefName": pr["head"], "headRefOid": head,
+                      "body": "Work on it", "comments": [{"body": "Looks right"}]}))
 elif args[:2] == ["pr", "checks"]:
     checks = state.get("checks", [{"name": "checks", "bucket": "pass"}])
     print(json.dumps(checks))
@@ -297,6 +300,7 @@ for n in range(plan.get("prs", 1)):
     git("commit", "-q", "--allow-empty", "-m", "Work on " + issue)
     git("push", "-q", "origin", branch)
     subprocess.run(["gh", "pr", "create", "-R", repo, "--head", branch], check=True)
+time.sleep(plan.get("sleep_after", 0))
 sys.exit(plan.get("exit", 0))
 """
 
@@ -312,7 +316,9 @@ class WithFakeGh(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(FAKE_GH)
         os.chmod(str(bin_dir / "gh"), 0o755)
-        env = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "FAKE_GH_HOME": str(self.gh_home)}
+        self.sealed = self.tmp / "sealed"
+        env = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "FAKE_GH_HOME": str(self.gh_home),
+               "HARNESS_EVALS_HOME": str(self.sealed)}
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -464,7 +470,8 @@ class RunRecord(WithFakeGh):
         self.assertEqual(saved["repo_id"], "R_" + record["repo"])
         self.assertEqual(saved["harness_commit"], subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(self.harness), capture_output=True, text=True).stdout.strip())
-        self.assertEqual(saved["suite_path"], str(self.suite))
+        self.assertNotIn("suite_path", saved)
+        self.assertEqual(eval_harness.load_run(record["id"])["suite_path"], str(self.suite))
 
     def test_list_names_each_run_repo(self):
         record = self.create()
@@ -994,6 +1001,165 @@ class Compare(WithFakeGh):
         result_file(self.runs, "a", {"adds up": True}, {})
         path = str(self.runs / "a" / "result.json")
         self.assertIn("Nothing changed", self.run_cli("compare", path, path)[1])
+
+
+class FailedStartWithAPullRequest(ScoredRun):
+    def test_a_failed_start_that_opened_a_pull_request_scores_it(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}, "exit": 1})
+        self.run_suite("--merge-in-run-repo")
+        result = self.result()
+        self.assertIn("exited 1", result["stops"][0]["why"])
+        self.assertEqual(result["scored_at"], "pull request 1")
+        self.assertTrue(result["tests"][0]["passed"])
+        self.assertEqual(result["tests"][1]["name"], "saw pull requests 1")
+        self.assertEqual(self.merges(), [])
+
+    def test_a_timed_out_start_that_opened_a_pull_request_scores_it(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}, "sleep_after": 30})
+        self.run_suite("--merge-in-run-repo", "--timeout", "0.03")
+        result = self.result()
+        self.assertIn("timed out", result["stops"][0]["why"])
+        self.assertEqual(result["scored_at"], "pull request 1")
+
+
+class Interrupted(ScoredRun):
+    def interrupt_the_first_start(self):
+        """Run the suite, with Ctrl-C arriving while issue 1's start command runs. Returns that process."""
+        started = []
+        real_popen = subprocess.Popen
+
+        def popen(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            if args[0][0] == "sh":
+                started.append(process)
+            real_wait = process.wait
+
+            def wait(timeout=None):
+                if timeout and timeout > 60:
+                    raise KeyboardInterrupt
+                return real_wait(timeout)
+            process.wait = wait
+            return process
+
+        self.set_plan(i1={"sleep": 30})
+        with mock.patch("eval_harness.subprocess.Popen", popen), self.assertRaises(KeyboardInterrupt):
+            self.run_suite("--merge-in-run-repo")
+        return started[0]
+
+    def test_ctrl_c_takes_the_start_command_with_it(self):
+        process = self.interrupt_the_first_start()
+        self.assertIsNotNone(process.poll())
+
+    def test_an_interrupted_run_can_be_ended_and_scored(self):
+        self.interrupt_the_first_start()
+        self.assertEqual(self.only_run()["state"], "working")
+        code, out = self.run_cli("resume", self.only_run()["id"], "--end")
+        self.assertEqual(self.only_run()["state"], "ended")
+        self.assertIn("Tests", out)
+
+    def test_an_interrupted_run_isnt_carried_on_without_end(self):
+        self.interrupt_the_first_start()
+        code, out = self.run_cli("resume", self.only_run()["id"])
+        self.assertEqual(code, 2)
+        self.assertIn("--end", out)
+
+
+class SealedRecord(WithStub):
+    """What a run trusts is kept outside the harness folder, where the agents under test work."""
+
+    def edit_record(self, **fields):
+        path = next((self.harness / ".harness" / "harness-evals").glob("*/run.json"))
+        record = json.loads(path.read_text())
+        record.update(fields)
+        path.write_text(json.dumps(record))
+        return record
+
+    def merge_by_hand(self, number=1):
+        WaitingForAPerson.merge_by_hand(self, number)
+
+    def test_the_keys_location_isnt_written_in_the_harness(self):
+        self.run_suite()
+        for path in (self.harness / ".harness").rglob("*"):
+            if path.is_file():
+                self.assertNotIn(str(self.suite), path.read_text())
+
+    def test_an_edited_record_cant_turn_merging_on_or_point_it_elsewhere(self):
+        self.run_suite()
+        state = self.gh_state()
+        record = self.only_run()
+        state["repos"]["someone/else"] = dict(state["repos"][record["repo"]], id="R_someone/else")
+        self.set_gh(**state)
+        self.edit_record(repo="someone/else", repo_id="R_someone/else", merge=True)
+        code, _ = self.run_cli("resume", record["id"])
+        self.assertEqual(code, 3)
+        self.assertEqual(self.merges(), [])
+
+    def test_an_edited_start_command_doesnt_run(self):
+        marker = self.tmp / "planted"
+        self.run_suite()
+        self.edit_record(start="touch {}".format(marker))
+        self.merge_by_hand()
+        self.run_cli("resume", self.only_run()["id"])
+        self.assertFalse(marker.exists())
+        self.assertEqual([c["issue"] for c in self.stub_calls()], ["1", "2"])
+
+    def test_a_pull_request_that_isnt_a_number_is_refused(self):
+        self.run_suite()
+        record = self.only_run()
+        record["issues"][0]["pr"] = "https://github.com/someone/else/pull/1"
+        self.edit_record(issues=record["issues"])
+        code, out = self.run_cli("resume", record["id"])
+        self.assertEqual(code, 2)
+        self.assertIn("isn't a pull request number", out)
+
+    def test_a_run_with_no_sealed_copy_isnt_resumed(self):
+        self.run_suite()
+        for path in self.sealed.glob("*"):
+            path.unlink()
+        code, out = self.run_cli("resume", self.only_run()["id"])
+        self.assertEqual(code, 2)
+        self.assertIn("sealed", out)
+
+    def test_stop_still_works_on_a_run_with_no_sealed_copy(self):
+        self.run_suite()
+        for path in self.sealed.glob("*"):
+            path.unlink()
+        self.assertEqual(self.run_cli("stop", self.only_run()["id"], "stepped in")[0], 0)
+        self.assertEqual(self.only_run()["stops"][-1]["why"], "stepped in")
+
+
+# Reports what the scorer could reach: the person's home, a gh login, and each pull request's details.
+SCORE_REACH = r"""#!/usr/bin/env python3
+import json, os, subprocess
+home = os.environ.get("HOME", "")
+config = os.environ.get("GH_CONFIG_DIR", "")
+pulls = json.loads(open(os.environ["PR_DATA"]).read())
+print(json.dumps({"tests": [{"name": "home " + home, "passed": True},
+                            {"name": "gh config " + config, "passed": bool(config) and not os.listdir(config)},
+                            {"name": "pulls " + " ".join("{}:{}:{}".format(p["number"], p["headRefName"], p["body"])
+                                                          for p in pulls), "passed": True},
+                            {"name": "comments " + " ".join(c["body"] for p in pulls for c in p["comments"]),
+                             "passed": True}],
+                  "traps": []}))
+"""
+
+
+class ScoringReach(ScoredRun):
+    def setUp(self):
+        super().setUp()
+        (self.suite / "key" / "score").write_text(SCORE_REACH)
+
+    def test_the_scorer_runs_with_an_empty_home_and_no_gh_login(self):
+        self.run_suite("--merge-in-run-repo")
+        names = [test["name"] for test in self.result()["tests"]]
+        self.assertNotEqual(names[0], "home " + os.path.expanduser("~"))
+        self.assertTrue(self.result()["tests"][1]["passed"], names[1])
+
+    def test_the_scorer_gets_each_pull_requests_details(self):
+        self.run_suite("--merge-in-run-repo")
+        names = [test["name"] for test in self.result()["tests"]]
+        self.assertEqual(names[2], "pulls 1:issue-1-0:Work on it 2:issue-2-0:Work on it")
+        self.assertEqual(names[3], "comments Looks right Looks right")
 
 
 if __name__ == "__main__":

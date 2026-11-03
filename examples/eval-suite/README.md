@@ -12,7 +12,7 @@ key/
   wrong/<name>/   files that overlay the seed to make a known wrong answer
 ```
 
-`required_checks` names the seed's CI jobs, and [`key/score`](key/score) gets `RUN_DIR`, `BASE_SHA`, `PR_NUMBERS` and `RUN_REPO`. `"public_example": true` is what lets this suite's key sit inside the harness. Don't set it on a real suite.
+`required_checks` names the seed's CI jobs, and [`key/score`](key/score) gets `RUN_DIR`, `BASE_SHA`, `PR_NUMBERS`, `RUN_REPO` and `PR_DATA`, a JSON file with each pull request's number, state, branch, base and head commits, body and comments. It runs with an empty `HOME` and no `gh` login, so it reads pull requests from `PR_DATA` rather than from GitHub. `"public_example": true` is what lets this suite's key sit inside the harness. Don't set it on a real suite.
 
 Check a suite before you use it. This spends no tokens and creates no repo, and it passes only when the seed fails, each wrong answer fails and the reference passes:
 
@@ -31,4 +31,4 @@ Then compare two runs, by the names `list` prints:
 
     python3 scripts/eval_harness.py compare <run-a> <run-b>
 
-Scoring runs code an agent wrote, as CI would. Keep made-up data in every suite.
+Scoring runs code an agent wrote on your machine. It gets an empty `HOME` and no `gh` login, but it still has the network and can read anything outside `HOME` that you can, the suite's key included. Keep made-up data in every suite.
