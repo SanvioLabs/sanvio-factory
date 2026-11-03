@@ -19,6 +19,11 @@ const loopsAtom = atom({ plugin: 'loop-pane', key: 'loops' } as const, null)
 const pickedAtom = atom({ plugin: 'loop-pane', key: 'picked' } as const, null)
 // The project in focus as last read from this session's file, or null, so a read can tell it changed.
 const focusAtom = atom({ plugin: 'loop-pane', key: 'focus' } as const, null)
+// A pick saving the focus: how many saves are under way, and a count bumped as each starts and ends.
+// Between a save's write and its read back, the file says what the pane already shows, and a read
+// landing there mustn't take it for a change.
+let saving = 0
+let saves = 0
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -182,9 +187,12 @@ async function refresh($: EngineInterface): Promise<void> {
   // Once a loop is on screen, a change in the session's focus moves the pane: to the project now in
   // focus when it has a loop listed, to the harness when the focus is cleared. A focus on a project
   // with no loop listed is remembered and moves nothing, so the loop appearing later doesn't either.
+  // A read that overlaps a pick's save is left alone: the save sets the remembered focus itself.
   if (picked !== null) {
+    const at = saves
     const focus = await readFocus($, root)
-    if (focus !== (await read($, focusAtom))) {
+    const known = await read($, focusAtom)
+    if (saving === 0 && at === saves && focus !== known) {
       await update($, focusAtom, () => focus)
       if (focus === null) picked = ''
       else if (loops.some(l => l.project === focus)) picked = focus
@@ -215,12 +223,15 @@ async function show($: EngineInterface, loop: Seen): Promise<void> {
   await update($, seenAtom, () => loop)
   await update($, viewAtom, () => null)
   // Then the pick becomes the session's focus, after the switch so a failed or slow write never holds
-  // it up. A project whose name isn't one projectName passes as it stands is never written.
+  // it up. A project whose name isn't one projectName passes as it stands is never written: ` acme`
+  // would be read back as acme, another project.
+  const name = loop.project
+  const parsed = name ? projectName(name) : null
+  const text = !name ? '' : parsed && 'name' in parsed && parsed.name === name ? `${name}\n` : null
+  if (text === null) return
+  saving++
+  saves++
   try {
-    const name = loop.project
-    const parsed = name ? projectName(name) : null
-    const text = !name ? '' : parsed && 'name' in parsed && parsed.name === name ? `${name}\n` : null
-    if (text === null) return
     const root = await rootOf($)
     if (!root || !(await saveFocus($, root, text))) return
     // What the file now means, not the name picked: a loop with no projects/<name> folder means none.
@@ -228,6 +239,9 @@ async function show($: EngineInterface, loop: Seen): Promise<void> {
     await update($, focusAtom, () => focus)
   } catch {
     // The pane has already switched; a focus that can't be saved leaves the remembered one alone.
+  } finally {
+    saving--
+    saves++
   }
 }
 

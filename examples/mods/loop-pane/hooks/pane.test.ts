@@ -612,8 +612,8 @@ group('project loops', () => {
 
   // The engine beneath the plugin: a harness whose loop files are `files`, by path, and an open pane.
   // The folders under .loop/projects come from those paths. The test changes `files` between polls,
-  // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away or refuse
-  // every write. fs.read records each path it reads, and fs.write each path and text, storing the text
+  // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away, refuse
+  // every write or hold one open. fs.read records each path it reads, and fs.write each path and text, storing the text
   // in `files`. Nothing touches the disk.
   function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     const clock = mock.clock(on, { now: 1_800_000_000_000 })
@@ -625,7 +625,7 @@ group('project loops', () => {
     const session = focus.session ?? { id: null }
     let idsAsked = 0
     const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-    const flip = { closeFails: false, rootGone: false, writesFail: false }
+    const flip = { closeFails: false, rootGone: false, writesFail: false, held: null as Promise<void> | null }
     on('session.root', async () => ({ value: ROOT }))
     on('session.id', async () => {
       idsAsked++
@@ -641,6 +641,8 @@ group('project loops', () => {
       if (flip.writesFail) return { deny: 'read-only' }
       writes.push({ path: e.path, text: e.text })
       files.set(e.path, e.text)
+      // A held write has stored its text but not yet returned, until the test lets it go.
+      if (flip.held) await flip.held
       return { value: undefined }
     })
     on('fs.stat', async (_$, e) => {
@@ -1320,6 +1322,61 @@ group('project loops', () => {
     expect(await titles(ui)).toEqual(['#30 beta job'])
     expect(writes).toEqual([])
     expect(files.get(FOCUS(A))).toBe('alpha\n')
+    await ui.unmount()
+    await close()
+  })
+  // Folders under .loop/projects/ whose names projectName refuses, or changes: ` acme` passes once
+  // trimmed, and would be read back as acme, another project.
+  for (const odd of ['.hidden', 'a..b', ' acme']) {
+    test(`a pick of a loop named ${JSON.stringify(odd)} switches the pane, writes no focus, and holds`, async ($, on) => {
+      const files = threeLoops()
+      files.set(FOCUS(A), 'alpha\n')
+      files.set(`${project(odd)}/status.json`, statusText('odd job'))
+      const { clock, writes, close } = world(on, files, { session: { id: A }, projects: { ...FOLDERS, acme: 'dir', [odd]: 'dir' } })
+      await open($ as unknown as Dollar)
+      const ui = await $.ui.mount(PANE)
+      expect(await titles(ui)).toEqual(['#30 alpha job'])
+      await ui.select({ key: 'loop-pick', value: odd })
+      await settle()
+      expect(await titles(ui)).toEqual(['#30 odd job'])
+      expect(writes).toEqual([])
+      expect(files.get(FOCUS(A))).toBe('alpha\n')
+      await clock.advance(POLL)
+      expect(await titles(ui)).toEqual(['#30 odd job'])
+      expect(await pickValue(ui)).toBe(odd)
+      expect(writes).toEqual([])
+      await ui.unmount()
+      await close()
+    })
+  }
+  test('a read landing while a pick saves the focus leaves the pane on the pick', async ($, on) => {
+    const files = threeLoops()
+    files.set(FOCUS(A), 'alpha\n')
+    // beta has a loop but no folder under projects/, so once the pick writes it the file means no focus.
+    const { clock, flip, reads, close } = world(on, files, { session: { id: A }, projects: { alpha: 'dir' } })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    let release: () => void = () => {}
+    flip.held = new Promise<void>(resolve => {
+      release = () => resolve()
+    })
+    const picking = ui.select({ key: 'loop-pick', value: 'beta' })
+    await settle()
+    expect(files.get(FOCUS(A))).toBe('beta\n')
+    // A read lands with beta written and the save not yet back.
+    const focusReads = () => reads.filter(p => p === FOCUS(A)).length
+    const before = focusReads()
+    await clock.advance(POLL)
+    expect(focusReads()).toBeGreaterThan(before)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    flip.held = null
+    release()
+    await picking
+    await settle()
+    await clock.advance(POLL)
+    expect(await titles(ui)).toEqual(['#30 beta job'])
+    expect(await pickValue(ui)).toBe('beta')
     await ui.unmount()
     await close()
   })
