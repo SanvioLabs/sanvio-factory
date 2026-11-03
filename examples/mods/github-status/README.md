@@ -46,7 +46,7 @@ claude plugin disable github-status@sanvio-harness-starter --scope local
 | `owner/name · 2 actions running (1 queued) · 3 open pull requests · 5 open issues`, cyan | What the last read found. Actions are workflow runs in progress, and the queued count shows only when there is one. Issues don't include pull requests |
 | `… · as of 7m ago`, yellow | The last read failed, so these are the counts from the one before, and how old they are |
 | `owner/name · GitHub unavailable (is gh installed and signed in?)`, yellow | No read has worked yet this session. `gh` is missing, signed out, offline, or can't see the repo |
-| `no GitHub remote`, dim | The session's folder has no `origin` remote on github.com, so the mod never calls `gh` |
+| `no GitHub remote`, dim | The session's folder has no `origin` remote on github.com, so the mod never calls `gh`. With a project in focus it's `<name>: no GitHub remote`: that project's folder has no GitHub `origin`, and `gh` isn't called for it |
 
 While a project is in focus (see *Your projects*), every row is about that
 project's repo and starts with its name: `acme: acme/app · reading…`, or
@@ -90,7 +90,8 @@ is read or written.
 
 The file's text, trimmed, is the project in focus when it's a name `/github`
 would accept and `projects/<name>` is a real folder, not a link. Anything else
-is no focus: an empty file, a missing one, or text naming something else. The
+is no focus: an empty or whitespace-only file, a missing or unreadable one, or
+text naming something `projectName` refuses or that isn't such a folder. The
 timer reads the file every 15 seconds, so a focus another tool writes there
 shows on the next tick, and reads that repo straight away even inside the
 two-minute limit. A read that's still under way for a repo that's left focus
