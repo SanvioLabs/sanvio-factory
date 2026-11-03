@@ -381,6 +381,10 @@ class HarnessTrendsRename(unittest.TestCase):
         self.assertTrue(self.SKILL.exists())
         self.assertEqual(frontmatter(self.SKILL.read_text())["name"], "harness-trends")
 
+    def test_the_heading_has_its_new_name(self):
+        headings = [line for line in self.SKILL.read_text().splitlines() if line.startswith("# ")]
+        self.assertEqual(headings[:1], ["# Harness trends"])
+
     def test_the_old_folder_is_gone(self):
         self.assertFalse((ROOT / "skills" / "harness-report").exists())
 
