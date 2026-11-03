@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LIMIT_MS, QUERY, allText, due, failed, lineFor, parseCounts, parseRemote, projectName } from './logic'
+import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
 import type { Counts } from '../types'
 
 const REPO = 'SanvioLabs/sanvio-harness-starter'
@@ -114,5 +114,57 @@ describe('/github all', () => {
   test('one folder without a remote, and none under projects/', () => {
     expect(allText('x', [], 1, 1)).toBe('harness: x\n1 folder under projects/ has no GitHub remote.')
     expect(allText('x', [], 0, 0)).toBe('harness: x\nNo folders under projects/.')
+  })
+})
+
+describe('the focus file', () => {
+  test('an id matching the pattern names a file under .harness/project', () => {
+    expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
+    expect(focusFile('/h', 'A'.repeat(64))).toBe(`/h/.harness/project/${'A'.repeat(64)}`)
+  })
+  test('anything else names none', () => {
+    for (const id of [null, '', 'abc', '../../etc/passwd', 'aaaaaaaa/1111', 'g'.repeat(8), 'a'.repeat(65)]) {
+      expect(focusFile('/h', id)).toBeNull()
+    }
+    expect(SESSION.test('aaaaaaaa\n')).toBe(false)
+  })
+  test('the text, trimmed, is what projectName accepts', () => {
+    expect(focusName('acme\n')).toBe('acme')
+    expect(focusName('  projects/acme  ')).toBe('acme')
+    for (const text of ['', '  \n', '../x', 'a/b', '.hidden', 'two words']) expect(focusName(text)).toBeNull()
+  })
+})
+
+describe('/project\'s words', () => {
+  test('a refusal names /project and never /github', () => {
+    const why = projectWhy(' ../x ')
+    expect(why).toContain('"../x"')
+    expect(why).toContain('/project')
+    expect(why).not.toContain('/github')
+  })
+  test('/github\'s own refusal stays as it was', () => {
+    expect(projectName('../x')).toEqual({ why: '"../x" isn\'t a project: give the name of a folder under projects/, such as /github acme, or /github all.' })
+  })
+  test('the section names the project', () => {
+    expect(sectionText('acme')).toBe('The person has put projects/acme in focus. When they ask about the project, its pull requests, its issues or its loop without naming one, they mean projects/acme.')
+  })
+})
+
+describe('the line with a project', () => {
+  const project = 'acme'
+  test('every state starts with the name, and keeps its tone', () => {
+    expect(lineFor({ kind: 'no-remote', project }, NOW)).toEqual({ text: 'acme: no GitHub remote', tone: 'quiet' })
+    expect(lineFor({ kind: 'reading', repo: REPO, project }, NOW)).toEqual({ text: `acme: ${REPO} · reading…`, tone: 'now' })
+    expect(lineFor({ kind: 'counts', repo: REPO, counts: COUNTS, at: NOW, project }, NOW)).toEqual({ text: `acme: ${REPO} · 2 actions running · 3 open pull requests · 5 open issues`, tone: 'now' })
+    expect(lineFor({ kind: 'unavailable', repo: REPO, project }, NOW).text).toBe(`acme: ${REPO} · GitHub unavailable (is gh installed and signed in?)`)
+    const stale = lineFor({ kind: 'stale', repo: REPO, counts: COUNTS, at: NOW - 60_000, project }, NOW)
+    expect(stale).toEqual({ text: `acme: ${REPO} · 2 actions running · 3 open pull requests · 5 open issues · as of 1m ago`, tone: 'warn' })
+  })
+  test('a failed read keeps counts only for the same repo and the same project', () => {
+    const counts = { kind: 'counts', repo: REPO, counts: COUNTS, at: NOW, project } as const
+    expect(failed(counts, REPO, 'acme')).toEqual({ kind: 'stale', repo: REPO, counts: COUNTS, at: NOW, project })
+    expect(failed(counts, REPO, 'beta')).toEqual({ kind: 'unavailable', repo: REPO, project: 'beta' })
+    expect(failed(counts, REPO)).toEqual({ kind: 'unavailable', repo: REPO })
+    expect(failed(counts, 'other/repo', 'acme')).toEqual({ kind: 'unavailable', repo: 'other/repo', project })
   })
 })
