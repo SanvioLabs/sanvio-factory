@@ -34,6 +34,13 @@ Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md
 
 **Do:** nothing.
 
+## 2026-11-02: Time per step
+
+Each issue's row in `.loop/status.json` now records how long the current run spent on each step: `step_started` says when the current step began, and `step_seconds` holds the whole seconds per step, with rounds summed. It covers the current run only, and `loop.log` and `.loop/history.jsonl` are unchanged.
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
+
+**Do:** nothing. A running loop picks it up when it's next started.
+
 ## 2026-11-02: Project focus
 
 `/project <name>` puts one project under [`projects/`](projects/) in focus for the session: the GitHub line shows that project's repo with `<name>: ` at the start, in every state, and the model is told that an unnamed "the project" means that one. `/project off` clears it and `/project` says which it is. The focus is one file per session, `.harness/project/<id>`, which a `/clear` leaves behind and doesn't carry over, and the 15-second timer now runs whether or not the harness has a GitHub remote, and reads the file each time. The mod now writes that file, where it only read before.
