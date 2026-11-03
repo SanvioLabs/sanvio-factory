@@ -172,17 +172,19 @@ async function startRead($: EngineInterface, target: Target, now: number): Promi
   }
 }
 
-// The read itself. Every failure is caught and shows as unavailable, or as stale counts. A read for a
-// focus that's gone by the time it finishes writes nothing.
-async function finishRead($: EngineInterface, target: Target): Promise<void> {
+// The read itself, and what it found. A failed read shows as unavailable, or as stale counts. A read for
+// a focus that's gone by the time it finishes writes nothing to the line, and still answers for its repo.
+async function finishRead($: EngineInterface, target: Target): Promise<GitHubState> {
   const { focus, repo: name } = target
   try {
-    const counts = await readCounts($, name)
-    if ((await readFocus($)) === focus) {
-      await update($, statusAtom, (): GitHubState => ({ kind: 'counts', repo: name, counts, at: Date.now(), ...tagged(focus) }))
+    let state: GitHubState
+    try {
+      state = { kind: 'counts', repo: name, counts: await readCounts($, name), at: Date.now(), ...tagged(focus) }
+    } catch {
+      state = failed(await read($, statusAtom), name, focus ?? undefined)
     }
-  } catch {
-    if ((await readFocus($)) === focus) await update($, statusAtom, prev => failed(prev, name, focus ?? undefined)).catch(() => {})
+    if ((await readFocus($)) === focus) await update($, statusAtom, () => state).catch(() => {})
+    return state
   } finally {
     if (reading === keyOf(focus)) reading = null
   }
@@ -220,8 +222,13 @@ async function sync($: EngineInterface, isAsked = false): Promise<void> {
   if (target) await finishRead($, target)
 }
 
+
+// Only the latest timer reads: one replaced by a reload does nothing, even if it still fires.
 function startTimer($: EngineInterface): void {
-  timer = $.clock.every(TICK_MS, () => void sync($).catch(() => {}))
+  const mine: NonNullable<typeof timer> = $.clock.every(TICK_MS, () => {
+    if (timer === mine) void sync($).catch(() => {})
+  })
+  timer = mine
 }
 
 // What every saved /project needs after a /clear, which fires no session.start: the harness's repo, for
@@ -248,13 +255,12 @@ async function focusOn($: EngineInterface, arg: string): Promise<string> {
   if (!found) {
     await update($, attemptAtom, () => now)
     await showNoRemote($, name)
-  } else {
-    const target = { focus: name, repo: found }
-    await startRead($, target, now)
-    await finishRead($, target)
+    return lineFor({ kind: 'no-remote', project: name }, Date.now()).text
   }
-  // Both branches above have set the status.
-  return lineFor((await read($, statusAtom)) as GitHubState, Date.now()).text
+  const target = { focus: name, repo: found }
+  await startRead($, target, now)
+  // This read's own answer, not the line's: the focus may have moved on while it ran.
+  return lineFor(await finishRead($, target), Date.now()).text
 }
 
 // /project off: the file is left empty, and the line stops showing the project at once. The harness's
@@ -291,10 +297,7 @@ export const register: Register = on => {
     const launch = await read($, launchAtom)
     repo = launch ? await originRepo($, launch) : null
     isRepoKnown = true
-    // A timer from before a reload or a resume may already be gone.
-    try {
-      timer?.cancel()
-    } catch {}
+    timer?.cancel()
     reading = null
     startTimer($)
     // The focus settles before the session goes on, so a reload never flashes the harness's line. GitHub isn't waited for.

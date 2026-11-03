@@ -25,6 +25,7 @@ type Options = {
 function stage(on: On, options: Options = {}) {
   const ran: string[][] = []
   const reads: string[] = []
+  const exists: string[] = []
   const writes: { path: string; text: string }[] = []
   const files = new Map<string, string>()
   const registered: string[] = []
@@ -66,8 +67,11 @@ function stage(on: On, options: Options = {}) {
           { name: 'README.md', kind: 'file', size: 1, mtimeMs: 0, isLink: false } satisfies FsEntry,
         ] }
       : next(e))
-  on('fs.exists', async (_$, e, next) =>
-    e.path.startsWith(`${ROOT}/projects/`) ? { value: /\/projects\/(acme|beta)\/\.git$/.test(e.path) } : next(e))
+  on('fs.exists', async (_$, e, next) => {
+    if (!e.path.startsWith(`${ROOT}/projects/`)) return next(e)
+    exists.push(e.path)
+    return { value: /\/projects\/(acme|beta)\/\.git$/.test(e.path) }
+  })
   on('process.run', async (_$, e) => {
     const argv = [...e.argv]
     ran.push(argv)
@@ -94,7 +98,7 @@ function stage(on: On, options: Options = {}) {
     return ok('{"total_count": 0}')
   })
   on('ui.render', async () => ({ type: 'Box', props: {}, children: [] }) as never)
-  return { ran, reads, writes, files, registered, clock }
+  return { ran, reads, exists, writes, files, registered, clock }
 }
 
 const world = (on: On, options: Options = {}): string[][] => stage(on, options).ran
@@ -284,6 +288,24 @@ describe('/project <name>', () => {
     expect(readsOf(s.ran, 'acme')).toBe(1)
     await s.clock.advance(1_000 + TICK)
     expect(readsOf(s.ran, 'acme')).toBe(2)
+  })
+  test('prints its own project\'s line when the focus moves during the read, and the line stays out of it', async ($, on) => {
+    const gh: NonNullable<Options['gh']> = {}
+    const s = stage(on, { session: { id: A }, gh })
+    await start($)
+    await s.clock.settle()
+    const held = gate()
+    gh.hold = held.hold
+    const printed = project($, 'acme')
+    await s.clock.settle()
+    expect(readsOf(s.ran, 'acme')).toBe(1)
+    gh.hold = null
+    s.files.set(fileOf(A), 'beta\n')
+    held.open()
+    expect(await printed).toBe(ACME)
+    expect(await drawn($)).not.toContain(ACME)
+    await s.clock.advance(TICK)
+    expect(await drawn($)).toContain(BETA)
   })
   test('a name that fails the rule says why in /project\'s words, writes nothing and calls no gh', async ($, on) => {
     const s = stage(on, { session: { id: A } })
@@ -572,6 +594,19 @@ describe('the tick', () => {
     await s.clock.advance(TICK)
     await s.clock.advance(TICK)
     expect(gitsIn()).toBe(before)
+  })
+  test('a focused folder with no GitHub origin counts for the limit, so its origin is looked up once in two minutes', async ($, on) => {
+    const s = stage(on, { session: { id: A } })
+    await start($)
+    await s.clock.settle()
+    const lookups = () => s.exists.filter(path => path === `${ROOT}/projects/notes/.git`).length
+    s.files.set(fileOf(A), 'notes\n')
+    await s.clock.advance(TICK)
+    expect(lookups()).toBe(1)
+    for (let i = 0; i < 7; i++) await s.clock.advance(TICK)
+    expect(lookups()).toBe(1)
+    await s.clock.advance(TICK)
+    expect(lookups()).toBe(2)
   })
   test('a harness with no remote and no focus never calls gh', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
