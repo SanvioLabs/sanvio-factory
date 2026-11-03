@@ -609,5 +609,268 @@ class Wording(unittest.TestCase):
         self.assertIn("Daily pulse question", changelog)
 
 
+def dated(date_line, heading="## two\n", chip="Chip: Dated\n"):
+    return heading + date_line + chip + "Question: When?\n" + TWO_OPTIONS
+
+
+PROPOSAL = "## launch\nChip: Launch\nQuestion: Ready to launch?\n- Yes: Ready\n- No: Not yet\n"
+
+
+def proposed_bytes(day):
+    return ("\n## launch\nDate: {}\nChip: Launch\nQuestion: Ready to launch?\n- Yes: Ready\n- No: Not yet\n"
+            .format(day)).encode("utf-8")
+
+
+class DatedBankProblems(PulseCase):
+    REAL_DATE = "the date must be a real date written YYYY-MM-DD"
+    CASES = {
+        "empty date": (question() + dated("Date:\n"), "two:", REAL_DATE),
+        "blank date": (question() + dated("Date:   \n"), "two:", REAL_DATE),
+        "compact date": (question() + dated("Date: 20261104\n"), "two:", REAL_DATE),
+        "unpadded date": (question() + dated("Date: 2026-2-3\n"), "two:", REAL_DATE),
+        "impossible date": (question() + dated("Date: 2026-02-30\n"), "two:", REAL_DATE),
+        "words": (question() + dated("Date: next Friday\n"), "two:", REAL_DATE),
+        "same date twice": (question() + dated("Date: 2026-12-01\n") + dated("Date: 2026-12-01\n", "## three\n"),
+                            "three:", "two questions have this date"),
+        "every question dated": (dated("Date: 2026-12-01\n"), "questions.md:", "it has no questions without a date"),
+    }
+
+    def test_check_names_each_date_problem_on_one_line(self):
+        for name, (text, where, words) in self.CASES.items():
+            with self.subTest(name):
+                self.bank(text)
+                before = self.files()
+                result = self.pulse("check")
+                self.assert_refused(result, before, where + " " + words)
+                self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+
+    def test_a_duplicate_date_names_the_later_question_only(self):
+        self.bank(question() + dated("Date: 2026-12-01\n") + dated("Date: 2026-12-01\n", "## three\n"))
+        said = self.said(self.pulse("check"))
+        self.assertIn("three: two questions have this date", said)
+        self.assertNotIn("two: two questions have this date", said)
+
+    def test_two_bad_dates_are_not_also_a_duplicate(self):
+        self.bank(question() + dated("Date:\n") + dated("Date:\n", "## three\n"))
+        result = self.pulse("check")
+        self.assertEqual(result.stderr.splitlines(), ["two: " + self.REAL_DATE, "three: " + self.REAL_DATE])
+
+    def test_a_date_before_today_passes(self):
+        self.bank(question() + dated("Date: 2020-01-01\n"))
+        result = self.pulse("check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("2 questions", result.stdout)
+
+
+class DatedRotation(PulseCase):
+    def ids_for(self, days):
+        ids = []
+        for day in days:
+            result = self.pulse("question", "--json", "--date", day.isoformat())
+            self.assertEqual(result.returncode, 0, result.stderr)
+            ids.append(json.loads(result.stdout)["id"])
+        return ids
+
+    def test_a_date_line_is_read_as_the_questions_date(self):
+        self.bank(BANK + "\n" + dated("Date:   2026-05-10  \n"))
+        lines = self.pulse("question", "--date", "2026-05-10").stdout.splitlines()
+        self.assertEqual(lines[0], "2026-05-10 (two)")
+        self.assertEqual(lines[1:3], ["Dated", "When?"])
+
+    def test_a_bank_with_no_dates_asks_what_it_asked_before(self):
+        self.bank()
+        days = [datetime.date(2026, 7, 1) + datetime.timedelta(days=n) for n in range(9)]
+        self.assertEqual(self.ids_for(days), [IDS[day.toordinal() % 3] for day in days])
+
+    def test_a_dated_question_is_asked_on_its_date_only_and_the_rest_take_turns(self):
+        special = datetime.date(2026, 5, 10)
+        self.bank(BANK.replace("## beta", dated("Date: 2026-05-10\n", "## special\n") + "\n## beta"))
+        self.assertEqual(self.pulse("check").returncode, 0)
+        days = [datetime.date(2026, 5, 1) + datetime.timedelta(days=n) for n in range(20)]
+        expected = ["special" if day == special else IDS[day.toordinal() % 3] for day in days]
+        self.assertEqual(self.ids_for(days), expected)
+
+
+class DatedAnswers(PulseCase):
+    def test_a_dated_question_for_another_day_needs_its_date(self):
+        self.bank(BANK + "\n" + dated("Date: {}\n".format(self.yesterday), "## past\n"))
+        before = self.files()
+        self.assert_refused(self.pulse("answer", "past", "1"), before, "isn't today's question")
+        result = self.pulse("answer", "past", "1", "--date", self.yesterday)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.answers(), [{"date": self.yesterday, "id": "past", "answer": "One"}])
+
+    def test_a_dated_question_for_today_is_todays_question(self):
+        self.bank(BANK + "\n" + dated("Date: {}\n".format(self.today.isoformat()), "## now\n"))
+        self.assertEqual(json.loads(self.pulse("question", "--json").stdout)["id"], "now")
+        result = self.pulse("answer", "now", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.answers()[0]["answer"], "Two")
+
+    def test_answers_under_a_dated_id_show_in_results_and_the_summary(self):
+        self.bank(BANK + "\n" + dated("Date: {}\n".format(self.yesterday), "## past\n"))
+        self.person("sam", self.pick("past", "One"))
+        self.person("kim", self.pick("past", "Two"))
+        self.assertEqual(self.pulse("answer", "past", "1", "--date", self.yesterday).returncode, 0)
+        results = self.pulse("results").stdout.splitlines()
+        self.assertEqual(results[1:6], ["Dated: 3 answered", "  One: 2", "  Two: 1", "  Other: 0",
+                                        "Skipped 0 files and 0 lines."])
+        summary = self.pulse("summary", "--since", self.yesterday, "--until", self.yesterday).stdout
+        self.assertIn("## {}: Dated".format(self.yesterday), summary)
+        self.assertIn("When?", summary)
+        self.assertIn("3 answered", summary)
+        self.assertIn("- One: 2", summary)
+
+
+class Propose(PulseCase):
+    def setUp(self):
+        super().setUp()
+        self.bank()
+        self.tomorrow = (self.today + datetime.timedelta(days=1)).isoformat()
+
+    def source(self, content=PROPOSAL, name="proposal.md"):
+        path = self.tmp / name  # outside the shared folder, so files() never sees it
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content, encoding="utf-8")
+        return str(path)
+
+    def bank_bytes(self):
+        return (self.folder / "questions.md").read_bytes()
+
+    def assert_unchanged(self, args, *words, stderr=None):
+        before, contents = self.files(), self.bank_bytes()
+        result = self.pulse("propose", *args)
+        self.assert_refused(result, before, *words)
+        self.assertEqual(self.bank_bytes(), contents)
+        self.assertNotIn("Traceback", result.stderr)
+        if stderr is None:
+            self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+        else:
+            self.assertEqual(result.stderr, stderr)
+
+    def test_each_refusal_is_one_line_and_leaves_the_bank_byte_for_byte(self):
+        good = self.source()
+        yesterday = (self.today - datetime.timedelta(days=1)).isoformat()
+        compact = (self.today + datetime.timedelta(days=1)).strftime("%Y%m%d")
+        cases = {
+            "file that can't be read": (["--file", str(self.tmp / "gone.md"), "--date", self.tomorrow],
+                                        ("--file", "can't be read")),
+            "file that isn't UTF-8": (["--file", self.source(b"## launch\nChip: \xff\xfe\n", "u.md"),
+                                       "--date", self.tomorrow], ("--file", "UTF-8")),
+            "no questions": (["--file", self.source("Only prose.\n", "none.md"), "--date", self.tomorrow],
+                             ("exactly one question", "0")),
+            "two questions": (["--file", self.source(PROPOSAL + PROPOSAL.replace("## launch", "## other"), "two.md"),
+                               "--date", self.tomorrow], ("exactly one question", "2")),
+            "a Date: line in the file": (["--file", self.source(
+                PROPOSAL.replace("Chip:", "Date: {}\nChip:".format(self.tomorrow)), "d.md"), "--date", self.tomorrow],
+                ("Date:",)),
+            "a compact date": (["--file", good, "--date", compact], ("--date", "YYYY-MM-DD")),
+            "not a date": (["--file", good, "--date", "2026-13-40"], ("--date", "YYYY-MM-DD")),
+            "today": (["--file", good, "--date", self.today.isoformat()], ("after today",)),
+            "yesterday": (["--file", good, "--date", yesterday], ("after today",)),
+            "an id already in the bank": (["--file", self.source(PROPOSAL.replace("## launch", "## alpha"), "a.md"),
+                                           "--date", self.tomorrow], ("alpha", "already in the bank")),
+            "no --date": (["--file", good], ("--date",)),
+            "no --file": (["--date", self.tomorrow], ("--file",)),
+        }
+        for name, (args, words) in cases.items():
+            with self.subTest(name):
+                self.assert_unchanged(args, *words)
+
+    def test_a_combined_bank_that_fails_prints_its_problems_and_changes_nothing(self):
+        long_chip = self.source(PROPOSAL.replace("Chip: Launch", "Chip: Thirteen char"), "chip.md")
+        self.assert_unchanged(["--file", long_chip, "--date", self.tomorrow],
+                              stderr="launch: the chip is over 12 characters\n")
+        self.bank(BANK + "\n" + dated("Date: {}\n".format(self.tomorrow), "## taken\n"))
+        self.assert_unchanged(["--file", self.source(), "--date", self.tomorrow],
+                              stderr="launch: two questions have this date\n")
+
+    def test_a_bank_that_already_fails_is_refused_as_check_refuses_it(self):
+        self.bank(question(chip=""))
+        expected = self.pulse("check").stderr
+        self.assertTrue(expected)
+        self.assert_unchanged(["--file", self.source(), "--date", self.tomorrow], stderr=expected)
+
+    def test_it_appends_exactly_the_question_with_its_date(self):
+        before, contents = self.files(), self.bank_bytes()
+        result = self.pulse("propose", "--file", self.source(), "--date", self.tomorrow)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "Added launch for {}.\n".format(self.tomorrow))
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self.bank_bytes(), contents + proposed_bytes(self.tomorrow))
+        self.assertEqual(self.files(), before)
+        self.assertEqual(self.pulse("check").returncode, 0)
+
+    def test_a_bank_without_a_final_newline_gets_one_first(self):
+        self.bank(BANK.rstrip("\n"))
+        contents = self.bank_bytes()
+        result = self.pulse("propose", "--file", self.source(), "--date", self.tomorrow)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.bank_bytes(), contents + b"\n" + proposed_bytes(self.tomorrow))
+
+    def test_it_writes_only_the_parsed_fields_from_the_file(self):
+        draft = ("# My draft\r\n\r\nSome prose about it.\r\n- Stray: before the heading\r\n\r\n## launch\r\n"
+                 "Chip:   Launch  \r\nNotes: dropped\r\nQuestion: Ready to launch?\r\n\r\n- Yes: Ready\r\n"
+                 "- No:  Not yet\r\n")
+        contents = self.bank_bytes()
+        path = self.source(b"\xef\xbb\xbf" + draft.encode("utf-8"))
+        result = self.pulse("propose", "--file", path, "--date", self.tomorrow)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.bank_bytes(), contents + proposed_bytes(self.tomorrow))
+
+    def test_answers_files_keep_their_bytes(self):
+        self.person("sam", self.pick("alpha", "Good"), self.pick("beta", "Other", other="my words"))
+        before = self.files()
+        answers = (self.folder / "answers" / "sam.jsonl").read_bytes()
+        self.assertEqual(self.pulse("propose", "--file", self.source(), "--date", self.tomorrow).returncode, 0)
+        self.assertEqual(self.files(), before)
+        self.assertEqual((self.folder / "answers" / "sam.jsonl").read_bytes(), answers)
+
+    def test_a_proposed_question_changes_its_own_day_and_no_other(self):
+        days = [self.today + datetime.timedelta(days=n) for n in range(1, 31)]
+
+        def asked():
+            return [json.loads(self.pulse("question", "--json", "--date", day.isoformat()).stdout)["id"]
+                    for day in days]
+
+        earlier = asked()
+        result = self.pulse("propose", "--file", self.source(), "--date", days[9].isoformat())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        later = asked()
+        self.assertEqual(later[9], "launch")
+        self.assertEqual(later[:9] + later[10:], earlier[:9] + earlier[10:])
+
+
+class ProposeWording(unittest.TestCase):
+    def run_script(self, *args):
+        return subprocess.run([sys.executable, str(SCRIPT)] + list(args), capture_output=True, encoding="utf-8")
+
+    def test_help_lists_propose_with_its_flags(self):
+        top = self.run_script("--help")
+        self.assertEqual(top.returncode, 0)
+        self.assertIn("propose", top.stdout)
+        own = self.run_script("propose", "--help")
+        self.assertEqual(own.returncode, 0)
+        self.assertIn("--file", own.stdout)
+        self.assertIn("--date", own.stdout)
+
+    def test_the_docstring_says_answer_and_propose_write(self):
+        text = flat(ast.get_docstring(ast.parse(SCRIPT.read_text(encoding="utf-8"))))
+        self.assertIn("python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD", text)
+        self.assertIn("`answer` and `propose` write", text)
+        self.assertNotIn("Only `answer` writes", text)
+
+    def test_the_readme_and_example_say_how_dates_work(self):
+        guide = flat(GUIDE.read_text(encoding="utf-8"))
+        for words in ("## Changing the questions", "A question with a `Date:` line", "is asked on that date only",
+                      "shifts no other day", "python3 scripts/pulse.py propose --file", "that id's old answers",
+                      'propose["You: pulse.py propose"] -->|appends a dated question| bank'):
+            self.assertIn(words, guide)
+        self.assertIn("Date: line", flat(EXAMPLE.read_text(encoding="utf-8")))
+        self.assertIn("Propose a pulse question", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

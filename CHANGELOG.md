@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Propose a pulse question
+
+A pulse question can now be asked on one date only: give it a `Date:` line, and every other day still gets the undated questions in turn, so adding a dated question shifts no other day. `python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD` adds one to the end of `questions.md`, and changes nothing if the date isn't after today, the id is already in the bank, or the bank with it would fail `check`. `check` now also reports a date that isn't a real YYYY-MM-DD, two questions on one date, and a bank with no undated question.
+Files: [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/pulse/README.md`](skills/pulse/README.md), [`skills/pulse/questions.example.md`](skills/pulse/questions.example.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-02: Safer harness eval runs
 
 A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.
