@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Harness-report is now harness-trends
+
+The `harness-report` skill is now `harness-trends`. It does the same as before, and the phrases in its description, such as "my harness report", "sprint follow-up" and "how many tokens", still reach it. `/harness-trends` replaces `/harness-report`.
+Files: [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/plugin_report.py`](scripts/plugin_report.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `git mv skills/harness-report skills/harness-trends`, then take the starter's files over it, taking [`tests/test_skills.py`](tests/test_skills.py) and the lines naming the skill in [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py) and [`scripts/plugin_report.py`](scripts/plugin_report.py) in the same step.
+
 ## 2026-11-03: Propose a pulse question
 
 A pulse question can now be asked on one date only: give it a `Date:` line, and every other day still gets the undated questions in turn, so adding a dated question shifts no other day. `python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD` adds one to the end of `questions.md`, and changes nothing if the date isn't after today, the id is already in the bank, or the bank with it would fail `check`. `check` now also reports a date that isn't a real YYYY-MM-DD, two questions on one date, and a bank with no undated question.

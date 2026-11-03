@@ -894,11 +894,12 @@ class ProposeWording(unittest.TestCase):
         self.assertIn("Date: line", flat(EXAMPLE.read_text(encoding="utf-8")))
         self.assertIn("Propose a pulse question", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
 
-    def test_the_changelog_entry_is_on_top_under_a_dated_heading(self):
+    def test_the_changelog_entry_is_under_a_dated_heading(self):
+        # Anywhere in the log: later entries go above it.
         lines = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
-        first = next(line for line in lines if line.startswith("## "))
-        self.assertTrue(first.endswith(": Propose a pulse question"), first)
-        date = first[len("## "):-len(": Propose a pulse question")]
+        headings = [line for line in lines if line.startswith("## ") and line.endswith(": Propose a pulse question")]
+        self.assertEqual(len(headings), 1, headings)
+        date = headings[0][len("## "):-len(": Propose a pulse question")]
         self.assertEqual(datetime.date.fromisoformat(date).isoformat(), date)
 
 
