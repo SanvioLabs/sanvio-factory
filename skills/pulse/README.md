@@ -9,13 +9,15 @@ flowchart LR
   person["You: /pulse"] --> script["scripts/pulse.py"]
   script -->|reads| bank["Shared folder: questions.md"]
   script -->|appends your pick| mine["Shared folder: answers/your-login.jsonl"]
+  propose["You: pulse.py propose"] -->|appends a dated question| bank
   team["Everyone's answers files"] -->|counts only| results["pulse.py results"]
 ```
 
 In words: `/pulse` runs [`scripts/pulse.py`](../../scripts/pulse.py), which reads the questions from
 `questions.md` in the shared folder and appends your pick to
-`answers/<your login>.jsonl` beside it. `results` reads everyone's answers files
-and prints counts only.
+`answers/<your login>.jsonl` beside it. `propose` appends a question for one date
+to the end of `questions.md`. `results` reads everyone's answers files and prints
+counts only.
 
 ## Setting it up
 
@@ -79,10 +81,43 @@ Edit `questions.md` in the shared folder, then run `python3 scripts/pulse.py che
 Other commands refuse a bank that fails it, so a mistake stops the question for the
 whole team until it's fixed.
 
-Adding, removing or reordering questions changes which question later days get,
-because the day's question depends on its place in the file. Answers already given
-keep the question they answered. A missed day's question comes from the current
-bank, so after an edit it may differ from the one the team answered that day.
+A question with a `Date:` line, written YYYY-MM-DD, is asked on that date only.
+Every other day gets one of the questions without a `Date:` line, taking turns in
+file order, so the bank needs at least one of those, and each date can have only one
+question:
+
+```
+## launch-week
+Date: 2026-11-20
+Chip: Launch
+Question: How ready do you feel for the launch?
+- Ready: I know my part
+- Nearly: One or two things are open
+- Not yet: I'm not sure what's wanted
+```
+
+Adding, removing or reordering a question without a date changes which question
+later days get, because the day's question depends on its place among them. Adding
+or removing a dated question shifts no other day. Answers already given keep the
+question they answered. A missed day's question comes from the current bank, so
+after an edit it may differ from the one the team answered that day.
+
+To add a question for one date without editing the file by hand, write it in a file
+of its own with no `Date:` line, and give the date to `propose`:
+
+```bash
+python3 scripts/pulse.py propose --file launch-week.md --date 2026-11-20
+```
+
+It adds the question to the end of `questions.md` with that date and says so. It
+changes nothing, and says why, if the date isn't after today, the file doesn't hold
+exactly one question or has a `Date:` line, the id is already in the bank, or the bank with the question
+added would fail `check`, as it does when that date already has a question.
+
+Answers are kept by date and id, not by the question's words. A dated question that
+reuses the id of a question you removed is counted with that id's old answers:
+`results` and summaries show them under the new question's chip and options. Give
+it an id of its own.
 
 ## Summarising for leadership
 

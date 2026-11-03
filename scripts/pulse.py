@@ -7,10 +7,13 @@
     python3 scripts/pulse.py answer <id> --other-file <path> [--date YYYY-MM-DD]
     python3 scripts/pulse.py results [--date YYYY-MM-DD]             # counts for a day, yesterday by default
     python3 scripts/pulse.py summary [--since YYYY-MM-DD] [--until YYYY-MM-DD]  # Markdown for a period, 14 days by default
+    python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD  # add a question for one date
 
 The folder comes from HARNESS_PULSE_FOLDER. It holds questions.md, the bank, and
-answers/<login>.jsonl, one file per person. Only `answer` writes, and only to
-that person's file. skills/pulse/ is the procedure and says who may read what.
+answers/<login>.jsonl, one file per person.
+`answer` and `propose` write: `answer` only to that person's file, and `propose`
+only to the end of questions.md. skills/pulse/ is the procedure and says who may
+read what.
 Refusals and problems go to stderr with exit 1, and success goes to stdout.
 """
 import argparse
@@ -63,10 +66,14 @@ def parse_bank(text):
     for line in text.split("\n"):
         line = line.rstrip("\r")
         if line.startswith("## "):
-            current = {"id": line[3:].strip(), "chip": "", "question": "", "options": []}
+            current = {"id": line[3:].strip(), "date": "", "has_date": False, "chip": "", "question": "",
+                       "options": []}
             questions.append(current)
         elif current is None:
             continue
+        elif line.startswith("Date:"):
+            current["date"] = line[len("Date:"):].strip()
+            current["has_date"] = True  # an empty Date: line is a problem, and no Date: line isn't
         elif line.startswith("Chip:"):
             current["chip"] = line[len("Chip:"):].strip()
         elif line.startswith("Question:"):
@@ -83,6 +90,7 @@ def bank_problems(questions):
         return ["{}: it has no questions".format(BANK)]
     found = []
     seen = set()
+    dates = set()
     for question in questions:
         name = question["id"] or "(no id)"
         if not QUESTION_ID.fullmatch(question["id"]):
@@ -90,6 +98,13 @@ def bank_problems(questions):
         if question["id"] in seen:
             found.append("{}: two questions have this id".format(name))
         seen.add(question["id"])
+        if question["has_date"]:
+            if recorded_day(question["date"]) is None:
+                found.append("{}: the date must be a real date written YYYY-MM-DD".format(name))
+            elif question["date"] in dates:
+                found.append("{}: two questions have this date".format(name))
+            else:
+                dates.add(question["date"])
         if not question["chip"]:
             found.append("{}: the chip is missing or empty".format(name))
         elif len(question["chip"]) > MAX_CHIP:
@@ -112,6 +127,8 @@ def bank_problems(questions):
         for label, count in labels.items():
             if label and count > 1:
                 found.append("{}: two options have the label {}".format(name, label))
+    if all(question["date"] for question in questions):
+        found.append("{}: it has no questions without a date".format(BANK))
     return found
 
 
@@ -141,7 +158,12 @@ def chosen_day(value, default, flag="--date"):
 
 
 def day_question(questions, day):
-    return questions[day.toordinal() % len(questions)]
+    """The question dated this day, or else the undated questions taking turns in file order."""
+    for question in questions:
+        if question["date"] == day.isoformat():
+            return question
+    undated = [question for question in questions if not question["date"]]
+    return undated[day.toordinal() % len(undated)]
 
 
 def login_name():
@@ -401,6 +423,55 @@ def run_summary(folder, questions, args):
     return 0
 
 
+def read_proposal(path):
+    """The one question in the --file at this path, which has no Date: line of its own."""
+    try:
+        with open(path, "rb") as source:
+            text = source.read().decode("utf-8-sig")
+    except OSError as error:
+        raise Refused("--file can't be read: {}".format(error.strerror))
+    except UnicodeDecodeError:
+        raise Refused("--file isn't valid UTF-8")
+    proposed = parse_bank(text)
+    if len(proposed) != 1:
+        raise Refused("--file must hold exactly one question, and it holds {}".format(len(proposed)))
+    if proposed[0]["has_date"]:
+        raise Refused("--file has a Date: line. Leave it out and give the date with --date")
+    return proposed[0]
+
+
+def run_propose(folder, questions, args):
+    question = read_proposal(args.file)
+    day = recorded_day(args.date)
+    if day is None:
+        raise Refused("--date must be a real date written YYYY-MM-DD, not {}".format(args.date))
+    if day <= datetime.date.today():
+        raise Refused("--date must be after today, not {}".format(day.isoformat()))
+    if any(other["id"] == question["id"] for other in questions):
+        raise Refused("{} is already in the bank".format(question["id"]))
+    path = os.path.join(folder, BANK)
+    try:  # main() read it a moment ago, but it can go or change in between
+        with open(path, "rb") as bank:
+            current = bank.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise Refused("{}: it isn't valid UTF-8".format(BANK))
+    except OSError as error:
+        raise Refused("{}: it can't be read ({})".format(BANK, error.strerror))
+    lines =["", "## " + question["id"], "Date: " + day.isoformat(), "Chip: " + question["chip"],
+             "Question: " + question["question"]]
+    lines += ["- {}: {}".format(label, description) for label, description in question["options"]]
+    appended = ("" if current.endswith("\n") else "\n") + "".join(line + "\n" for line in lines)
+    problems = bank_problems(parse_bank(current + appended))
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        return 1
+    with open(path, "a", encoding="utf-8", newline="") as out:
+        out.write(appended)
+    print("Added {} for {}.".format(question["id"], day.isoformat()))
+    return 0
+
+
 def build_parser():
     parser = Parser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -418,11 +489,14 @@ def build_parser():
     summary = commands.add_parser("summary", help="print a Markdown summary of a period, the last 14 days by default")
     summary.add_argument("--since", help="the period's first day, YYYY-MM-DD")
     summary.add_argument("--until", help="the period's last day, YYYY-MM-DD, today by default")
+    propose = commands.add_parser("propose", help="add a question to the bank, asked on one date only")
+    propose.add_argument("--file", required=True, help="a file holding one question, with no Date: line")
+    propose.add_argument("--date", required=True, help="the day to ask it, YYYY-MM-DD, after today")
     return parser
 
 
 COMMANDS = {"check": run_check, "question": run_question, "answer": run_answer, "results": run_results,
-            "summary": run_summary}
+            "summary": run_summary, "propose": run_propose}
 
 
 def main(argv=None):

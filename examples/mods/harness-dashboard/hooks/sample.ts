@@ -207,6 +207,251 @@ export const SAMPLE: Doc = {
     }
   },
   "generated": "2026-10-27T12:00:00+00:00",
+  "loop_history": {
+    "by_day": [
+      {
+        "blocked": 0,
+        "day": "2026-10-15",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-16",
+        "more_than_one_round": 0,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-17",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-18",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-19",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-20",
+        "more_than_one_round": 0,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-21",
+        "more_than_one_round": 1,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-22",
+        "more_than_one_round": 0,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 1,
+        "day": "2026-10-23",
+        "more_than_one_round": 1,
+        "pr": 0,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-24",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-25",
+        "more_than_one_round": 0,
+        "pr": 0,
+        "runs": 0,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-26",
+        "more_than_one_round": 0,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      },
+      {
+        "blocked": 0,
+        "day": "2026-10-27",
+        "more_than_one_round": 0,
+        "pr": 1,
+        "runs": 1,
+        "skipped": 0,
+        "stopped": 0
+      }
+    ],
+    "by_outcome": {
+      "blocked": 1,
+      "pr": 6,
+      "skipped": 0,
+      "stopped": 0
+    },
+    "runs": [
+      {
+        "cost_usd": 3.65,
+        "ended": "2026-10-16T10:40:00",
+        "issue": "issue-31",
+        "outcome": "pr",
+        "rounds": 1,
+        "started": "2026-10-16T09:00:00",
+        "tests": [
+          "passed"
+        ],
+        "tokens": 2440000,
+        "verdicts": [
+          "PASS"
+        ]
+      },
+      {
+        "cost_usd": 4.75,
+        "ended": "2026-10-20T09:40:00",
+        "issue": "issue-32",
+        "outcome": "pr",
+        "rounds": 1,
+        "started": "2026-10-19T09:00:00",
+        "tests": [
+          "passed"
+        ],
+        "tokens": 3220000,
+        "verdicts": [
+          "PASS"
+        ]
+      },
+      {
+        "cost_usd": 6.3,
+        "ended": "2026-10-21T10:30:00",
+        "issue": "issue-33",
+        "outcome": "pr",
+        "rounds": 2,
+        "started": "2026-10-20T11:00:00",
+        "tests": [
+          "failed",
+          "passed"
+        ],
+        "tokens": 4240000,
+        "verdicts": [
+          "FIX",
+          "PASS"
+        ]
+      },
+      {
+        "cost_usd": 1.3,
+        "ended": "2026-10-22T15:10:00",
+        "issue": "app/issue-3",
+        "outcome": "pr",
+        "rounds": 1,
+        "started": "2026-10-22T14:00:00",
+        "tests": [
+          "passed"
+        ],
+        "tokens": 880000,
+        "verdicts": [
+          "PASS"
+        ]
+      },
+      {
+        "cost_usd": 9.15,
+        "ended": "2026-10-23T16:00:00",
+        "issue": "issue-34",
+        "outcome": "blocked",
+        "rounds": 5,
+        "started": "2026-10-22T09:00:00",
+        "tests": [
+          "failed",
+          "failed",
+          "failed",
+          "failed",
+          "failed"
+        ],
+        "tokens": 6160000,
+        "verdicts": [
+          "FIX",
+          "FIX",
+          "FIX",
+          "FIX",
+          "FIX"
+        ]
+      },
+      {
+        "cost_usd": 4.2,
+        "ended": "2026-10-26T11:00:00",
+        "issue": "issue-36",
+        "outcome": "pr",
+        "rounds": 1,
+        "started": "2026-10-26T09:00:00",
+        "tests": [
+          "passed"
+        ],
+        "tokens": 2820000,
+        "verdicts": [
+          "PASS"
+        ]
+      },
+      {
+        "cost_usd": 4.5,
+        "ended": "2026-10-27T08:48:00",
+        "issue": "issue-38",
+        "outcome": "pr",
+        "rounds": 1,
+        "started": "2026-10-26T13:00:00",
+        "tests": [
+          "passed"
+        ],
+        "tokens": 3020000,
+        "verdicts": [
+          "PASS"
+        ]
+      }
+    ],
+    "skipped_lines": 0
+  },
   "loop_rework": {
     "merged": 3,
     "pull_requests": [

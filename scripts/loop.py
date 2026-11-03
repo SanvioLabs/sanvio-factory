@@ -205,6 +205,19 @@ def interrupt(signum, frame):
     raise KeyboardInterrupt()
 
 
+def now_stamp():
+    """The time as status.json writes it. mark() reads it once a call, so a test can say what time it is."""
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def seconds_between(start, end):
+    """Whole seconds from one stamp to a later one, a negative gap counting as 0. None if either can't be read."""
+    try:
+        return max(0, int((datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()))
+    except (TypeError, ValueError):  # TypeError: not a string, or one stamp has a timezone and the other doesn't
+        return None
+
+
 def fingerprint():
     """The SHA-256 of this file as it is on disk now, or None if it can't be read."""
     try:
@@ -1341,6 +1354,7 @@ class Loop:
 
     def mark(self, number, **fields):
         """Update one issue's entry and move it to the top: it's the one the loop is on."""
+        now = now_stamp()
         with self.write_lock:
             rows = self.status["issues"]
             row = next((r for r in rows if r["number"] == number), None)
@@ -1351,8 +1365,11 @@ class Loop:
                 rows.remove(row)
             # A run this process started, ending now: process() put it in self.rounds, and the line pops it.
             ended = fields.get("state") in ("pr", "blocked", "stopped", "skipped") and number in self.rounds
+            counted = number in self.rounds  # read here: record_run() pops it
+            old_step, old_state = row.get("step"), row.get("state")
             row.update(fields)
-            row["updated"] = datetime.now().isoformat(timespec="seconds")
+            self.time_step(row, now, counted, old_step, old_state, "started" in fields)
+            row["updated"] = now
             rows.insert(0, row)
             if row["state"] in ("pr", "blocked", "skipped"):
                 # Off the queue the moment it ends, as its label is: the next look at GitHub agrees.
@@ -1360,6 +1377,30 @@ class Loop:
             self.save_status()
             if ended and row.get("started"):
                 self.record_run(row)
+
+    def time_step(self, row, now, counted, old_step, old_state, starting):
+        """Keep the row's step_started and step_seconds, the time spent per step in the current run.
+
+        Only a run this process started adds time. A row that never started under this code stays
+        without either field, since a reader goes by the key.
+        """
+        if starting:
+            row["step_started"], row["step_seconds"] = now, {}
+            return
+        step_changed = row.get("step") != old_step
+        if not step_changed and row.get("state") == old_state:
+            return
+        left_working = old_state == "working" and row.get("state") != "working"
+        if counted and old_step and row.get("step_started") and (step_changed or left_working):
+            seconds = seconds_between(row["step_started"], now)
+            if seconds is not None:
+                totals = row.setdefault("step_seconds", {})
+                totals[old_step] = totals.get(old_step, 0) + seconds
+        if "step_started" in row:
+            if row.get("state") != "working":
+                row["step_started"] = None
+            elif counted and step_changed:
+                row["step_started"] = now
 
     def record_run(self, row):
         """Append one line to .loop/history.jsonl for the run that just ended: numbers and labels only.

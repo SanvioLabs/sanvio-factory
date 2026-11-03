@@ -107,6 +107,12 @@ Point a dashboard or a Slack post at that file and you have a monitor.
 `queue` of ready issues waiting, and one row per issue, newest
 first, with its `step`, `round`, `state` (`working`, `pr`, `blocked`,
 `stopped` or `skipped`), the last `tests` and `review`, and the `pr` link.
+A row also has `step_started`, when the current step began (`null` once the row
+is out of `working`), and `step_seconds`, the whole seconds spent so far on each
+step that has finished, by step name, with rounds summed. `step_seconds` covers
+the current run only and starts empty on each new run, unlike `tokens` and
+`cost_usd`, which count every run. A row from before these fields, or one no run
+has started since, has neither.
 It's rewritten whole at each step, so a reader never sees half of it.
 
 In Claude Code, `/loop-pane` draws it in a pane beside the conversation
