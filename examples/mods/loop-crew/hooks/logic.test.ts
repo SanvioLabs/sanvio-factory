@@ -5,6 +5,8 @@ import type { Lane, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
 const NOW = 1_800_000_000_000
+// No time reads as an em dash, U+2014, built from its code so this file holds none.
+const DASH = String.fromCharCode(0x2014)
 const row = (over: Partial<Row>): Row => ({ number: 1, title: 'A job', step: 'BUILD', state: 'working', round: 1, ...over })
 const look = (over: Partial<Seen>): Seen => ({ status: { issues: [] }, isLive: true, ...over })
 const reading = (...issues: Row[]): Seen => look({ status: { issues } })
@@ -391,7 +393,7 @@ group('the Svg', () => {
     const carrying: Lane[] = [lane('build', { number: 7, ...times }), { row: parsed, station: 'build', walk: null }]
     for (const odder of carrying) {
       const row4 = decode(laneCells(odder, 72, NOW)).slice(72 * LANE_ROWS).map(([code]) => String.fromCodePoint(code)).join('')
-      expect(/^[0-9smh—… ]*$/.test(row4)).toBe(true)
+      expect(new RegExp(`^[0-9smh${DASH}… ]*$`).test(row4)).toBe(true)
       for (const text of [laneSvg(odder, NOW), laneSvg(odder, NOW, DARK, 126), headSvg([odder]), laneAlt(odder), row4]) {
         expect(text).not.toContain('script')
         expect(text).not.toContain('<b>')
@@ -462,7 +464,7 @@ group('the times', () => {
   test('a time reads in seconds, then minutes, then hours and two-digit minutes, floored, and none as a dash', () => {
     const cases: [number | null, string][] = [
       [0, '0s'], [42, '42s'], [59, '59s'], [60, '1m'], [3599, '59m'], [3600, '1h00'], [3900, '1h05'],
-      [59.9, '59s'], [36_300, '10h05'], [null, '—'],
+      [59.9, '59s'], [36_300, '10h05'], [null, DASH],
     ]
     for (const [seconds, text] of cases) expect(timeText(seconds)).toBe(text)
   })
@@ -492,9 +494,11 @@ group('the times', () => {
     // A step begun after the clock's now adds nothing.
     expect(stageTimes(timed('build', { BUILD: 30 }, -60_000), NOW).build).toBe(30)
   })
-  test("a step_started that doesn't read as a time adds nothing", () => {
+  test("a step_started that doesn't read as a time adds nothing and doesn't count", () => {
     const odd: Lane = { row: row({ step_seconds: { BUILD: 30 }, step_started: 'soon' }), station: 'build', walk: null }
     expect(stageTimes(odd, NOW).build).toBe(30)
+    // A Row built in code can carry one, and it mustn't set the other surfaces redrawing for nothing.
+    expect(isCounting(odd)).toBe(false)
   })
   test('a lane counts when it is not walking out, is past the start, and its step has begun', () => {
     expect(isCounting(timed('build', {}, 1000))).toBe(true)
@@ -524,7 +528,7 @@ group('the times', () => {
     const counting = timed('build', { SHAPE: 90, TEST: 3900, BUILD: 0 }, 42_000)
     const times = timeRowOf(laneCells(counting, columns, NOW), columns)
     const head = textOf(decode(headCells([counting], columns)))
-    const expected: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+    const expected: [string, number][] = [[DASH, DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], [DASH, DARK.dim], [DASH, DARK.dim]]
     expected.forEach(([text, colour], i) => {
       const at = labelAt(i, columns)
       expect(head.slice(at, at + STATIONS[i]!.length)).toBe(STATIONS[i]!)
@@ -543,7 +547,7 @@ group('the times', () => {
     const [test, build] = [labelAt(2, columns), labelAt(3, columns)]
     expect(textOf(times.slice(test, build - 1))).toBe('10h…')
     expect(times[build - 1]![0]).toBe(0x20)
-    expect(textOf(times.slice(build, build + 1))).toBe('—')
+    expect(textOf(times.slice(build, build + 1))).toBe(DASH)
     const long = { SHAPE: 363_000, TEST: 363_000, BUILD: 363_000, VALIDATE: 363_000, SCALE: 363_000 }
     for (let width = MIN_COLUMNS; width <= 120; width++) {
       const row4 = timeRowOf(laneCells(timed('build', long, null), width, NOW), width)
@@ -564,7 +568,7 @@ group('the times', () => {
     const columns = 126
     const counting = timed('build', { SHAPE: 90, TEST: 3900, BUILD: 0 }, 42_000)
     const at = (now: number) => svgTexts(laneSvg(counting, now, DARK, columns))
-    const times: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+    const times: [string, number][] = [[DASH, DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], ['42s', ACCENT.build], [DASH, DARK.dim], [DASH, DARK.dim]]
     expect(at(NOW)).toEqual(STATIONS.flatMap((station, i): [number, number, string, string][] => [
       [labelAt(i, columns), 9, hexOf(station === 'build' ? ACCENT.build : DARK.dim), station],
       [labelAt(i, columns), 13, hexOf(times[i]![1]), times[i]![0]],

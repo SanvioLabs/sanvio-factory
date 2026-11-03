@@ -29,7 +29,7 @@ fine).
 
 ## 2026-11-03: Loop crew stage times
 
-Loop crew 0.4.0 shows how long each issue has spent at each station, in a row of times under its lane, from the `step_seconds` and `step_started` the loop writes to `status.json`, with `—` from a loop older than that. On the desktop, the VS Code extension and mobile, the header and lanes now fill the pane's width.
+Loop crew 0.4.0 shows how long each issue has spent at each station, in a row of times under its lane, from the `step_seconds` and `step_started` the loop writes to `status.json`, with a dash (U+2014) from a loop older than that. On the desktop, the VS Code extension and mobile, the header and lanes now fill the pane's width.
 Files: [`examples/mods/loop-crew/hooks/logic.ts`](examples/mods/loop-crew/hooks/logic.ts), [`examples/mods/loop-crew/hooks/register.tsx`](examples/mods/loop-crew/hooks/register.tsx), [`examples/mods/loop-crew/hooks/logic.test.ts`](examples/mods/loop-crew/hooks/logic.test.ts), [`examples/mods/loop-crew/hooks/pane.test.ts`](examples/mods/loop-crew/hooks/pane.test.ts), [`examples/mods/loop-crew/types/index.d.ts`](examples/mods/loop-crew/types/index.d.ts), [`examples/mods/loop-crew/.claude-plugin/plugin.json`](examples/mods/loop-crew/.claude-plugin/plugin.json), [`examples/mods/loop-crew/README.md`](examples/mods/loop-crew/README.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** `/plugin update loop-crew@sanvio-harness-starter`, then `/reload-plugins` or a new session.

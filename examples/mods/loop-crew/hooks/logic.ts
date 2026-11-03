@@ -386,9 +386,11 @@ export function lanesOf(placement: Placement, now: number): Lane[] {
 // The step each station's time comes from. The start has none.
 const STATION_STEPS: Record<Station, string | null> = { start: null, plan: 'SHAPE', test: 'TEST', build: 'BUILD', check: 'VALIDATE', ship: 'SCALE' }
 
-// Whether a lane's current step is still being timed: not walking out, past the start, and started.
+// Whether a lane's current step is still being timed: not walking out, past the start, and started at a
+// time Date.parse reads. A Row built in code can carry one it can't, and that one never counts.
 export function isCounting(lane: Lane): boolean {
-  return !lane.walk?.isOut && lane.station !== 'start' && typeof lane.row.step_started === 'string'
+  const started = lane.row.step_started
+  return !lane.walk?.isOut && lane.station !== 'start' && typeof started === 'string' && !Number.isNaN(Date.parse(started))
 }
 
 // Each station's time in seconds, or null for none. The current step, while it counts, adds the time
@@ -408,10 +410,13 @@ export function stageTimes(lane: Lane, now: number): Record<Station, number | nu
   return out
 }
 
+// What no time reads as: an em dash, U+2014, written by its code so the source holds none.
+const NO_TIME = String.fromCharCode(0x2014)
+
 // A time as it reads: whole seconds under a minute, whole minutes under an hour, then hours and two-digit
 // minutes, all floored. No time reads as a dash.
 export function timeText(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds)) return '—'
+  if (seconds === null || !Number.isFinite(seconds)) return NO_TIME
   const whole = Math.max(0, Math.floor(seconds))
   if (whole < 60) return `${whole}s`
   if (whole < 3600) return `${Math.floor(whole / 60)}m`

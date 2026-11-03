@@ -828,6 +828,8 @@ function local(ms: number): string {
 }
 // The mock clock's start, which world() sets.
 const START = 1_800_000_000_000
+// No time reads as an em dash, U+2014, built from its code so this file holds none.
+const DASH = String.fromCharCode(0x2014)
 
 // A lane's 4th row of cells, under its 3 rows of lane, and the text in some cells.
 const rowFour = (cells: string, columns: number): [number, number, number][] => decode(cells).slice(3 * columns, 4 * columns)
@@ -891,7 +893,7 @@ group('the times', () => {
     const head = textOf(decode(await cellsOf(ui, 'head')))
     const check = (cells: string, build: string): void => {
       const times = rowFour(cells, 72)
-      const expected: [string, number][] = [['—', DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], [build, ACCENT.build], ['—', DARK.dim], ['—', DARK.dim]]
+      const expected: [string, number][] = [[DASH, DARK.dim], ['1m', DARK.tool], ['1h05', DARK.tool], [build, ACCENT.build], [DASH, DARK.dim], [DASH, DARK.dim]]
       expected.forEach(([text, colour], i) => {
         const at = labelAt(i, 72)
         expect(head.slice(at, at + STATIONS[i]!.length)).toBe(STATIONS[i]!)
@@ -936,7 +938,7 @@ group('the times', () => {
     for (const times of rows) {
       expect(textOf(times.slice(labelAt(3, 72), labelAt(3, 72) + 3))).toBe('50s')
       expect(times[labelAt(3, 72)]![1]).toBe(DARK.tool)
-      expect(textOf(times.slice(labelAt(5, 72), labelAt(5, 72) + 1))).toBe('—')
+      expect(textOf(times.slice(labelAt(5, 72), labelAt(5, 72) + 1))).toBe(DASH)
       expect(times).toEqual(rows[0]!)
     }
     await ui.unmount()
@@ -947,7 +949,7 @@ group('the times', () => {
     await say($)
     const ui = await $.ui.mount(WIDE())
     const times = rowFour(await cellsOf(ui, 'lane-12'), 72)
-    STATIONS.forEach((_, i) => expect([textOf(times.slice(labelAt(i, 72), labelAt(i, 72) + 1)), times[labelAt(i, 72)]![1]]).toEqual(['—', DARK.dim]))
+    STATIONS.forEach((_, i) => expect([textOf(times.slice(labelAt(i, 72), labelAt(i, 72) + 1)), times[labelAt(i, 72)]![1]]).toEqual([DASH, DARK.dim]))
     expect(times.filter(([code]) => code !== 0x20).length).toBe(STATIONS.length)
     await ui.unmount()
     await close()
@@ -960,7 +962,7 @@ group('the times', () => {
     const [test, build] = [labelAt(2, 42), labelAt(3, 42)]
     expect(textOf(times.slice(test, build - 1))).toBe('10h…')
     expect(times[build - 1]![0]).toBe(0x20)
-    expect(textOf(times.slice(build, build + 1))).toBe('—')
+    expect(textOf(times.slice(build, build + 1))).toBe(DASH)
     await ui.unmount()
     await close()
   })
@@ -982,6 +984,26 @@ group('the times', () => {
     // Each drawing gives the time as of when it's drawn.
     await ui.redraw()
     expect(await buildTime()).toBe('1m')
+    await ui.unmount()
+    await close()
+  })
+  test('on the desktop, drawing the pane again keeps one 30-second timer, so the redraws never stack', async ($, on) => {
+    const { clock, invalidated, close } = world(on, working(counting()))
+    await say($)
+    const ui = await $.ui.mount(pane(72, 40, 'desktop'))
+    await drain()
+    // Each drawing asks to start the timer. Without the guard the drawings at 2, 4 and 6 seconds would
+    // each add one, firing at 32, 34 and 36 seconds, so 60 seconds would bring five redraws, not two.
+    for (let i = 0; i < 3; i++) {
+      await wait(clock, 2000, 2000)
+      await ui.redraw()
+    }
+    await drain()
+    const first = invalidated.length
+    await wait(clock, 24_000, 2000)
+    expect(invalidated.length).toBe(first + 1)
+    await wait(clock, 30_000, 2000)
+    expect(invalidated.length).toBe(first + 2)
     await ui.unmount()
     await close()
   })

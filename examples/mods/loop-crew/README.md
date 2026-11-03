@@ -22,7 +22,8 @@ the issue has spent at that step. [The times](#the-times) says where they come f
 
 Two issues on a 64-column terminal look like this, the shapes without their colours: #12 swinging
 its hammer at `build` beside a stack of bricks, 3 minutes in, #13 reading a page at `check`, 48
-seconds in.
+seconds in. Where a station has no time the board draws a dash (U+2014). The picture shows a hyphen
+there instead.
 
 ```text
 start     plan      test       build     check     ship
@@ -30,16 +31,18 @@ start     plan      test       build     check     ship
                                 ▄█ █  ▄▄
                                 ▄▀▄  ▄█▀▄▄
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄███ ▄▀█ █▀▄█▄ ▄ ▄ ▄ ▄█▄
-—         4m        12m        3m        —         —
+-         4m        12m        3m        -         -
 #13 Show the round in the pane · checking, round 2
                                           ▄█▄▀ ▀▀▀▀▀▀
                                           ▄▀▄  ▀▀▀▀▀▀
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄███ ▄▀█▀█▀██▄
-—         5m        20m        1h12      48s       —
+-         5m        20m        1h12      48s       -
 ```
 
 It's a Claude Code mod, so it works in Claude Code only. It has been seen in the terminal, in Claude
-Code run in VS Code's integrated terminal, against a pretend loop. Loop crew 0.3.0 has been seen in the VS Code extension's pane, and a probe showed that an Svg sized as this one is fills it. Claude Desktop and the mobile app haven't been tried. It's built from the types and tested with
+Code run in VS Code's integrated terminal, against a pretend loop. Loop crew 0.3.0 has been seen in
+the VS Code extension's pane, and a probe showed that an Svg sized as this one is fills it. Claude
+Desktop and the mobile app haven't been tried. It's built from the types and tested with
 `claude plugin test`. The types say the desktop runs SMIL in an Svg drawn with `isInteractive` and
 the extension draws an Svg as an image where SMIL can run. The mobile app draws one in a web view, and
 nobody has checked that SMIL runs there. Nobody has checked that a new Svg starts its walk from the
@@ -112,24 +115,24 @@ for a light background, and any other theme, or none it can read, for a dark one
 Each station's time is how long the issue's current run has spent on that station's step, rounds
 added together. The loop writes them to `status.json`: `step_seconds` holds the whole seconds for
 each step finished, and `step_started` says when the current step began. A loop older than the one
-that added them (#367) writes neither, and its lanes show `—` under every station.
+that added them (#367) writes neither, and its lanes show a dash (U+2014) under every station.
 
 | Station | Its time comes from |
 |---|---|
-| `start` | Nothing: it always shows `—` |
+| `start` | Nothing: it always shows a dash |
 | `plan`, `test`, `build`, `check`, `ship` | `step_seconds` for `SHAPE`, `TEST`, `BUILD`, `VALIDATE` and `SCALE` |
 
 While the issue is working past `start` and its step has begun, the current station adds the time
-since `step_started`. Any other station without an entry shows `—`. Times are floored:
+since `step_started`. Any other station without an entry shows a dash. Times are floored:
 
 | Time | Reads |
 |---|---|
 | Under a minute | Whole seconds: `0s`, `42s`, `59s` |
 | A minute to an hour | Whole minutes: `1m`, `59m` |
 | An hour or more | Hours and two-digit minutes: `1h00`, `1h05` |
-| None | `—` |
+| None | A dash (U+2014) |
 
-The current station's time is in its colour, any other station's in the tool grey, and `—` dim.
+The current station's time is in its colour, any other station's in the tool grey, and a dash dim.
 
 - **Terminal:** the times are the lane's fourth row, each starting at the column where its station's
   name starts in the header. A time that would run into the next station's is cut with `…`, so a
