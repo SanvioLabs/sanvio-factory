@@ -572,20 +572,12 @@ def number_from(text):
 
 
 def loop_usage(record):
-    """{issue number: its usage.json entries} when --start runs this kind of harness's loop, else None."""
+    """{issue number: the loop's usage entries for it} when --start runs this kind of harness's loop, else None."""
     harness = Path(record["harness"])
     if "scripts/loop.py" not in record["start"] or not (harness / "scripts" / "loop.py").exists():
         return None
-    folder = harness / ".loop" / "projects" / Path(record["clone"]).name
-    found = {}
-    for issue in record["issues"]:
-        try:
-            entries = json.loads((folder / "issue-{}".format(issue["number"]) / "usage.json").read_text())
-        except (OSError, ValueError):
-            entries = []
-        found[issue["number"]] = [entry for entry in entries if isinstance(entry, dict)] \
-            if isinstance(entries, list) else []
-    return found
+    return {issue["number"]: loop.issue_usage(harness, Path(record["clone"]).name, issue["number"])
+            for issue in record["issues"]}
 
 
 def read_usage(record):
