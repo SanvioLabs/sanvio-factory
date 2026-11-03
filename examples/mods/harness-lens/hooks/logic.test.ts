@@ -325,6 +325,12 @@ describe('plan', () => {
     [status({ subscriptionType: 'max', orgName: "pat@example.com's Organization" }), 'Max (personal)'],
     [status({ subscriptionType: 'free', orgName: "pat@example.com's Organization" }), 'Free (personal)'],
     [status({ authMethod: 'api_key' }), 'API key'],
+    [status({ authMethod: 'api_key', subscriptionType: 'team', orgName: 'Acme' }), 'API key'],
+    [status({ subscriptionType: 'team', orgName: "pat@example.com's Organization" }), 'Team'],
+    [status({ subscriptionType: 'enterprise', orgName: '   ' }), 'Enterprise'],
+    [status({ subscriptionType: 'team' }), 'Team'],
+    [status({ subscriptionType: 'student', orgName: 'Acme' }), 'unknown'],
+    [status({ orgName: 'Acme' }), 'unknown'],
     [status({ loggedIn: false, subscriptionType: 'team', orgName: 'Acme' }), 'unknown'],
     [null, 'unknown'],
     ['not json', 'unknown'],
@@ -342,11 +348,38 @@ describe('plan', () => {
       expect(segment.text).not.toContain('pat@example.com')
     }
   })
+  test('a business plan leaves out an organisation name that is blank, missing or holds an @', () => {
+    for (const orgName of ["pat@example.com's Organization", 'ops@acme.test', '', '   ', undefined, 42]) {
+      expect(planSegment(status({ subscriptionType: 'team', orgName }))).toEqual({ label: 'plan', text: 'Team', tone: 'earlier' })
+      expect(planSegment(status({ subscriptionType: 'enterprise', orgName }))).toEqual({ label: 'plan', text: 'Enterprise', tone: 'earlier' })
+    }
+  })
+  test('the plan name is read in any case and with spaces around it, and the organisation name is trimmed', () => {
+    for (const type of ['PRO', ' pro ', 'Pro']) expect(planSegment(status({ subscriptionType: type }))).toEqual({ label: 'plan', text: 'Pro (personal)', tone: 'warn' })
+    expect(planSegment(status({ subscriptionType: ' TEAM ', orgName: '  Acme  ' }))).toEqual({ label: 'plan', text: 'Team · Acme', tone: 'earlier' })
+  })
   test('an API key login shows as an API key', () => {
     expect(planSegment(status({ authMethod: 'api_key' }))).toEqual({ label: 'plan', text: 'API key', tone: 'earlier' })
+    expect(planSegment(status({ authMethod: 'API Key' })).text).toBe('API key')
+    expect(planSegment(status({ authMethod: 'apiKey' })).text).toBe('API key')
+  })
+  test('an API key wins over a subscription type, because an API key login has no plan', () => {
+    for (const subscriptionType of ['team', 'enterprise', 'pro', 'max', 'free']) {
+      expect(planSegment(status({ authMethod: 'api_key', subscriptionType, orgName: 'Acme' }))).toEqual({ label: 'plan', text: 'API key', tone: 'earlier' })
+    }
+  })
+  test('a subscription type it does not know, or none, is unknown', () => {
+    for (const subscriptionType of ['student', 'constructor', 'toString', '', 7, null, undefined]) {
+      expect(planSegment(status({ subscriptionType, orgName: 'Acme' }))).toEqual({ label: 'plan', text: 'unknown', tone: 'quiet' })
+    }
   })
   test('signed out, a failed or timed-out command, and output that is not JSON are unknown', () => {
-    for (const output of [status({ loggedIn: false }), null, 'not json']) {
+    for (const output of [status({ loggedIn: false }), status({ loggedIn: 'true', subscriptionType: 'team' }), null, 'not json', '']) {
+      expect(planSegment(output)).toEqual({ label: 'plan', text: 'unknown', tone: 'quiet' })
+    }
+  })
+  test('JSON that is not an object is unknown', () => {
+    for (const output of ['5', '[]', '[{"loggedIn": true, "subscriptionType": "team"}]', 'null', '"team"', 'true']) {
       expect(planSegment(output)).toEqual({ label: 'plan', text: 'unknown', tone: 'quiet' })
     }
   })
@@ -363,5 +396,13 @@ describe('plan', () => {
     const labels = bandSegments(lens, false, 1_000_000, planSegment(null)).map(segment => segment.label)
     expect(labels).toEqual(['plan', 'steering', 'skill', 'gate', 'guard', 'review', 'running'])
     expect(bandSegments(lens).map(segment => segment.label)).not.toContain('plan')
+  })
+  test('with a scope, the plan goes after it and before steering', () => {
+    const lens = { ...emptyLens(ROOT, ['operating']), scope: { kind: 'client', name: 'acme' } }
+    const plan = planSegment(JSON.stringify({ loggedIn: true, subscriptionType: 'team', orgName: 'Acme' }))
+    const segments = bandSegments(lens, true, 1_000_000, plan)
+    expect(segments.map(segment => segment.label)).toEqual(['scope', 'plan', 'steering', 'skill', 'gate', 'guard', 'review', 'running'])
+    expect(segments[1]).toEqual({ label: 'plan', text: 'Team · Acme', tone: 'earlier' })
+    expect(bandSegments(lens, true, 1_000_000).map(segment => segment.label)).toEqual(['scope', 'steering', 'skill', 'gate', 'guard', 'review', 'running'])
   })
 })

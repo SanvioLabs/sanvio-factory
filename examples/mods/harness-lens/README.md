@@ -69,8 +69,8 @@ reads it again.
 
 | Shows | Means |
 |---|---|
-| `Team · <org>` | A Team plan, with its organisation's name |
-| `Enterprise · <org>` | An Enterprise plan, with its organisation's name |
+| `Team · <org>` | A Team plan, with its organisation's name. Just `Team` when the name is blank or holds an `@`, so an email never shows |
+| `Enterprise · <org>` | An Enterprise plan, with its organisation's name. Just `Enterprise` when the name is blank or holds an `@` |
 | `Pro (personal)`, `Max (personal)`, `Free (personal)` | A personal plan, in yellow. No organisation name, because on a personal plan that holds the person's email |
 | `API key` | Signed in with an API key |
 | `unknown` | Signed out, or `claude auth status` failed or took longer than two seconds. Dim |

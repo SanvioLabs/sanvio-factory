@@ -30,7 +30,7 @@ fine).
 ## 2026-11-03: Plan on the harness lens
 
 The harness lens now starts its band with **plan**: the Claude plan the session is signed in with, read once at session start through `claude auth status`. A business plan shows as `Team · <org>` or `Enterprise · <org>`, a personal plan as `Pro (personal)`, `Max (personal)` or `Free (personal)` in yellow and without its organisation name, which holds the person's email, an API key login as `API key`, and anything else as `unknown`. It only shows the plan and blocks nothing.
-Files: [`examples/mods/harness-lens/hooks/logic.ts`](examples/mods/harness-lens/hooks/logic.ts), [`examples/mods/harness-lens/hooks/register.tsx`](examples/mods/harness-lens/hooks/register.tsx), [`examples/mods/harness-lens/README.md`](examples/mods/harness-lens/README.md), [`examples/mods/harness-lens/.claude-plugin/plugin.json`](examples/mods/harness-lens/.claude-plugin/plugin.json), [`examples/mods/harness-lens/hooks/logic.test.ts`](examples/mods/harness-lens/hooks/logic.test.ts), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`examples/mods/harness-lens/hooks/logic.ts`](examples/mods/harness-lens/hooks/logic.ts), [`examples/mods/harness-lens/hooks/register.tsx`](examples/mods/harness-lens/hooks/register.tsx), [`examples/mods/harness-lens/README.md`](examples/mods/harness-lens/README.md), [`examples/mods/harness-lens/.claude-plugin/plugin.json`](examples/mods/harness-lens/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** run `/plugin update harness-lens@sanvio-harness-starter`
 
