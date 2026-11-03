@@ -677,6 +677,13 @@ class DatedRotation(PulseCase):
         self.assertEqual(lines[0], "2026-05-10 (two)")
         self.assertEqual(lines[1:3], ["Dated", "When?"])
 
+    def test_with_two_date_lines_the_last_one_wins(self):
+        self.bank(BANK + "\n" + dated("Date: 2026-05-09\nDate: 2026-05-10\n"))
+        self.assertEqual(self.pulse("check").returncode, 0)
+        self.assertEqual(self.ids_for([datetime.date(2026, 5, 10)]), ["two"])
+        first = datetime.date(2026, 5, 9)
+        self.assertEqual(self.ids_for([first]), [IDS[first.toordinal() % 3]])
+
     def test_a_bank_with_no_dates_asks_what_it_asked_before(self):
         self.bank()
         days = [datetime.date(2026, 7, 1) + datetime.timedelta(days=n) for n in range(9)]
@@ -793,6 +800,22 @@ class Propose(PulseCase):
         self.assertTrue(expected)
         self.assert_unchanged(["--file", self.source(), "--date", self.tomorrow], stderr=expected)
 
+    def test_a_bank_that_goes_after_main_read_it_is_a_refusal_not_a_traceback(self):
+        spec = importlib.util.spec_from_file_location("pulse_under_test", str(SCRIPT))
+        pulse = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pulse)
+        questions = pulse.parse_bank(BANK)
+        args = mock.Mock(file=self.source(), date=self.tomorrow)
+        (self.folder / "questions.md").unlink()
+        with self.assertRaises(pulse.Refused) as refused:
+            pulse.run_propose(str(self.folder), questions, args)
+        self.assertIn("questions.md: it can't be read", str(refused.exception))
+        (self.folder / "questions.md").write_bytes(b"## one\nChip: \xff\xfe\n")
+        with self.assertRaises(pulse.Refused) as refused:
+            pulse.run_propose(str(self.folder), questions, args)
+        self.assertEqual(str(refused.exception), "questions.md: it isn't valid UTF-8")
+        self.assertEqual((self.folder / "questions.md").read_bytes(), b"## one\nChip: \xff\xfe\n")
+
     def test_it_appends_exactly_the_question_with_its_date(self):
         before, contents = self.files(), self.bank_bytes()
         result = self.pulse("propose", "--file", self.source(), "--date", self.tomorrow)
@@ -870,6 +893,13 @@ class ProposeWording(unittest.TestCase):
             self.assertIn(words, guide)
         self.assertIn("Date: line", flat(EXAMPLE.read_text(encoding="utf-8")))
         self.assertIn("Propose a pulse question", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+
+    def test_the_changelog_entry_is_on_top_under_a_dated_heading(self):
+        lines = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+        first = next(line for line in lines if line.startswith("## "))
+        self.assertTrue(first.endswith(": Propose a pulse question"), first)
+        date = first[len("## "):-len(": Propose a pulse question")]
+        self.assertEqual(datetime.date.fromisoformat(date).isoformat(), date)
 
 
 if __name__ == "__main__":

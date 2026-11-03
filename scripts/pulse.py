@@ -450,9 +450,14 @@ def run_propose(folder, questions, args):
     if any(other["id"] == question["id"] for other in questions):
         raise Refused("{} is already in the bank".format(question["id"]))
     path = os.path.join(folder, BANK)
-    with open(path, "rb") as bank:
-        current = bank.read().decode("utf-8-sig")
-    lines = ["", "## " + question["id"], "Date: " + day.isoformat(), "Chip: " + question["chip"],
+    try:  # main() read it a moment ago, but it can go or change in between
+        with open(path, "rb") as bank:
+            current = bank.read().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise Refused("{}: it isn't valid UTF-8".format(BANK))
+    except OSError as error:
+        raise Refused("{}: it can't be read ({})".format(BANK, error.strerror))
+    lines =["", "## " + question["id"], "Date: " + day.isoformat(), "Chip: " + question["chip"],
              "Question: " + question["question"]]
     lines += ["- {}: {}".format(label, description) for label, description in question["options"]]
     appended = ("" if current.endswith("\n") else "\n") + "".join(line + "\n" for line in lines)
