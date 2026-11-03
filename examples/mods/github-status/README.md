@@ -48,17 +48,25 @@ claude plugin disable github-status@sanvio-harness-starter --scope local
 | `owner/name · GitHub unavailable (is gh installed and signed in?)`, yellow | No read has worked yet this session. `gh` is missing, signed out, offline, or can't see the repo |
 | `no GitHub remote`, dim | The session's folder has no `origin` remote on github.com, so the mod never calls `gh` |
 
+While a project is in focus (see *Your projects*), every row is about that
+project's repo and starts with its name: `acme: acme/app · reading…`, or
+`notes: no GitHub remote` for a folder with no GitHub `origin`.
+
 `/github` reads GitHub straight away and prints the line.
 
 ## Your projects
 
-The line is the harness's repo. Repos cloned under [`projects/`](../../../projects/) are read
-with the command, from a session at the harness root:
+The line is the harness's repo, unless you put a project in focus. Then it's
+that project's `origin` repo, with `<name>: ` at the start. Repos cloned under
+[`projects/`](../../../projects/) are read with these commands, from a session at the harness root:
 
-| Type | Prints |
+| Type | Does |
 |---|---|
-| `/github acme` (or `/github projects/acme`) | The line for the repo cloned in `projects/acme`, read now |
-| `/github all` | The harness's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
+| `/github acme` (or `/github projects/acme`) | Prints the line for the repo cloned in `projects/acme`, read now |
+| `/github all` | Prints the harness's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
+| `/project <name>` (or `/project projects/<name>`) | Puts that project in focus and prints its line, read now |
+| `/project off` | Clears the focus, and the line shows the harness again |
+| `/project` | Prints the project in focus, or that there's none |
 
 ```
 harness: SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 5 open issues
@@ -70,30 +78,53 @@ A name is one folder directly under [`projects/`](../../../projects/). Anything 
 outside it, such as `../x`, `a/b` or a leading `.`, is refused before anything
 runs. A folder with no GitHub `origin` says so and `gh` isn't called. A repo
 whose read fails says GitHub is unavailable on its own line, and the others
-still print. Reading a project never changes the line above the prompt.
+still print. `/github <name>` and `/github all` never change the line above
+the prompt, and `/github all`'s `harness:` line is the harness's own repo
+whatever is in focus. `/github` alone reads the repo in focus.
+
+The focus is the session's own, so another session's line doesn't move, and a
+`/clear` drops it, because the new session has a new id. It lives in the file
+`.harness/project/<id>`, under the harness root, where `<id>` is the session's
+id. An id that doesn't match `^[0-9a-fA-F-]{8,64}$` means no focus, and nothing
+is read or written.
+
+The file's text, trimmed, is the project in focus when it's a name `/github`
+would accept and `projects/<name>` is a real folder, not a link. Anything else
+is no focus: an empty file, a missing one, or text naming something else. The
+timer reads the file every 15 seconds, so a focus another tool writes there
+shows on the next tick, and reads that repo straight away even inside the
+two-minute limit. A read that's still under way for a repo that's left focus
+is dropped.
+
+While a project is in focus, the mod also tells the model, in one section of
+the system prompt, that a question about the project, its pull requests, its
+issues or its loop means that project unless another is named.
 
 ## What it doesn't do
 
-It only reads. It never changes anything on GitHub. When the session starts
-it runs `git remote get-url origin` in the folder the session started in (and,
-for `/github <name>` or `/github all`, in each folder under [`projects/`](../../../projects/) it
-reads), and
-on a github.com remote, at most once every two minutes, it makes three reads
-through `gh`, each with a time limit:
+It writes `.harness/project/<id>` and nothing else, and it never changes
+anything on GitHub. One file is left behind for each session that used
+`/project`, because the mod doesn't delete them. When the session starts it
+runs `git remote get-url origin` in the folder the session started in (and,
+for `/github <name>`, `/github all` or a project in focus, in each folder under
+[`projects/`](../../../projects/) it reads), and on a github.com remote, at most once every two
+minutes, it makes three reads through `gh`, each with a time limit:
 
 - `gh api graphql` with a query (never a mutation) for the open pull request
   and open issue counts
 - `gh api --method GET repos/owner/name/actions/runs`, once for runs in
   progress and once for queued ones
 
-`/github` reads whenever you type it. Drawing the line never calls `gh`. A
-read that fails, for any reason, shows as unavailable or stale and stops
-nothing.
+`/github` and `/project <name>` read whenever you type them, and a focus that
+changes reads straight away. Drawing the line never calls `gh`. A read that
+fails, for any reason, shows as unavailable or stale and stops nothing.
 
-The line shows the repo the session started in, from its `origin` remote.
-Other repos are read only through `/github <name>` and `/github all`, from
-folders under [`projects/`](../../../projects/). It doesn't choose another remote, list workflows
-one by one, or link to GitHub.
+The line shows the repo the session started in, from its `origin` remote, or
+while a project is in focus, that project's `origin` repo with `<name>: ` at
+the start. A focused folder with no GitHub `origin` shows
+`<name>: no GitHub remote`, and `gh` isn't called for it. Other repos are read
+only through `/github <name>` and `/github all`, from folders under [`projects/`](../../../projects/).
+It doesn't choose another remote, list workflows one by one, or link to GitHub.
 
 ## Changing it
 
