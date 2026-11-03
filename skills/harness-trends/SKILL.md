@@ -1,6 +1,6 @@
 ---
 name: harness-trends
-description: Turn your harness usage for a sprint into a short report you share with the harness owner, with what you'd add, change or drop. Reads only your own local usage log, Claude Code's token counts and the loop's own cost records, and you read the report before it goes anywhere. Use at the end of a sprint, or when someone asks for "my harness report", "what did I use this sprint", "sprint follow-up", "what should we add to the harness", "token burn", "how many tokens", or "what did the loop cost".
+description: Turn your harness usage for a sprint into a short report you share with the harness owner, with what you'd add, change or drop. A daily run reads the day before's numbers, names at most three trends, recommends one change and, with your yes, puts it to the team as tomorrow's pulse question. Reads your own local usage log, Claude Code's token counts, the loop's own records and the dashboard's numbers, and the sprint run reads the team's pulse counts. You read every report before it goes anywhere, and nothing goes to the pulse folder without your yes. Use at the end of a sprint, or when someone asks for "harness trends", "how did yesterday go", "what should we change in the harness", "my harness report", "what did I use this sprint", "sprint follow-up", "what should we add to the harness", "token burn", "how many tokens", or "what did the loop cost".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 
@@ -12,6 +12,12 @@ send to the harness owner themselves. The report is gitignored and never
 committed. The owner reads the sprint's reports together and decides what goes
 into the harness.
 
+The daily run is smaller. It compares yesterday with the six days before it,
+recommends one change to the harness, and with the person's yes asks the team
+about it in tomorrow's pulse. Its note stays in [`reports/trends/`](../../reports/trends/) on the
+machine that wrote it, and the sprint report collects the notes and the team's
+votes.
+
 The log is written by [`.claude/hooks/usage_log.py`](../../.claude/hooks/usage_log.py). It holds names and counts,
 never prompts, paths or code. The token counts come from Claude Code's own
 transcripts on your machine, read by [`scripts/token_report.py`](../../scripts/token_report.py), which prints
@@ -22,6 +28,12 @@ list comes from `claude plugin list --json`, read by
 version and scope and no path.
 
 ## Steps
+
+1. **Choose the run.** The sprint run is for a harness report, a sprint
+   follow-up, tokens or the loop's cost, or any period longer than a day.
+   Anything else is the daily run.
+
+### Sprint run
 
 1. **Pick the period.** Use the date of their last report in
    [`reports/usage/`](../../reports/usage/) (the newest file with their name) as the start. If there
@@ -88,12 +100,97 @@ version and scope and no path.
    as printed, then a `## Tokens and loop cost` section with the token summary
    as printed, then the plugin output as printed (it starts with its own
    `## Plugins and mods` heading), then `## Changed plugins` if step 4 ran,
-   then a `## Proposals` section with their answers. Leave nothing unfilled.
+   then a `## Daily recommendations` section, then a `## Proposals` section
+   with their answers. Leave nothing unfilled.
+
+   `## Daily recommendations` lists each file in [`reports/trends/`](../../reports/trends/) dated in
+   the period, one line each, with its date and its recommendation. Then the
+   team's vote on it, if the pulse skill's step 1 finds the `Pulse folder` row
+   in `company/DATA.md` cleared. Run, from the period's start to today:
+
+   ```bash
+   python3 scripts/pulse.py summary --since <YYYY-MM-DD> --until <YYYY-MM-DD>
+   ```
+
+   For each file, find the summary entry headed
+   `## <the file's date plus one day>: Harness`, or
+   `## <that date>: trend-<that date>` for a question since removed from the
+   bank. Copy that entry's option counts. Write
+   `Fewer than three answered.` where the summary says that, and `No answers.`
+   where there's no entry. The skill never copies an Other answer. If the row
+   isn't cleared, list the recommendations and write
+   `Pulse folder not cleared.` once, under them.
 6. **Have them read it.** It's going to the owner. They can cut anything.
 7. **Say how to share it:** they send the file to the harness owner
    themselves, the way the team passes documents around. It stays in
    [`reports/usage/`](../../reports/usage/) on their machine, gitignored, where step 1 finds it next
    sprint.
+
+### Daily run
+
+Dates are written `YYYY-MM-DD`: today, yesterday, and tomorrow, the day the
+question would be asked.
+
+1. **Check the report is ignored.** Run:
+
+   ```bash
+   git check-ignore -q reports/trends/<today>.md
+   ```
+
+   On a non-zero exit, say the file isn't ignored, write nothing, and stop.
+2. **Get the numbers.** Run, with the day 7 days before today:
+
+   ```bash
+   python3 scripts/dashboard_data.py --json --since <YYYY-MM-DD>
+   ```
+
+   Compare only the `by_day` entries in `loop_history`, `loop_spend` and
+   `conversations` (its `harness` and `loop` sides each have one). Yesterday's
+   entry is compared against the sum of the six entries before it, never
+   today's: today isn't over. A day in `loop_spend` whose `cost_usd` is `null`
+   is named, not summed. `activity` and `loop_rework` are cited only as totals
+   for the period, never as a trend. A section whose `value` is `null` is named
+   with its `why`, and nothing is filled in for it.
+3. **Name the trends.** At most three, each one sentence giving yesterday's
+   figure and the six days' sum. In two cases say `No trend yesterday.`, write
+   the report (step 7) with that line and `Proposed: no, no trend`, and stop:
+   - every compared section is `null`
+   - every compared field is 0 or `null` both yesterday and across the six days
+4. **Recommend one change.** Add, change or drop one thing in the harness,
+   named as people say it (for example "the pulse skill"), never by its path,
+   and say which trend it answers. Never more than one.
+5. **Draft the question** in the bank's format, and show it exactly as it will
+   be written:
+
+   ```text
+   ## trend-<tomorrow>
+   Chip: Harness
+   Question: <Should we make the change, in one line?>
+   - Yes: Make this change
+   - Not yet: Ask again later
+   - No: Leave the harness as it is
+   ```
+
+   The `Question:` line is one line naming only the change, with no figure,
+   title, project name or issue name. There's no `Date:` line: `propose`
+   refuses a file with one, and takes the date from `--date`.
+6. **Propose it.** Only when the pulse skill's step 1 finds the
+   `Pulse folder` row in `company/DATA.md` cleared, and the person says yes to
+   this one step. If the row isn't cleared, say so and propose nothing. On a
+   yes:
+   - Write the question to `local-data/pulse-proposal.md` with the Write tool.
+   - Run:
+
+     ```bash
+     python3 scripts/pulse.py propose --file local-data/pulse-proposal.md --date <tomorrow>
+     ```
+
+   - Delete `local-data/pulse-proposal.md` whether or not `propose` succeeded.
+   - On a non-zero exit, show the reason it gave and don't retry.
+7. **Write the report last** to `reports/trends/<today>.md`. It holds the
+   trends, the recommendation and the question, and ends `Proposed: yes` or
+   `Proposed: no, <reason>`. The reason is one of: not cleared, declined, or
+   the reason `propose` gave.
 
 ## For the owner
 
@@ -112,7 +209,14 @@ one you don't, tell its author why.
 - Never commit anything under `.harness/`. The raw log stays local.
 - Never commit a report, force-add it, or send it anywhere. It's gitignored,
   and the author sends it.
+- A drafted question never holds a figure, a title, a project or issue name, a
+  prompt, a file path, a command or code.
+- A daily report holds no prompt, file path, command or code.
+- Never run `propose` without a yes given in this session, and never write to
+  the shared folder any other way.
 
 ## Output
 
-The report file, read by its author, and the commands that share it.
+For the sprint run, the report file, read by its author, and the commands that
+share it. For the daily run, the note in [`reports/trends/`](../../reports/trends/), and the
+question in tomorrow's pulse if the person said yes.
