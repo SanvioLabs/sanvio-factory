@@ -195,7 +195,7 @@ class Layout(Harness):
         self.assertEqual(code, 0)
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
-                                       "evals", "conversations", "waiting", "loop_rework"])
+                                       "evals", "conversations", "waiting", "loop_rework", "loop_history"])
         self.assertEqual(found["schema"], 1)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -614,6 +614,7 @@ class MissingOrCorrupt(Harness):
             self.assertNotIn("by_day", found[section], section)
         self.assertEqual(found["waiting"], {"pull_requests": {"value": None, "why": "gh unavailable"},
                                             "blocked": {"value": None, "why": "no status.json"}})
+        self.assertEqual(found["loop_history"], {"value": None, "why": "no run history"})
 
     def test_every_source_corrupt_gives_null_and_why_and_exits_0(self):
         write(self.root, ".loop/issue-7/usage.json", "not json")
@@ -623,10 +624,12 @@ class MissingOrCorrupt(Harness):
         write(log_path(self.root).parent, log_path(self.root).name, "not json\n[1, 2]\n")
         write(self.root, ".harness/evals/2026-10-25T0900-reviewer.json", "not json")
         write(self.root, ".harness/evals/2026-10-26T0900-reviewer.json", {"reviewer": "reviewer"})
+        (self.root / ".loop" / "history.jsonl").mkdir()
+        (self.root / ".loop" / "projects" / "app" / "history.jsonl").write_bytes(b"\xff\xfe not utf-8\n")
         code, out = self.main()
         self.assertEqual(code, 0)
         found = json.loads(out)
-        for section in ("loop_spend", "loop_throughput", "activity", "evals"):
+        for section in ("loop_spend", "loop_throughput", "activity", "evals", "loop_history"):
             self.assertEqual(found[section], {"value": None, "why": "unreadable"}, section)
 
     def test_records_with_no_run_in_the_window_are_zero_not_missing(self):
@@ -1093,6 +1096,14 @@ SONNET = "claude-sonnet-5-5"
 HAIKU = "claude-haiku-5-5"
 
 
+def finished(issue, ended, outcome="pr", tests=("passed",), verdicts=("PASS",), started="2026-10-20T09:00:00",
+             tokens=100, cost=1.0, project=None):
+    """One line of a history.jsonl, the shape loop.py's record_run() writes."""
+    return {"v": 1, "run": "{}-{}".format(issue, started), "issue": issue, "project": project, "started": started,
+            "ended": ended, "outcome": outcome, "rounds": len(tests), "tests": list(tests), "verdicts": list(verdicts),
+            "tokens": tokens, "cost_usd": cost, "agent": "claude", "reviewer": "claude"}
+
+
 class Sample(GitHarness):
     """build() with every section filled, which must match the sample the dashboard's tests draw.
 
@@ -1145,6 +1156,18 @@ class Sample(GitHarness):
             issue(40, "Steering: when a ticket needs a spec", "building", 1)]})
         write(self.root, ".loop/projects/app/status.json", {"issues": [
             {"number": 3, "title": "Add a health check", "state": "pr", "round": 1, "pr": "https://github.com/o/app/pull/4"}]})
+        # The same issues as they ended, each outcome and round count agreeing with status.json above.
+        lines(self.root, ".loop/history.jsonl", [
+            finished(31, "2026-10-16T10:40:00", started="2026-10-16T09:00:00", tokens=2_440_000, cost=3.65),
+            finished(32, "2026-10-20T09:40:00", started="2026-10-19T09:00:00", tokens=3_220_000, cost=4.75),
+            finished(33, "2026-10-21T10:30:00", tests=("failed", "passed"), verdicts=("FIX", "PASS"),
+                     started="2026-10-20T11:00:00", tokens=4_240_000, cost=6.30),
+            finished(34, "2026-10-23T16:00:00", "blocked", tests=("failed",) * 5, verdicts=("FIX",) * 5,
+                     started="2026-10-22T09:00:00", tokens=6_160_000, cost=9.15),
+            finished(36, "2026-10-26T11:00:00", started="2026-10-26T09:00:00", tokens=2_820_000, cost=4.20),
+            finished(38, "2026-10-27T08:48:00", started="2026-10-26T13:00:00", tokens=3_020_000, cost=4.50)])
+        lines(self.root, ".loop/projects/app/history.jsonl", [
+            finished(3, "2026-10-22T15:10:00", started="2026-10-22T14:00:00", tokens=880_000, cost=1.30, project="app")])
 
         events = []
         for day, names in (("15", ["standup", "review-pr"]), ("16", ["standup", "review-pr", "learn"]),
@@ -1264,6 +1287,242 @@ class Sample(GitHarness):
         self.assertTrue(any(r["changed"] and r["newest_change"] for r in rows))
         for field, name in (("skill_spend", "review-pr"), ("agent_spend", "reviewer"), ("command_spend", "standup")):
             self.assertIsNotNone(found["activity"][field][name]["cost_usd"], field)
+
+
+class LoopHistory(Harness):
+    """Runs from the harness and project app, over several days, one before SINCE and one of each outcome."""
+
+    def setUp(self):
+        super().setUp()
+        self.harness = [finished(1, "2026-10-01T09:00:00"),  # before SINCE
+                        finished(2, "2026-10-15T00:00:00", "skipped", tests=(), verdicts=(), tokens=None, cost=None),
+                        finished(7, "2026-10-20T10:00:00"),
+                        finished(9, "2026-10-22T09:00:00", "stopped"),
+                        finished(8, "2026-10-22T11:00:00", "blocked", tests=("failed", "failed"),
+                                 verdicts=("FIX", "FIX"), tokens=200, cost=2.5)]
+        self.app = [finished(7, "2026-10-21T10:00:00", project="app"),
+                    finished(3, "2026-10-22T10:00:00", project="app")]
+
+    def fill_history(self):
+        lines(self.root, ".loop/history.jsonl", self.harness)
+        lines(self.root, ".loop/projects/app/history.jsonl", self.app)
+
+    def history(self, since=SINCE):
+        return dashboard_data.loop_history(self.root, since, TODAY)
+
+    def test_every_run_since_in_ended_order_across_files_with_exactly_its_fields(self):
+        self.fill_history()
+        pr = {"outcome": "pr", "rounds": 1, "tests": ["passed"], "verdicts": ["PASS"], "tokens": 100, "cost_usd": 1.0,
+              "started": "2026-10-20T09:00:00"}
+        self.assertEqual(self.history()["runs"], [
+            dict(pr, issue="issue-2", ended="2026-10-15T00:00:00", outcome="skipped", rounds=0, tests=[], verdicts=[],
+                 tokens=None, cost_usd=None),
+            dict(pr, issue="issue-7", ended="2026-10-20T10:00:00"),
+            dict(pr, issue="app/issue-7", ended="2026-10-21T10:00:00"),
+            dict(pr, issue="issue-9", ended="2026-10-22T09:00:00", outcome="stopped"),
+            dict(pr, issue="app/issue-3", ended="2026-10-22T10:00:00"),
+            dict(pr, issue="issue-8", ended="2026-10-22T11:00:00", outcome="blocked", rounds=2,
+                 tests=["failed", "failed"], verdicts=["FIX", "FIX"], tokens=200, cost_usd=2.5)])
+
+    def test_the_sections_keys_and_each_runs_fields_in_order(self):
+        self.fill_history()
+        found = self.history()
+        self.assertEqual(list(found), ["runs", "by_day", "by_outcome", "skipped_lines"])
+        self.assertEqual(list(found["runs"][0]), ["issue", "started", "ended", "outcome", "rounds", "tests", "verdicts",
+                                                  "tokens", "cost_usd"])
+        self.assertEqual(list(found["by_day"][0]), ["day", "runs", "pr", "blocked", "stopped", "skipped",
+                                                    "more_than_one_round"])
+
+    def test_runs_ending_at_the_same_time_keep_the_harness_before_the_project(self):
+        same = "2026-10-20T10:00:00"
+        lines(self.root, ".loop/history.jsonl", [finished(5, same)])
+        lines(self.root, ".loop/projects/app/history.jsonl", [finished(4, same)])
+        lines(self.root, ".loop/projects/web/history.jsonl", [finished(3, same)])
+        self.assertEqual([r["issue"] for r in self.history()["runs"]], ["issue-5", "app/issue-4", "web/issue-3"])
+
+    def test_by_day_runs_over_loop_spends_days_with_zeros_on_empty_days(self):
+        self.fill_history()
+        write(self.root, ".loop/issue-7/usage.json", [run("2026-10-20T09:00:00", "plan", "m", 10, 1.0)])
+        found = self.build()
+        rows = found["loop_history"]["by_day"]
+        self.assertEqual([r["day"] for r in rows], [d["day"] for d in found["loop_spend"]["by_day"]])
+        by_day = {r["day"]: r for r in rows}
+        empty = {"runs": 0, "pr": 0, "blocked": 0, "stopped": 0, "skipped": 0, "more_than_one_round": 0}
+        self.assertEqual(by_day["2026-10-16"], dict(empty, day="2026-10-16"))
+        self.assertEqual(by_day["2026-10-15"], dict(empty, day="2026-10-15", runs=1, skipped=1))
+        self.assertEqual(by_day["2026-10-21"], dict(empty, day="2026-10-21", runs=1, pr=1))
+        self.assertEqual(by_day["2026-10-22"], dict(empty, day="2026-10-22", runs=3, pr=1, blocked=1, stopped=1,
+                                                    more_than_one_round=1))
+
+    def test_by_outcome_totals(self):
+        self.fill_history()
+        self.assertEqual(self.history()["by_outcome"], {"pr": 3, "blocked": 1, "stopped": 1, "skipped": 1})
+
+    def test_by_outcome_has_every_key_with_no_run_counted(self):
+        lines(self.root, ".loop/history.jsonl", [self.harness[0]])
+        found = self.history()
+        self.assertEqual(found["runs"], [])
+        self.assertEqual(found["by_outcome"], {"pr": 0, "blocked": 0, "stopped": 0, "skipped": 0})
+
+    def test_a_run_ending_after_today_is_in_runs_and_by_outcome_on_no_day(self):
+        lines(self.root, ".loop/history.jsonl", [finished(11, "2026-10-28T09:00:00")])
+        found = self.history()
+        self.assertEqual([r["issue"] for r in found["runs"]], ["issue-11"])
+        self.assertEqual(found["by_outcome"]["pr"], 1)
+        self.assertEqual(found["by_day"][-1]["day"], TODAY.isoformat())
+        self.assertEqual(sum(r["runs"] for r in found["by_day"]), 0)
+
+    def test_each_kind_of_bad_line_is_skipped(self):
+        good = finished(7, "2026-10-20T10:00:00")
+        for raw in ("not json", "[1, 2]", "3", "null", "",
+                    json.dumps(dict(good, v=2)), json.dumps(dict(good, v=True)), json.dumps(dict(good, v=1.0)),
+                    json.dumps({k: v for k, v in good.items() if k != "v"}),
+                    json.dumps({k: v for k, v in good.items() if k != "ended"}),
+                    json.dumps(dict(good, ended="2026-10-2")), json.dumps(dict(good, ended=20261020101010)),
+                    json.dumps(dict(good, cost_usd=float("nan"))), json.dumps(dict(good, tokens=float("inf"))),
+                    json.dumps(dict(good, tokens=float("-inf"))),
+                    json.dumps(dict(good, cost_usd=1.0)).replace("1.0", "1e999")):
+            with self.subTest(raw=raw):
+                write(self.root, ".loop/history.jsonl", json.dumps(good) + "\n" + raw + "\n" + json.dumps(good) + "\n")
+                found = self.history()
+                self.assertEqual(found["skipped_lines"], 1)
+                self.assertEqual(len(found["runs"]), 2)
+
+    def test_skipped_lines_are_summed_across_files_whatever_their_date(self):
+        old = dict(self.harness[0], v=2)  # before SINCE, and still a bad line
+        write(self.root, ".loop/history.jsonl", "not json\n" + json.dumps(old) + "\n")
+        write(self.root, ".loop/projects/app/history.jsonl", json.dumps(dict(self.app[0], v=True)) + "\n")
+        self.assertEqual(self.history()["skipped_lines"], 3)
+
+    def test_a_trailing_newline_is_no_line_to_skip(self):
+        self.fill_history()
+        self.assertEqual(self.history()["skipped_lines"], 0)
+
+    def test_nan_in_a_line_cant_make_the_output_invalid_json(self):
+        write(self.root, ".loop/history.jsonl",
+              json.dumps(dict(finished(7, "2026-10-20T10:00:00"), cost_usd=float("nan"))) + "\n")
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        self.assertNotIn("NaN", out)
+        self.assertEqual(json.loads(out)["loop_history"]["runs"], [])
+
+    def test_odd_values_exit_0_and_count_only_in_runs(self):
+        for odd in ({"outcome": ["pr"], "rounds": "lots"}, {"outcome": {"a": 1}, "rounds": True},
+                    {"outcome": "building", "rounds": None}, {"outcome": None, "rounds": [3]}):
+            with self.subTest(odd=odd):
+                lines(self.root, ".loop/history.jsonl", [dict(finished(7, "2026-10-20T10:00:00"), **odd)])
+                code, out = self.main()
+                self.assertEqual(code, 0)
+                found = json.loads(out)["loop_history"]
+                self.assertEqual(len(found["runs"]), 1)
+                self.assertIsNone(found["runs"][0]["rounds"])
+                self.assertEqual(found["by_outcome"], {"pr": 0, "blocked": 0, "stopped": 0, "skipped": 0})
+                day = {r["day"]: r for r in found["by_day"]}["2026-10-20"]
+                self.assertEqual(day, {"day": "2026-10-20", "runs": 1, "pr": 0, "blocked": 0, "stopped": 0,
+                                       "skipped": 0, "more_than_one_round": 0})
+
+    def test_a_field_of_the_wrong_type_prints_as_null(self):
+        lines(self.root, ".loop/history.jsonl", [dict(
+            finished(7, "2026-10-20T10:00:00"), started=[LEAK], outcome={"text": LEAK}, tests=LEAK, verdicts=[LEAK, 1],
+            tokens="lots", cost_usd=True)])
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["loop_history"]["runs"], [
+            {"issue": "issue-7", "started": None, "ended": "2026-10-20T10:00:00", "outcome": None, "rounds": 1,
+             "tests": None, "verdicts": None, "tokens": None, "cost_usd": None}])
+        self.assertNotIn(LEAK, out)
+
+    def test_a_list_nested_too_deep_to_print_doesnt_stop_the_script(self):
+        for depth in (600, 100_000):
+            with self.subTest(depth=depth):
+                write(self.root, ".loop/history.jsonl",
+                      '{"v": 1, "ended": "2026-10-20T10:00:00", "issue": 7, "tests": ' + "[" * depth + "]" * depth + "}\n")
+                code, out = self.main()
+                self.assertEqual(code, 0)
+                self.assertIn("loop_history", json.loads(out))
+
+    def test_an_issue_that_isnt_a_whole_number_prints_as_null(self):
+        for odd in ("free text " + LEAK, True, 7.5, None):
+            with self.subTest(odd=odd):
+                lines(self.root, ".loop/history.jsonl", [dict(finished(7, "2026-10-20T10:00:00"), issue=odd)])
+                found = self.history()
+                self.assertIsNone(found["runs"][0]["issue"])
+                self.assertEqual(found["skipped_lines"], 0)
+
+    def test_the_folder_names_the_project_not_the_line(self):
+        lines(self.root, ".loop/history.jsonl", [finished(7, "2026-10-20T10:00:00", project="other")])
+        lines(self.root, ".loop/projects/app/history.jsonl", [finished(7, "2026-10-21T10:00:00", project="other")])
+        self.assertEqual([r["issue"] for r in self.history()["runs"]], ["issue-7", "app/issue-7"])
+
+    def test_the_docstring_has_the_section_and_says_it_keys_on_ended(self):
+        doc = " ".join(dashboard_data.__doc__.split())
+        self.assertIn("loop_history every loop run that ended since --since", doc)
+        self.assertIn("It keys on `ended`", doc)
+        for sentence in ("A run counts when the date of its `ended`, its first 10 characters, is on or after `--since`.",
+                         "A run ending after today counts in `runs` and `by_outcome` but has no day.",
+                         "`by_outcome` has `pr`, `blocked`, `stopped` and `skipped`, every key always present.",
+                         "Run fields: `issue`, `started`, `ended`, `outcome`, `rounds`, `tests`, `verdicts`, `tokens` "
+                         "and `cost_usd`. Nothing else goes in.",
+                         "Issue names: `issue-N` for the harness and `<name>/issue-N` for a project.",
+                         'Why values: `{"value": null, "why": "no run history"}` and `"unreadable"`.'):
+            self.assertIn(sentence, doc)
+
+    def test_a_run_before_since_appears_nowhere_and_isnt_skipped(self):
+        self.fill_history()
+        found = self.history()
+        self.assertNotIn("issue-1", [r["issue"] for r in found["runs"]])
+        self.assertNotIn("2026-10-01", [r["day"] for r in found["by_day"]])
+        self.assertEqual(sum(found["by_outcome"].values()), len(found["runs"]))
+        self.assertEqual(sum(r["runs"] for r in found["by_day"]), len(found["runs"]))
+        self.assertEqual(found["skipped_lines"], 0)
+
+    def test_a_run_started_before_since_and_ended_after_counts_here_not_in_loop_spend(self):
+        started = "2026-10-10T09:00:00"
+        lines(self.root, ".loop/history.jsonl", [finished(7, "2026-10-16T09:00:00", started=started)])
+        write(self.root, ".loop/issue-7/usage.json", [run(started, "plan", "m", 10, 1.0)])
+        found = self.build()
+        self.assertEqual([r["issue"] for r in found["loop_history"]["runs"]], ["issue-7"])
+        self.assertEqual(found["loop_spend"]["by_issue"], {})
+
+    def test_an_unreadable_project_file_doesnt_lose_the_harnesss_runs(self):
+        for spoil in (lambda path: path.write_bytes(b"\xff\xfe not utf-8\n"), lambda path: path.mkdir()):
+            with self.subTest(spoil=spoil):
+                lines(self.root, ".loop/history.jsonl", self.harness[1:2])
+                path = self.root / ".loop" / "projects" / "app" / "history.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.is_dir():
+                    path.rmdir()
+                path.unlink(missing_ok=True)
+                spoil(path)
+                self.assertEqual([r["issue"] for r in self.history()["runs"]], ["issue-2"])
+
+    def test_every_file_unreadable_is_unreadable_and_one_empty_file_is_not(self):
+        (self.root / ".loop").mkdir()
+        (self.root / ".loop" / "history.jsonl").mkdir()
+        self.assertEqual(self.history(), {"value": None, "why": "unreadable"})
+        (self.root / ".loop" / "history.jsonl").rmdir()
+        write(self.root, ".loop/history.jsonl", "")
+        self.assertEqual(self.history()["runs"], [])
+
+    def test_no_other_field_and_no_path_reaches_the_output(self):
+        leaky = dict(finished(7, "2026-10-20T10:00:00"), run=LEAK, project=LEAK, agent=LEAK, reviewer=LEAK,
+                     title=LEAK, note=LEAK, pr="https://github.com/o/r/pull/1?" + LEAK)
+        lines(self.root, ".loop/history.jsonl", [leaky])
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(json.loads(out)["loop_history"]["runs"]), 1)
+        for leak in (LEAK, str(self.root), "github.com"):
+            self.assertNotIn(leak, out)
+
+    def test_the_other_sections_are_the_same_with_and_without_history_files(self):
+        self.fill()
+        self.gh(PRS)
+        before = self.build()
+        self.fill_history()
+        after = self.build()
+        self.assertEqual(before.pop("loop_history"), {"value": None, "why": "no run history"})
+        self.assertEqual(len(after.pop("loop_history")["runs"]), 6)
+        self.assertEqual(before, after)
 
 
 class Privacy(Harness):

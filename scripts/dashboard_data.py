@@ -73,6 +73,29 @@
                      and each of those with its number, title, merges from main and other commits.
                      A pull request's commits are cached in .harness/cache/loop_rework.json, so
                      each is asked for once
+    loop_history     every loop run that ended since --since, from .loop/history.jsonl and each
+                     .loop/projects/*/history.jsonl, as runs, by_day, by_outcome and skipped_lines.
+                     It keys on `ended`, where loop_spend keys on when the loop picked the issue up.
+                     A run counts when the date of its `ended`, its first 10 characters, is on or after `--since`.
+                     runs is sorted by the whole of ended, and each holds only its own fields.
+                     Run fields: `issue`, `started`, `ended`, `outcome`, `rounds`, `tests`, `verdicts`, `tokens` and `cost_usd`. Nothing else goes in.
+                     Issue names: `issue-N` for the harness and `<name>/issue-N` for a project.
+                     The name is the project's folder, and issue is null when the line's isn't a whole
+                     number. rounds, tokens and cost_usd are null when they aren't numbers, started
+                     and outcome when they aren't text, tests and verdicts when they aren't lists of
+                     text. by_day lists every day from --since to today, oldest first, the same days as
+                     loop_spend's, each with its runs, pr, blocked, stopped, skipped and
+                     more_than_one_round, 0 on a day with none.
+                     A run ending after today counts in `runs` and `by_outcome` but has no day.
+                     `by_outcome` has `pr`, `blocked`, `stopped` and `skipped`, every key always present.
+                     Any other outcome counts only in runs and its day's runs. skipped_lines counts
+                     the lines left out, whatever their date: not a JSON object (NaN and Infinity
+                     aren't JSON, and a blank line isn't an object), v not the integer 1, or ended
+                     not a string of 10 or more characters. A file that can't be read doesn't stop
+                     the others.
+                     Why values: `{"value": null, "why": "no run history"}` and `"unreadable"`.
+                     The first is for no files and the second for none that can be read. It prints no
+                     title, note, link, path or command name
 
 A section whose source is missing or can't be read is {"value": null, "why": ...}, and the why names
 the kind of problem, never a path or an error's text. The script still exits 0. status.json keeps
@@ -83,7 +106,7 @@ appear only under waiting and loop_rework, and notes only under waiting, printed
 so they hold whatever was typed into them. Nowhere else does it print a title or a note, and nowhere
 does it add a pull request's address, a prompt, a commit's message or author, an eval's reasons or a
 file path other than those in changed, which are from the harness root: counts, dollars, dates, issue
-names, step, model, skill, agent, rule and case names. The dollars are the loop's estimate at API
+names, step, model, skill, agent, rule and case names, and a run's outcome, tests and verdicts. The dollars are the loop's estimate at API
 prices, or under activity an estimate at the prices in .harness/prices.json, not what was billed.
 """
 import argparse
@@ -125,6 +148,7 @@ ACTIVITY_KEEP = datetime.timedelta(minutes=15)  # how long a read of the transcr
 PRICES = Path(".harness") / "prices.json"
 PRICED_TOKENS = 1_000_000  # prices.json's figures are dollars for this many tokens
 SPEND_FIELDS = {"skills": "skill_spend", "agents": "agent_spend", "commands": "command_spend"}
+OUTCOMES = ("pr", "blocked", "stopped", "skipped")  # the states a run ends in; see record_run in loop.py
 
 
 def missing(why):
@@ -756,6 +780,79 @@ def loop_rework(root, since):
     return {"merged": len(prs), "reworked": len(out), "pull_requests": out}
 
 
+def finite(text):
+    """text as a float, refusing NaN and the infinities: json.loads() takes them, and json.dumps() would print
+    them as invalid JSON. A number too big for a float, like 1e999, comes through here as well."""
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(text)
+    return value
+
+
+def history_line(raw):
+    """One line of a history.jsonl as a dict, or None when loop_history skips it."""
+    try:
+        line = json.loads(raw, parse_constant=finite, parse_float=finite)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(line, dict) or type(line.get("v")) is not int or line["v"] != 1:
+        return None
+    return line if isinstance(line.get("ended"), str) and len(line["ended"]) >= 10 else None
+
+
+def history_run(prefix, line):
+    """The fields a run prints from its history line, and only those. The folder names the project, as in
+    status_rows(), and an issue that isn't a whole number is null, so free text can't come through it. A
+    field of the wrong type is null too, so a list nested too deep to print can't stop the whole document."""
+    def labels(value):
+        return value if isinstance(value, list) and all(isinstance(item, str) for item in value) else None
+
+    issue = number(line.get("issue"))
+    return {"issue": "{}issue-{}".format(prefix, issue) if isinstance(issue, int) else None,
+            "started": text_or_none(line.get("started")), "ended": line["ended"],
+            "outcome": text_or_none(line.get("outcome")), "rounds": number(line.get("rounds")),
+            "tests": labels(line.get("tests")), "verdicts": labels(line.get("verdicts")),
+            "tokens": number(line.get("tokens")), "cost_usd": number(line.get("cost_usd"))}
+
+
+def outcome_counts(runs):
+    """How many of runs ended in each of OUTCOMES."""
+    return {name: sum(1 for run in runs if run["outcome"] == name) for name in OUTCOMES}
+
+
+def loop_history(root, since, today):
+    state = Path(root) / ".loop"
+    paths = [("", state / "history.jsonl")]
+    paths += [(p.parent.name + "/", p) for p in sorted(state.glob("projects/*/history.jsonl"))]
+    # exists(), not is_file(): a directory at that path is a file that can't be read, not one that isn't there.
+    paths = [(prefix, path) for prefix, path in paths if path.exists()]
+    if not paths:
+        return missing("no run history")
+    runs, skipped, read_any = [], 0, False
+    for prefix, path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        read_any = True
+        for raw in text.splitlines():
+            line = history_line(raw)
+            if line is None:
+                skipped += 1
+            elif line["ended"][:10] >= since:
+                runs.append(history_run(prefix, line))
+    if not read_any:
+        return missing("unreadable")
+    runs.sort(key=lambda run: run["ended"])
+    on = {}
+    for run in runs:
+        on.setdefault(run["ended"][:10], []).append(run)
+    by_day = [dict(day=d, runs=len(on.get(d, [])), **outcome_counts(on.get(d, [])),
+                   more_than_one_round=sum(1 for run in on.get(d, []) if (run["rounds"] or 0) > 1))
+              for d in days(since, today)]
+    return {"runs": runs, "by_day": by_day, "by_outcome": outcome_counts(runs), "skipped_lines": skipped}
+
+
 def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
     now = now or datetime.datetime.now().astimezone()
     return {"schema": SCHEMA, "generated": now.isoformat(timespec="seconds"), "since": since,
@@ -765,7 +862,8 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "evals": evals(root),
             "conversations": conversations(root, since, today, projects_dir, Path(root) / CACHE),
             "waiting": waiting(root, now),
-            "loop_rework": loop_rework(root, since)}
+            "loop_rework": loop_rework(root, since),
+            "loop_history": loop_history(root, since, today)}
 
 
 def main(argv=None, root=ROOT, projects_dir=TRANSCRIPTS):
