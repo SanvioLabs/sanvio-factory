@@ -313,8 +313,40 @@ const sessionText = (sessions: Record<string, number>) =>
     .map(([label, n]) => `${label} ${n}`)
     .join(' · ')
 
-export type Tone = 'now' | 'pass' | 'fail' | 'earlier' | 'quiet'
+export type Tone = 'now' | 'pass' | 'fail' | 'earlier' | 'quiet' | 'warn'
 export type Segment = { label: string; text: string; tone: Tone }
+
+// Maps, so a subscriptionType such as `constructor` finds nothing rather than an object's own property.
+const BUSINESS = new Map([['team', 'Team'], ['enterprise', 'Enterprise']])
+const PERSONAL = new Map([['pro', 'Pro'], ['max', 'Max'], ['free', 'Free']])
+
+// The plan segment, from the stdout of `claude auth status`. A null output is a command that failed,
+// exited non-zero or timed out. Only loggedIn, authMethod, subscriptionType and orgName are read: never
+// the email or the org id. A personal plan's orgName holds the person's email, so it's never read there.
+export function planSegment(output: string | null): Segment {
+  const unknown: Segment = { label: 'plan', text: 'unknown', tone: 'quiet' }
+  if (output === null) return unknown
+  let data: unknown
+  try {
+    data = JSON.parse(output)
+  } catch {
+    return unknown
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return unknown
+  const { loggedIn, authMethod, subscriptionType, orgName } = data as Record<string, unknown>
+  if (loggedIn !== true) return unknown
+  // An API key login has no plan, so it's checked first.
+  if (typeof authMethod === 'string' && /api.?key/i.test(authMethod)) return { label: 'plan', text: 'API key', tone: 'earlier' }
+  const kind = typeof subscriptionType === 'string' ? subscriptionType.trim().toLowerCase() : ''
+  const business = BUSINESS.get(kind)
+  if (business) {
+    const org = typeof orgName === 'string' && orgName.trim() && !orgName.includes('@') ? ` · ${orgName.trim()}` : ''
+    return { label: 'plan', text: `${business}${org}`, tone: 'earlier' }
+  }
+  const personal = PERSONAL.get(kind)
+  if (personal) return { label: 'plan', text: `${personal} (personal)`, tone: 'warn' }
+  return unknown
+}
 
 // The review segment: what is running now, else how the last one to end went, else the last reviewer seen.
 export function reviewSegment(lens: Lens, now: number): Segment {
@@ -338,7 +370,8 @@ export function reviewSegment(lens: Lens, now: number): Segment {
 }
 
 // The band: one segment per layer. A layer that acted this turn stands out; one that acted earlier is dim.
-export function bandSegments(lens: Lens, showScope = false, now = Date.now()): Segment[] {
+// The session's plan, when given, goes after the scope and before steering.
+export function bandSegments(lens: Lens, showScope = false, now = Date.now(), plan: Segment | null = null): Segment[] {
   const thisTurn = (hit: Hit | undefined) => hit !== undefined && hit.turn === lens.turn
   const readNow = lens.steering.filter(thisTurn).map(hit => hit.name)
   const always = lens.always.length ? `${lens.always.length} always on` : 'none always on'
@@ -356,6 +389,7 @@ export function bandSegments(lens: Lens, showScope = false, now = Date.now()): S
     : []
   return [
     ...scope,
+    ...(plan ? [plan] : []),
     steering,
     { label: 'skill', text: skill?.name ?? 'none yet', tone: thisTurn(skill) ? 'now' : skill ? 'earlier' : 'quiet' },
     {

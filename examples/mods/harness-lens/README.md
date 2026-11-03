@@ -5,7 +5,7 @@ nobody can say which part did that. This mod draws one line above the prompt
 naming the layer that just acted:
 
 ```
-◆ harness  steering: 3 always on + gates  skill: review-tests  gate: ✗ proposal  guard: ✗ refused Bash  review: reviewer  running: loop 1
+◆ harness  plan: Team · Acme  steering: 3 always on + gates  skill: review-tests  gate: ✗ proposal  guard: ✗ refused Bash  review: reviewer  running: loop 1
 ```
 
 It's a Claude Code mod, so it works in Claude Code only: it was seen working in
@@ -43,6 +43,7 @@ claude plugin disable harness-lens@sanvio-harness-starter --scope local
 
 | Segment | Shows |
 |---|---|
+| **plan** | The Claude plan this session is signed in with, and on a business plan its organisation. A personal plan shows in yellow. See [The plan segment](#the-plan-segment) |
 | **steering** | How many steering files load into every session (the `@` lines in [`AGENTS.md`](../../../AGENTS.md)), plus any the agent read because they applied |
 | **skill** | The last of this harness's skills the agent followed, whether you typed `/name` or it read the `SKILL.md` |
 | **gate** | The last gate run and how it went. A commit the pre-commit hook refused shows as `✗ pre-commit`. A commit that got through shows nothing, because the hook is silent when it passes |
@@ -52,13 +53,29 @@ claude plugin disable harness-lens@sanvio-harness-starter --scope local
 | **scope** | Only in a harness that declares one (see [Another layout](#another-layout)): the client, project or area this session is scoped to, first on the line. `none` when nothing is set |
 
 Cyan means it happened this turn. A gate or guard result this turn is green or
-red. Plain text happened earlier in the session, and dim means nothing yet. A
+red. Yellow is a personal plan. Plain text happened earlier in the session, and dim means nothing yet. A
 guard refusal and a failed gate also pop up a short notice.
 
 `/lens` prints the whole session, layer by layer: every steering file read,
 every skill followed, each gate with how many times it passed and failed, the
 refusals by tool, the reviewers running now with how long each has run, and
 how many headless sessions each `running` label has, a zero included.
+
+### The plan segment
+
+The lens reads the plan once, when the session starts, by running `claude
+auth status` with the config directory the session started with. A reload
+reads it again.
+
+| Shows | Means |
+|---|---|
+| `Team · <org>` | A Team plan, with its organisation's name |
+| `Enterprise · <org>` | An Enterprise plan, with its organisation's name |
+| `Pro (personal)`, `Max (personal)`, `Free (personal)` | A personal plan, in yellow. No organisation name, because on a personal plan that holds the person's email |
+| `API key` | Signed in with an API key |
+| `unknown` | Signed out, or `claude auth status` failed or took longer than two seconds. Dim |
+
+It only shows the plan. It doesn't block anything on a personal plan.
 
 ### The review segment
 

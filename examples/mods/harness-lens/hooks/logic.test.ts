@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { STARTER, alwaysSteering, bandSegments, countSessions, emptyLens, endRun, gateRun, harnessSkill, lensReport, nextSessions, parseConfig, parseScope, record, relative, remember, reviewSegment, scopeFiles, scopeText, settleRuns, skillFromPath, startRun, steeringName } from './logic'
+import { STARTER, alwaysSteering, bandSegments, countSessions, emptyLens, endRun, gateRun, harnessSkill, lensReport, nextSessions, parseConfig, parseScope, planSegment, record, relative, remember, reviewSegment, scopeFiles, scopeText, settleRuns, skillFromPath, startRun, steeringName } from './logic'
 
 const ROOT = '/h/my-harness'
 
@@ -311,5 +311,57 @@ describe('scope', () => {
     expect(bandSegments(emptyLens(ROOT, []), true)[0]).toEqual({ label: 'scope', text: 'none', tone: 'quiet' })
     expect(scopeText({ kind: 'harness', name: 'harness' })).toBe('harness')
     expect(lensReport(lens, true)).toContain('Scope: partner fabrikam')
+  })
+})
+
+describe('plan', () => {
+  // Every fixture carries an email and an org id, so a case that showed either would fail.
+  const status = (fields: Record<string, unknown>) =>
+    JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'leak@x.test', orgId: 'org-LEAK-123', ...fields })
+  const cases: Array<[string | null, string]> = [
+    [status({ subscriptionType: 'team', orgName: 'Acme' }), 'Team · Acme'],
+    [status({ subscriptionType: 'enterprise', orgName: 'Acme' }), 'Enterprise · Acme'],
+    [status({ subscriptionType: 'pro', orgName: "pat@example.com's Organization" }), 'Pro (personal)'],
+    [status({ subscriptionType: 'max', orgName: "pat@example.com's Organization" }), 'Max (personal)'],
+    [status({ subscriptionType: 'free', orgName: "pat@example.com's Organization" }), 'Free (personal)'],
+    [status({ authMethod: 'api_key' }), 'API key'],
+    [status({ loggedIn: false, subscriptionType: 'team', orgName: 'Acme' }), 'unknown'],
+    [null, 'unknown'],
+    ['not json', 'unknown'],
+  ]
+
+  test('a business plan shows with its organisation', () => {
+    expect(planSegment(status({ subscriptionType: 'team', orgName: 'Acme' }))).toEqual({ label: 'plan', text: 'Team · Acme', tone: 'earlier' })
+    expect(planSegment(status({ subscriptionType: 'Enterprise', orgName: 'Acme' })).text).toBe('Enterprise · Acme')
+  })
+  test('a personal plan is yellow and never shows the organisation name', () => {
+    for (const [type, text] of [['pro', 'Pro (personal)'], ['max', 'Max (personal)'], ['free', 'Free (personal)']]) {
+      const segment = planSegment(status({ subscriptionType: type, orgName: "pat@example.com's Organization" }))
+      expect(segment).toEqual({ label: 'plan', text: text!, tone: 'warn' })
+      expect(segment.text).not.toContain('@')
+      expect(segment.text).not.toContain('pat@example.com')
+    }
+  })
+  test('an API key login shows as an API key', () => {
+    expect(planSegment(status({ authMethod: 'api_key' }))).toEqual({ label: 'plan', text: 'API key', tone: 'earlier' })
+  })
+  test('signed out, a failed or timed-out command, and output that is not JSON are unknown', () => {
+    for (const output of [status({ loggedIn: false }), null, 'not json']) {
+      expect(planSegment(output)).toEqual({ label: 'plan', text: 'unknown', tone: 'quiet' })
+    }
+  })
+  test('every case gives the text it should, and none shows the email or the org id', () => {
+    for (const [output, text] of cases) {
+      const shown = planSegment(output).text
+      expect(shown).toBe(text)
+      expect(shown).not.toContain('leak@x.test')
+      expect(shown).not.toContain('org-LEAK-123')
+    }
+  })
+  test('the plan goes first and leaves the rest of the line as it was', () => {
+    const lens = emptyLens(ROOT, ['operating'])
+    const labels = bandSegments(lens, false, 1_000_000, planSegment(null)).map(segment => segment.label)
+    expect(labels).toEqual(['plan', 'steering', 'skill', 'gate', 'guard', 'review', 'running'])
+    expect(bandSegments(lens).map(segment => segment.label)).not.toContain('plan')
   })
 })
