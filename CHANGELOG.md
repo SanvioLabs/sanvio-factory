@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Propose a pulse question
+
+A pulse question can now be asked on one date only: give it a `Date:` line, and every other day still gets the undated questions in turn, so adding a dated question shifts no other day. `python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD` adds one to the end of `questions.md`, and changes nothing if the date isn't after today, the id is already in the bank, or the bank with it would fail `check`. `check` now also reports a date that isn't a real YYYY-MM-DD, two questions on one date, and a bank with no undated question.
+Files: [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/pulse/README.md`](skills/pulse/README.md), [`skills/pulse/questions.example.md`](skills/pulse/questions.example.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-03: Mod test failures by name
 
 When a mod's tests fail, [`tests/test_mods.py`](tests/test_mods.py) now reports every failing test's name, its file and its error, wherever it falls in the output, instead of the last 40 lines.
