@@ -34,6 +34,13 @@ Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md
 
 **Do:** nothing.
 
+## 2026-11-02: Loop history in the dashboard data
+
+`python3 scripts/dashboard_data.py --json` now prints a `loop_history` section: every loop run that ended since `--since`, for the harness and each project, with its outcome, rounds, tests, verdicts and cost, and counts of each outcome by day. The dashboard pane doesn't draw it yet.
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/harness-dashboard/hooks/sample.ts`](examples/mods/harness-dashboard/hooks/sample.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-02: Time per step
 
 Each issue's row in `.loop/status.json` now records how long the current run spent on each step: `step_started` says when the current step began, and `step_seconds` holds the whole seconds per step, with rounds summed. It covers the current run only, and `loop.log` and `.loop/history.jsonl` are unchanged.
