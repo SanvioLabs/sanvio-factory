@@ -34,6 +34,13 @@ Files: [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_pulse.py`](tests/tes
 
 **Do:** nothing.
 
+## 2026-11-03: Mod test failures by name
+
+When a mod's tests fail, [`tests/test_mods.py`](tests/test_mods.py) now reports every failing test's name, its file and its error, wherever it falls in the output, instead of the last 40 lines.
+Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-02: Safer harness eval runs
 
 A harness eval run can no longer be redirected by an agent editing its record: what a run acts on is sealed in `~/.harness-evals`, and the suite's path is kept only there. Scoring gets an empty home and no `gh` login, and reads each pull request from a `PR_DATA` file. Ctrl-C now ends the start command too, and `resume --end` scores an interrupted run. A failed start's pull request is now scored.
