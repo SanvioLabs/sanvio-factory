@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Review pull requests from one harness repo
+
+Product repos can now call [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) from your harness repo, so every pull request is reviewed against one copy of the review-pr skill and its rules, from the harness's default branch, with no [`skills/`](skills/) folder in each repo. It checks out the harness with a read-only deploy key, reads the project's rules from the pull request's base rather than its head, runs Claude with Read, Grep and Glob only, and posts one comment. It never approves or merges. It runs only when another workflow calls it, never on the starter's own events. [`examples/ci/review-pr.yml`](examples/ci/review-pr.yml) is unchanged, and still the one to copy for Codex or Ollama.
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** follow [`examples/ci/README.md`](examples/ci/README.md) to use it.
+
 ## 2026-11-03: Plan on the harness lens
 
 The harness lens now starts its band with **plan**: the Claude plan the session is signed in with, read once at session start through `claude auth status`. A business plan shows as `Team · <org>` or `Enterprise · <org>`, a personal plan as `Pro (personal)`, `Max (personal)` or `Free (personal)` in yellow and without its organisation name, which holds the person's email, an API key login as `API key`, and anything else as `unknown`. It only shows the plan and blocks nothing.
