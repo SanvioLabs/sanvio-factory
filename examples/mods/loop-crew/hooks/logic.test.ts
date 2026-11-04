@@ -461,10 +461,11 @@ group('the times', () => {
     expect(f).toEqual({ number: 9, title: '', step: '', state: '', round: 0 })
     expect('step_seconds' in f! || 'step_started' in f!).toBe(false)
   })
-  test('a time reads in seconds, then minutes, then hours and two-digit minutes, floored, and none as a dash', () => {
+  test('a time reads in seconds, then minutes, then hours and two-digit minutes, floored, a negative as 0s, and none or a non-finite one as a dash', () => {
     const cases: [number | null, string][] = [
       [0, '0s'], [42, '42s'], [59, '59s'], [60, '1m'], [3599, '59m'], [3600, '1h00'], [3900, '1h05'],
       [59.9, '59s'], [36_300, '10h05'], [null, DASH],
+      [-5, '0s'], [Infinity, DASH], [NaN, DASH],
     ]
     for (const [seconds, text] of cases) expect(timeText(seconds)).toBe(text)
   })
