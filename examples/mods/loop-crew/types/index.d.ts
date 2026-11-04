@@ -1,3 +1,5 @@
+import type { Station } from '../hooks/logic'
+
 // The part of what scripts/loop.py writes to status.json that the figures draw from.
 // step_seconds and step_started are there only when the loop that wrote the row records them.
 export type Row = {
@@ -10,7 +12,16 @@ export type Row = {
   step_seconds?: Record<string, number>
   // When the current step began, as loop.py writes it, or null once the row has left working.
   step_started?: string | null
+  // When the current run began. usage.json stamps each entry with it, as run_started.
+  started?: string
+  // The issue's tokens and cost over every run, as loop.py totals usage.json. Only read to tell
+  // when usage.json has changed.
+  tokens?: number
+  cost_usd?: number
 }
+
+// Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
+export type Spend = Record<Station, { tokens: number | null; cost: number | null }>
 
 export type Status = { issues: Row[] }
 

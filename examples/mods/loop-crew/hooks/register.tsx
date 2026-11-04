@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseSpend, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Placement } from './logic'
-import type { Seen } from '../types'
+import type { Seen, Spend } from '../types'
 
 const PANE = 'loop-crew'
 const COMMAND = 'loop-crew'
@@ -17,9 +17,9 @@ const laneKey = (number: number): string => `lane-${number}`
 // How often the other surfaces redraw while a time counts. They don't run the tick.
 const REDRAW_MS = 30_000
 // What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane,
-// the lane its 3 rows and its row of times.
+// the lane its 3 rows, its row of times and its row of spend.
 const WANT_COLUMNS = 72
-const LANE_HEIGHT = LANE_ROWS + 2
+const LANE_HEIGHT = LANE_ROWS + 3
 const WANT_ROWS = 1 + 3 * LANE_HEIGHT
 
 const launchAtom = atom({ plugin: 'loop-crew', key: 'launch' } as const, null)
@@ -38,6 +38,12 @@ const painted = new Map<string, string>()
 let ink: Ink = DARK
 // Counts the reads that open or switch the pane, so a walk-out's timer knows it's been overtaken.
 let opens = 0
+// Each issue's spend in its current run, by loop and number, with the row fields it was read for. Not
+// an atom: seen stays a copy of the loop's own files, and a changed row already redraws the pane.
+type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; spend: Spend | null }
+const spends = new Map<string, Spent>()
+const spendKey = (project: string | undefined, number: number): string => `${project ?? ''}#${number}`
+const spendOf = (seen: Seen, number: number): Spend | null => spends.get(spendKey(seen.project, number))?.spend ?? null
 
 const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.panes()).some(pane => pane.id === PANE)
 
@@ -79,6 +85,19 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
+// Read usage.json again for each issue with a lane whose run, tokens or cost has changed since the last
+// read, and only for those. A file that's missing or can't be read is no spend.
+async function readSpends($: EngineInterface, root: string, seen: Seen): Promise<void> {
+  for (const row of scene(seen).rows) {
+    const key = spendKey(seen.project, row.number)
+    const known = spends.get(key)
+    if (known && known.started === row.started && known.tokens === row.tokens && known.cost_usd === row.cost_usd) continue
+    const text = await $.fs.read(`${root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`).catch(() => null)
+    const spend = parseSpend(text, row.started)
+    spends.set(key, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, spend: hasSpend(spend) ? spend : null })
+  }
+}
+
 // When an issue's walk out ends, one redraw takes its lane away. It does nothing once a newer open or
 // switch has replaced the placement or the pane is gone.
 function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placement): void {
@@ -103,6 +122,7 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   if (!root) return
   const name = await read($, shownAtom)
   const next = await look($, root, name || undefined)
+  await readSpends($, root, next)
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name) return
   if (isOpening) opens++
@@ -183,7 +203,7 @@ function startBoard($: EngineInterface): void {
       await paint($, HEAD_KEY, headCells(lanes, mounted.columns, ink))
       for (const number of mounted.numbers) {
         const lane = lanes.find(l => l.row.number === number)
-        if (lane) await paint($, laneKey(number), laneCells(lane, mounted.columns, now, ink))
+        if (lane) await paint($, laneKey(number), laneCells(lane, mounted.columns, now, ink, spendOf(seen, number)))
       }
     })().catch(() => {})
   })
@@ -280,12 +300,12 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {columns && <Raster key={HEAD_KEY} columns={columns} rows={1} cells={head} />}
           {shown.map(lane => {
-            const cells = columns ? laneCells(lane, columns, now, ink) : ''
+            const cells = columns ? laneCells(lane, columns, now, ink, spendOf(seen, lane.row.number)) : ''
             if (columns) painted.set(laneKey(lane.row.number), cells)
             return (
               <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
                 {words(lane, e.props.bodyColumns)}
-                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS + 1} cells={cells} />}
+                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS + 2} cells={cells} />}
               </Box>
             )
           })}
@@ -304,7 +324,7 @@ export const register: Register = on => {
         {lanes.map(lane => (
           <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
             {words(lane)}
-            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink, columns)} alt={laneAlt(lane)} isInteractive />}
+            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink, columns, spendOf(seen, lane.row.number))} alt={laneAlt(lane)} isInteractive />}
           </Box>
         ))}
       </Box>

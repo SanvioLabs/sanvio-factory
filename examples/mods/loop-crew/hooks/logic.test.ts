@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, easeInOut, effectAt, findRoot, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseStatus, place, poseAt, roundText, scene, showsBoard, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseSpend, parseStatus, place, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
 import type { Lane, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
@@ -278,7 +278,7 @@ group('the Raster cells', () => {
     test(`a lane at ${station} decodes to its width by 3 rows of half blocks or spaces, one head at its station`, () => {
       const columns = 72
       const cells = decode(laneCells(lane(station), columns, NOW))
-      expect(cells.length).toBe(columns * (LANE_ROWS + 1))
+      expect(cells.length).toBe(columns * (LANE_ROWS + 2))
       for (const [code] of cells.slice(0, columns * LANE_ROWS)) expect([0x20, 0x2580, 0x2584]).toContain(code)
       expect(heads(laneCells(lane(station), columns, NOW), columns)).toEqual([home(STATIONS.indexOf(station), columns)])
     })
@@ -343,9 +343,9 @@ group('the Raster cells', () => {
 
 group('the Svg', () => {
   const standing = laneSvg(lane('build', { number: 12 }), NOW)
-  test(`a lane is ${SVG_COLUMNS} by 14 in its viewBox, with no size of its own, smooth`, () => {
+  test(`a lane is ${SVG_COLUMNS} by 18 in its viewBox, with no size of its own, smooth`, () => {
     const root = /<svg[^>]*>/.exec(standing)![0]
-    expect(root).toContain(`viewBox="0 0 ${SVG_COLUMNS} 14"`)
+    expect(root).toContain(`viewBox="0 0 ${SVG_COLUMNS} 18"`)
     expect(root).not.toContain('width=')
     expect(root).not.toContain('height=')
     expect(standing).not.toContain('crispEdges')
@@ -392,8 +392,8 @@ group('the Svg', () => {
     const parsed = parseStatus(JSON.stringify({ issues: [{ number: 7, step: 'BUILD', state: 'working', ...times }] }))!.issues[0]!
     const carrying: Lane[] = [lane('build', { number: 7, ...times }), { row: parsed, station: 'build', walk: null }]
     for (const odder of carrying) {
-      const row4 = decode(laneCells(odder, 72, NOW)).slice(72 * LANE_ROWS).map(([code]) => String.fromCodePoint(code)).join('')
-      expect(new RegExp(`^[0-9smh${DASH}… ]*$`).test(row4)).toBe(true)
+      const row4 = decode(laneCells(odder, 72, NOW)).slice(72 * LANE_ROWS, 72 * (LANE_ROWS + 2)).map(([code]) => String.fromCodePoint(code)).join('')
+      expect(new RegExp(`^[0-9smhkM$.${DASH}… ]*$`).test(row4)).toBe(true)
       for (const text of [laneSvg(odder, NOW), laneSvg(odder, NOW, DARK, 126), headSvg([odder]), laneAlt(odder), row4]) {
         expect(text).not.toContain('script')
         expect(text).not.toContain('<b>')
@@ -573,12 +573,13 @@ group('the times', () => {
     expect(at(NOW)).toEqual(STATIONS.flatMap((station, i): [number, number, string, string][] => [
       [labelAt(i, columns), 9, hexOf(station === 'build' ? ACCENT.build : DARK.dim), station],
       [labelAt(i, columns), 13, hexOf(times[i]![1]), times[i]![0]],
+      [labelAt(i, columns), 17, hexOf(DARK.dim), DASH],
     ]))
     expect(at(NOW + 60_000).find(([x, y]) => y === 13 && x === labelAt(3, columns))![3]).toBe('1m')
   })
   test('an Svg drawn wider works out every place at that width', () => {
     const source = laneSvg(lane('build'), NOW, DARK, 126)
-    expect(/<svg[^>]*>/.exec(source)![0]).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 14">')
+    expect(/<svg[^>]*>/.exec(source)![0]).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 18">')
     expect(source).toContain(`<g transform="translate(${svgOf(stationX(3, 126) - 1)} 0)">`)
     expect(source).toContain(`<circle cx="${svgOf(stationX(5, 126))}"`)
     expect(headSvg([], DARK, 126)).toBe(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 4">${
@@ -590,6 +591,190 @@ group('the times', () => {
     const values = /type="translate" values="([^"]+)" dur="410ms" fill="freeze"/.exec(source)![1]!.split(';')
     near(Number(values[0]!.split(' ')[0]), walkLeft(walk, 126, NOW + 410) - (stationX(3, 126) - 1), 0.01)
     expect(values[values.length - 1]).toBe('0 0')
+  })
+})
+
+// The current run's start, as status.json's started and usage.json's run_started write it, and an
+// earlier run's.
+const STARTED = '2026-11-03T09:00:00'
+const EARLIER = '2026-11-01T09:00:00'
+
+// A usage.json entry as loop.py writes one for a run that reported: its four token counts and its cost.
+const entry = (step: string, round: number, run: string, counts: [number, number, number, number], cost: number, over: object = {}) => ({
+  step, round, run_started: run, reported: true, model: 'claude-sonnet-5-5',
+  input_tokens: counts[0], output_tokens: counts[1], cache_write_tokens: counts[2], cache_read_tokens: counts[3], cost_usd: cost,
+  session_id: 'a1b2', ...over,
+})
+// One for a run that reported nothing: null counts and cost, never 0.
+const unreported = (step: string, round: number, run: string) => ({
+  step, round, run_started: run, reported: false, model: null,
+  input_tokens: null, output_tokens: null, cache_write_tokens: null, cache_read_tokens: null, cost_usd: null,
+})
+
+// Two runs of one issue. The current one planned (85,000 tokens), wrote tests (253,898), built in two
+// rounds (6,208,489 and $1.729 between them), and reviewed in two, the second unreported, then a retro.
+const USAGE = JSON.stringify([
+  entry('plan', 0, EARLIER, [9, 9, 9, 9], 5),
+  entry('build', 1, EARLIER, [900_000, 0, 0, 0], 3),
+  entry('plan', 0, STARTED, [1000, 2000, 3000, 79_000], 0.29),
+  entry('test', 0, STARTED, [3898, 50_000, 100_000, 100_000], 1.15),
+  entry('build', 1, STARTED, [1_000_000, 1_000_000, 500_000, 500_000], 1),
+  entry('build', 2, STARTED, [8489, 200_000, 1_000_000, 2_000_000], 0.729),
+  entry('review', 1, STARTED, [10_000, 10_000, 10_000, 10_000], 0.2),
+  unreported('review', 2, STARTED),
+  entry('retro', 0, STARTED, [500, 500, 500, 500], 0.5),
+])
+// Entries with a field of the wrong type, and steps named like an object's own properties. Only the
+// plan entry's output_tokens counts.
+const ODD_USAGE = '[null, 5, "plan", [1], ' +
+  `{"step": "plan", "run_started": "${STARTED}", "input_tokens": "500", "output_tokens": 100, "cache_write_tokens": -5, "cache_read_tokens": true, "cost_usd": "0.5"}, ` +
+  `{"step": 7, "run_started": "${STARTED}", "input_tokens": 1000, "cost_usd": 1}, ` +
+  '{"step": "test", "run_started": 20261103, "input_tokens": 1000, "cost_usd": 1}, ' +
+  `{"step": "build", "input_tokens": 1000, "cost_usd": 1}, ` +
+  `{"step": "constructor", "run_started": "${STARTED}", "input_tokens": 1000, "cost_usd": 1}, ` +
+  `{"step": "__proto__", "run_started": "${STARTED}", "input_tokens": 1000, "cost_usd": 1}, ` +
+  `{"step": "review", "run_started": "${STARTED}", "input_tokens": {"a": 1}, "cost_usd": [1]}]`
+
+const NONE = { tokens: null, cost: null }
+// A lane's 5th row of cells, under its row of times.
+const spendRowOf = (cells: string, columns: number): [number, number, number][] => decode(cells).slice((LANE_ROWS + 1) * columns, (LANE_ROWS + 2) * columns)
+
+group('the spend', () => {
+  test('only the current run counts, each step at its station, and the retro and the other run add nothing', () => {
+    const spend = parseSpend(USAGE, STARTED)!
+    expect(spend.plan).toEqual({ tokens: 85_000, cost: 0.29 })
+    expect(spend.test).toEqual({ tokens: 253_898, cost: 1.15 })
+    expect(spend.build.tokens).toBe(6_208_489)
+    near(spend.build.cost!, 1.729)
+    // The review's second round reported nothing, so only the first counts.
+    expect(spend.check).toEqual({ tokens: 40_000, cost: 0.2 })
+    expect([spend.start, spend.ship]).toEqual([NONE, NONE])
+    // The earlier run, read for its own start, has only its own.
+    expect(parseSpend(USAGE, EARLIER)).toEqual({ start: NONE, plan: { tokens: 36, cost: 5 }, test: NONE, build: { tokens: 900_000, cost: 3 }, check: NONE, ship: NONE })
+  })
+  test("an unreported entry gives null when it is a station's only one", () => {
+    expect(parseSpend(JSON.stringify([unreported('review', 1, STARTED)]), STARTED)!.check).toEqual(NONE)
+    expect(parseSpend(JSON.stringify([entry('review', 1, STARTED, [1, 2, 3, 4], 0.5, { cost_usd: null })]), STARTED)!.check).toEqual({ tokens: 10, cost: null })
+    expect(hasSpend(parseSpend(JSON.stringify([unreported('build', 1, STARTED)]), STARTED))).toBe(false)
+  })
+  test('start and ship never have spend, whatever the steps say', () => {
+    const steps = ['start', 'ship', 'SCALE', 'SHAPE', 'retro', 'deploy']
+    const spend = parseSpend(JSON.stringify(steps.map(step => entry(step, 0, STARTED, [1, 1, 1, 1], 1))), STARTED)!
+    expect(spend).toEqual({ start: NONE, plan: NONE, test: NONE, build: NONE, check: NONE, ship: NONE })
+  })
+  test('a field of the wrong type counts nothing, and an entry that is not an object is skipped', () => {
+    expect(parseSpend(ODD_USAGE, STARTED)).toEqual({ start: NONE, plan: { tokens: 100, cost: null }, test: NONE, build: NONE, check: NONE, ship: NONE })
+  })
+  test("text that isn't a JSON array, or a row with no started, is no spend", () => {
+    for (const text of [null, '', '{not json', '{"a": 1}', 'null', '"x"']) expect(parseSpend(text, STARTED)).toBeNull()
+    expect(parseSpend(USAGE, undefined)).toBeNull()
+    expect(parseSpend(USAGE, 20261103 as unknown as string)).toBeNull()
+    expect(hasSpend(parseSpend('[]', STARTED))).toBe(false)
+    expect(hasSpend(parseSpend(USAGE, STARTED))).toBe(true)
+  })
+  test("the status file keeps a row's started, tokens and cost_usd only when each has the right type", () => {
+    const text = '{"issues": [' +
+      `{"number": 4, "started": "${STARTED}", "tokens": 6208489, "cost_usd": 1.729}, ` +
+      '{"number": 5, "started": 20261103, "tokens": "100", "cost_usd": null}, ' +
+      '{"number": 6, "started": null, "tokens": 1e999, "cost_usd": [1]}, ' +
+      '{"number": 7}]}'
+    const [a, b, c, d] = parseStatus(text)!.issues
+    expect(a).toEqual({ number: 4, title: '', step: '', state: '', round: 0, started: STARTED, tokens: 6_208_489, cost_usd: 1.729 })
+    for (const odd of [b!, c!]) expect('started' in odd || 'tokens' in odd || 'cost_usd' in odd).toBe(false)
+    // A row without them parses exactly as before.
+    expect(d).toEqual({ number: 7, title: '', step: '', state: '', round: 0 })
+    expect(Object.keys(d!)).toEqual(['number', 'title', 'step', 'state', 'round'])
+  })
+  test('a cost reads in dollars and whole cents, floored', () => {
+    const cases: [number, string][] = [[0.004, '$0.00'], [0.29, '$0.29'], [1.15, '$1.15'], [1.729, '$1.72'], [12.4, '$12.40'], [0, '$0.00'], [100, '$100.00']]
+    for (const [cost, text] of cases) expect(costText(cost)).toBe(text)
+  })
+  test('tokens read whole under a thousand, then in k, then in M to one place, floored', () => {
+    const cases: [number, string][] = [
+      [0, '0'], [999, '999'], [1000, '1k'], [253_898, '253k'], [999_999, '999k'],
+      [1_000_000, '1.0M'], [6_208_489, '6.2M'], [6_000_000, '6.0M'], [6_299_999, '6.2M'],
+    ]
+    for (const [tokens, text] of cases) expect(tokenText(tokens)).toBe(text)
+  })
+  test('a stage gives its cost and tokens when they fit, else the cost alone, cut if it must be', () => {
+    const both = { tokens: 253_898, cost: 1.15 }
+    expect(spendText(both, 10)).toBe('$1.15 253k')
+    expect(spendText(both, 9)).toBe('$1.15')
+    expect(spendText(both, 4)).toBe('$1.…')
+    expect(spendText({ tokens: null, cost: 1.15 }, 10)).toBe('$1.15')
+    expect(spendText({ tokens: 6_208_489, cost: null }, 4)).toBe('6.2M')
+    expect(spendText({ tokens: 6_208_489, cost: null }, 3)).toBe('6.…')
+    expect(spendText(NONE, 10)).toBe(DASH)
+    expect(spendText(null, 10)).toBe(DASH)
+  })
+  test("on a terminal at 72 columns each stage's spend is the lane's 5th row, under its time, in its colour", () => {
+    const columns = 72
+    const building = lane('build', { started: STARTED })
+    const cells = laneCells(building, columns, NOW, DARK, parseSpend(USAGE, STARTED))
+    const spend = spendRowOf(cells, columns)
+    const times = timeRowOf(cells, columns)
+    const expected: [string, number][] = [
+      [DASH, DARK.dim], ['$0.29 85k', DARK.tool], ['$1.15 253k', DARK.tool], ['$1.72 6.2M', ACCENT.build], ['$0.20 40k', DARK.tool], [DASH, DARK.dim],
+    ]
+    expected.forEach(([text, colour], i) => {
+      const at = labelAt(i, columns)
+      expect(times[at]![0]).not.toBe(0x20)
+      expect(textOf(spend.slice(at, at + text.length))).toBe(text)
+      for (const [, fg, bg] of spend.slice(at, at + text.length)) expect([fg, bg]).toEqual([colour, 0x01000000])
+    })
+    // test's room is 10 at this width, and its text fits it.
+    expect(textOf(spend.slice(labelAt(2, columns), labelAt(3, columns))).trimEnd().length).toBeLessThanOrEqual(10)
+    expect(spend.filter(([code]) => code !== 0x20).length).toBe(expected.reduce((n, [text]) => n + text.length, 0))
+    // The spend leaves the lane's 3 rows and its times as they were.
+    expect(decode(cells).slice(0, (LANE_ROWS + 1) * columns)).toEqual(decode(laneCells(building, columns, NOW)).slice(0, (LANE_ROWS + 1) * columns))
+  })
+  test('at 42 columns a stage too narrow for both gives its cost alone, a blank column before the next', () => {
+    const columns = 42
+    const spend = spendRowOf(laneCells(lane('build', { started: STARTED }), columns, NOW, DARK, parseSpend(USAGE, STARTED)), columns)
+    const [build, check] = [labelAt(3, columns), labelAt(4, columns)]
+    expect(textOf(spend.slice(build, check - 1))).toBe('$1.72')
+    expect(spend[check - 1]![0]).toBe(0x20)
+    for (let width = MIN_COLUMNS; width <= 120; width++) {
+      const row5 = spendRowOf(laneCells(lane('build'), width, NOW, DARK, parseSpend(USAGE, STARTED)), width)
+      for (let i = 1; i < STATIONS.length; i++) expect(row5[labelAt(i, width) - 1]![0]).toBe(0x20)
+    }
+  })
+  test('no spend, or a spend with nothing in it, draws the no-time mark under every stage, dim', () => {
+    for (const spend of [undefined, null, parseSpend('[]', STARTED)]) {
+      const row5 = spendRowOf(laneCells(lane('build'), 72, NOW, DARK, spend), 72)
+      STATIONS.forEach((_, i) => expect([row5[labelAt(i, 72)]![0], row5[labelAt(i, 72)]![1]]).toEqual([0x2014, DARK.dim]))
+      expect(row5.filter(([code]) => code !== 0x20).length).toBe(STATIONS.length)
+    }
+  })
+  test("a lane's Svg gives each stage's spend at y 17, cut to the room its letters take", () => {
+    const building = lane('build', { started: STARTED })
+    const spend = parseSpend(USAGE, STARTED)
+    const at17 = (columns: number) => svgTexts(laneSvg(building, NOW, DARK, columns, spend)).filter(([, y]) => y === 17)
+    expect(at17(126)).toEqual([
+      [labelAt(0, 126), 17, hexOf(DARK.dim), DASH], [labelAt(1, 126), 17, hexOf(DARK.tool), '$0.29 85k'],
+      [labelAt(2, 126), 17, hexOf(DARK.tool), '$1.15 253k'], [labelAt(3, 126), 17, hexOf(ACCENT.build), '$1.72 6.2M'],
+      [labelAt(4, 126), 17, hexOf(DARK.tool), '$0.20 40k'], [labelAt(5, 126), 17, hexOf(DARK.dim), DASH],
+    ])
+    // At 64, build's room is (41 - 31 - 1) / 1.6, floored: 5 letters.
+    expect(at17(SVG_COLUMNS).map(([, , , text]) => text)).toEqual([DASH, '$0.29', '$1.15', '$1.72', '$0.20', DASH])
+  })
+  test('no text from usage.json reaches a drawing: not a step, a model or a session id', () => {
+    const bad = '<script>alert(1)</script>'
+    const text = JSON.stringify([
+      entry('build', 1, STARTED, [1, 2, 3, 4], 0.5, { model: bad, session_id: '<b>X</b>' }),
+      entry(bad, 1, STARTED, [1, 2, 3, 4], 0.5, { model: '<b>X</b>', session_id: bad }),
+      entry('review', 1, STARTED, [1, 2, 3, 4], 0.5, { reported: bad, round: bad }),
+    ])
+    const spend = parseSpend(text, STARTED)
+    const building = lane('build', { number: 7, started: STARTED })
+    const row5 = textOf(spendRowOf(laneCells(building, 72, NOW, DARK, spend), 72))
+    expect(row5).toContain('$0.50 10')
+    expect(new RegExp(`^[0-9smhkM$.${DASH}… ]*$`).test(row5)).toBe(true)
+    for (const drawn of [row5, laneSvg(building, NOW, DARK, SVG_COLUMNS, spend), laneSvg(building, NOW, DARK, 126, spend), headSvg([building]), laneAlt(building)]) {
+      expect(drawn).not.toContain('script')
+      expect(drawn).not.toContain('<b>')
+      expect(drawn).not.toContain('alert')
+    }
   })
 })
 

@@ -151,7 +151,7 @@ group('the board', () => {
     for (const station of STATIONS) expect(label).toContain(station)
     for (const [number, station] of [[12, 'build'], [13, 'check']] as const) {
       const lane = await (ui as unknown as Finds).find({ key: `lane-${number}` })
-      expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 4])
+      expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 5])
       expect(heads(String(lane?.props.cells), 72)).toEqual([home(at(station), 72)])
     }
     const drawn = JSON.stringify(await ui.drawn())
@@ -209,7 +209,7 @@ group('the board', () => {
   test('a short pane shows the lanes that fit and how many more', async ($, on) => {
     const { close } = world(on, working(job(1, 'BUILD'), job(2, 'TEST'), job(3, 'SHAPE')))
     await say($)
-    // The header's row, then 5 rows a lane: 8 left of 9 is room for 1, and one row kept for the rest.
+    // The header's row, then 6 rows a lane: 8 left of 9 is room for 1, and one row kept for the rest.
     const ui = await $.ui.mount(pane(72, 9))
     expect(await (ui as unknown as Finds).find({ key: 'lane-1' })).toBeDefined()
     expect(await (ui as unknown as Finds).find({ key: 'lane-2' })).toBeUndefined()
@@ -260,10 +260,10 @@ group('the board', () => {
     await ui.unmount()
     await close()
   })
-  test('the pane asks for room for three lanes when it opens: 16 rows by 72 columns', async ($, on) => {
+  test('the pane asks for room for three lanes when it opens: 19 rows by 72 columns', async ($, on) => {
     const { sizes, close } = world(on, twoWorking())
     await say($)
-    expect(sizes).toEqual([[16, 72]])
+    expect(sizes).toEqual([[19, 72]])
     await close()
   })
 })
@@ -863,7 +863,7 @@ group('the times', () => {
     for (const lane of lanes) {
       expect([lane.props.width, lane.props.height]).toEqual([undefined, undefined])
       const root = rootTag(String(lane.props.source))
-      expect(root).toContain('viewBox="0 0 126 14"')
+      expect(root).toContain('viewBox="0 0 126 18"')
       expect(root).not.toContain('width=')
       expect(root).not.toContain('height=')
     }
@@ -879,7 +879,7 @@ group('the times', () => {
       const ui = await $.ui.mount(pane(columns, 40, 'vscode'))
       const [head, ...lanes] = await svgs(ui)
       expect(rootTag(String(head!.props.source))).toContain(`viewBox="0 0 ${drawn} 4"`)
-      for (const lane of lanes) expect(rootTag(String(lane.props.source))).toContain(`viewBox="0 0 ${drawn} 14"`)
+      for (const lane of lanes) expect(rootTag(String(lane.props.source))).toContain(`viewBox="0 0 ${drawn} 18"`)
       await ui.unmount()
       await close()
     })
@@ -1041,6 +1041,189 @@ group('the times', () => {
     await wait(clock, 60_000, 2000)
     expect(invalidated.length).toBe(first)
     await ui.unmount()
+    await close()
+  })
+})
+
+// The current run's start, as status.json's started and usage.json's run_started write it.
+const THIS_RUN = '2026-11-03T09:00:00'
+// A usage.json entry as loop.py writes one, its tokens all as input.
+const use = (step: string, round: number, run: string, tokens: number | null, cost: number | null, over: object = {}) => ({
+  step, round, run_started: run, reported: tokens !== null, model: 'claude-sonnet-5-5',
+  input_tokens: tokens, output_tokens: tokens === null ? null : 0, cache_write_tokens: tokens === null ? null : 0,
+  cache_read_tokens: tokens === null ? null : 0, cost_usd: cost, ...over,
+})
+const usageText = (...entries: object[]): string => JSON.stringify(entries)
+const usagePath = (loop: string, number: number): string => `${loop}/issue-${number}/usage.json`
+// Two runs of #12. The current one has two rounds of build and two of review, the second unreported,
+// and a retro.
+const SPENT = usageText(
+  use('plan', 0, '2026-11-01T09:00:00', 999_999, 9),
+  use('plan', 0, THIS_RUN, 85_000, 0.29),
+  use('test', 0, THIS_RUN, 253_898, 1.15),
+  use('build', 1, THIS_RUN, 3_000_000, 1),
+  use('build', 2, THIS_RUN, 3_208_489, 0.729),
+  use('review', 1, THIS_RUN, 40_000, 0.2),
+  use('review', 2, THIS_RUN, null, null),
+  use('retro', 0, THIS_RUN, 500, 0.5),
+)
+// An issue building in the current run, with the totals status.json carries. The spend is kept by the
+// module across tests, so each test's tokens come from fresh(), and no test sees another's.
+let serial = 0
+const fresh = (): number => 1_000_000 + ++serial
+const spending = (tokens: number, number = 12, over: object = {}) => job(number, 'BUILD', { started: THIS_RUN, tokens, cost_usd: 3.869, ...over })
+const withSpend = (tokens: number): Map<string, string> => {
+  const files = working(spending(tokens))
+  files.set(usagePath(HARNESS, 12), SPENT)
+  return files
+}
+// A lane's 5th row of cells, under its row of times.
+const rowFive = (cells: string, columns: number): [number, number, number][] => decode(cells).slice(4 * columns, 5 * columns)
+const readsOf = (reads: string[], path: string): number => reads.filter(p => p === path).length
+
+group('the spend', () => {
+  test("on a terminal at 72 columns a lane's 5th row has each stage's spend under its time, painted as drawn", async ($, on) => {
+    const { clock, blits, reads, close } = world(on, withSpend(fresh()))
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    const expected: [string, number][] = [
+      [DASH, DARK.dim], ['$0.29 85k', DARK.tool], ['$1.15 253k', DARK.tool], ['$1.72 6.2M', ACCENT.build], ['$0.20 40k', DARK.tool], [DASH, DARK.dim],
+    ]
+    const check = (cells: string): void => {
+      const times = rowFour(cells, 72)
+      const spend = rowFive(cells, 72)
+      expected.forEach(([text, colour], i) => {
+        const at = labelAt(i, 72)
+        expect(times[at]![0]).not.toBe(0x20)
+        expect(textOf(spend.slice(at, at + text.length))).toBe(text)
+        for (const [, fg] of spend.slice(at, at + text.length)) expect(fg).toBe(colour)
+      })
+      expect(textOf(spend.slice(labelAt(2, 72), labelAt(3, 72))).trimEnd().length).toBeLessThanOrEqual(10)
+    }
+    check(await cellsOf(ui, 'lane-12'))
+    // The tick paints it the same, and never reads the file.
+    await wait(clock, 400, 80)
+    check(lastBlit(blits, 'lane-12')!)
+    expect(readsOf(reads, usagePath(HARNESS, 12))).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  test('at 42 columns build reads $1.72 alone, followed by a blank column', async ($, on) => {
+    const { close } = world(on, withSpend(fresh()))
+    await say($)
+    const ui = await $.ui.mount(pane(42, 60))
+    const spend = rowFive(await cellsOf(ui, 'lane-12'), 42)
+    const [build, check] = [labelAt(3, 42), labelAt(4, 42)]
+    expect(textOf(spend.slice(build, check - 1))).toBe('$1.72')
+    expect(spend[check - 1]![0]).toBe(0x20)
+    await ui.unmount()
+    await close()
+  })
+  test('usage.json is read once for an unchanged row, again when tokens change, and again when only cost_usd does', async ($, on) => {
+    const seed = fresh()
+    const files = withSpend(seed)
+    const { clock, reads, close } = world(on, files)
+    const path = usagePath(HARNESS, 12)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await wait(clock, 6000, 2000)
+    expect(readsOf(reads, path)).toBe(1)
+    files.set(path, usageText(use('build', 1, THIS_RUN, 2000, 12.4)))
+    files.set(STATUS, statusText(spending(seed + 1)))
+    await wait(clock, 2000, 2000)
+    expect(readsOf(reads, path)).toBe(2)
+    await ui.redraw()
+    expect(textOf(rowFive(await cellsOf(ui, 'lane-12'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()).toBe('$12.40 2k')
+    files.set(STATUS, statusText(spending(seed + 1, 12, { cost_usd: 12.5 })))
+    await wait(clock, 2000, 2000)
+    expect(readsOf(reads, path)).toBe(3)
+    await wait(clock, 4000, 2000)
+    expect(readsOf(reads, path)).toBe(3)
+    await ui.unmount()
+    await close()
+  })
+  test("one issue's change doesn't read another's usage.json again", async ($, on) => {
+    const seed = fresh()
+    const files = working(spending(seed, 12), spending(seed, 13))
+    files.set(usagePath(HARNESS, 12), SPENT)
+    files.set(usagePath(HARNESS, 13), usageText(use('build', 1, THIS_RUN, 5000, 0.05)))
+    const { clock, reads, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    files.set(STATUS, statusText(spending(seed + 1, 12), spending(seed, 13)))
+    await wait(clock, 4000, 2000)
+    expect([readsOf(reads, usagePath(HARNESS, 12)), readsOf(reads, usagePath(HARNESS, 13))]).toEqual([2, 1])
+    await ui.redraw()
+    expect(textOf(rowFive(await cellsOf(ui, 'lane-13'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()).toBe('$0.05 5k')
+    await ui.unmount()
+    await close()
+  })
+  test('the same issue number under another project keeps its own figures and its own file', async ($, on) => {
+    const seed = fresh()
+    const files = withSpend(seed)
+    files.set(`${ALPHA}/status.json`, statusText(spending(seed)))
+    files.set(`${ALPHA}/lock`, '4242')
+    files.set(usagePath(ALPHA, 12), usageText(use('build', 1, THIS_RUN, 2000, 12.4)))
+    const { reads, close } = world(on, files)
+    const buildSpend = async (ui: unknown): Promise<string> =>
+      textOf(rowFive(await cellsOf(ui, 'lane-12'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    expect(await buildSpend(ui)).toBe('$1.72 6.2M')
+    await say($, 'alpha')
+    await ui.redraw()
+    expect(await buildSpend(ui)).toBe('$12.40 2k')
+    await say($)
+    await ui.redraw()
+    expect(await buildSpend(ui)).toBe('$1.72 6.2M')
+    expect([readsOf(reads, usagePath(HARNESS, 12)), readsOf(reads, usagePath(ALPHA, 12))]).toEqual([1, 1])
+    await ui.unmount()
+    await close()
+  })
+  for (const [name, text] of [['missing', undefined], ['unreadable', '{not json']] as const) {
+    test(`a ${name} usage.json gives the no-time mark under every stage, and the pane still draws`, async ($, on) => {
+      const files = working(spending(fresh()))
+      if (text !== undefined) files.set(usagePath(HARNESS, 12), text)
+      const { clock, reads, close } = world(on, files)
+      await say($)
+      const ui = await $.ui.mount(WIDE())
+      expect(await (ui as unknown as Finds).find({ key: 'head' })).toBeDefined()
+      expect(JSON.stringify(await ui.drawn())).toContain('Job 12')
+      const spend = rowFive(await cellsOf(ui, 'lane-12'), 72)
+      STATIONS.forEach((_, i) => expect([spend[labelAt(i, 72)]![0], spend[labelAt(i, 72)]![1]]).toEqual([0x2014, DARK.dim]))
+      expect(spend.filter(([code]) => code !== 0x20).length).toBe(STATIONS.length)
+      // Not read again on every poll.
+      await wait(clock, 4000, 2000)
+      expect(readsOf(reads, usagePath(HARNESS, 12))).toBe(1)
+      await ui.unmount()
+      await close()
+    })
+  }
+  test("on the desktop a lane's Svg gives the spend at y 17, and no step, model or session id reaches any drawing", async ($, on) => {
+    const bad = '<script>alert(1)</script>'
+    const files = working(spending(fresh()))
+    files.set(usagePath(HARNESS, 12), usageText(
+      use('build', 1, THIS_RUN, 3_000_000, 1, { model: bad, session_id: '<b>X</b>' }),
+      use(bad, 1, THIS_RUN, 5, 5, { model: '<b>X</b>', session_id: bad }),
+    ))
+    const { close } = world(on, files)
+    await say($)
+    for (const surface of ['desktop', 'terminal'] as const) {
+      const ui = await $.ui.mount(pane(72, 40, surface))
+      if (surface === 'desktop') {
+        const source = String((await laneSvgs(ui))[0]!.props.source)
+        expect(source).toContain(`y="17" font-family="monospace" font-size="2.6" fill="#${ACCENT.build.toString(16)}">$1.00 3.0M</text>`)
+        for (const drawn of [source, ...(await svgs(ui)).map(s => String(s.props.source) + String(s.props.alt))]) {
+          expect(drawn).not.toContain('script')
+          expect(drawn).not.toContain('<b>')
+        }
+      } else {
+        const rows = textOf(decode(await cellsOf(ui, 'lane-12')).slice(3 * 72))
+        expect(rows).toContain('$1.00 3.0M')
+        expect(new RegExp(`^[0-9smhkM$.${DASH}… ]*$`).test(rows)).toBe(true)
+      }
+      await ui.unmount()
+    }
     await close()
   })
 })
