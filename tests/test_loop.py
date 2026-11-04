@@ -5333,5 +5333,108 @@ class TestReview(unittest.TestCase):
         self.assertNotIn("HOURS", [l.split()[2] for l in self.lines()])
 
 
+class TestIssueUsage(unittest.TestCase):
+    """loop.issue_usage: the one way another script reads what the loop recorded for an issue."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(os.path.realpath(tmp.name))
+        self.demo = self.root / "projects" / "demo"
+        self.other = self.root / "projects" / "other"
+
+    def record(self, project, number, cost):
+        with contextlib.redirect_stdout(io.StringIO()):
+            loop.Loop(self.root, dict(loop.DEFAULTS), project=project).record_usage(
+                number, "build", 1, {"input_tokens": 10, "cost_usd": cost})
+
+    def costs(self, project, number):
+        return [entry["cost_usd"] for entry in loop.issue_usage(self.root, project, number)]
+
+    def listing(self):
+        return sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*"))
+
+    def usage_file(self):
+        folder = self.root / ".loop" / "projects" / "demo" / "issue-1"
+        folder.mkdir(parents=True)
+        return folder / "usage.json"
+
+    def test_it_returns_what_a_project_loop_recorded(self):
+        self.record(self.demo, 1, 0.5)
+        self.record(self.demo, 1, 0.25)
+        found = loop.issue_usage(self.root, "demo", 1)
+        self.assertEqual([entry["cost_usd"] for entry in found], [0.5, 0.25])
+        self.assertEqual([(entry["step"], entry["round"]) for entry in found], [("build", 1), ("build", 1)])
+
+    def test_it_returns_what_a_loop_with_no_project_recorded(self):
+        self.record(None, 1, 0.5)
+        self.assertEqual(self.costs(None, 1), [0.5])
+
+    def test_a_project_and_issue_read_only_their_own(self):
+        self.record(self.demo, 1, 0.5)
+        self.assertEqual(self.costs("other", 1), [])
+        self.assertEqual(self.costs(None, 1), [])
+        self.assertEqual(self.costs("demo", 2), [])
+
+    def test_the_others_dont_read_into_a_project_either(self):
+        self.record(self.other, 1, 0.25)
+        self.record(None, 1, 0.125)
+        self.record(self.demo, 2, 0.0625)
+        self.assertEqual(self.costs("demo", 1), [])
+        self.assertEqual(self.costs("other", 1), [0.25])
+        self.assertEqual(self.costs(None, 1), [0.125])
+        self.assertEqual(self.costs("demo", 2), [0.0625])
+
+    def test_an_empty_root_reads_nothing_and_creates_nothing(self):
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [])
+        self.assertEqual(loop.issue_usage(self.root, None, 1), [])
+        self.assertEqual(self.listing(), [])
+        self.assertFalse((self.root / ".loop").exists())
+
+    def test_an_unknown_project_or_issue_reads_nothing_and_creates_nothing(self):
+        self.record(self.demo, 1, 0.5)
+        before = self.listing()
+        self.assertEqual(loop.issue_usage(self.root, "other", 1), [])
+        self.assertEqual(loop.issue_usage(self.root, "demo", 2), [])
+        self.assertEqual(loop.issue_usage(self.root, None, 1), [])
+        self.assertEqual(self.listing(), before)
+
+    def test_invalid_json_reads_nothing(self):
+        self.usage_file().write_text("{not json")
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [])
+
+    def test_bytes_that_arent_utf8_read_nothing(self):
+        self.usage_file().write_bytes(b"\xff\xfe\x00")
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [])
+
+    def test_json_that_isnt_a_list_reads_nothing(self):
+        self.usage_file().write_text(json.dumps({"step": "build"}))
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [])
+
+    def test_a_directory_named_usage_json_reads_nothing(self):
+        self.usage_file().mkdir()
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [])
+
+    def test_a_list_keeps_only_its_dicts(self):
+        self.usage_file().write_text(json.dumps([{"cost_usd": 1}, 2, "three", None, [4], {"cost_usd": 5}]))
+        self.assertEqual(loop.issue_usage(self.root, "demo", 1), [{"cost_usd": 1}, {"cost_usd": 5}])
+
+    def test_a_project_loops_usage_method_returns_what_the_function_returns(self):
+        # Patched: a second copy of the path in Loop.usage would read the same data, so no file can tell them apart.
+        lp = loop.Loop(self.root, dict(loop.DEFAULTS), project=self.demo)
+        with mock.patch.object(loop, "issue_usage", return_value=[{"from": "function"}]) as found:
+            self.assertEqual(lp.usage(1), [{"from": "function"}])
+        found.assert_called_once_with(self.root, "demo", 1)
+
+    def test_a_no_project_loops_usage_method_returns_what_the_function_returns(self):
+        lp = loop.Loop(self.root, dict(loop.DEFAULTS))
+        with mock.patch.object(loop, "issue_usage", return_value=[{"from": "function"}]) as found:
+            self.assertEqual(lp.usage(1), [{"from": "function"}])
+        found.assert_called_once_with(self.root, None, 1)
+
+    def test_the_name_doesnt_clash_with_the_runners_read_usage(self):
+        self.assertFalse(hasattr(loop, "read_usage"))
+
+
 if __name__ == "__main__":
     unittest.main()

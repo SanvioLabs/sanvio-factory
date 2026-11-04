@@ -1,6 +1,7 @@
 """Run with: python3 -m unittest discover -s tests"""
 import ast
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -409,6 +410,82 @@ class HarnessTrendsRename(unittest.TestCase):
             if name in ("CHANGELOG.md", "tests/test_skills.py") or not path.is_file():
                 continue
             self.assertEqual(path.read_text(errors="replace").count("harness-report"), 0, name)
+
+
+class HarnessTrendsDaily(unittest.TestCase):
+    """harness-trends has a daily run that recommends one change and, with a yes, proposes it to pulse."""
+
+    SKILL = ROOT / "skills" / "harness-trends" / "SKILL.md"
+
+    def text(self):
+        return " ".join(self.SKILL.read_text().split())
+
+    def test_the_new_phrases_reach_it(self):
+        description = frontmatter(self.SKILL.read_text()).get("description", "")
+        for phrase in ('"harness trends"', '"how did yesterday go"', '"what should we change in the harness"'):
+            self.assertIn(phrase, description)
+        self.assertIn("harness report", description)
+
+    def test_it_says_which_run_to_take(self):
+        text = self.text()
+        self.assertIn("### Sprint run", text)
+        self.assertIn("### Daily run", text)
+        self.assertIn("The sprint run is for a harness report, a sprint follow-up, tokens or the loop's cost, "
+                      "or any period longer than a day. Anything else is the daily run.", text)
+        self.assertLess(text.index("Anything else is the daily run."), text.index("### Sprint run"))
+
+    def test_the_daily_run_holds_its_steps(self):
+        text = self.text()
+        daily = text[text.index("### Daily run"):text.index("## For the owner")]
+        for words in ("git check-ignore -q reports/trends/<today>.md",
+                      "python3 scripts/dashboard_data.py --json --since",
+                      "No trend yesterday.", "Proposed: no, no trend",
+                      "## trend-<tomorrow>", "Chip: Harness", "Question:",
+                      "- Yes: Make this change", "- Not yet: Ask again later", "- No: Leave the harness as it is",
+                      "python3 scripts/pulse.py propose --file local-data/pulse-proposal.md --date <tomorrow>",
+                      "whether or not `propose` succeeded", "Proposed: yes"):
+            self.assertIn(words, daily)
+        order = [daily.index(s) for s in ("git check-ignore", "dashboard_data.py", "Name the trends",
+                                          "Recommend one change", "Draft the question", "pulse.py propose",
+                                          "Write the report last")]
+        self.assertEqual(order, sorted(order))
+
+    def test_the_daily_run_never_compares_today(self):
+        self.assertIn("never today's", self.text())
+
+    def test_the_sprint_report_lists_the_daily_recommendations_before_its_proposals(self):
+        text = self.text()
+        step = text[text.index("**Write the report** to `reports/usage/"):text.index("**Have them read it.**")]
+        self.assertLess(step.index("## Daily recommendations"), step.index("## Proposals"))
+        for words in ("python3 scripts/pulse.py summary --since", "Fewer than three answered.", "No answers.",
+                      "Pulse folder not cleared.", "never copies an Other answer"):
+            self.assertIn(words, step)
+
+    def test_the_sprint_run_keeps_its_report(self):
+        text = self.text()
+        sprint = text[text.index("### Sprint run"):text.index("### Daily run")]
+        for words in ("## Tokens and loop cost", "## Proposals", "python3 scripts/usage_report.py --since",
+                      "python3 scripts/token_report.py --since"):
+            self.assertIn(words, sprint)
+
+    def test_the_rules_hold_the_question_and_the_yes(self):
+        text = self.text()
+        rules = text[text.index("## Rules"):text.index("## Output")]
+        for words in ("A drafted question never holds a figure, a title, a project or issue name, a prompt, "
+                      "a file path, a command or code.",
+                      "A daily report holds no prompt, file path, command or code.",
+                      "Never run `propose` without a yes given in this session"):
+            self.assertIn(words, rules)
+
+    def test_a_daily_report_is_gitignored_and_the_folders_readme_is_not(self):
+        def ignored(path):
+            return subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", path], timeout=30).returncode == 0
+        self.assertTrue(ignored("reports/trends/2026-11-03.md"))
+        self.assertFalse(ignored("reports/trends/README.md"))
+        for folder in ("usage", "pulse"):
+            self.assertTrue(ignored("reports/{}/2026-11-03-someone.md".format(folder)), folder)
+            self.assertFalse(ignored("reports/{}/README.md".format(folder)), folder)
+        self.assertTrue((ROOT / "reports" / "trends" / "README.md").exists())
 
 
 if __name__ == "__main__":

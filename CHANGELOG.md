@@ -35,6 +35,27 @@ Files: [`examples/mods/loop-crew/hooks/logic.ts`](examples/mods/loop-crew/hooks/
 
 **Do:** `claude plugin update loop-crew@sanvio-harness-starter` in a terminal, then `/reload-plugins` or a new session.
 
+## 2026-11-03: Plan on the harness lens
+
+The harness lens now starts its band with **plan**: the Claude plan the session is signed in with, read once at session start through `claude auth status`. A business plan shows as `Team · <org>` or `Enterprise · <org>`, a personal plan as `Pro (personal)`, `Max (personal)` or `Free (personal)` in yellow and without its organisation name, which holds the person's email, an API key login as `API key`, and anything else as `unknown`. It only shows the plan and blocks nothing.
+Files: [`examples/mods/harness-lens/hooks/logic.ts`](examples/mods/harness-lens/hooks/logic.ts), [`examples/mods/harness-lens/hooks/register.tsx`](examples/mods/harness-lens/hooks/register.tsx), [`examples/mods/harness-lens/README.md`](examples/mods/harness-lens/README.md), [`examples/mods/harness-lens/.claude-plugin/plugin.json`](examples/mods/harness-lens/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update harness-lens@sanvio-harness-starter`
+
+## 2026-11-03: Loop pane follows the project
+
+`/loop-pane` now opens on the session's project in focus, the one `/project` sets, when that project has a loop, and moves within two seconds when the focus changes, to the harness when it's cleared. Picking a loop in the pane puts that project in focus, or clears the focus for the harness, so the pane now writes `.harness/project/<id>` where it only read before. The pane and the GitHub line share the focus only in a session started at the harness root.
+Files: [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update loop-pane@sanvio-harness-starter`, then `/reload-plugins` or a new session.
+
+## 2026-11-03: Harness trends each day
+
+The `harness-trends` skill now has a daily run: ask it "how did yesterday go" and it compares yesterday's loop runs, loop spend and tokens with the six days before, names at most three trends, recommends one change to the harness, and with your yes proposes it as tomorrow's pulse question. Each day's note stays in [`reports/trends/`](reports/trends/), gitignored, and the sprint report lists them with how the team voted.
+Files: [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md), [`.gitignore`](.gitignore), [`reports/trends/README.md`](reports/trends/README.md), [`AGENTS.md`](AGENTS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Proposing a question needs the `Pulse folder` row in `company/DATA.md` cleared.
+
 ## 2026-11-03: Loop crew stage times
 
 Loop crew 0.4.0 shows how long each issue has spent at each station, in a row of times under its lane, from the `step_seconds` and `step_started` the loop writes to `status.json`, with a dash (U+2014) from a loop older than that. On the desktop, the VS Code extension and mobile, the header and lanes now fill the pane's width.

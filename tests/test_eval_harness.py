@@ -17,6 +17,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import eval_harness  # noqa: E402
+import loop  # noqa: E402
 
 
 def write_suite(folder, **overrides):
@@ -925,6 +926,60 @@ class Cost(ScoredRun):
         _, out = self.starter_run([{"step": "build", "round": 2, "input_tokens": 1200, "output_tokens": 300}])
         self.assertIn("Rounds    2", out)
         self.assertIn("Tokens    1,500", out)
+
+
+# Records usage through the real loop, as a run of it would. The start command fails, which ends the run
+# after issue 1, so this runs once and records every issue itself. SCRIPTS and COUNTED are put above it.
+RECORD_THROUGH_THE_LOOP = r"""
+import sys
+from pathlib import Path
+sys.path.insert(0, SCRIPTS)
+import loop
+
+clone = Path(sys.argv[1])
+
+def record(project, number, step, round_no, usage):
+    loop.Loop(Path.cwd(), dict(loop.DEFAULTS), project=project).record_usage(number, step, round_no, usage)
+
+for number, step, round_no, usage in COUNTED:
+    record(clone, number, step, round_no, usage)
+# Large and in a high build round, so counting any of these changes every figure the test checks.
+record(None, 1, "build", 9, DECOY)
+record(Path.cwd() / "projects" / "other", 1, "build", 9, DECOY)
+record(clone, 99, "build", 9, DECOY)
+"""
+COUNTED = [(1, "build", 3, {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.5}),
+           (1, "review", 5, {"input_tokens": 20, "cache_read_tokens": 1, "cost_usd": 0.25}),
+           (2, "build", 1, {"input_tokens": 100, "cache_write_tokens": 2, "cost_usd": 0.125})]
+DECOY = {"input_tokens": 1000000, "cost_usd": 1000.0}
+
+
+class ReadThroughTheLoop(ScoredRun):
+    def setUp(self):
+        super().setUp()
+        (self.harness / "scripts").mkdir()
+        (self.harness / "scripts" / "loop.py").write_text("")
+        script = self.tmp / "record_through_the_loop.py"
+        script.write_text("SCRIPTS = {!r}\nCOUNTED = {!r}\nDECOY = {!r}\n".format(
+            str(ROOT / "scripts"), COUNTED, DECOY) + RECORD_THROUGH_THE_LOOP)
+        start = "{} {} {{clone}}; exit 1 # scripts/loop.py".format(sys.executable, script)
+        self.run_cli("run", str(self.suite), "--start", start, "--owner", "acme", "--yes")
+
+    def test_the_scorecards_figures_come_from_what_the_loop_recorded(self):
+        tokens, cost = loop.usage_totals([usage for _, _, _, usage in COUNTED])
+        self.assertEqual(self.result()["cost"], cost)
+        self.assertEqual(self.result()["tokens"], tokens)
+        self.assertEqual(self.result()["rounds"], {"1": 3, "2": 1})
+
+    def test_the_entries_it_must_not_count_were_there_to_count(self):
+        project = Path(self.only_run()["clone"]).name
+        for where, number in ((None, 1), ("other", 1), (project, 99)):
+            self.assertEqual([entry["cost_usd"] for entry in loop.issue_usage(self.harness, where, number)], [1000.0])
+
+    def test_the_runner_doesnt_know_where_the_loop_keeps_usage(self):
+        source = (ROOT / "scripts" / "eval_harness.py").read_text()
+        self.assertNotIn(".loop", source)
+        self.assertNotIn("usage.json", source)
 
 
 def result_file(folder, name, tests, traps, cost=1.0, seconds=60, stops=0, rounds="not reported", tokens="not reported"):

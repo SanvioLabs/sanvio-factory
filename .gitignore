@@ -15,6 +15,8 @@ reports/work/*
 !reports/work/README.md
 reports/pulse/*
 !reports/pulse/README.md
+reports/trends/*
+!reports/trends/README.md
 .inbox/
 *.git/
 # scripts/draw_dashboard.py writes this for one run and deletes it; a killed run can leave it

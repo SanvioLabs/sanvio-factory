@@ -131,10 +131,21 @@ Scroll over the pane, or press the **▲ more** and **▼ more** lines, to move
 through the rest, a job at a time on a job list and a line at a time on
 **Queue**; the header and the tabs stay put.
 
-`/loop-pane` opens on the first loop running, the harness before the projects,
-else on the harness. After that the loop you're on stays, even when another one
-starts, until you pick another or close and reopen the pane. If a project's
+`/loop-pane` opens on the session's project in focus, the one `/project <name>`
+sets, when that project has a loop listed. Otherwise it opens on the first loop
+running, the harness before the projects, else on the harness. While it's open
+it follows a change of focus: within two seconds it moves to the project now in
+focus, or to the harness when `/project off` clears it. A focus on a project
+with no loop listed leaves the pane where it is, even once that loop appears.
+Otherwise the loop you're on stays, even when another one starts, until you pick
+another, the focus changes, or you close and reopen the pane. If a project's
 folder goes while you're on it, the pane falls back to the harness.
+
+A pick in the pane sets the focus too: picking a project puts it in focus,
+picking the harness clears it. Opening the pane never changes the focus. The
+focus is shared with the GitHub line only in a session started at the harness
+root: the pane keeps it under the folder holding [`scripts/loop.py`](../../../scripts/loop.py), the GitHub
+line under the folder the session started in.
 
 While the pane is open, an issue that reaches an end in any loop, on screen or
 not, also pops up a short notice, so you hear about it without reading the pane.
@@ -143,7 +154,7 @@ with `Loop:`.
 
 ## What it doesn't do
 
-It only reads. It never starts, stops or changes the loop: run
+It only reads the loop's files. It never starts, stops or changes the loop: run
 `python3 scripts/loop.py` for that. **Watch it** opens
 `.loop/watch.command`, which `loop.py` writes when a run starts inside tmux
 on macOS and removes when it ends, and a job's **Watch** opens
@@ -154,6 +165,11 @@ rewrites at every step, and checks `.loop/STOP` and `.loop/lock`, with
 `kill -0` on the process the lock names. It lists `.loop/projects/` and does the
 same in each project's folder, so a project's `.loop/projects/<name>/` stands in
 for `.loop/` in every path above.
+
+The one file it writes is the session's focus, `.harness/project/<id>`, and only
+when you pick a loop in the pane: the project's name, or nothing for the
+harness. At every read it reads that file back and checks that the project it
+names is a folder directly under [`projects/`](../../../projects/).
 
 It shows the loops of the harness the session started in: the nearest folder
 at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the projects that harness has run with
