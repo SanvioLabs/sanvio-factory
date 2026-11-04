@@ -14,9 +14,11 @@ a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
-request, minus its own `AGENTS.md` or `CLAUDE.md`). Claude reads them with
+request, minus its symlinks and, at any depth, its own `.claude` folders,
+its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
 Read, Grep and Glob only, and the workflow posts the report as one comment on
-the pull request, edited on each push. It never approves or merges. Each run's
+the pull request, edited on each push, with any image in it broken so it
+fetches nothing. It never approves or merges. Each run's
 log names the harness commit it reviewed with.
 
 ## The credential
@@ -67,6 +69,10 @@ jobs:
 It passes the two secrets by name rather than with `secrets: inherit`, so the
 harness's workflow gets those two and none of the product repo's others. The
 permissions are the most it gets: a called workflow can't widen them.
+That holds for the harness's file, not the caller: the caller lives in the
+product repo, so anyone who can push a branch there can change it, in that
+branch's pull request, to print both secrets. Add `HARNESS_DEPLOY_KEY` only
+to repos whose writers you'd trust to read the harness.
 `harness-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
 

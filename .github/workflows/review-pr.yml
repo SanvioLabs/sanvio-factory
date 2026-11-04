@@ -9,14 +9,15 @@
 # product repo reviews against the same skills and rules, and the log names
 # the harness commit it used. base/ is the product repo at the pull request's
 # base, where the project's own rules are read. head/ is the pull request,
-# whose changed files the agent reads. head/'s AGENTS.md and CLAUDE.md are
-# deleted first, so the pull request can't rewrite the rules it's held to; a
-# change to either still reaches the agent through the diff.
+# whose changed files the agent reads. head/'s AGENTS.md, CLAUDE.md and
+# CLAUDE.local.md files, at any depth, its .claude/ folders and its symlinks
+# are deleted first, so the pull request can't rewrite the rules it's held to;
+# a change to any of them still reaches the agent through the diff.
 #
 # Claude runs `claude -p` with Read, Grep and Glob only, confined to those
 # three folders, with no shell, no MCP servers and no settings or hooks
-# loaded. Its report is posted verbatim, after a check that it doesn't
-# contain the key. The last step is the only one that posts, and it never
+# loaded. Its report is posted after a check that it doesn't contain the key,
+# with its images broken so they fetch nothing. The last step is the only one that posts, and it never
 # approves, requests changes or merges: a person decides what happens to the
 # pull request.
 #
@@ -26,7 +27,10 @@
 # missing one gets this workflow's own message. A missing Anthropic key skips
 # the review with a notice; a missing deploy key fails the run and posts
 # nothing. Only the credential check and the harness checkout see the deploy
-# key, and only the key check and the review see the Anthropic key.
+# key, and only the key check and the review see the Anthropic key. That
+# boundary holds inside this file only: the caller lives in the product repo,
+# so anyone who can push a branch there can change it to print both keys.
+# Give the deploy key to repos whose writers you'd trust with the harness.
 #
 # Why the permissions are so small: the agent reads diff text that anyone who
 # can open a pull request can write, so treat it as untrusted input. The agent
@@ -137,11 +141,17 @@ jobs:
           persist-credentials: false
 
       # The project's rules are read from base/ alone. A change to them is in
-      # the diff, where it's reviewed, not followed.
+      # the diff, where it's reviewed, not followed. Claude Code loads a
+      # CLAUDE.md from any folder it reads in, so every one goes, at any depth,
+      # with CLAUDE.local.md, AGENTS.md and .claude/. Symlinks go first: one
+      # can point the agent's Read outside the workspace, and one named
+      # CLAUDE.md isn't a file for the second find.
       - name: Remove the pull request's own rules
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         run: |
-          rm -f head/AGENTS.md head/CLAUDE.md
+          find head -path head/.git -prune -o -type l -exec rm -f {} +
+          find head -path head/.git -prune -o -type f \( -name AGENTS.md -o -name CLAUDE.md -o -name CLAUDE.local.md \) -exec rm -f {} +
+          find head -path head/.git -prune -o -type d -name .claude -prune -exec rm -rf {} +
 
       - name: Install the Claude Code CLI
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
@@ -192,7 +202,7 @@ jobs:
       # the confinement and nothing else on the runner is. The key sits in the
       # environment of the process the tools run in, and /proc is outside the
       # workspace, so a Read of /proc/self/environ is refused. The report is
-      # posted verbatim, so this step also refuses to post one that contains
+      # posted as written, bar its images, so this step refuses one that contains
       # the key: a backstop for a key written out as it is, not a guarantee
       # against an encoded one, which is why the confinement matters more.
       - name: Run the review-pr skill on Claude
@@ -219,6 +229,10 @@ jobs:
             exit "$code"
           fi
 
+      # GitHub fetches every image in a comment the moment it's shown, so an
+      # image whose address the diff steered the agent to write would carry
+      # what it read off the runner. Images and media tags are broken before
+      # posting, so they show as text and fetch nothing.
       - name: Post the report as one comment
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
@@ -228,6 +242,8 @@ jobs:
         run: |
           set -o pipefail
           test -s "$RUNNER_TEMP/report.md"
+          perl -pi -e 's/!\[/! [/g; s/<(?=\s*\/?\s*(?:img|image|picture|source|video|audio|svg|iframe|object|embed|link|meta|base)\b)/&lt;/gi' \
+            "$RUNNER_TEMP/report.md"
           {
             echo "<!-- review-pr-report -->"
             echo
