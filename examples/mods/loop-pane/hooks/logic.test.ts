@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { FINISHED_MS, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, modelName, openingLoop, page, parseStatus, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
+import { FINISHED_MS, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
 import type { Row, Seen, Status } from '../types'
 
 const ROW: Row = {
@@ -35,6 +35,15 @@ group('project loops', () => {
     expect(open(false, true, true)).toBe('a')
     expect(open(false, false, false)).toBeUndefined()
     expect(openingLoop([running(undefined, false), running('a', false)])).toEqual(running(undefined, false))
+  })
+  test('the pane opens on the project in focus when its loop is listed, and otherwise as it did', () => {
+    const loops = [running(undefined, false), running('a', false), running('b', true)]
+    expect(openingLoop(loops, 'a')?.project).toBe('a')
+    expect(openingLoop([running(undefined, true), running('a', false)], 'a')?.project).toBe('a')
+    expect(openingLoop(loops, 'gone')?.project).toBe('b')
+    expect(openingLoop(loops, null)?.project).toBe('b')
+    expect(openingLoop(loops)?.project).toBe('b')
+    expect(openingLoop([running(undefined, false), running('a', false)], 'gone')).toEqual(running(undefined, false))
   })
   test("a project's name is its label and the header's left side; the harness keeps its folder", () => {
     expect(loopLabel(running(undefined, false))).toBe('starter')
@@ -471,5 +480,31 @@ group('the clock', () => {
   test('the start survives the status file', () => {
     const text = JSON.stringify({ issues: [{ ...ROW, started: '2026-10-15T14:22:05' }] })
     expect(parseStatus(text)?.issues[0]?.started).toBe('2026-10-15T14:22:05')
+  })
+})
+
+// The same cases as github-status's, so the two mods hold the focus to the same rules.
+group('the project in focus', () => {
+  test('a folder under projects/, with or without the prefix', () => {
+    expect(projectName('acme')).toEqual({ name: 'acme' })
+    expect(projectName(' projects/acme-app/ ')).toEqual({ name: 'acme-app' })
+    expect(projectName('web_2.0')).toEqual({ name: 'web_2.0' })
+  })
+  test('anything that could reach outside projects/ is refused', () => {
+    for (const arg of ['../secrets', 'acme/sub', '/etc', '.hidden', 'projects/../x', 'a..b', '~/x', 'two words']) {
+      expect('why' in projectName(arg)).toBe(true)
+    }
+  })
+  test('an id matching the pattern names a file under .harness/project', () => {
+    expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
+  })
+  test('anything else names none', () => {
+    for (const id of [null, '', 'abc', '../../etc/passwd', 'aaaaaaaa/1111', 'g'.repeat(8), 'a'.repeat(65)]) {
+      expect(focusFile('/h', id)).toBeNull()
+    }
+  })
+  test("the file's text, trimmed, is what projectName accepts", () => {
+    expect(focusName('acme\n')).toBe('acme')
+    for (const text of ['', '../x', 'a/b', '.hidden']) expect(focusName(text)).toBeNull()
   })
 })

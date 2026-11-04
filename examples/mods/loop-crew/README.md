@@ -17,10 +17,13 @@ Over the lanes, a header names the stations, each in its colour while an issue i
 dim otherwise. Each lane has a line of words, `#<n> <title> · <step's words>, round <r>`, with the
 round left off at 0 and the step's words in its station's colour, then the lane itself: a rail lit in
 the stations' colours up to the figure and dotted beyond it, a node at each station, and the figure
-in its station's colour.
+in its station's colour. Under the lane is a row of times, one under each station's name: how long
+the issue has spent at that step. [The times](#the-times) says where they come from.
 
 Two issues on a 64-column terminal look like this, the shapes without their colours: #12 swinging
-its hammer at `build` beside a stack of bricks, #13 reading a page at `check`.
+its hammer at `build` beside a stack of bricks, 3 minutes in, #13 reading a page at `check`, 48
+seconds in. Where a station has no time the board draws a dash (U+2014). The picture shows a hyphen
+there instead.
 
 ```text
 start     plan      test       build     check     ship
@@ -28,14 +31,17 @@ start     plan      test       build     check     ship
                                 ▄█ █  ▄▄
                                 ▄▀▄  ▄█▀▄▄
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄███ ▄▀█ █▀▄█▄ ▄ ▄ ▄ ▄█▄
+-         4m        12m        3m        -         -
 #13 Show the round in the pane · checking, round 2
                                           ▄█▄▀ ▀▀▀▀▀▀
                                           ▄▀▄  ▀▀▀▀▀▀
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄███ ▄▀█▀█▀██▄
+-         5m        20m        1h12      48s       -
 ```
 
 It's a Claude Code mod, so it works in Claude Code only. It has been seen in the terminal, in Claude
-Code run in VS Code's integrated terminal, against a pretend loop. The VS Code extension, Claude
+Code run in VS Code's integrated terminal, against a pretend loop. Loop crew 0.3.0 has been seen in
+the VS Code extension's pane, and a probe showed that an Svg sized as this one is fills it. Claude
 Desktop and the mobile app haven't been tried. It's built from the types and tested with
 `claude plugin test`. The types say the desktop runs SMIL in an Svg drawn with `isInteractive` and
 the extension draws an Svg as an image where SMIL can run. The mobile app draws one in a web view, and
@@ -87,18 +93,57 @@ Checked in this order:
 ## The board
 
 On a terminal the board is as wide as the pane, from 42 columns to 120, and wider panes leave the
-rest empty. The header takes a row and each lane four: its words, then three rows of lane. The pane
-shows the lanes that fit, at least one and at most 8, then `and <n> more`. The mod cuts only the
-title, to the pane's width. In a pane too narrow for where the issue has got to, those words wrap.
-Below 42 columns the pane shows the words alone, a line an issue.
-`/loop-crew` asks for 72 columns by 13 rows when it opens, room for three lanes, and a terminal gives
+rest empty. The header takes a row and each lane five: its words, three rows of lane, then its row
+of times. The pane shows the lanes that fit, at least one and at most 8, then `and <n> more`. The
+mod cuts only the title, to the pane's width. In a pane too narrow for where the issue has got to,
+those words wrap. Below 42 columns the pane shows the words alone, a line an issue.
+`/loop-crew` asks for 72 columns by 16 rows when it opens, room for three lanes, and a terminal gives
 what it has.
 
-Every other surface draws the header as an Svg 256 by 16 pixels and each lane as one 256 by 24,
-shows every lane, and wraps the words.
+Every other surface draws the header and each lane as an Svg with a viewBox and no size of its own,
+so the drawing fills the pane's width at its own shape. It's drawn three columns wide for each of the
+pane's, between 64 and 240, and 64 when the pane's width isn't known: 126 at the 42 columns the VS
+Code extension's docked pane reported. Every station's place, the rail, the walks and the work are
+worked out at that width. Under each lane are the station names, the lane's own in its colour and
+the rest dim, then the times. These surfaces show every lane and wrap the words.
 
 The board reads the session's theme when the session starts. A theme with `light` in its name draws it
 for a light background, and any other theme, or none it can read, for a dark one.
+
+## The times
+
+Each station's time is how long the issue's current run has spent on that station's step, rounds
+added together. The loop writes them to `status.json`: `step_seconds` holds the whole seconds for
+each step finished, and `step_started` says when the current step began. A loop older than the one
+that added them (#367) writes neither, and its lanes show a dash (U+2014) under every station.
+
+| Station | Its time comes from |
+|---|---|
+| `start` | Nothing: it always shows a dash |
+| `plan`, `test`, `build`, `check`, `ship` | `step_seconds` for `SHAPE`, `TEST`, `BUILD`, `VALIDATE` and `SCALE` |
+
+While the issue is working past `start` and its step has begun, the current station adds the time
+since `step_started`. Any other station without an entry shows a dash. Times are floored:
+
+| Time | Reads |
+|---|---|
+| Under a minute | Whole seconds: `0s`, `42s`, `59s` |
+| A minute to an hour | Whole minutes: `1m`, `59m` |
+| An hour or more | Hours and two-digit minutes: `1h00`, `1h05` |
+| None | A dash (U+2014) |
+
+The current station's time is in its colour, any other station's in the tool grey, and a dash dim.
+
+- **Terminal:** the times are the lane's fourth row, each starting at the column where its station's
+  name starts in the header. A time that would run into the next station's is cut with `…`, so a
+  blank column always comes between two. The current time counts up as the board is painted, with
+  no redraw.
+- **Desktop, the VS Code extension and mobile:** a time is as of the drawing. While any lane's time
+  is counting, the pane is redrawn every 30 seconds, and otherwise never for the times. Each of those
+  redraws starts every pose and every piece of work from its first frame, and a figure mid-walk
+  carries on from where it is.
+
+An issue walking out keeps its times, with nothing counting.
 
 ## The walk
 
@@ -135,7 +180,8 @@ the 7 pixels to the figure's right, above the rail, and on a narrow board never 
 head's colour, which is how the tests find a figure.
 
 - **Terminal:** the header is one `Raster` keyed `head` and each lane one keyed `lane-<n>`, half-block
-  pixels with the station names as text in the header's cells. An 80 ms timer paints each that changed
+  pixels with the station names as text in the header's cells. A lane's Raster is 4 rows: 3 of
+  pixels and 1 of its times as text. An 80 ms timer paints each that changed
   with `$.ui.blit`, so the pane isn't redrawn for a pose or a step of a walk, and a redraw draws the
   same moment. A blit that doesn't land is painted again on the next tick. With the header and 8
   lanes that's at most 112.5 blits a second, under the 120 the engine takes. A pane behind another
@@ -143,7 +189,8 @@ head's colour, which is how the tests find a figure.
 - **Desktop, the VS Code extension and mobile:** each lane is one `Svg` with its poses and its work
   sampled into frames for SMIL to show in turn. It's built so a running figure slides from where it
   is to its station over the walk's time left, on the same curve as the terminal. No timer paints
-  there. Where SMIL doesn't run, every figure stands at its station on its first pose.
+  there. The one timer is the 30-second redraw while a time counts, which stops once the pane is
+  gone. Where SMIL doesn't run, every figure stands at its station on its first pose.
 
 Stations and walks are kept in the module, not in `$.state`, and worked out by `place`, from the last
 placement and the new read. A walk is kept in stations, not pixels, so a resize never causes one.

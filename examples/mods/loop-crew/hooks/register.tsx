@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, SVG_COLUMNS, SVG_SCALE, accentText, boardColumns, findRoot, headCells, headSvg, inkFor, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseStatus, place, scene, showsBoard } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Placement } from './logic'
 import type { Seen } from '../types'
 
@@ -14,9 +14,12 @@ const TICK_MS = 80
 const MAX_LANES = 8
 const HEAD_KEY = 'head'
 const laneKey = (number: number): string => `lane-${number}`
-// What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane.
+// How often the other surfaces redraw while a time counts. They don't run the tick.
+const REDRAW_MS = 30_000
+// What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane,
+// the lane its 3 rows and its row of times.
 const WANT_COLUMNS = 72
-const LANE_HEIGHT = LANE_ROWS + 1
+const LANE_HEIGHT = LANE_ROWS + 2
 const WANT_ROWS = 1 + 3 * LANE_HEIGHT
 
 const launchAtom = atom({ plugin: 'loop-crew', key: 'launch' } as const, null)
@@ -25,6 +28,7 @@ const seenAtom = atom({ plugin: 'loop-crew', key: 'seen' } as const, null)
 
 let stopPolling: (() => void) | null = null
 let stopBoard: (() => void) | null = null
+let stopRedraw: (() => void) | null = null
 // Not atoms: a write would redraw the pane, and a walk is painted with no redraw.
 let placed: { shown: string; placement: Placement } | null = null
 // What the terminal's drawing mounted, so a tick paints only those at their size. Null: no board is drawn.
@@ -119,9 +123,31 @@ function startPolling($: EngineInterface): void {
       if (await paneIsUp($)) return refresh($)
       stopPolling?.()
       stopPolling = null
+      endRedraws()
     })().catch(() => {})
   })
   stopPolling = () => timer.cancel()
+}
+
+function endRedraws(): void {
+  stopRedraw?.()
+  stopRedraw = null
+}
+
+// Redraw the other surfaces every 30 seconds while a lane's time counts, so it moves on, and not at all
+// otherwise. Started from a non-terminal drawing, as startBoard is from a terminal one, and stopped once
+// the pane is gone, here or by the poll.
+function startRedraw($: EngineInterface): void {
+  if (stopRedraw) return
+  const timer = $.clock.every(REDRAW_MS, () => {
+    void (async () => {
+      if (!(await paneIsUp($))) return endRedraws()
+      const seen = await read($, seenAtom)
+      const now = await $.clock.now()
+      if (seen && lanesOf(placementFor(seen, now), now).some(isCounting)) $.ui.invalidate('ui.render')
+    })().catch(() => {})
+  })
+  stopRedraw = () => timer.cancel()
 }
 
 // A Raster that isn't mounted, or one the terminal has since resized, answers with a deny or a rejection.
@@ -216,6 +242,7 @@ export const register: Register = on => {
     const { Box, Text } = elements
     const isTerminal = e.surface === 'terminal'
     if (isTerminal) startBoard($)
+    else startRedraw($)
     const seen = await read($, seenAtom)
     if (isTerminal) mounted = null
     if (!seen) return <Text dimColor>Looking for the loop…</Text>
@@ -258,7 +285,7 @@ export const register: Register = on => {
             return (
               <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
                 {words(lane, e.props.bodyColumns)}
-                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS} cells={cells} />}
+                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS + 1} cells={cells} />}
               </Box>
             )
           })}
@@ -267,16 +294,17 @@ export const register: Register = on => {
       )
     }
 
-    // Every other surface shows every lane, animated by the document itself, its words wrapped.
+    // Every other surface shows every lane, animated by the document itself, its words wrapped. Each Svg
+    // has no size, so the surface draws it across the pane at the shape its viewBox gives.
     const Svg = 'Svg' in elements ? elements.Svg : null
-    const width = SVG_COLUMNS * SVG_SCALE
+    const columns = svgColumns(e.props.bodyColumns)
     return (
       <Box flexDirection="column" rowGap={1}>
-        {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink)} alt="The loop's steps, left to right" width={width} height={4 * SVG_SCALE} />}
+        {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink, columns)} alt="The loop's steps, left to right" />}
         {lanes.map(lane => (
           <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
             {words(lane)}
-            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink)} alt={laneAlt(lane)} width={width} height={LANE_ROWS * 2 * SVG_SCALE} isInteractive />}
+            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink, columns)} alt={laneAlt(lane)} isInteractive />}
           </Box>
         ))}
       </Box>
