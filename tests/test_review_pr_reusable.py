@@ -235,6 +235,74 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIn('head -c 60000 "$RUNNER_TEMP/diff.patch" >> "$RUNNER_TEMP/prompt.md"', prompt)
         self.assertNotIn("| head", prompt, "a pipe into head fails under pipefail on a big diff")
 
+    def test_the_harness_checkout_is_sparse(self):
+        harness = self.step(HARNESS)
+        lines = harness.split("sparse-checkout: |\n", 1)[1].splitlines()
+        paths = []
+        for line in lines:
+            if not line.startswith(" " * 12):
+                break
+            paths.append(line.strip())
+        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/"])
+        self.assertIn("sparse-checkout-cone-mode: false", harness)
+        for name in (BASE, HEAD):
+            self.assertNotIn("sparse-checkout", self.step(name), name)
+
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def test_a_harness_without_agents_md_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            harness = Path(tmp) / "harness"
+            self.git(tmp, "init", "-q", "harness")
+            (harness / "skills" / "review-pr").mkdir(parents=True)
+            (harness / "skills" / "review-pr" / "SKILL.md").write_text("skill\n")
+            self.git(harness, "add", ".")
+            self.git(harness, "commit", "-q", "-m", "skill")
+            result = self.run_in(HARNESS_SHA, tmp, HARNESS_REPO="o/h")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("harness/AGENTS.md", result.stdout)
+            (harness / "AGENTS.md").write_text("rules\n")
+            result = self.run_in(HARNESS_SHA, tmp, HARNESS_REPO="o/h")
+            self.assertEqual(result.returncode, 0, result.stdout)
+
+    def prompt_for(self, big):
+        """The prompt built for a head commit that changes small.txt, and adds big.txt when `big`."""
+        with tempfile.TemporaryDirectory() as tmp:
+            head = Path(tmp) / "head"
+            self.git(tmp, "init", "-q", "head")
+            (head / "small.txt").write_text("one\n")
+            self.git(head, "add", ".")
+            self.git(head, "commit", "-q", "-m", "base")
+            base = self.git(head, "rev-parse", "HEAD")
+            (head / "small.txt").write_text("two\n")
+            if big:
+                (head / "big.txt").write_text(("x" * 99 + "\n") * 700)
+            self.git(head, "add", ".")
+            self.git(head, "commit", "-q", "-m", "change")
+            result = self.run_in(PROMPT, tmp, BASE_SHA=base, RUNNER_TEMP=tmp)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (Path(tmp) / "prompt.md").read_text()
+
+    CUT = ("The diff was cut at 60000 bytes. Every changed file is listed under CHANGED FILES; "
+           "read any the cut dropped under head/.")
+
+    def test_a_big_diff_lists_every_file_and_says_it_was_cut(self):
+        prompt = self.prompt_for(big=True)
+        self.assertIn("CHANGED FILES:", prompt)
+        listed = prompt.split("CHANGED FILES:", 1)[1].split("\nDIFF (cut", 1)[0]
+        self.assertIn("A\tbig.txt", listed)
+        self.assertIn("M\tsmall.txt", listed)
+        self.assertTrue(prompt.strip().endswith(self.CUT), prompt[-300:])
+
+    def test_a_small_diff_has_no_cut_line(self):
+        prompt = self.prompt_for(big=False)
+        self.assertIn("CHANGED FILES:", prompt)
+        self.assertIn("M\tsmall.txt", prompt.split("CHANGED FILES:", 1)[1].split("\nDIFF (cut", 1)[0])
+        self.assertNotIn(self.CUT, prompt)
+
     def test_the_deploy_key_reaches_only_the_check_and_the_harness_checkout(self):
         holding = [name for name, text in self.steps() if "secrets.HARNESS_DEPLOY_KEY" in text]
         self.assertEqual(sorted(holding), sorted([CREDENTIAL, HARNESS]))
