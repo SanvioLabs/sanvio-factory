@@ -139,9 +139,9 @@ since `step_started`. Any other station without an entry shows a dash. Times are
 The current station's time is in its colour, any other station's in the tool grey, and a dash dim.
 
 - **Terminal:** the times are the lane's 4th row, and the spend its 5th, each starting at the column
-  where its station's name starts in the header. A time that would run into the next station's is cut with `…`, so a
-  blank column always comes between two. The current time counts up as the board is painted, with
-  no redraw.
+  where its station's name starts in the header. A time that would run into the next station's is
+  cut with `…`, so a blank column always comes between two. The current time counts up as the
+  board is painted, with no redraw.
 - **Desktop, the VS Code extension and mobile:** a time is as of the drawing. While any lane's time
   is counting, the pane is redrawn every 30 seconds, and otherwise never for the times. Each of those
   redraws starts every pose and every piece of work from its first frame, and a figure mid-walk
@@ -186,9 +186,10 @@ station's in the tool grey, and a dash dim.
 - **Desktop, the VS Code extension and mobile:** the spend is the Svg's row under the times, given
   room for as many letters as fit before the next station's name.
 
-The pane reads `usage.json` when it opens or switches, then again for an issue only when its
+The pane reads an issue's `usage.json` when its lane first appears, then again only when its
 `started`, `tokens` or `cost_usd` in `status.json` changes, which the loop does each time it adds an
-entry. A `usage.json` that's missing or can't be read shows a dash under every stage.
+entry. An issue `status.json` stops listing is forgotten, and read afresh if it comes back. A
+`usage.json` that's missing or can't be read shows a dash under every stage.
 
 ## The walk
 

@@ -41,9 +41,13 @@ let opens = 0
 // Each issue's spend in its current run, by loop and number, with the row fields it was read for. Not
 // an atom: seen stays a copy of the loop's own files, and a changed row already redraws the pane.
 type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; spend: Spend | null }
-const spends = new Map<string, Spent>()
-const spendKey = (project: string | undefined, number: number): string => `${project ?? ''}#${number}`
-const spendOf = (seen: Seen, number: number): Spend | null => spends.get(spendKey(seen.project, number))?.spend ?? null
+const spends = new Map<string, Map<number, Spent>>()
+function spendsOf(project: string | undefined): Map<number, Spent> {
+  const loop = spends.get(project ?? '') ?? new Map<number, Spent>()
+  spends.set(project ?? '', loop)
+  return loop
+}
+const spendOf = (seen: Seen, number: number): Spend | null => spends.get(seen.project ?? '')?.get(number)?.spend ?? null
 
 const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.panes()).some(pane => pane.id === PANE)
 
@@ -86,15 +90,19 @@ async function look($: EngineInterface, root: string, project?: string): Promise
 }
 
 // Read usage.json again for each issue with a lane whose run, tokens or cost has changed since the last
-// read, and only for those. A file that's missing or can't be read is no spend.
+// read, and only for those. A file that's missing or can't be read is no spend. An issue this loop's
+// status file no longer lists is forgotten, so the cache holds no more than the loops' status files do.
+// One still listed is kept, so a lane walking out keeps its spend.
 async function readSpends($: EngineInterface, root: string, seen: Seen): Promise<void> {
+  const loop = spendsOf(seen.project)
+  const listed = new Set((seen.status?.issues ?? []).map(row => row.number))
+  for (const number of [...loop.keys()]) if (!listed.has(number)) loop.delete(number)
   for (const row of scene(seen).rows) {
-    const key = spendKey(seen.project, row.number)
-    const known = spends.get(key)
+    const known = loop.get(row.number)
     if (known && known.started === row.started && known.tokens === row.tokens && known.cost_usd === row.cost_usd) continue
     const text = await $.fs.read(`${root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`).catch(() => null)
     const spend = parseSpend(text, row.started)
-    spends.set(key, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, spend: hasSpend(spend) ? spend : null })
+    loop.set(row.number, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, spend: hasSpend(spend) ? spend : null })
   }
 }
 

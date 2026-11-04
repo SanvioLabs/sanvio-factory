@@ -840,8 +840,9 @@ export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_
   }
   const times = stageTimes(lane, now)
   const rows = STATIONS.map((station, index) => {
-    const next = index < LAST ? labelColumn(index + 1, columns) : columns
-    const room = Math.floor((next - labelColumn(index, columns) - 1) / SVG_LETTER)
+    // Up to a blank unit before the next label, or to the right edge for the last station.
+    const end = index < LAST ? labelColumn(index + 1, columns) - 1 : columns
+    const room = Math.floor((end - labelColumn(index, columns)) / SVG_LETTER)
     const stage = spend?.[station] ?? null
     return svgLabel(index, columns, 9, station === lane.station ? ACCENT[station] : ink.dim, station) +
       svgLabel(index, columns, 13, timeColour(lane, station, times[station], ink), timeText(times[station])) +
