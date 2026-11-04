@@ -243,7 +243,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
             if not line.startswith(" " * 12):
                 break
             paths.append(line.strip())
-        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/"])
+        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/"])
         self.assertIn("sparse-checkout-cone-mode: false", harness)
         for name in (BASE, HEAD):
             self.assertNotIn("sparse-checkout", self.step(name), name)
@@ -268,9 +268,17 @@ class ReusableReviewWorkflow(unittest.TestCase):
             result = self.run_in(HARNESS_SHA, tmp, HARNESS_REPO="o/h")
             self.assertEqual(result.returncode, 0, result.stdout)
 
-    def prompt_for(self, big):
-        """The prompt built for a head commit that changes small.txt, and adds big.txt when `big`."""
+    def prompt_for(self, big, standards=None):
+        """The prompt and the GITHUB_ENV text built for a head commit that changes small.txt,
+        and adds big.txt when `big`. `standards` are paths created under harness/standards/."""
         with tempfile.TemporaryDirectory() as tmp:
+            if standards is not None:
+                (Path(tmp) / "harness" / "standards").mkdir(parents=True)
+                for path in standards:
+                    (Path(tmp) / "harness" / "standards" / path).parent.mkdir(parents=True, exist_ok=True)
+                    (Path(tmp) / "harness" / "standards" / path).write_text("# A standard\n")
+            env = Path(tmp) / "env"
+            env.touch()
             head = Path(tmp) / "head"
             self.git(tmp, "init", "-q", "head")
             (head / "small.txt").write_text("one\n")
@@ -282,15 +290,60 @@ class ReusableReviewWorkflow(unittest.TestCase):
                 (head / "big.txt").write_text(("x" * 99 + "\n") * 700)
             self.git(head, "add", ".")
             self.git(head, "commit", "-q", "-m", "change")
-            result = self.run_in(PROMPT, tmp, BASE_SHA=base, RUNNER_TEMP=tmp)
+            result = self.run_in(PROMPT, tmp, BASE_SHA=base, RUNNER_TEMP=tmp, GITHUB_ENV=str(env))
             self.assertEqual(result.returncode, 0, result.stderr)
-            return (Path(tmp) / "prompt.md").read_text()
+            return (Path(tmp) / "prompt.md").read_text(), env.read_text()
 
     CUT = ("The diff was cut at 60000 bytes. Every changed file is listed under CHANGED FILES; "
            "read any the cut dropped under head/.")
+    READ_EACH = ("These are the team's code standards. Read each one, hold the change to them, "
+                 "and name the file and heading of the standard a finding breaks.")
+    NO_STANDARDS = "None. The harness has no standards/ folder, or nothing in it."
+    NOT_LOADED = ("No team standards were loaded: the harness's standards/ folder is missing or empty, "
+                  "so this review holds the change to the repo's own rules only.")
+
+    def standards_section(self, prompt):
+        self.assertIn("\nSTANDARDS:\n", prompt)
+        return prompt.split("\nSTANDARDS:\n", 1)[1].split("\nCHANGED FILES:", 1)[0].splitlines()
+
+    def test_the_standards_are_listed_in_order(self):
+        prompt, env = self.prompt_for(big=False, standards=["python.md", "api/errors.md", "README.md"])
+        self.assertEqual(self.standards_section(prompt),
+                         ["harness/standards/api/errors.md", "harness/standards/python.md", self.READ_EACH])
+        self.assertFalse([line for line in self.standards_section(prompt) if "README.md" in line])
+        self.assertNotIn("standards/README.md", prompt)
+        self.assertIn("STANDARDS_LOADED=true", env)
+        self.assertNotIn("STANDARDS_LOADED=false", env)
+
+    def test_no_standards_says_none(self):
+        for standards in (None, ["README.md"]):
+            prompt, env = self.prompt_for(big=False, standards=standards)
+            section = self.standards_section(prompt)
+            self.assertIn(self.NO_STANDARDS, section, standards)
+            self.assertNotIn(self.READ_EACH, prompt, standards)
+            self.assertIn("STANDARDS_LOADED=false", env, standards)
+            self.assertNotIn("STANDARDS_LOADED=true", env, standards)
+
+    def test_the_posted_report_says_when_no_standards_loaded(self):
+        for loaded in ("false", "true"):
+            with tempfile.TemporaryDirectory() as tmp:
+                bin_dir = Path(tmp) / "bin"
+                bin_dir.mkdir()
+                (bin_dir / "gh").write_text("#!/bin/sh\nexit 0\n")
+                (bin_dir / "gh").chmod(0o755)
+                (Path(tmp) / "report.md").write_text("Changes needed.\n")
+                result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                                     REPO="o/r", PR="1", GH_TOKEN="", STANDARDS_LOADED=loaded)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = (Path(tmp) / "comment.md").read_text().splitlines()
+                if loaded == "false":
+                    self.assertEqual(lines[2:5], [self.NOT_LOADED, "", "Changes needed."])
+                else:
+                    self.assertNotIn(self.NOT_LOADED, lines)
+                    self.assertEqual(lines[2], "Changes needed.")
 
     def test_a_big_diff_lists_every_file_and_says_it_was_cut(self):
-        prompt = self.prompt_for(big=True)
+        prompt, _ = self.prompt_for(big=True)
         self.assertIn("CHANGED FILES:", prompt)
         listed = prompt.split("CHANGED FILES:", 1)[1].split("\nDIFF (cut", 1)[0]
         self.assertIn("A\tbig.txt", listed)
@@ -298,7 +351,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertTrue(prompt.strip().endswith(self.CUT), prompt[-300:])
 
     def test_a_small_diff_has_no_cut_line(self):
-        prompt = self.prompt_for(big=False)
+        prompt, _ = self.prompt_for(big=False)
         self.assertIn("CHANGED FILES:", prompt)
         self.assertIn("M\tsmall.txt", prompt.split("CHANGED FILES:", 1)[1].split("\nDIFF (cut", 1)[0])
         self.assertNotIn(self.CUT, prompt)
@@ -339,7 +392,7 @@ class CallerReadme(unittest.TestCase):
     def test_the_headings_come_in_order(self):
         headings = re.findall(r"^## (.+)$", self.text, re.M)
         self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private harness repo",
-                                    "Testing the review"])
+                                    "Testing the review", "Team standards"])
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")

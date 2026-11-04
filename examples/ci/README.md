@@ -110,10 +110,10 @@ workspace in the Anthropic Console). An organisation-level key fails with
 A product repo can't call a workflow in a private repo until the harness
 allows it. In the harness repo, open Settings, Actions, General, and under
 Access choose "Accessible from repositories in the organization". That lets
-the product repos use the workflow file; the deploy key is still what lets
-the job read those four paths. A private harness's other files (scripts,
-docs, examples, reports) aren't checked out, so the review can't read them or
-quote them.
+the product repos use the workflow file;
+the deploy key can read the whole harness repo, and the workflow checks out only the paths it needs.
+A private harness's other files (scripts, docs, examples, reports) aren't
+checked out, so the review can't read them or quote them.
 
 ## Testing the review
 
@@ -155,3 +155,16 @@ good review must find, cover or leave alone. A text it must find has to appear
 exactly once in the patch, and a line it must cover is a line number in
 `work.patch` itself. Use a change you made up, never one with a customer's
 code or data in it.
+
+## Team standards
+
+To have the review hold changes to your team's code standards, put them in a
+folder at `standards/` in the harness repo's root. Every `.md` file in it, at
+any depth, except one named `README.md`, is given to the review, which reads
+each one and names the file and heading of the standard a finding breaks.
+
+A review that found no standards says so on its first line, so a missing or
+empty folder doesn't pass unnoticed. The folder belongs to the harness, not to
+a product repo, so every product repo that calls the workflow is held to the
+same standards. A pull request can't add or change one: the standards are read
+from the harness's default branch, never from the pull request.
