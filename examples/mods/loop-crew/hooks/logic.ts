@@ -11,6 +11,32 @@ export function loopDir(project?: string): string {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+const has = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key)
+
+// The steps whose time a lane shows, each with the station it's worked at.
+const TIMED_STEPS = ['SHAPE', 'TEST', 'BUILD', 'VALIDATE', 'SCALE']
+
+// A row's time fields, each only when the row has it. Only the timed steps with a time of 0 or more are
+// kept, and a step_started that doesn't read as a time is null.
+function timeFields(r: Record<string, unknown>): Pick<Row, 'step_seconds' | 'step_started'> {
+  const out: Pick<Row, 'step_seconds' | 'step_started'> = {}
+  if (has(r, 'step_seconds')) {
+    const raw = r.step_seconds
+    const seconds: Record<string, number> = {}
+    if (raw && typeof raw === 'object') {
+      for (const step of TIMED_STEPS) {
+        const value = has(raw, step) ? (raw as Record<string, unknown>)[step] : undefined
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) seconds[step] = value
+      }
+    }
+    out.step_seconds = seconds
+  }
+  if (has(r, 'step_started')) {
+    const raw = r.step_started
+    out.step_started = typeof raw === 'string' && !Number.isNaN(Date.parse(raw)) ? raw : null
+  }
+  return out
+}
 
 // The status file, or null when there's none or it can't be read. A row without a number is dropped.
 export function parseStatus(text: string | null): Status | null {
@@ -25,7 +51,7 @@ export function parseStatus(text: string | null): Status | null {
   const rows = (raw as Record<string, unknown>).issues
   const issues: Row[] = (Array.isArray(rows) ? rows : [])
     .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && num((r as Record<string, unknown>).number) > 0)
-    .map(r => ({ number: num(r.number), title: str(r.title), step: str(r.step), state: str(r.state), round: num(r.round) }))
+    .map(r => ({ number: num(r.number), title: str(r.title), step: str(r.step), state: str(r.state), round: num(r.round), ...timeFields(r) }))
   return { issues }
 }
 
@@ -131,13 +157,21 @@ const RIGHT_ROOM = 13
 // Under this the header's station names run into each other, and the pane shows only the words.
 export const MIN_COLUMNS = 42
 const MAX_COLUMNS = 120
-// What the desktop, the editor and the phone draw: their width isn't known here.
+// How wide the desktop, the editor and the phone draw, at the least and the most. The surface scales the
+// drawing to the pane, so this is its shape, not its size.
 export const SVG_COLUMNS = 64
-export const SVG_SCALE = 4
+const SVG_MAX_COLUMNS = 240
 
 // How wide a terminal this wide draws its board. Null: too narrow for one.
 export function boardColumns(bodyColumns: number): number | null {
   return bodyColumns >= MIN_COLUMNS ? Math.min(bodyColumns, MAX_COLUMNS) : null
+}
+
+// How wide the other surfaces draw the header and the lanes for a pane this many columns wide: three
+// times that, between 64 and 240. A width that isn't a number draws 64.
+export function svgColumns(bodyColumns: number): number {
+  if (!Number.isFinite(bodyColumns)) return SVG_COLUMNS
+  return Math.min(SVG_MAX_COLUMNS, Math.max(SVG_COLUMNS, Math.round(bodyColumns * 3)))
 }
 
 // The middle of a station, or of a place between two, in pixels from the left.
@@ -349,6 +383,52 @@ export function lanesOf(placement: Placement, now: number): Lane[] {
   return [...placement.figures, ...out].sort((a, b) => a.row.number - b.row.number)
 }
 
+// The step each station's time comes from. The start has none.
+const STATION_STEPS: Record<Station, string | null> = { start: null, plan: 'SHAPE', test: 'TEST', build: 'BUILD', check: 'VALIDATE', ship: 'SCALE' }
+
+// Whether a lane's current step is still being timed: not walking out, past the start, and started at a
+// time Date.parse reads. A Row built in code can carry one it can't, and that one never counts.
+export function isCounting(lane: Lane): boolean {
+  const started = lane.row.step_started
+  return !lane.walk?.isOut && lane.station !== 'start' && typeof started === 'string' && !Number.isNaN(Date.parse(started))
+}
+
+// Each station's time in seconds, or null for none. The current step, while it counts, adds the time
+// since it began, as of `now`, in whole seconds and never below 0. A row from a loop that doesn't record
+// times has none.
+export function stageTimes(lane: Lane, now: number): Record<Station, number | null> {
+  const seconds = lane.row.step_seconds ?? {}
+  const started = isCounting(lane) ? Date.parse(lane.row.step_started!) : Number.NaN
+  const out = {} as Record<Station, number | null>
+  for (const station of STATIONS) {
+    const step = STATION_STEPS[station]
+    const spent = step !== null && has(seconds, step) && Number.isFinite(seconds[step]) ? seconds[step]! : null
+    out[station] = station === lane.station && Number.isFinite(started)
+      ? (spent ?? 0) + Math.max(0, Math.floor((now - started) / 1000))
+      : spent
+  }
+  return out
+}
+
+// What no time reads as: an em dash, U+2014, written by its code so the source holds none.
+const NO_TIME = String.fromCharCode(0x2014)
+
+// A time as it reads: whole seconds under a minute, whole minutes under an hour, then hours and two-digit
+// minutes, all floored. No time reads as a dash.
+export function timeText(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds)) return NO_TIME
+  const whole = Math.max(0, Math.floor(seconds))
+  if (whole < 60) return `${whole}s`
+  if (whole < 3600) return `${Math.floor(whole / 60)}m`
+  return `${Math.floor(whole / 3600)}h${String(Math.floor((whole % 3600) / 60)).padStart(2, '0')}`
+}
+
+// A time's colour: the current station's accent, the tool colour for any other with a time, and dim for none.
+function timeColour(lane: Lane, station: Station, seconds: number | null, ink: Ink): number {
+  if (seconds === null) return ink.dim
+  return station === lane.station ? ACCENT[station] : ink.tool
+}
+
 // A lane's words: its number, its title cut to what's left of the width, and where it has got to, which
 // is never cut here: a pane too narrow for it wraps it. No width leaves the title whole, for a surface
 // that wraps.
@@ -480,12 +560,14 @@ function paintLane(canvas: Canvas, lane: Lane, now: number): void {
 
 const canvasFor = (columns: number, ink: Ink): Canvas => ({ columns, ink, pixels: new Int32Array(columns * LANE_PIXELS).fill(-1) })
 
-// One lane as it stands at this moment, as a Raster's cells. Half blocks, so each cell is two pixels,
-// and the lower one where only the bottom pixel is painted, so the top keeps the pane's own background.
+// One lane as it stands at this moment, as a Raster's cells: its 3 rows of half blocks, so each cell is
+// two pixels, and the lower one where only the bottom pixel is painted, so the top keeps the pane's own
+// background. Then a row of each station's time, under its name in the header.
 export function laneCells(lane: Lane, columns: number, now: number, ink: Ink = DARK): string {
   const canvas = canvasFor(columns, ink)
   paintLane(canvas, lane, now)
-  const out = new Uint32Array(columns * LANE_ROWS * 3)
+  const out = new Uint32Array(columns * (LANE_ROWS + 1) * 3)
+  out.set(timeCells(lane, columns, now, ink), columns * LANE_ROWS * 3)
   for (let row = 0; row < LANE_ROWS; row++) {
     for (let x = 0; x < columns; x++) {
       const top = canvas.pixels[row * 2 * columns + x]!
@@ -501,6 +583,23 @@ export function laneCells(lane: Lane, columns: number, now: number, ink: Ink = D
 
 // Which column a station's label starts at, under its node and kept on the board.
 const labelColumn = (index: number, columns: number): number => Math.max(0, Math.round(stationX(index, columns)) - 2)
+
+// A lane's row of times, as a Raster's cells: each station's from the column its name starts at in the
+// header, cut so a blank column always comes before the next station's.
+export function timeCells(lane: Lane, columns: number, now: number, ink: Ink = DARK): Uint32Array {
+  const out = new Uint32Array(columns * 3)
+  for (let x = 0; x < columns; x++) out.set([0x20, DEFAULT_COLOUR, DEFAULT_COLOUR], x * 3)
+  const times = stageTimes(lane, now)
+  STATIONS.forEach((station, index) => {
+    const start = labelColumn(index, columns)
+    const room = (index < LAST ? labelColumn(index + 1, columns) - 1 : columns) - start
+    const colour = timeColour(lane, station, times[station], ink)
+    ;[...clip(timeText(times[station]), room)].forEach((letter, i) => {
+      if (start + i < columns) out.set([letter.codePointAt(0)!, colour, DEFAULT_COLOUR], (start + i) * 3)
+    })
+  })
+  return out
+}
 
 // The header: the stations left to right, over their nodes, each in its colour while anyone is working
 // there and dim otherwise.
@@ -600,10 +699,19 @@ function railSvg(reached: number, columns: number, ink: Ink): string {
     nodes
 }
 
+// A lane's Svg: its 6 units of lane, then a row of names and a row of times.
+const LANE_SVG_HEIGHT = 14
+
+// One word at a station's label column, as the header writes it.
+const svgLabel = (index: number, columns: number, y: number, colour: number, text: string): string =>
+  `<text x="${labelColumn(index, columns)}" y="${y}" font-family="monospace" font-size="2.6" fill="${hex(colour)}">${text}</text>`
+
 // A lane as one Svg document, as it stands at this moment. The rail is drawn where the figure is going.
 // A walking figure's group slides from where it is, on the same curve the terminal uses, showing its
 // strides for the walk's time left and then its work. Without SMIL nothing moves and the work's first
-// frame stands at its station. Nothing from the status file is in it.
+// frame stands at its station. Under the lane, each station's name, in its colour where the lane is, and
+// its time as of `now`. It has a viewBox and no size, so a surface draws it across the pane at its own
+// shape. Nothing from the status file is in it: the times are written from numbers.
 export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_COLUMNS): string {
   const index = indexOf(lane.station)
   // Not rounded: a vector figure stands exactly over its node, and a walk ends exactly there.
@@ -622,18 +730,19 @@ export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_
   } else {
     inner += workSvg(lane.station, 0, ink)
   }
-  const width = columns * SVG_SCALE
-  const height = LANE_PIXELS * SVG_SCALE
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${columns} ${LANE_PIXELS}" width="${width}" height="${height}">` +
-    `${railSvg(index, columns, ink)}<g transform="translate(${svgNumber(target)} 0)"><g>${inner}</g></g></svg>`
+  const times = stageTimes(lane, now)
+  const rows = STATIONS.map((station, index) =>
+    svgLabel(index, columns, 9, station === lane.station ? ACCENT[station] : ink.dim, station) +
+    svgLabel(index, columns, 13, timeColour(lane, station, times[station], ink), timeText(times[station]))).join('')
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${columns} ${LANE_SVG_HEIGHT}">` +
+    `${railSvg(index, columns, ink)}<g transform="translate(${svgNumber(target)} 0)"><g>${inner}</g></g>${rows}</svg>`
 }
 
-// The header as one Svg document.
+// The header as one Svg document, with a viewBox and no size, as a lane has.
 export function headSvg(lanes: Lane[], ink: Ink = DARK, columns = SVG_COLUMNS): string {
   const busy = new Set(lanes.map(lane => lane.station))
-  const labels = STATIONS.map((station, index) =>
-    `<text x="${labelColumn(index, columns)}" y="3" font-family="monospace" font-size="2.6" fill="${hex(busy.has(station) ? ACCENT[station] : ink.dim)}">${station}</text>`)
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${columns} 4" width="${columns * SVG_SCALE}" height="${4 * SVG_SCALE}">${labels.join('')}</svg>`
+  const labels = STATIONS.map((station, index) => svgLabel(index, columns, 3, busy.has(station) ? ACCENT[station] : ink.dim, station))
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${columns} 4">${labels.join('')}</svg>`
 }
 
 // What a lane's Svg says for a reader who can't see it: by station name, never the raw step, which is
