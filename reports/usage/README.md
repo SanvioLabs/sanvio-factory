@@ -1,6 +1,6 @@
 # Usage reports
 
-One file per person per sprint, written by [`skills/harness-report/`](../../skills/harness-report/) from that
+One file per person per sprint, written by [`skills/harness-trends/`](../../skills/harness-trends/) from that
 person's own usage log and read by them before they send it to the harness
 owner. Reports are gitignored, so they stay here on each person's machine and
 never go into the repo; only this README is tracked. The owner reads a
