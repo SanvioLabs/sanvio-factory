@@ -1261,6 +1261,25 @@ def changelog_with(base, added):
     return head + top + "".join(sections)
 
 
+def state_dir(root, project):
+    """The loop's state folder under the harness at root. project is a name, or None for the harness's own.
+
+    Only works out the path: nothing is created."""
+    state = Path(root) / ".loop"
+    return state if project is None else state / "projects" / project
+
+
+def issue_usage(root, project, number):
+    """The usage entries the loop recorded for an issue: none when it can't read any. Creates nothing.
+
+    project is the project's name, or None for the harness's own loop."""
+    try:
+        found = json.loads((state_dir(root, project) / "issue-{}".format(number) / "usage.json").read_text())
+    except (OSError, ValueError):
+        return []
+    return [e for e in found if isinstance(e, dict)] if isinstance(found, list) else []
+
+
 class Loop:
     def __init__(self, root=ROOT, cfg=None, project=None):
         """root is the harness. project, from project_root(), is a clone under projects/ to work instead.
@@ -1272,7 +1291,7 @@ class Loop:
         self.project = Path(project) if project else None
         self.repo = self.project or self.root
         self.cfg = cfg or (load_project_config(self.root, self.project) if self.project else load_config(self.repo))
-        self.dir = self.root / ".loop" / "projects" / self.project.name if self.project else self.root / ".loop"
+        self.dir = state_dir(self.root, self.project.name if self.project else None)
         self.dir.mkdir(parents=True, exist_ok=True)
         # The checkout a project's agents work in holds none of the harness's rules, so the prompts carry them.
         self.rules = rules_preamble(self.root) if self.project else ""
@@ -1782,11 +1801,7 @@ class Loop:
 
     def usage(self, number):
         """The entries in .loop/issue-N/usage.json: none when it isn't there or can't be read."""
-        try:
-            found = json.loads((self.dir / "issue-{}".format(number) / "usage.json").read_text())
-        except (OSError, ValueError):
-            return []
-        return [e for e in found if isinstance(e, dict)] if isinstance(found, list) else []
+        return issue_usage(self.root, self.project.name if self.project else None, number)
 
     # -- the flywheel -----------------------------------------------------
 
