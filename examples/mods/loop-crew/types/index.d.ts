@@ -10,7 +10,17 @@ export type Row = {
   step_seconds?: Record<string, number>
   // When the current step began, as loop.py writes it, or null once the row has left working.
   step_started?: string | null
+  // When the current run began. usage.json stamps each entry with it, as run_started.
+  started?: string
+  // The issue's tokens and cost over every run, as loop.py totals usage.json. Only read to tell
+  // when usage.json has changed.
+  tokens?: number
+  cost_usd?: number
 }
+
+// Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
+// The stations are logic.ts's Station, written out: this contract has to stand alone.
+export type Spend = Record<'start' | 'plan' | 'test' | 'build' | 'check' | 'ship', { tokens: number | null; cost: number | null }>
 
 export type Status = { issues: Row[] }
 

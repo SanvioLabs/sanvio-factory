@@ -1,5 +1,5 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
-import type { Row, Seen, Status } from '../types'
+import type { Row, Seen, Spend, Status } from '../types'
 
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
@@ -38,6 +38,18 @@ function timeFields(r: Record<string, unknown>): Pick<Row, 'step_seconds' | 'ste
   return out
 }
 
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+// A row's run fields, each only when it has the right type: started a string, tokens and cost_usd
+// finite numbers. They say which usage.json entries count, and when to read it again.
+function runFields(r: Record<string, unknown>): Pick<Row, 'started' | 'tokens' | 'cost_usd'> {
+  return {
+    ...(typeof r.started === 'string' ? { started: r.started } : {}),
+    ...(isCount(r.tokens) ? { tokens: r.tokens } : {}),
+    ...(isCount(r.cost_usd) ? { cost_usd: r.cost_usd } : {}),
+  }
+}
+
 // The status file, or null when there's none or it can't be read. A row without a number is dropped.
 export function parseStatus(text: string | null): Status | null {
   if (!text) return null
@@ -51,7 +63,7 @@ export function parseStatus(text: string | null): Status | null {
   const rows = (raw as Record<string, unknown>).issues
   const issues: Row[] = (Array.isArray(rows) ? rows : [])
     .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && num((r as Record<string, unknown>).number) > 0)
-    .map(r => ({ number: num(r.number), title: str(r.title), step: str(r.step), state: str(r.state), round: num(r.round), ...timeFields(r) }))
+    .map(r => ({ number: num(r.number), title: str(r.title), step: str(r.step), state: str(r.state), round: num(r.round), ...timeFields(r), ...runFields(r) }))
   return { issues }
 }
 
@@ -429,6 +441,84 @@ function timeColour(lane: Lane, station: Station, seconds: number | null, ink: I
   return station === lane.station ? ACCENT[station] : ink.tool
 }
 
+// One station's spend: its tokens and its cost in dollars, each null when no entry reported it.
+export type StageSpend = Spend[Station]
+
+// The usage.json step each station's spend comes from. Any other step, retro among them, counts for no
+// station, and start and ship never have spend.
+const SPEND_STATIONS: Record<string, Station> = { plan: 'plan', test: 'test', build: 'build', review: 'check' }
+const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_write_tokens', 'cache_read_tokens']
+const isAmount = (v: unknown): v is number => isCount(v) && v >= 0
+
+// Each station's spend in the current run, from usage.json's text: only the entries whose run_started is
+// the row's `started` count, as loop.py's run_tokens() counts them. A station's tokens are the four token
+// counts added together, and its cost the cost_usd, each only where it's a number of 0 or more. Null when
+// the row has no started or the text isn't a JSON array.
+export function parseSpend(text: string | null, started: string | undefined): Spend | null {
+  if (typeof started !== 'string' || !text) return null
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(raw)) return null
+  const out = {} as Spend
+  for (const station of STATIONS) out[station] = { tokens: null, cost: null }
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const entry = item as Record<string, unknown>
+    if (typeof entry.run_started !== 'string' || entry.run_started !== started) continue
+    if (typeof entry.step !== 'string' || !has(SPEND_STATIONS, entry.step)) continue
+    const spend = out[SPEND_STATIONS[entry.step]!]
+    for (const field of TOKEN_FIELDS) {
+      const count = has(entry, field) ? entry[field] : undefined
+      if (isAmount(count)) spend.tokens = (spend.tokens ?? 0) + count
+    }
+    if (isAmount(entry.cost_usd)) spend.cost = (spend.cost ?? 0) + entry.cost_usd
+  }
+  return out
+}
+
+// Whether a spend has anything to show.
+export const hasSpend = (spend: Spend | null | undefined): spend is Spend =>
+  !!spend && STATIONS.some(station => spend[station].tokens !== null || spend[station].cost !== null)
+
+// A cost as it reads: dollars and whole cents, floored. 1.729 reads $1.72.
+export function costText(cost: number): string {
+  const cents = Math.floor(cost * 100 + 1e-9)
+  return `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
+}
+
+// Tokens as they read, floored: the number under a thousand, thousands as k under a million, then
+// millions to one place as M.
+export function tokenText(tokens: number): string {
+  if (tokens < 1000) return String(Math.floor(tokens))
+  if (tokens < 1_000_000) return `${Math.floor(tokens / 1000)}k`
+  return `${(Math.floor(tokens / 100000) / 10).toFixed(1)}M`
+}
+
+// A station's spend in `room` columns: its cost and its tokens when both fit, else the cost alone, cut
+// if it must be. With only tokens, the tokens. With neither, the mark no time has.
+export function spendText(spend: StageSpend | null, room: number): string {
+  const fits = (text: string): boolean => [...text].length <= room
+  const cost = spend && spend.cost !== null ? costText(spend.cost) : null
+  const tokens = spend && spend.tokens !== null ? tokenText(spend.tokens) : null
+  if (cost !== null) {
+    if (tokens !== null && fits(`${cost} ${tokens}`)) return `${cost} ${tokens}`
+    return fits(cost) ? cost : clip(cost, room)
+  }
+  if (tokens !== null) return fits(tokens) ? tokens : clip(tokens, room)
+  return NO_TIME
+}
+
+// A spend's colour, as a time's: the current station's accent, the tool colour for any other with
+// spend, and dim for none.
+function spendColour(lane: Lane, station: Station, spend: StageSpend | null, ink: Ink): number {
+  if (!spend || (spend.tokens === null && spend.cost === null)) return ink.dim
+  return station === lane.station ? ACCENT[station] : ink.tool
+}
+
 // A lane's words: its number, its title cut to what's left of the width, and where it has got to, which
 // is never cut here: a pane too narrow for it wraps it. No width leaves the title whole, for a surface
 // that wraps.
@@ -562,12 +652,14 @@ const canvasFor = (columns: number, ink: Ink): Canvas => ({ columns, ink, pixels
 
 // One lane as it stands at this moment, as a Raster's cells: its 3 rows of half blocks, so each cell is
 // two pixels, and the lower one where only the bottom pixel is painted, so the top keeps the pane's own
-// background. Then a row of each station's time, under its name in the header.
-export function laneCells(lane: Lane, columns: number, now: number, ink: Ink = DARK): string {
+// background. Then a row of each station's time, under its name in the header, and a row of its spend
+// under that, from `spend`: none draws the no-time mark under every station.
+export function laneCells(lane: Lane, columns: number, now: number, ink: Ink = DARK, spend?: Spend | null): string {
   const canvas = canvasFor(columns, ink)
   paintLane(canvas, lane, now)
-  const out = new Uint32Array(columns * (LANE_ROWS + 1) * 3)
+  const out = new Uint32Array(columns * (LANE_ROWS + 2) * 3)
   out.set(timeCells(lane, columns, now, ink), columns * LANE_ROWS * 3)
+  out.set(spendCells(lane, columns, ink, spend), columns * (LANE_ROWS + 1) * 3)
   for (let row = 0; row < LANE_ROWS; row++) {
     for (let x = 0; x < columns; x++) {
       const top = canvas.pixels[row * 2 * columns + x]!
@@ -584,21 +676,34 @@ export function laneCells(lane: Lane, columns: number, now: number, ink: Ink = D
 // Which column a station's label starts at, under its node and kept on the board.
 const labelColumn = (index: number, columns: number): number => Math.max(0, Math.round(stationX(index, columns)) - 2)
 
-// A lane's row of times, as a Raster's cells: each station's from the column its name starts at in the
-// header, cut so a blank column always comes before the next station's.
-export function timeCells(lane: Lane, columns: number, now: number, ink: Ink = DARK): Uint32Array {
+// A row of text under the stations, as a Raster's cells: each station's from the column its name starts
+// at in the header, in `room` columns, so a blank column always comes before the next station's.
+function stationRow(columns: number, textAt: (station: Station, room: number) => [string, number]): Uint32Array {
   const out = new Uint32Array(columns * 3)
   for (let x = 0; x < columns; x++) out.set([0x20, DEFAULT_COLOUR, DEFAULT_COLOUR], x * 3)
-  const times = stageTimes(lane, now)
   STATIONS.forEach((station, index) => {
     const start = labelColumn(index, columns)
     const room = (index < LAST ? labelColumn(index + 1, columns) - 1 : columns) - start
-    const colour = timeColour(lane, station, times[station], ink)
-    ;[...clip(timeText(times[station]), room)].forEach((letter, i) => {
-      if (start + i < columns) out.set([letter.codePointAt(0)!, colour, DEFAULT_COLOUR], (start + i) * 3)
+    const [text, colour] = textAt(station, room)
+    ;[...text].forEach((letter, i) => {
+      if (i < room && start + i < columns) out.set([letter.codePointAt(0)!, colour, DEFAULT_COLOUR], (start + i) * 3)
     })
   })
   return out
+}
+
+// A lane's row of times, as a Raster's cells, each cut to its room.
+export function timeCells(lane: Lane, columns: number, now: number, ink: Ink = DARK): Uint32Array {
+  const times = stageTimes(lane, now)
+  return stationRow(columns, (station, room) => [clip(timeText(times[station]), room), timeColour(lane, station, times[station], ink)])
+}
+
+// A lane's row of spend, as a Raster's cells, from the same columns as its times.
+export function spendCells(lane: Lane, columns: number, ink: Ink = DARK, spend?: Spend | null): Uint32Array {
+  return stationRow(columns, (station, room) => {
+    const stage = spend?.[station] ?? null
+    return [spendText(stage, room), spendColour(lane, station, stage, ink)]
+  })
 }
 
 // The header: the stations left to right, over their nodes, each in its colour while anyone is working
@@ -699,8 +804,10 @@ function railSvg(reached: number, columns: number, ink: Ink): string {
     nodes
 }
 
-// A lane's Svg: its 6 units of lane, then a row of names and a row of times.
-const LANE_SVG_HEIGHT = 14
+// A lane's Svg: its 6 units of lane, then a row of names, a row of times and a row of spend.
+const LANE_SVG_HEIGHT = 18
+// How many of the Svg's columns a letter of its text takes, near enough: 2.6 units of monospace.
+const SVG_LETTER = 1.6
 
 // One word at a station's label column, as the header writes it.
 const svgLabel = (index: number, columns: number, y: number, colour: number, text: string): string =>
@@ -710,9 +817,10 @@ const svgLabel = (index: number, columns: number, y: number, colour: number, tex
 // A walking figure's group slides from where it is, on the same curve the terminal uses, showing its
 // strides for the walk's time left and then its work. Without SMIL nothing moves and the work's first
 // frame stands at its station. Under the lane, each station's name, in its colour where the lane is, and
-// its time as of `now`. It has a viewBox and no size, so a surface draws it across the pane at its own
-// shape. Nothing from the status file is in it: the times are written from numbers.
-export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_COLUMNS): string {
+// its time as of `now`, then its spend from `spend`. It has a viewBox and no size, so a surface draws it
+// across the pane at its own shape. Nothing from the status file or usage.json is in it as text: the
+// times and the spend are written from numbers.
+export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_COLUMNS, spend?: Spend | null): string {
   const index = indexOf(lane.station)
   // Not rounded: a vector figure stands exactly over its node, and a walk ends exactly there.
   const home = stationX(index, columns) - FIGURE_CENTRE
@@ -731,9 +839,15 @@ export function laneSvg(lane: Lane, now: number, ink: Ink = DARK, columns = SVG_
     inner += workSvg(lane.station, 0, ink)
   }
   const times = stageTimes(lane, now)
-  const rows = STATIONS.map((station, index) =>
-    svgLabel(index, columns, 9, station === lane.station ? ACCENT[station] : ink.dim, station) +
-    svgLabel(index, columns, 13, timeColour(lane, station, times[station], ink), timeText(times[station]))).join('')
+  const rows = STATIONS.map((station, index) => {
+    // Up to a blank unit before the next label, or to the right edge for the last station.
+    const end = index < LAST ? labelColumn(index + 1, columns) - 1 : columns
+    const room = Math.floor((end - labelColumn(index, columns)) / SVG_LETTER)
+    const stage = spend?.[station] ?? null
+    return svgLabel(index, columns, 9, station === lane.station ? ACCENT[station] : ink.dim, station) +
+      svgLabel(index, columns, 13, timeColour(lane, station, times[station], ink), timeText(times[station])) +
+      svgLabel(index, columns, 17, spendColour(lane, station, stage, ink), spendText(stage, room))
+  }).join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${columns} ${LANE_SVG_HEIGHT}">` +
     `${railSvg(index, columns, ink)}<g transform="translate(${svgNumber(target)} 0)"><g>${inner}</g></g>${rows}</svg>`
 }

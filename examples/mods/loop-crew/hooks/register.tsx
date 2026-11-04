@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseSpend, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Placement } from './logic'
-import type { Seen } from '../types'
+import type { Row, Seen, Spend } from '../types'
 
 const PANE = 'loop-crew'
 const COMMAND = 'loop-crew'
@@ -17,9 +17,9 @@ const laneKey = (number: number): string => `lane-${number}`
 // How often the other surfaces redraw while a time counts. They don't run the tick.
 const REDRAW_MS = 30_000
 // What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane,
-// the lane its 3 rows and its row of times.
+// the lane its 3 rows, its row of times and its row of spend.
 const WANT_COLUMNS = 72
-const LANE_HEIGHT = LANE_ROWS + 2
+const LANE_HEIGHT = LANE_ROWS + 3
 const WANT_ROWS = 1 + 3 * LANE_HEIGHT
 
 const launchAtom = atom({ plugin: 'loop-crew', key: 'launch' } as const, null)
@@ -38,6 +38,20 @@ const painted = new Map<string, string>()
 let ink: Ink = DARK
 // Counts the reads that open or switch the pane, so a walk-out's timer knows it's been overtaken.
 let opens = 0
+// Each issue's spend in its current run, by loop and number, with the row fields it was read for and the
+// read itself, so two drawings at once share one read. Not an atom: seen stays a copy of the loop's own
+// files, and a changed row already redraws the pane.
+type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; read: Promise<void>; spend: Spend | null }
+const spends = new Map<string, Map<number, Spent>>()
+function spendsOf(project: string | undefined): Map<number, Spent> {
+  const loop = spends.get(project ?? '') ?? new Map<number, Spent>()
+  spends.set(project ?? '', loop)
+  return loop
+}
+const spendOf = (seen: Seen, number: number): Spend | null => spends.get(seen.project ?? '')?.get(number)?.spend ?? null
+// The lanes the last drawing showed with their spend, and whose loop they were: a poll reads usage.json
+// for these only, and a drawing reads it for a lane that comes into view.
+let drawn: { shown: string; numbers: Set<number> } | null = null
 
 const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.panes()).some(pane => pane.id === PANE)
 
@@ -79,6 +93,41 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
+// Read usage.json for each lane drawn, or about to be, that has no read yet, or whose run, tokens or cost
+// has changed since its last read, and for no other: a lane a short terminal pane leaves out is never
+// read. A file that's missing or can't be read is no spend.
+async function readSpends($: EngineInterface, seen: Seen, rows: Row[], rootKnown?: string): Promise<void> {
+  const loop = spendsOf(seen.project)
+  const isStale = (row: Row): boolean => {
+    const known = loop.get(row.number)
+    return !known || known.started !== row.started || known.tokens !== row.tokens || known.cost_usd !== row.cost_usd
+  }
+  const stale = rows.filter(isStale)
+  const root = stale.length ? (rootKnown ?? (await rootOf($))) : null
+  if (root) {
+    for (const row of stale.filter(isStale)) {
+      const entry: Spent = { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, read: Promise.resolve(), spend: null }
+      entry.read = $.fs.read(`${root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`).then(
+        text => {
+          const spend = parseSpend(text, row.started)
+          entry.spend = hasSpend(spend) ? spend : null
+        },
+        () => {},
+      )
+      loop.set(row.number, entry)
+    }
+  }
+  await Promise.all(rows.map(row => loop.get(row.number)?.read))
+}
+
+// An issue this loop's status file no longer lists is forgotten, so the cache holds no more than the
+// loops' status files do. One still listed is kept, so a lane walking out keeps its spend.
+function forgetUnlisted(seen: Seen): void {
+  const loop = spendsOf(seen.project)
+  const listed = new Set((seen.status?.issues ?? []).map(row => row.number))
+  for (const number of [...loop.keys()]) if (!listed.has(number)) loop.delete(number)
+}
+
 // When an issue's walk out ends, one redraw takes its lane away. It does nothing once a newer open or
 // switch has replaced the placement or the pane is gone.
 function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placement): void {
@@ -105,6 +154,14 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const next = await look($, root, name || undefined)
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name) return
+  forgetUnlisted(next)
+  // Spend for the lanes on show whose row changed, so the redraw this read asks for has it. A switch
+  // during these reads drops this one too.
+  const onShow = drawn?.shown === name ? drawn.numbers : null
+  if (onShow) {
+    await readSpends($, next, scene(next).rows.filter(row => onShow.has(row.number)), root)
+    if ((await read($, shownAtom)) !== name) return
+  }
   if (isOpening) opens++
   const known = !isOpening && placed?.shown === name ? placed : null
   const placement = place(next, known?.placement ?? null, now)
@@ -123,6 +180,7 @@ function startPolling($: EngineInterface): void {
       if (await paneIsUp($)) return refresh($)
       stopPolling?.()
       stopPolling = null
+      drawn = null
       endRedraws()
     })().catch(() => {})
   })
@@ -183,7 +241,7 @@ function startBoard($: EngineInterface): void {
       await paint($, HEAD_KEY, headCells(lanes, mounted.columns, ink))
       for (const number of mounted.numbers) {
         const lane = lanes.find(l => l.row.number === number)
-        if (lane) await paint($, laneKey(number), laneCells(lane, mounted.columns, now, ink))
+        if (lane) await paint($, laneKey(number), laneCells(lane, mounted.columns, now, ink, spendOf(seen, number)))
       }
     })().catch(() => {})
   })
@@ -273,6 +331,10 @@ export const register: Register = on => {
       const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
       const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
       const more = lanes.length - shown.length
+      // Only a lane with its board drawn shows spend.
+      const spent = columns ? shown : []
+      drawn = { shown: seen.project ?? '', numbers: new Set(spent.map(lane => lane.row.number)) }
+      await readSpends($, seen, spent.map(lane => lane.row))
       mounted = columns ? { columns, numbers: shown.map(lane => lane.row.number) } : null
       const head = columns ? headCells(lanes, columns, ink) : ''
       if (columns) painted.set(HEAD_KEY, head)
@@ -280,12 +342,12 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {columns && <Raster key={HEAD_KEY} columns={columns} rows={1} cells={head} />}
           {shown.map(lane => {
-            const cells = columns ? laneCells(lane, columns, now, ink) : ''
+            const cells = columns ? laneCells(lane, columns, now, ink, spendOf(seen, lane.row.number)) : ''
             if (columns) painted.set(laneKey(lane.row.number), cells)
             return (
               <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
                 {words(lane, e.props.bodyColumns)}
-                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS + 1} cells={cells} />}
+                {columns && <Raster key={laneKey(lane.row.number)} columns={columns} rows={LANE_ROWS + 2} cells={cells} />}
               </Box>
             )
           })}
@@ -298,13 +360,15 @@ export const register: Register = on => {
     // has no size, so the surface draws it across the pane at the shape its viewBox gives.
     const Svg = 'Svg' in elements ? elements.Svg : null
     const columns = svgColumns(e.props.bodyColumns)
+    drawn = { shown: seen.project ?? '', numbers: new Set(lanes.map(lane => lane.row.number)) }
+    await readSpends($, seen, lanes.map(lane => lane.row))
     return (
       <Box flexDirection="column" rowGap={1}>
         {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink, columns)} alt="The loop's steps, left to right" />}
         {lanes.map(lane => (
           <Box key={`lane-box-${lane.row.number}`} flexDirection="column">
             {words(lane)}
-            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink, columns)} alt={laneAlt(lane)} isInteractive />}
+            {Svg && <Svg key={laneKey(lane.row.number)} source={laneSvg(lane, now, ink, columns, spendOf(seen, lane.row.number))} alt={laneAlt(lane)} isInteractive />}
           </Box>
         ))}
       </Box>

@@ -18,12 +18,14 @@ dim otherwise. Each lane has a line of words, `#<n> <title> · <step's words>, r
 round left off at 0 and the step's words in its station's colour, then the lane itself: a rail lit in
 the stations' colours up to the figure and dotted beyond it, a node at each station, and the figure
 in its station's colour. Under the lane is a row of times, one under each station's name: how long
-the issue has spent at that step. [The times](#the-times) says where they come from.
+the issue has spent at that step. Under the times is a row of spend: what each step has cost and
+how many tokens it used. [The times](#the-times) and [the spend](#the-spend) say where they come
+from.
 
 Two issues on a 64-column terminal look like this, the shapes without their colours: #12 swinging
 its hammer at `build` beside a stack of bricks, 3 minutes in, #13 reading a page at `check`, 48
-seconds in. Where a station has no time the board draws a dash (U+2014). The picture shows a hyphen
-there instead.
+seconds in. Where a station has no time or no spend the board draws a dash (U+2014). The picture
+shows a hyphen there instead.
 
 ```text
 start     plan      test       build     check     ship
@@ -32,11 +34,13 @@ start     plan      test       build     check     ship
                                 ▄▀▄  ▄█▀▄▄
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄███ ▄▀█ █▀▄█▄ ▄ ▄ ▄ ▄█▄
 -         4m        12m        3m        -         -
+-         $0.29 85k $1.15 253k -         -         -
 #13 Show the round in the pane · checking, round 2
                                           ▄█▄▀ ▀▀▀▀▀▀
                                           ▄▀▄  ▀▀▀▀▀▀
  ▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄▄▄█▄▄▄▄▄▄▄▄███ ▄▀█▀█▀██▄
 -         5m        20m        1h12      48s       -
+-         $0.31 92k $1.40 310k $4.22     $0.52 96k -
 ```
 
 It's a Claude Code mod, so it works in Claude Code only. It has been seen in the terminal, in Claude
@@ -93,11 +97,11 @@ Checked in this order:
 ## The board
 
 On a terminal the board is as wide as the pane, from 42 columns to 120, and wider panes leave the
-rest empty. The header takes a row and each lane five: its words, three rows of lane, then its row
-of times. The pane shows the lanes that fit, at least one and at most 8, then `and <n> more`. The
-mod cuts only the title, to the pane's width. In a pane too narrow for where the issue has got to,
-those words wrap. Below 42 columns the pane shows the words alone, a line an issue.
-`/loop-crew` asks for 72 columns by 16 rows when it opens, room for three lanes, and a terminal gives
+rest empty. The header takes a row and each lane 6: its words, three rows of lane, its row of
+times, then its row of spend. The pane shows the lanes that fit, at least one and at most 8, then
+`and <n> more`. The mod cuts only the title, to the pane's width. In a pane too narrow for where the
+issue has got to, those words wrap. Below 42 columns the pane shows the words alone, a line an issue.
+`/loop-crew` asks for 72 columns by 19 rows when it opens, room for three lanes, and a terminal gives
 what it has.
 
 Every other surface draws the header and each lane as an Svg with a viewBox and no size of its own,
@@ -105,7 +109,7 @@ so the drawing fills the pane's width at its own shape. It's drawn three columns
 pane's, between 64 and 240, and 64 when the pane's width isn't known: 126 at the 42 columns the VS
 Code extension's docked pane reported. Every station's place, the rail, the walks and the work are
 worked out at that width. Under each lane are the station names, the lane's own in its colour and
-the rest dim, then the times. These surfaces show every lane and wrap the words.
+the rest dim, then the times, then the spend. These surfaces show every lane and wrap the words.
 
 The board reads the session's theme when the session starts. A theme with `light` in its name draws it
 for a light background, and any other theme, or none it can read, for a dark one.
@@ -134,16 +138,60 @@ since `step_started`. Any other station without an entry shows a dash. Times are
 
 The current station's time is in its colour, any other station's in the tool grey, and a dash dim.
 
-- **Terminal:** the times are the lane's fourth row, each starting at the column where its station's
-  name starts in the header. A time that would run into the next station's is cut with `…`, so a
-  blank column always comes between two. The current time counts up as the board is painted, with
-  no redraw.
+- **Terminal:** the times are the lane's 4th row, and the spend its 5th, each starting at the column
+  where its station's name starts in the header. A time that would run into the next station's is
+  cut with `…`, so a blank column always comes between two. The current time counts up as the
+  board is painted, with no redraw.
 - **Desktop, the VS Code extension and mobile:** a time is as of the drawing. While any lane's time
   is counting, the pane is redrawn every 30 seconds, and otherwise never for the times. Each of those
   redraws starts every pose and every piece of work from its first frame, and a figure mid-walk
   carries on from where it is.
 
 An issue walking out keeps its times, with nothing counting.
+
+## The spend
+
+Under the times, each station shows what its step has cost in the issue's current run and how many
+tokens it used. The figures come from `<loop dir>/issue-<N>/usage.json`, which the loop adds an
+entry to after each agent run: `.loop/issue-<N>/usage.json` for the harness's loop, and
+`.loop/projects/<name>/issue-<N>/usage.json` for a project's. They are the current run's only: an
+entry counts when its `run_started` is the row's `started` in `status.json`, as the loop counts its
+own token budget, so a relabelled issue starts again from nothing. The cost is Claude Code's own
+estimate at API prices, not a bill.
+
+| Station | Its spend comes from |
+|---|---|
+| `start` and `ship` | Nothing: they always show a dash |
+| `plan`, `test`, `build`, `check` | The entries whose `step` is `plan`, `test`, `build` and `review`, rounds added together |
+
+A `retro` entry counts for no station. A station's tokens are its entries' input, output,
+cache-write and cache-read tokens added together. A run that reported nothing adds nothing, so a
+station whose only runs reported nothing shows a dash. Figures are floored:
+
+| Figure | Reads |
+|---|---|
+| A cost | Dollars and whole cents: `0.004` reads `$0.00`, `0.29` reads `$0.29`, `1.15` reads `$1.15`, `1.729` reads `$1.72`, `12.4` reads `$12.40` |
+| Tokens under 1,000 | The number |
+| Tokens under a million | Whole thousands: `253,898` reads `253k` |
+| A million tokens or more | Millions to one place: `6,208,489` reads `6.2M`, `6,000,000` reads `6.0M` |
+
+A stage shows its cost and its tokens, `$1.72 6.2M`, when both fit before the next station's
+column. If they don't, it shows the cost alone, `$1.72`, cut with `…` if even that doesn't fit. A
+stage with tokens and no cost shows the tokens. A stage with no spend shows a dash (U+2014), as a
+stage with no time does. The colours are the times': the current station's in its colour, any other
+station's in the tool grey, and a dash dim.
+
+- **Terminal:** the spend is the lane's 5th row, in the same columns as the times, with a blank
+  column before the next station's.
+- **Desktop, the VS Code extension and mobile:** the spend is the Svg's row under the times, given
+  room for as many letters as fit before the next station's name.
+
+The pane reads an issue's `usage.json` when its lane first appears, then again only when its
+`started`, `tokens` or `cost_usd` in `status.json` changes, which the loop does each time it adds an
+entry. A lane the pane doesn't draw isn't read: on a terminal, that's the issues behind `and N more`,
+and every issue when the pane is too narrow for a board. An issue `status.json` stops listing is
+forgotten, and read afresh if it comes back. A `usage.json` that's missing or can't be read shows a
+dash under every stage.
 
 ## The walk
 
@@ -166,7 +214,8 @@ station's colour.
 ## What it doesn't do
 
 It only reads. Every 2 seconds while the pane is open it reads the shown loop's `status.json` and
-`lock`, and it stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
+`lock`, and the `usage.json` of each issue whose lane it draws when [the spend](#the-spend) has changed,
+and it stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
 lock's holder. It never writes a file, never runs [`scripts/loop.py`](../../../scripts/loop.py) or `gh`, and spends no model
 tokens. Controls such as stop stay in the [loop pane](../loop-pane/). It shows one loop at a time, and
 doesn't show issues that are queued, blocked or ended. The board doesn't scroll or zoom.
@@ -180,8 +229,8 @@ the 7 pixels to the figure's right, above the rail, and on a narrow board never 
 head's colour, which is how the tests find a figure.
 
 - **Terminal:** the header is one `Raster` keyed `head` and each lane one keyed `lane-<n>`, half-block
-  pixels with the station names as text in the header's cells. A lane's Raster is 4 rows: 3 of
-  pixels and 1 of its times as text. An 80 ms timer paints each that changed
+  pixels with the station names as text in the header's cells. A lane's Raster is 5 rows: 3 of
+  pixels, 1 of its times as text and 1 of its spend. An 80 ms timer paints each that changed
   with `$.ui.blit`, so the pane isn't redrawn for a pose or a step of a walk, and a redraw draws the
   same moment. A blit that doesn't land is painted again on the next tick. With the header and 8
   lanes that's at most 112.5 blits a second, under the 120 the engine takes. A pane behind another
