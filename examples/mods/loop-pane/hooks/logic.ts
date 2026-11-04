@@ -19,9 +19,36 @@ export async function projectNames(entries: { name: string; kind: string }[], ha
   return folders.filter((_, i) => held[i])
 }
 
-// The loop to open on: the first one running, harness first, else the harness.
-export function openingLoop(loops: Seen[]): Seen | undefined {
-  return loops.find(l => l.isLocked) ?? loops[0]
+// The loop to open on: the project in focus when it's listed, else the first one running, harness
+// first, else the harness.
+export function openingLoop(loops: Seen[], focus?: string | null): Seen | undefined {
+  const focused = focus ? loops.find(l => l.project === focus) : undefined
+  return focused ?? loops.find(l => l.isLocked) ?? loops[0]
+}
+
+// The session's project focus, by github-status's rules. One installed mod can't import from another,
+// so these are copies of its projectName, SESSION, focusFile and focusName, with the same bodies.
+
+// The folder under projects/ that a /github argument names: `acme` or `projects/acme`, one folder deep.
+// Anything that could reach outside projects/ is refused before anything runs.
+export function projectName(arg: string): { name: string } | { why: string } {
+  const name = arg.trim().replace(/^projects\//, '').replace(/\/$/, '')
+  if (/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name) && !name.includes('..')) return { name }
+  return { why: `"${arg.trim()}" isn't a project: give the name of a folder under projects/, such as /github acme, or /github all.` }
+}
+
+// A session id that can name a file: harness-lens's rule. Anything else means no focus.
+export const SESSION = /^[0-9a-fA-F-]{8,64}$/
+
+// This session's focus file under the harness root, or null for an id that can't name one.
+export function focusFile(root: string, id: string | null): string | null {
+  return id !== null && SESSION.test(id) ? `${root}/.harness/project/${id}` : null
+}
+
+// The project a focus file's text names, before the folder is checked, or null.
+export function focusName(text: string): string | null {
+  const picked = projectName(text.trim())
+  return 'name' in picked ? picked.name : null
 }
 
 // What a loop is called: the project's name, or the root's folder for the harness.

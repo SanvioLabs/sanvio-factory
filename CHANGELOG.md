@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Loop pane follows the project
+
+`/loop-pane` now opens on the session's project in focus, the one `/project` sets, when that project has a loop, and moves within two seconds when the focus changes, to the harness when it's cleared. Picking a loop in the pane puts that project in focus, or clears the focus for the harness, so the pane now writes `.harness/project/<id>` where it only read before. The pane and the GitHub line share the focus only in a session started at the harness root.
+Files: [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update loop-pane@sanvio-harness-starter`, then `/reload-plugins` or a new session.
+
 ## 2026-11-03: Harness trends each day
 
 The `harness-trends` skill now has a daily run: ask it "how did yesterday go" and it compares yesterday's loop runs, loop spend and tokens with the six days before, names at most three trends, recommends one change to the harness, and with your yes proposes it as tomorrow's pulse question. Each day's note stays in [`reports/trends/`](reports/trends/), gitignored, and the sprint report lists them with how the team voted.
