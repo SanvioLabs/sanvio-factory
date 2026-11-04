@@ -12,7 +12,8 @@ harness. Each product repo calls [`.github/workflows/review-pr.yml`](../../.gith
 harness repo, so every review follows the same skill and the same rules, and
 a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
-side: `harness/` at its default branch, `base/` (the product repo at the pull
+side: `harness/` at its default branch, holding only its `AGENTS.md`,
+[`steering/`](../../steering/), [`skills/`](../../skills/) and [`agents/`](../../agents/), `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
@@ -109,4 +110,6 @@ A product repo can't call a workflow in a private repo until the harness
 allows it. In the harness repo, open Settings, Actions, General, and under
 Access choose "Accessible from repositories in the organization". That lets
 the product repos use the workflow file; the deploy key is still what lets
-the job read the rest of the harness.
+the job read those four paths. A private harness's other files (scripts,
+docs, examples, reports) aren't checked out, so the review can't read them or
+quote them.
