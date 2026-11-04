@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Harness trends each day
+
+The `harness-trends` skill now has a daily run: ask it "how did yesterday go" and it compares yesterday's loop runs, loop spend and tokens with the six days before, names at most three trends, recommends one change to the harness, and with your yes proposes it as tomorrow's pulse question. Each day's note stays in [`reports/trends/`](reports/trends/), gitignored, and the sprint report lists them with how the team voted.
+Files: [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md), [`.gitignore`](.gitignore), [`reports/trends/README.md`](reports/trends/README.md), [`AGENTS.md`](AGENTS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Proposing a question needs the `Pulse folder` row in `company/DATA.md` cleared.
+
 ## 2026-11-03: Loop crew stage times
 
 Loop crew 0.4.0 shows how long each issue has spent at each station, in a row of times under its lane, from the `step_seconds` and `step_started` the loop writes to `status.json`, with a dash (U+2014) from a loop older than that. On the desktop, the VS Code extension and mobile, the header and lanes now fill the pane's width.
