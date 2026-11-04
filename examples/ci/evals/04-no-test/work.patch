@@ -1,0 +1,17 @@
+diff --git a/billing/discounts.py b/billing/discounts.py
+index 9e2f0a1..1b4c7d8 100644
+--- a/billing/discounts.py
++++ b/billing/discounts.py
+@@ -22,3 +22,12 @@ def apply_coupon(total, coupon):
+     if coupon.expired():
+         return total
+     return total - coupon.amount
++
++
++def loyalty_discount(total, years):
++    """Five percent off for customers of three years or more, ten percent from five."""
++    if years >= 5:
++        return round(total * 0.90, 2)
++    if years >= 3:
++        return round(total * 0.95, 2)
++    return total

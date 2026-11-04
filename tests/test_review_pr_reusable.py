@@ -338,7 +338,8 @@ class CallerReadme(unittest.TestCase):
 
     def test_the_headings_come_in_order(self):
         headings = re.findall(r"^## (.+)$", self.text, re.M)
-        self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private harness repo"])
+        self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private harness repo",
+                                    "Testing the review"])
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")

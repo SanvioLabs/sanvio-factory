@@ -1,0 +1,8 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": ["except Exception: pass"],
+  "must_cover": [13],
+  "must_not_flag": [],
+  "max_findings": 10
+}

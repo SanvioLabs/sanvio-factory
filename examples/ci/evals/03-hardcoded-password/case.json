@@ -1,0 +1,7 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": [["DB_PASSWORD = \"letmein-letmein-1\"", "DB_PASSWORD"]],
+  "must_not_flag": [],
+  "max_findings": 10
+}

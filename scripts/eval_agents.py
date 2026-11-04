@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Golden-example eval for the review agents: does a reviewer still catch what it should?
+It also runs the review-pr skill the same way, on a diff.
 
 Usage:
     python3 scripts/eval_agents.py FOLDER [--runs 2] [--agent claude] [--save [FILE]]
@@ -9,6 +10,9 @@ FOLDER holds one folder per case, <NN-slug>/, each with a work file for the agen
 case.json that says what a good review of it looks like:
 
     agent           the agent in agents/, such as reviewer
+    skill           the skill in skills/, in place of agent, such as review-pr. A case names one of
+                    agent and skill, never both. A skill case's work is a diff, and its reviewer is
+                    skill:<name>
     work            optional: the work file's name in the case's folder, work.md by default
     brief           optional: the job's brief, a path from the harness root
     must_find       texts from the work file that at least one finding must quote. An entry can be a
@@ -33,12 +37,14 @@ Every run starts a real agent session, so a run of ten cases costs twenty. --age
 codex like loop.json's reader_agent, or any command line that reads the prompt on standard input.
 The agent is given the work's path, not its text, so it has to be able to read files: ollama can't.
 Only claude is held to read tools. --save writes the results as JSON, with the reviewer, the folder and
-when it was saved: to FILE, or with no FILE to .harness/evals/<YYYY-MM-DDTHHMM>-<reviewer>.json. --baseline
+when it was saved: to FILE, or with no FILE to .harness/evals/<YYYY-MM-DDTHHMM>-<reviewer>.json, with
+a skill's colon as a hyphen, so skill:review-pr saves as ...-skill-review-pr.json. --baseline
 lists the cases whose status differs from a file saved earlier: FILE, or with latest the newest file in
-.harness/evals/ whose "reviewer" is this run's. Both defaults need every case to name the same agent.
+.harness/evals/ whose "reviewer" is this run's. Both defaults need every case to name the same agent or
+skill.
 
 Exits 0 when no case is failing, 1 when one is, 2 when the folder has no cases or a default is asked of
-cases for more than one reviewer.
+cases for more than one reviewer. A case that names both agent and skill, or neither, raises ValueError.
 
 From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
 """
@@ -69,6 +75,9 @@ def load_cases(folder):
     cases = []
     for spec in sorted(Path(folder).glob("*/case.json")):
         case = json.loads(spec.read_text())
+        if ("agent" in case) == ("skill" in case):
+            raise ValueError("{}: case.json names {} of agent and skill; it needs exactly one".format(
+                spec.parent.name, "both" if "agent" in case else "neither"))
         case.setdefault("must_find", [])
         case.setdefault("must_cover", [])
         case.setdefault("must_mention", [])
@@ -80,12 +89,23 @@ def load_cases(folder):
 
 
 def prompt(case, root=ROOT):
-    """What the agent is given: its instructions, the job's brief if the case names one, and where the work is."""
-    parts = [(Path(root) / "agents" / (case["agent"] + ".md")).read_text().strip()]
+    """What the agent is given: its instructions (the agent's file, or the skill's SKILL.md), the job's brief
+    if the case names one, and where the work is."""
+    if case.get("skill"):
+        instructions = Path(root) / "skills" / case["skill"] / "SKILL.md"
+    else:
+        instructions = Path(root) / "agents" / (case["agent"] + ".md")
+    parts = [instructions.read_text().strip()]
     if case.get("brief"):
         parts.append("The job's brief:\n\n" + (Path(root) / case["brief"]).read_text().strip())
-    parts.append("Review the work in {}. Read it from that file, then report as your instructions say."
-                 .format(Path(case["work"]).resolve()))
+    work = Path(case["work"]).resolve()
+    if case.get("skill"):
+        parts.append("The change to review is the diff in {}. Read it from that file. You have no shell and no "
+                     "GitHub access, so say you did not run the tests, then report as the skill's Output says."
+                     .format(work))
+    else:
+        parts.append("Review the work in {}. Read it from that file, then report as your instructions say."
+                     .format(work))
     return "\n\n".join(parts) + "\n"
 
 
@@ -226,8 +246,8 @@ def changed_since(old, new):
 
 
 def reviewer_of(cases):
-    """The set of agents the cases name."""
-    return {case["agent"] for case in cases}
+    """The set of reviewers the cases name: an agent's name, or skill:<name> for a skill case."""
+    return {"skill:" + case["skill"] if case.get("skill") else case["agent"] for case in cases}
 
 
 def latest(reviewer):
@@ -286,7 +306,10 @@ def main(argv):
     if args.save is not None:
         # With its UTC offset, so it compares with git's commit dates, which carry one.
         now = datetime.now().astimezone()
-        path = Path(args.save) if args.save else SAVED / "{:%Y-%m-%dT%H%M}-{}.json".format(now, reviewer)
+        # A colon breaks filenames on some systems, so skill:review-pr saves as ...-skill-review-pr.json. The
+        # "reviewer" field keeps the colon, and latest() reads the field, so it never matches an agent's run.
+        path = Path(args.save) if args.save else SAVED / "{:%Y-%m-%dT%H%M}-{}.json".format(
+            now, reviewer.replace(":", "-"))
         if not args.save:
             path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"agent": args.agent, "reviewer": reviewer, "folder": shown(args.folder),
