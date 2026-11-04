@@ -724,7 +724,8 @@ group('the spend', () => {
     })
     // test's room is 10 at this width, and its text fits it.
     expect(textOf(spend.slice(labelAt(2, columns), labelAt(3, columns))).trimEnd().length).toBeLessThanOrEqual(10)
-    expect(spend.filter(([code]) => code !== 0x20).length).toBe(expected.reduce((n, [text]) => n + text.length, 0))
+    // Nothing else is drawn on the row: its non-blank cells are the texts' own, less the space inside each.
+    expect(spend.filter(([code]) => code !== 0x20).length).toBe(expected.reduce((n, [text]) => n + text.replace(/ /g, '').length, 0))
     // The spend leaves the lane's 3 rows and its times as they were.
     expect(decode(cells).slice(0, (LANE_ROWS + 1) * columns)).toEqual(decode(laneCells(building, columns, NOW)).slice(0, (LANE_ROWS + 1) * columns))
   })
