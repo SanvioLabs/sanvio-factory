@@ -188,8 +188,10 @@ station's in the tool grey, and a dash dim.
 
 The pane reads an issue's `usage.json` when its lane first appears, then again only when its
 `started`, `tokens` or `cost_usd` in `status.json` changes, which the loop does each time it adds an
-entry. An issue `status.json` stops listing is forgotten, and read afresh if it comes back. A
-`usage.json` that's missing or can't be read shows a dash under every stage.
+entry. A lane the pane doesn't draw isn't read: on a terminal, that's the issues behind `and N more`,
+and every issue when the pane is too narrow for a board. An issue `status.json` stops listing is
+forgotten, and read afresh if it comes back. A `usage.json` that's missing or can't be read shows a
+dash under every stage.
 
 ## The walk
 
@@ -212,7 +214,7 @@ station's colour.
 ## What it doesn't do
 
 It only reads. Every 2 seconds while the pane is open it reads the shown loop's `status.json` and
-`lock`, and each working issue's `usage.json` beside them when [the spend](#the-spend) has changed,
+`lock`, and the `usage.json` of each issue whose lane it draws when [the spend](#the-spend) has changed,
 and it stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
 lock's holder. It never writes a file, never runs [`scripts/loop.py`](../../../scripts/loop.py) or `gh`, and spends no model
 tokens. Controls such as stop stay in the [loop pane](../loop-pane/). It shows one loop at a time, and

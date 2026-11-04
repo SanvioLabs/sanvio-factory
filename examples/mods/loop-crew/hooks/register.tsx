@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseSpend, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Placement } from './logic'
-import type { Seen, Spend } from '../types'
+import type { Row, Seen, Spend } from '../types'
 
 const PANE = 'loop-crew'
 const COMMAND = 'loop-crew'
@@ -38,9 +38,10 @@ const painted = new Map<string, string>()
 let ink: Ink = DARK
 // Counts the reads that open or switch the pane, so a walk-out's timer knows it's been overtaken.
 let opens = 0
-// Each issue's spend in its current run, by loop and number, with the row fields it was read for. Not
-// an atom: seen stays a copy of the loop's own files, and a changed row already redraws the pane.
-type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; spend: Spend | null }
+// Each issue's spend in its current run, by loop and number, with the row fields it was read for and the
+// read itself, so two drawings at once share one read. Not an atom: seen stays a copy of the loop's own
+// files, and a changed row already redraws the pane.
+type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; read: Promise<void>; spend: Spend | null }
 const spends = new Map<string, Map<number, Spent>>()
 function spendsOf(project: string | undefined): Map<number, Spent> {
   const loop = spends.get(project ?? '') ?? new Map<number, Spent>()
@@ -48,6 +49,9 @@ function spendsOf(project: string | undefined): Map<number, Spent> {
   return loop
 }
 const spendOf = (seen: Seen, number: number): Spend | null => spends.get(seen.project ?? '')?.get(number)?.spend ?? null
+// The lanes the last drawing showed with their spend, and whose loop they were: a poll reads usage.json
+// for these only, and a drawing reads it for a lane that comes into view.
+let drawn: { shown: string; numbers: Set<number> } | null = null
 
 const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.panes()).some(pane => pane.id === PANE)
 
@@ -89,21 +93,39 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
-// Read usage.json again for each issue with a lane whose run, tokens or cost has changed since the last
-// read, and only for those. A file that's missing or can't be read is no spend. An issue this loop's
-// status file no longer lists is forgotten, so the cache holds no more than the loops' status files do.
-// One still listed is kept, so a lane walking out keeps its spend.
-async function readSpends($: EngineInterface, root: string, seen: Seen): Promise<void> {
+// Read usage.json for each lane drawn, or about to be, that has no read yet, or whose run, tokens or cost
+// has changed since its last read, and for no other: a lane a short terminal pane leaves out is never
+// read. A file that's missing or can't be read is no spend.
+async function readSpends($: EngineInterface, seen: Seen, rows: Row[], rootKnown?: string): Promise<void> {
+  const loop = spendsOf(seen.project)
+  const isStale = (row: Row): boolean => {
+    const known = loop.get(row.number)
+    return !known || known.started !== row.started || known.tokens !== row.tokens || known.cost_usd !== row.cost_usd
+  }
+  const stale = rows.filter(isStale)
+  const root = stale.length ? (rootKnown ?? (await rootOf($))) : null
+  if (root) {
+    for (const row of stale.filter(isStale)) {
+      const entry: Spent = { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, read: Promise.resolve(), spend: null }
+      entry.read = $.fs.read(`${root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`).then(
+        text => {
+          const spend = parseSpend(text, row.started)
+          entry.spend = hasSpend(spend) ? spend : null
+        },
+        () => {},
+      )
+      loop.set(row.number, entry)
+    }
+  }
+  await Promise.all(rows.map(row => loop.get(row.number)?.read))
+}
+
+// An issue this loop's status file no longer lists is forgotten, so the cache holds no more than the
+// loops' status files do. One still listed is kept, so a lane walking out keeps its spend.
+function forgetUnlisted(seen: Seen): void {
   const loop = spendsOf(seen.project)
   const listed = new Set((seen.status?.issues ?? []).map(row => row.number))
   for (const number of [...loop.keys()]) if (!listed.has(number)) loop.delete(number)
-  for (const row of scene(seen).rows) {
-    const known = loop.get(row.number)
-    if (known && known.started === row.started && known.tokens === row.tokens && known.cost_usd === row.cost_usd) continue
-    const text = await $.fs.read(`${root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`).catch(() => null)
-    const spend = parseSpend(text, row.started)
-    loop.set(row.number, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, spend: hasSpend(spend) ? spend : null })
-  }
 }
 
 // When an issue's walk out ends, one redraw takes its lane away. It does nothing once a newer open or
@@ -130,9 +152,16 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   if (!root) return
   const name = await read($, shownAtom)
   const next = await look($, root, name || undefined)
-  await readSpends($, root, next)
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name) return
+  forgetUnlisted(next)
+  // Spend for the lanes on show whose row changed, so the redraw this read asks for has it. A switch
+  // during these reads drops this one too.
+  const onShow = drawn?.shown === name ? drawn.numbers : null
+  if (onShow) {
+    await readSpends($, next, scene(next).rows.filter(row => onShow.has(row.number)), root)
+    if ((await read($, shownAtom)) !== name) return
+  }
   if (isOpening) opens++
   const known = !isOpening && placed?.shown === name ? placed : null
   const placement = place(next, known?.placement ?? null, now)
@@ -151,6 +180,7 @@ function startPolling($: EngineInterface): void {
       if (await paneIsUp($)) return refresh($)
       stopPolling?.()
       stopPolling = null
+      drawn = null
       endRedraws()
     })().catch(() => {})
   })
@@ -301,6 +331,10 @@ export const register: Register = on => {
       const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
       const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
       const more = lanes.length - shown.length
+      // Only a lane with its board drawn shows spend.
+      const spent = columns ? shown : []
+      drawn = { shown: seen.project ?? '', numbers: new Set(spent.map(lane => lane.row.number)) }
+      await readSpends($, seen, spent.map(lane => lane.row))
       mounted = columns ? { columns, numbers: shown.map(lane => lane.row.number) } : null
       const head = columns ? headCells(lanes, columns, ink) : ''
       if (columns) painted.set(HEAD_KEY, head)
@@ -326,6 +360,8 @@ export const register: Register = on => {
     // has no size, so the surface draws it across the pane at the shape its viewBox gives.
     const Svg = 'Svg' in elements ? elements.Svg : null
     const columns = svgColumns(e.props.bodyColumns)
+    drawn = { shown: seen.project ?? '', numbers: new Set(lanes.map(lane => lane.row.number)) }
+    await readSpends($, seen, lanes.map(lane => lane.row))
     return (
       <Box flexDirection="column" rowGap={1}>
         {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink, columns)} alt="The loop's steps, left to right" />}
