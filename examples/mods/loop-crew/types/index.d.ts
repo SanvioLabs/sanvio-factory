@@ -19,7 +19,7 @@ export type Row = {
 }
 
 // Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
-// The stations are logic.ts's Station, written out: a contract can't import.
+// The stations are logic.ts's Station, written out: this contract has to stand alone.
 export type Spend = Record<'start' | 'plan' | 'test' | 'build' | 'check' | 'ship', { tokens: number | null; cost: number | null }>
 
 export type Status = { issues: Row[] }
