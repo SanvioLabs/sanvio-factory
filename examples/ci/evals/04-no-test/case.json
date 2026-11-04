@@ -1,0 +1,7 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": ["def loyalty_discount(total, years):"],
+  "must_not_flag": [],
+  "max_findings": 10
+}

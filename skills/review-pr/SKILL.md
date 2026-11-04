@@ -56,8 +56,9 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
 ## Output
 
 - The verdict and the test result, first
-- At most ten findings, most expensive first. Each one: `file:line`, what's
-  wrong, what it costs, and the smallest fix
+- At most ten findings, most expensive first. Each one starts with a title
+  line, then a line starting `**Where:**` that names its `file:line`, then
+  what's wrong, what it costs, and the smallest fix
 - What you didn't review and why, if anything
 
 ## On every pull request

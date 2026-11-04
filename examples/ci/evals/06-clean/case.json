@@ -1,0 +1,7 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": [],
+  "must_not_flag": ["def format_amount(pence):"],
+  "max_findings": 2
+}

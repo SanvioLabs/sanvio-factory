@@ -1,0 +1,8 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": [],
+  "must_mention": ["CHANGELOG"],
+  "must_not_flag": [],
+  "max_findings": 10
+}

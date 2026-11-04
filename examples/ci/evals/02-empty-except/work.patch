@@ -1,0 +1,15 @@
+diff --git a/billing/checkout.py b/billing/checkout.py
+index 2d4c1a9..7e0b3f5 100644
+--- a/billing/checkout.py
++++ b/billing/checkout.py
+@@ -18,6 +18,8 @@ def place_order(cart, card):
+     order = Order.create(cart)
+     total = cart.total()
+-    charge = payments.charge(card, total, order_id=order.id)
+-    order.mark_paid(charge.id)
++    try:
++        charge = payments.charge(card, total, order_id=order.id)
++        order.mark_paid(charge.id)
++    except Exception: pass
+     send_receipt(order)
+     return order

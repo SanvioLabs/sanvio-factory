@@ -1,0 +1,38 @@
+diff --git a/scripts/list_skills.py b/scripts/list_skills.py
+new file mode 100755
+index 0000000..4b7e2d1
+--- /dev/null
++++ b/scripts/list_skills.py
+@@ -0,0 +1,24 @@
++#!/usr/bin/env python3
++"""Print every skill in skills/ with its description.
++
++Usage:
++    python3 scripts/list_skills.py
++"""
++import re
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parent.parent
++DESCRIPTION = re.compile(r"^description: (.+)$", re.M)
++
++
++def skills(root=ROOT):
++    found = []
++    for path in sorted((root / "skills").glob("*/SKILL.md")):
++        match = DESCRIPTION.search(path.read_text())
++        found.append((path.parent.name, match.group(1) if match else "(no description)"))
++    return found
++
++
++if __name__ == "__main__":
++    for name, description in skills():
++        print("{:<16} {}".format(name, description))
+diff --git a/README.md b/README.md
+index 8c1d0e2..a95f3b7 100644
+--- a/README.md
++++ b/README.md
+@@ -40,2 +40,3 @@ What each script does.
+ - `scripts/link_files.py` links each file a Markdown file names.
+ - `scripts/setup_check.py` checks the clone is ready to use.
++- `scripts/list_skills.py` prints every skill and what it's for: `python3 scripts/list_skills.py`.

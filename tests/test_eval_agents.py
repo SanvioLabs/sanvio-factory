@@ -5,6 +5,7 @@ real model starts."""
 import contextlib
 import io
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -20,6 +21,8 @@ import eval_agents  # noqa: E402
 
 EVALS = ROOT / "examples" / "proposal" / "evals"
 TS_EVALS = ROOT / "examples" / "typescript" / "evals"
+CI_EVALS = ROOT / "examples" / "ci" / "evals"
+SKILL = ROOT / "skills" / "review-pr" / "SKILL.md"
 GATE = ROOT / "examples" / "proposal" / "gates" / "proposal_gate.py"
 GOOD = '**Where:** Scope, "unlimited revisions"\n**Why it matters:** a promise.\n**Suggested fix:** cap them.\n'
 NOTHING = "Nothing that matters."
@@ -43,6 +46,26 @@ if os.path.isfile(work):
                   + str(entry).split("-")[0] + "\n  - **Attack:** reach it\n  - **Fix:** stop it\n")
     for text in want.get("must_mention", []):
         reply += "- **Recommendations:** the file says " + json.dumps(text) + "\n"
+'''
+# A fake review-pr skill: finds the work.patch path in its prompt and, only if that file exists, replies
+# in the skill's Output shape with what the case.json beside it asks for: a title line and a **Where:**
+# line for the first alternative of each must_find entry and for the first line of each must_cover entry,
+# and each must_mention text under Recommendations, outside any finding.
+REVIEW = r'''
+import json, re
+match = re.search(r"The change to review is the diff in (.+?\.patch)\. Read it", prompt)
+work = match.group(1) if match else ""
+if os.path.isfile(work):
+    want = json.load(open(os.path.join(os.path.dirname(work), "case.json")))
+    reply = "**Verdict:** changes needed. I did not run the tests.\n\n"
+    for anchor in want.get("must_find", []):
+        anchor = anchor[0] if isinstance(anchor, list) else anchor
+        reply += "A problem\n**Where:** " + work + ":1\nThe change adds " + anchor + ". Fix it.\n\n"
+    for entry in want.get("must_cover", []):
+        reply += ("A problem\n**Where:** " + work + ":" + str(entry).split("-")[0]
+                  + "\nThis line costs something. Fix it.\n\n")
+    for text in want.get("must_mention", []):
+        reply += "**Recommendations:** the change needs " + text + "\n"
 '''
 # A security reviewer's reply in its documented shape, to grade against.
 REPORT = """**Reviewer:** security-reviewer
@@ -96,6 +119,19 @@ def case_folder(folder, *agents):
         (Path(folder) / "{:02d}-case".format(n) / "work.md").write_text("# w\n")
         (Path(folder) / "{:02d}-case".format(n) / "case.json").write_text(json.dumps({"agent": agent}))
     return Path(folder)
+
+
+def skill_case(folder, name, **fields):
+    """A review-pr case in folder/name with a one-line patch and nothing to find."""
+    where = Path(folder) / name
+    where.mkdir(parents=True)
+    (where / "work.patch").write_text("+x = 1\n")
+    (where / "case.json").write_text(json.dumps(dict({"skill": "review-pr", "work": "work.patch"}, **fields)))
+    return where
+
+
+def ci_case(prefix):
+    return next(c for c in eval_agents.load_cases(CI_EVALS) if c["name"].startswith(prefix))
 
 
 def run_main(tmp, saved, *extra, agent=None):
@@ -183,6 +219,123 @@ class SecurityCases(unittest.TestCase):
                 code = eval_agents.main([str(TS_EVALS), "--runs", "1", "--agent", agent, "--checkout", tmp])
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("10 stable, 0 flaky, 0 failing", out.getvalue())
+
+
+class ReviewCases(unittest.TestCase):
+    def test_all_six_load_for_review_pr_with_each_anchor_once_in_its_patch(self):
+        cases = eval_agents.load_cases(CI_EVALS)
+        self.assertEqual(len(cases), 6)
+        for c in cases:
+            self.assertEqual(c["skill"], "review-pr", c["name"])
+            self.assertNotIn("agent", c, c["name"])
+            self.assertEqual(c["work"].name, "work.patch", c["name"])
+            self.assertTrue(c["work"].is_file(), c["name"])
+            text = c["work"].read_text()
+            found = [a for entry in c["must_find"] for a in (entry if isinstance(entry, list) else [entry])]
+            for anchor in found + c["must_not_flag"]:
+                self.assertEqual(text.count(anchor), 1, "{}: {}".format(c["name"], anchor))
+
+    def test_each_case_plants_what_its_name_says(self):
+        self.assertEqual(ci_case("01")["must_mention"], ["CHANGELOG"])
+        lines = ci_case("02")["work"].read_text().splitlines()
+        self.assertEqual(ci_case("02")["must_cover"], [13])
+        self.assertIn("except Exception: pass", lines[12])
+        # Low entropy on purpose: gitleaks' generic rule, run by .github/workflows/secrets.yml, flags a
+        # password assignment whose value scores 3.5 or more.
+        self.assertEqual(ci_case("03")["must_find"], [['DB_PASSWORD = "letmein-letmein-1"', "DB_PASSWORD"]])
+        self.assertEqual(ci_case("04")["must_find"], ["def loyalty_discount(total, years):"])
+        note = ci_case("05")
+        self.assertEqual(note["must_cover"], [8])
+        self.assertIn("pre-approved", note["work"].read_text().splitlines()[7])
+        clean = ci_case("06")
+        self.assertEqual((clean["max_findings"], clean["must_not_flag"]), (2, ["def format_amount(pence):"]))
+
+    def test_the_password_matches_no_secret_pattern(self):
+        text = ci_case("03")["work"].read_text()
+        self.assertIsNone(re.search(r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----", text))
+        self.assertIsNone(re.search(r"sk-ant|ghp_|gho_|github_pat_|xox[bp]-", text))
+
+    def test_the_prompt_is_the_skill_then_the_patch_path(self):
+        c = ci_case("01")
+        text = eval_agents.prompt(c)
+        self.assertTrue(text.startswith(SKILL.read_text().strip()))
+        work = str(c["work"].resolve())
+        self.assertIn(work, text)
+        self.assertIn("The change to review is the diff in {}. Read it from that file. You have no shell and no "
+                      "GitHub access, so say you did not run the tests, then report as the skill's Output says."
+                      .format(work), text)
+        for agent in sorted((ROOT / "agents").glob("*.md")):
+            self.assertNotIn(agent.read_text().strip(), text, agent.name)
+
+    def test_a_case_with_both_or_neither_raises_naming_its_folder(self):
+        for name, fields in (("01-both", {"agent": "reviewer", "skill": "review-pr"}), ("01-neither", {})):
+            with tempfile.TemporaryDirectory() as tmp:
+                (Path(tmp) / name).mkdir()
+                (Path(tmp) / name / "case.json").write_text(json.dumps(fields))
+                with self.assertRaises(ValueError) as raised:
+                    eval_agents.load_cases(tmp)
+            self.assertIn(name, str(raised.exception))
+
+    def test_an_agent_that_reads_each_patch_passes_every_case(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = fake_agent(tmp, REVIEW)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = eval_agents.main([str(CI_EVALS), "--runs", "1", "--agent", agent, "--checkout", tmp])
+            clean = eval_agents.run_case(ci_case("06"), agent=agent, checkout=Path(tmp))
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("6 stable, 0 flaky, 0 failing", out.getvalue())
+        self.assertTrue(clean["passed"], clean["reasons"])
+        self.assertEqual(eval_agents.findings(clean["reply"]), [])
+
+    def test_no_findings_fails_the_note_case(self):
+        passed, reasons = eval_agents.grade(ci_case("05"), NOTHING)
+        self.assertFalse(passed)
+        self.assertIn("not covered: line 8", reasons)
+
+    def test_the_reviewer_is_the_skill(self):
+        self.assertEqual(eval_agents.reviewer_of(eval_agents.load_cases(CI_EVALS)), {"skill:review-pr"})
+
+    def test_the_output_section_asks_for_a_where_line(self):
+        output = SKILL.read_text().split("\n## Output\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("**Where:**", output)
+
+    def test_the_agents_reviewers_are_unchanged(self):
+        self.assertEqual(eval_agents.reviewer_of(eval_agents.load_cases(EVALS)), {"reviewer"})
+        self.assertEqual(eval_agents.reviewer_of(eval_agents.load_cases(TS_EVALS)), {"security-reviewer"})
+
+    def test_latest_never_mixes_a_skill_run_with_an_agent_run(self):
+        for saved_as, asked in (("skill:review-pr", "security-reviewer"), ("security-reviewer", "skill:review-pr")):
+            with tempfile.TemporaryDirectory() as tmp:
+                saved = Path(tmp)
+                (saved / "2026-11-01T0900-x.json").write_text(json.dumps({"reviewer": saved_as, "cases": {}}))
+                with mock.patch.object(eval_agents, "SAVED", saved):
+                    self.assertIsNone(eval_agents.latest(asked), saved_as)
+                    self.assertEqual(eval_agents.latest(saved_as), saved / "2026-11-01T0900-x.json")
+
+    def test_save_alone_names_the_file_with_a_hyphen_and_keeps_the_colon_inside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_case(Path(tmp) / "cases", "01-case")
+            saved = Path(tmp) / "evals"
+            code, out = run_main(tmp, saved, "--save")
+            names = [p.name for p in saved.iterdir()]
+            got = json.loads((saved / names[0]).read_text())
+        self.assertEqual(code, 0, out)
+        self.assertRegex(names[0], r"^\d{4}-\d\d-\d\dT\d{4}-skill-review-pr\.json$")
+        self.assertEqual(got["reviewer"], "skill:review-pr")
+
+    def test_save_alone_on_an_agent_case_and_a_skill_case_refuses_before_any_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = Path(tmp) / "evals"
+            called = Path(tmp) / "called"
+            case_folder(Path(tmp) / "cases", "reviewer")
+            skill_case(Path(tmp) / "cases", "02-case")
+            agent = fake_agent(tmp, "open({!r}, 'w').write('x')".format(str(called)))
+            code, out = run_main(tmp, saved, "--save", agent=agent)
+            self.assertFalse(saved.exists())
+            self.assertFalse(called.exists())
+        self.assertEqual(code, 2)
+        self.assertIn("reviewer, skill:review-pr", out)
 
 
 class Grading(unittest.TestCase):

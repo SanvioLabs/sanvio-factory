@@ -1,0 +1,12 @@
+diff --git a/app/settings.py b/app/settings.py
+index 5a1e2b0..c3d9f47 100644
+--- a/app/settings.py
++++ b/app/settings.py
+@@ -1,6 +1,7 @@
+ """Settings the app reads at start-up."""
+ DB_HOST = "db.internal"
+ DB_PORT = 5432
+ DB_NAME = "orders"
+ DB_USER = "orders_app"
++DB_PASSWORD = "letmein-letmein-1"
+ POOL_SIZE = 10

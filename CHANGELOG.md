@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Test the review against planted problems
+
+[`scripts/eval_agents.py`](scripts/eval_agents.py) now runs a skill as well as an agent: a case names `"skill"` in place of `"agent"`, is given the skill's `SKILL.md` and a diff to read, and is saved as the reviewer `skill:<name>`. [`examples/ci/evals/`](examples/ci/evals/) holds six such cases for the review-pr skill, each a made-up diff with a planted problem: no changelog entry, an empty `except` around a payment, a password in the code, no test, a note telling the reviewer to report nothing beside a SQL query built from input, and one clean change. The skill's Output section now asks for each finding as a title line, then a `**Where:**` line naming its `file:line`, so a review can be graded. A case that names both an agent and a skill, or neither, now stops the run with the case's folder named. Each run starts real sessions and spends tokens, so a person runs them by hand, never in CI; [`examples/ci/README.md`](examples/ci/README.md) says how, and how to add your own.
+Files: [`scripts/eval_agents.py`](scripts/eval_agents.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`examples/ci/evals/`](examples/ci/evals/), [`examples/ci/README.md`](examples/ci/README.md), [`AGENTS.md`](AGENTS.md), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, or run the cases by hand after changing the skill.
+
 ## 2026-11-03: Review checks out only the harness's rules
 
 The reusable review workflow now checks out only the harness's [`AGENTS.md`](AGENTS.md), [`steering/`](steering/), [`skills/`](skills/) and [`agents/`](agents/), so a private harness's scripts, docs, examples and reports never reach the review, and it fails with a message when the harness has no [`AGENTS.md`](AGENTS.md). The prompt now lists every changed file before the diff, and says so when the diff was cut at 60000 bytes, so a file the cut drops can still be read under `head/`.
