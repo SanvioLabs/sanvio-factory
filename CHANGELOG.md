@@ -34,12 +34,40 @@ Files: [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`CHANGELOG.md`](
 
 **Do:** `/plugin update loop-pane@sanvio-harness-starter`, then `/reload-plugins` or a new session.
 
+## 2026-11-03: Harness-report is now harness-trends
+
+The `harness-report` skill is now `harness-trends`. It does the same as before, and the phrases in its description, such as "my harness report", "sprint follow-up" and "how many tokens", still reach it. `/harness-trends` replaces `/harness-report`.
+Files: [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/plugin_report.py`](scripts/plugin_report.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `git mv skills/harness-report skills/harness-trends`, then take the starter's files over it, taking [`tests/test_skills.py`](tests/test_skills.py) and the lines naming the skill in [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`reports/usage/README.md`](reports/usage/README.md), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/token_report.py`](scripts/token_report.py) and [`scripts/plugin_report.py`](scripts/plugin_report.py) in the same step.
+
+## 2026-11-03: Propose a pulse question
+
+A pulse question can now be asked on one date only: give it a `Date:` line, and every other day still gets the undated questions in turn, so adding a dated question shifts no other day. `python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD` adds one to the end of `questions.md`, and changes nothing if the date isn't after today, the id is already in the bank, or the bank with it would fail `check`. `check` now also reports a date that isn't a real YYYY-MM-DD, two questions on one date, and a bank with no undated question.
+Files: [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/pulse/README.md`](skills/pulse/README.md), [`skills/pulse/questions.example.md`](skills/pulse/questions.example.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-03: Mod test failures by name
 
 When a mod's tests fail, [`tests/test_mods.py`](tests/test_mods.py) now reports every failing test's name, its file and its error, wherever it falls in the output, instead of the last 40 lines.
 Files: [`tests/test_mods.py`](tests/test_mods.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
+
+## 2026-11-02: Loop history in the dashboard data
+
+`python3 scripts/dashboard_data.py --json` now prints a `loop_history` section: every loop run that ended since `--since`, for the harness and each project, with its outcome, rounds, tests, verdicts and cost, and counts of each outcome by day. The dashboard pane doesn't draw it yet.
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/harness-dashboard/hooks/sample.ts`](examples/mods/harness-dashboard/hooks/sample.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-02: Time per step
+
+Each issue's row in `.loop/status.json` now records how long the current run spent on each step: `step_started` says when the current step began, and `step_seconds` holds the whole seconds per step, with rounds summed. It covers the current run only, and `loop.log` and `.loop/history.jsonl` are unchanged.
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
+
+**Do:** nothing. A running loop picks it up when it's next started.
 
 ## 2026-11-02: Project focus
 

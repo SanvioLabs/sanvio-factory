@@ -59,7 +59,7 @@ decides what the agent knows, what it's allowed to do, and what counts as done.
 - **Mistake to rule**, across sessions: when the agent gets something wrong,
   [`skills/learn/`](skills/learn/) writes the rule into the file that governs it.
 - **Sprint report**, across people: each person's usage log records which
-  skills, agents and guards fired. At sprint end, `harness-report` turns it into
+  skills, agents and guards fired. At sprint end, `harness-trends` turns it into
   a short report with their proposals, shared as a pull request. The owner reads
   the sprint's reports together and takes what earns a place.
 
@@ -107,6 +107,12 @@ Point a dashboard or a Slack post at that file and you have a monitor.
 `queue` of ready issues waiting, and one row per issue, newest
 first, with its `step`, `round`, `state` (`working`, `pr`, `blocked`,
 `stopped` or `skipped`), the last `tests` and `review`, and the `pr` link.
+A row also has `step_started`, when the current step began (`null` once the row
+is out of `working`), and `step_seconds`, the whole seconds spent so far on each
+step that has finished, by step name, with rounds summed. `step_seconds` covers
+the current run only and starts empty on each new run, unlike `tokens` and
+`cost_usd`, which count every run. A row from before these fields, or one no run
+has started since, has neither.
 It's rewritten whole at each step, so a reader never sees half of it.
 
 In Claude Code, `/loop-pane` draws it in a pane beside the conversation

@@ -16,7 +16,7 @@ run recorded in .loop/**/usage.json, not what was billed; a conversation's
 transcript carries no cost, so it stays in tokens. A last section splits the
 sessions started at the root, including after they move into projects/, by
 subagent type, skill and slash command, a skill's or command's share attributed
-from where it started to the next prompt. The skills/harness-report/ skill runs
+from where it started to the next prompt. The skills/harness-trends/ skill runs
 this next to usage_report.py.
 """
 import argparse

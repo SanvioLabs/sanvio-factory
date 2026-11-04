@@ -4,6 +4,8 @@ Copy this file into the shared folder as questions.md, then edit it for your
 team. Each question is a level-two heading holding its id (lowercase letters,
 digits and hyphens), then a chip of 12 characters or fewer, the question, and
 two to four options. Don't add an option labelled Other: the window adds it.
+A question with a Date: line, written YYYY-MM-DD under its heading, is asked on
+that date only, and the questions without one take turns on every other day.
 
 ## energy
 Chip: Energy
