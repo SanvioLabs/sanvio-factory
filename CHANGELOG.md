@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Team standards for the CI review
+
+The reusable review workflow now checks out the harness's `standards/` folder too, lists every Markdown file in it, at any depth and except any named README, in the prompt, and tells the review to hold the change to them and name the file and heading of each standard a finding breaks. With no folder, or nothing in it, the posted comment says on its first line that no team standards were loaded.
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** to have the review hold changes to your standards, add them as Markdown files under `standards/` in your harness repo.
+
 ## 2026-11-03: Test the review against planted problems
 
 [`scripts/eval_agents.py`](scripts/eval_agents.py) now runs a skill as well as an agent: a case names `"skill"` in place of `"agent"`, is given the skill's `SKILL.md` and a diff to read, and is saved as the reviewer `skill:<name>`. [`examples/ci/evals/`](examples/ci/evals/) holds six such cases for the review-pr skill, each a made-up diff with a planted problem: no changelog entry, an empty `except` around a payment, a password in the code, no test, a note telling the reviewer to report nothing beside a SQL query built from input, and one clean change. The skill's Output section now asks for each finding as a title line, then a `**Where:**` line naming its `file:line`, so a review can be graded. A case that names both an agent and a skill, or neither, now stops the run with the case's folder named. Each run starts real sessions and spends tokens, so a person runs them by hand, never in CI; [`examples/ci/README.md`](examples/ci/README.md) says how, and how to add your own.

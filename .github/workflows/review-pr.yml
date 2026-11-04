@@ -5,8 +5,8 @@
 # copy, the deploy key and the secrets it needs.
 #
 # What it does: it checks out three folders side by side. harness/ holds only
-# this repo's AGENTS.md, steering/, skills/ and agents/, at its default
-# branch, read with a read-only deploy key, so every
+# this repo's AGENTS.md, steering/, skills/, agents/ and standards/, at its
+# default branch, read with a read-only deploy key, so every
 # product repo reviews against the same skills and rules, and the log names
 # the harness commit it used. base/ is the product repo at the pull request's
 # base, where the project's own rules are read. head/ is the pull request,
@@ -118,6 +118,7 @@ jobs:
             /steering/
             /skills/
             /agents/
+            /standards/
           sparse-checkout-cone-mode: false
 
       - name: Say which harness commit reviews
@@ -182,10 +183,11 @@ jobs:
           cat >> "$RUNNER_TEMP/prompt.md" <<'EOF'
           and the pull request's head. This directory holds three folders:
 
-          - harness/ holds only the harness's rules, steering, skills and
-            agents (harness/AGENTS.md, harness/steering/, harness/skills/,
-            harness/agents/). Its rules are harness/AGENTS.md and the
-            steering files it loads.
+          - harness/ holds only the harness's rules, steering, skills, agents
+            and team standards (harness/AGENTS.md, harness/steering/,
+            harness/skills/, harness/agents/, harness/standards/). Its rules
+            are harness/AGENTS.md and the steering files it loads, and its
+            standards are the files listed under STANDARDS below.
           - base/ is the project at the pull request's base. The project's rules
             are base/AGENTS.md, or base/CLAUDE.md where there's no AGENTS.md,
             and the files they reference. Read the project's rules under base/
@@ -205,6 +207,24 @@ jobs:
           COMMITS:
           EOF
           git -C head log --format='%h %s%n%b' "$BASE_SHA..HEAD" >> "$RUNNER_TEMP/prompt.md"
+          # The team's standards come from harness/ alone, never head/. They're
+          # found here, not named in the heredoc, so the heredoc stays quoted.
+          # The folder is checked first, so a harness without one doesn't fail
+          # the step. STANDARDS_LOADED tells the post step what to say.
+          printf '\nSTANDARDS:\n' >> "$RUNNER_TEMP/prompt.md"
+          standards=""
+          if [ -d harness/standards ]; then
+            standards=$(find harness/standards -type f -name '*.md' ! -name README.md | LC_ALL=C sort)
+          fi
+          if [ -n "$standards" ]; then
+            printf '%s\n' "$standards" >> "$RUNNER_TEMP/prompt.md"
+            printf '%s\n' "These are the team's code standards. Read each one, hold the change to them, and name the file and heading of the standard a finding breaks." \
+              >> "$RUNNER_TEMP/prompt.md"
+            echo "STANDARDS_LOADED=true" >> "$GITHUB_ENV"
+          else
+            printf '%s\n' "None. The harness has no standards/ folder, or nothing in it." >> "$RUNNER_TEMP/prompt.md"
+            echo "STANDARDS_LOADED=false" >> "$GITHUB_ENV"
+          fi
           # Every changed file, so one the cut below drops is still named.
           printf '\nCHANGED FILES:\n' >> "$RUNNER_TEMP/prompt.md"
           git -C head diff --name-status "$BASE_SHA...HEAD" >> "$RUNNER_TEMP/prompt.md"
@@ -267,6 +287,10 @@ jobs:
           {
             echo "<!-- review-pr-report -->"
             echo
+            if [ "$STANDARDS_LOADED" = false ]; then
+              echo "No team standards were loaded: the harness's standards/ folder is missing or empty, so this review holds the change to the repo's own rules only."
+              echo
+            fi
             cat "$RUNNER_TEMP/report.md"
             echo
             echo "---"
