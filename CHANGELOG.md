@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Plan on the harness lens
+
+The harness lens now starts its band with **plan**: the Claude plan the session is signed in with, read once at session start through `claude auth status`. A business plan shows as `Team · <org>` or `Enterprise · <org>`, a personal plan as `Pro (personal)`, `Max (personal)` or `Free (personal)` in yellow and without its organisation name, which holds the person's email, an API key login as `API key`, and anything else as `unknown`. It only shows the plan and blocks nothing.
+Files: [`examples/mods/harness-lens/hooks/logic.ts`](examples/mods/harness-lens/hooks/logic.ts), [`examples/mods/harness-lens/hooks/register.tsx`](examples/mods/harness-lens/hooks/register.tsx), [`examples/mods/harness-lens/README.md`](examples/mods/harness-lens/README.md), [`examples/mods/harness-lens/.claude-plugin/plugin.json`](examples/mods/harness-lens/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update harness-lens@sanvio-harness-starter`
+
 ## 2026-11-03: Loop pane follows the project
 
 `/loop-pane` now opens on the session's project in focus, the one `/project` sets, when that project has a loop, and moves within two seconds when the focus changes, to the harness when it's cleared. Picking a loop in the pane puts that project in focus, or clears the focus for the harness, so the pane now writes `.harness/project/<id>` where it only read before. The pane and the GitHub line share the focus only in a session started at the harness root.

@@ -1,6 +1,6 @@
 {
   "name": "harness-lens",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "A band above the prompt showing which part of the harness just acted: steering, a skill, a gate, a guard, a reviewer",
   "types": "./types/index.d.ts"
 }

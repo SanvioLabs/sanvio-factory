@@ -1,19 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { CONFIG_FILE, STARTER, alwaysSteering, bandSegments, emptyLens, endRun, gateRun, harnessSkill, lensReport, nextSessions, parseConfig, parseScope, record, relative, remember, scopeFiles, settleRuns, skillFromPath, startRun, steeringName } from './logic'
-import type { Config, Tone } from './logic'
+import { CONFIG_FILE, STARTER, alwaysSteering, bandSegments, emptyLens, endRun, gateRun, harnessSkill, lensReport, nextSessions, parseConfig, parseScope, planSegment, record, relative, remember, scopeFiles, settleRuns, skillFromPath, startRun, steeringName } from './logic'
+import type { Config, Segment, Tone } from './logic'
 import type { Lens, Scope } from '../types'
 
 const launchAtom = atom({ plugin: 'harness-lens', key: 'launch' } as const, null)
 const lensAtom = atom({ plugin: 'harness-lens', key: 'lens' } as const, null)
 
 const PS_TIMEOUT_MS = 2_000
+const AUTH_TIMEOUT_MS = 2_000
 
 // Rebuilt on every load, so a new skill or agent shows up after a reload.
 let config: Config = STARTER
 let skills: string[] = []
 let agents: string[] = []
+// The session's Claude plan, read once at session.start. A redraw only reads it.
+let plan: Segment = planSegment(null)
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -21,6 +24,14 @@ const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean 
   fail: { color: 'red', bold: true },
   earlier: {},
   quiet: { dimColor: true },
+  warn: { color: 'yellow', bold: true },
+}
+
+// The plan from `claude auth status`, with the session's own environment, so it reads the config directory
+// the session started with. A command that fails, exits non-zero or takes too long gives `unknown`.
+async function readPlan($: EngineInterface): Promise<void> {
+  const ran = await $.process.run(['claude', 'auth', 'status'], { timeoutMs: AUTH_TIMEOUT_MS }).catch(() => null)
+  plan = planSegment(ran && ran.exitCode === 0 ? ran.stdout : null)
 }
 
 async function readOr($: EngineInterface, path: string): Promise<string | null> {
@@ -147,6 +158,7 @@ export const register: Register = on => {
       description: 'Show what the harness did this session: steering, skills, gates, guard refusals, reviewers and headless sessions',
     })
     await load($).catch(() => {})
+    await readPlan($).catch(() => {})
     await refreshScope($).catch(() => {})
     $.clock.every(3_000, () => void tick($).catch(() => {}))
     return next(e)
@@ -247,7 +259,7 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Box flexWrap="wrap" columnGap={2}>
           <Text bold>◆ harness</Text>
-          {bandSegments(lens, config.scope.length > 0, Date.now()).map(segment => (
+          {bandSegments(lens, config.scope.length > 0, Date.now(), plan).map(segment => (
             <Text key={segment.label}>
               <Text dimColor>{segment.label}: </Text>
               <Text {...COLORS[segment.tone]}>{segment.text}</Text>
