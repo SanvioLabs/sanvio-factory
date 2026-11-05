@@ -75,13 +75,20 @@ claude plugin disable loop-crew@sanvio-harness-starter --scope local
 
 | Type | Does |
 |---|---|
-| `/loop-crew` | Opens the pane on the harness's loop, titled `Loop crew` |
+| `/loop-crew` | Opens the pane on the project in focus when the picker lists that project's loop, titled `Loop crew: <name>`, and otherwise on the harness's loop, titled `Loop crew` |
 | `/loop-crew <name>` | Opens it on the project's loop in `.loop/projects/<name>/`, titled `Loop crew: <name>` |
 | The same again | Closes the pane |
-| Another loop's name, or no name while a project is shown | Switches the open pane to that loop |
+| Another loop's name, or no name while another loop is shown | Switches the open pane to that loop |
 
 A name must be exactly a folder under `.loop/projects/`. Anything else, `../x` included, answers
 `No loop for <name> under .loop/projects/.` and changes nothing.
+
+The focus is the one `/project` sets, read from `.harness/project/<session id>` the way the loop
+pane reads it: a real folder directly under [`projects/`](../../../projects/), not a link. While the pane is open it
+follows `/project` changes on each poll: a new focus whose loop the picker lists switches the pane
+to it, and a cleared focus switches it to the harness. A focus whose loop isn't listed switches
+nothing. A pick, or `/loop-crew <name>`, holds until the focus changes. Loop crew never sets the
+focus.
 
 ## What the pane says
 
@@ -221,9 +228,9 @@ station's colour.
 ## What it doesn't do
 
 It only reads. Every 2 seconds while the pane is open it reads every loop's `status.json` and `lock`,
-for the board and the picker, and the `usage.json` of each issue whose lane it draws when
-[the spend](#the-spend) has changed, and it stops once the pane closes. It doesn't read or set the
-session's `/project` focus. The one process it runs is `kill -0 <pid>`, to check the
+for the board and the picker, the session's focus in `.harness/project/<session id>`, and the
+`usage.json` of each issue whose lane it draws when [the spend](#the-spend) has changed, and it
+stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
 lock's holder. It never writes a file, never runs [`scripts/loop.py`](../../../scripts/loop.py) or `gh`, and spends no model
 tokens. Controls such as stop stay in the [loop pane](../loop-pane/). It shows one loop at a time, and
 doesn't show issues that are queued, blocked or ended. The board doesn't scroll or zoom.
