@@ -100,7 +100,7 @@ them against the skill on your machine, which spends model tokens.
 - Claude reads with Read, Grep and Glob only, and runs nothing from the pull
   request.
 - The rules come from the harness, and the pull request's own copies can't
-  change them. Its `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` and `.claude`
+  change them. Its [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), `CLAUDE.local.md` and [`.claude`](../.claude)
   folders, and its symlinks, are removed before the review starts, and the
   standards come from the harness's default branch.
 - The caller is another matter. It lives in the product repo, so a pull request
@@ -111,13 +111,13 @@ them against the skill on your machine, which spends model tokens.
 ## The loop on a runner
 
 Optional, and for the harness's own issues. [`examples/ci/loop.yml`](../examples/ci/loop.yml) runs
-`scripts/loop.py` from the repo it sits in, so it goes in your harness repo, or
+[`scripts/loop.py`](../scripts/loop.py) from the repo it sits in, so it goes in your harness repo, or
 another repo that carries the harness, with a `loop.json` whose `test_command`
 tests that repo. In a product repo that only calls the review, there's no loop
 to run. To work a product repo's issues, run the loop on a machine with
 `--project`, as [HOW-IT-WORKS.md](../HOW-IT-WORKS.md) (*The loop*) describes.
 
-1. Copy [`examples/ci/loop.yml`](../examples/ci/loop.yml) into the harness repo's `.github/workflows/`.
+1. Copy [`examples/ci/loop.yml`](../examples/ci/loop.yml) into the harness repo's [`.github/workflows/`](../.github/workflows/).
 2. Add `ANTHROPIC_API_KEY` as a secret.
 3. Turn on Settings, Actions, General, "Allow GitHub Actions to create and
    approve pull requests", or opening the pull request fails.
