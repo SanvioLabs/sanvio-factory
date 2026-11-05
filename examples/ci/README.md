@@ -83,7 +83,8 @@ the review that every repo picks up. Pinning to a commit
 (`review-pr.yml@<sha>`) is the stricter choice, since nothing in the
 workflow's steps changes until someone moves the pin. Either way, the skill
 and the rules come from the harness's default branch, because that's what
-the workflow checks out.
+the workflow checks out. [Protecting the harness](#protecting-the-harness)
+says what to set on the harness so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's. One with no
@@ -114,6 +115,28 @@ the product repos use the workflow file;
 the deploy key can read the whole harness repo, and the workflow checks out only the paths it needs.
 A private harness's other files (scripts, docs, examples, reports) aren't
 checked out, so the review can't read them or quote them.
+
+## Protecting the harness
+
+Every review runs what the harness's `main` holds at that moment: the
+workflow's steps, the skills and the rules. Each product repo runs them with
+its own two secrets and its own pull-request token. So anyone who can push to
+the harness's `main`, or merge into it, can read every calling repo's secrets
+and post on its pull requests.
+
+On the harness repo, set a branch ruleset (or branch protection) on `main`
+that requires a pull request with at least one approval from someone other
+than its author, requires the harness's CI checks to pass, blocks force
+pushes and deletion, and applies to admins as well.
+
+A product repo holding secrets it can't afford to lose to a harness writer
+should pin the caller to a commit (`review-pr.yml@<sha>`) and move the pin
+after reading the harness's changes. The pin stops the workflow's steps
+changing under it, while the skill and the rules still come from `main`.
+
+The deploy key, like the Anthropic key, belongs only in repos whose writers
+you'd trust to read the harness. To rotate it, add a new deploy key and update
+the secret, then delete the old key.
 
 ## Testing the review
 

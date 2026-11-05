@@ -383,6 +383,10 @@ class ReusableReviewWorkflow(unittest.TestCase):
         for word in ("approves", "merges", "examples/ci/README.md", "HARNESS_DEPLOY_KEY", "ANTHROPIC_API_KEY"):
             self.assertIn(word, header)
 
+    def test_the_header_says_its_main_runs_in_every_caller(self):
+        header = " ".join(self.text.split("\nname:", 1)[0].split())
+        self.assertIn("runs in every calling repo", header)
+
 
 class CallerReadme(unittest.TestCase):
     def setUp(self):
@@ -392,7 +396,16 @@ class CallerReadme(unittest.TestCase):
     def test_the_headings_come_in_order(self):
         headings = re.findall(r"^## (.+)$", self.text, re.M)
         self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private harness repo",
-                                    "Testing the review", "Team standards"])
+                                    "Protecting the harness", "Testing the review", "Team standards"])
+
+    def test_the_harness_section_says_how_to_protect_it(self):
+        self.assertIn("\n## Protecting the harness\n", self.text)
+        section = self.text.split("\n## Protecting the harness\n", 1)[1].split("\n## ", 1)[0]
+        section = " ".join(section.split())
+        for word in ("ruleset", "approval", "force push", "admins", "review-pr.yml@<sha>", "rotate"):
+            self.assertIn(word, section)
+        caller = self.text.split("\n## The caller\n", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("(#protecting-the-harness)", caller)
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")
