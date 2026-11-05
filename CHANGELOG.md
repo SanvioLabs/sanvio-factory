@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-04: Standup asks about each item with a recommendation
+
+Standup's walk through the items is now a multiple-choice question per item, through `AskUserQuestion` (up to four a call), in the same turn as the report. Each question names the item and why it matters, offers two to four next actions, and puts the recommended one first, marked `(Recommended)`, with a line on why. Every item under **On you** and **Waiting on someone** is asked, and it never falls back to asking for a reply in prose. A tool without the question window gets the same question as numbered options in plain text. It still changes nothing.
+
+Files: [`skills/standup/SKILL.md`](skills/standup/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-04: Loop crew follows the project in focus
 
 Loop crew 0.7.0 reads the session's `/project` focus from `.harness/project/<session id>`, as the loop pane does. `/loop-crew` with no name opens on the project in focus when the picker lists its loop, and on the harness otherwise. While the pane is open it follows `/project` changes on each poll: a new focus whose loop is listed switches the pane to it, and a cleared focus switches it to the harness. A focus whose loop isn't listed switches nothing. A pick, or `/loop-crew <name>`, holds until the focus changes. Loop crew never sets the focus, and still writes no file.
