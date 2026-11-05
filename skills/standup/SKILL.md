@@ -151,5 +151,6 @@ gives the command and the person runs it.
 
 The "Start here" line, "On you", "Waiting on someone" (each omitted if empty),
 the pulse line, the skipped-source lines, then a question on each item, and last the
-suggested order for the day. Per [`steering/response-style.md`](../../steering/response-style.md),
-no confidence line: this is a lookup, not a recommendation.
+suggested order for the day. No confidence line at the end: each recommendation
+is made in its own question, with its reason, and per
+[`steering/response-style.md`](../../steering/response-style.md) a skill's own output governs the reply.
