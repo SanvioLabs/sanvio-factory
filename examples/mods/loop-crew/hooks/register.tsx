@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Loop, Placement } from './logic'
 import type { Row, Seen, Spend } from '../types'
 
@@ -29,6 +29,8 @@ const seenAtom = atom({ plugin: 'loop-crew', key: 'seen' } as const, null)
 // Every loop the picker lists, compared on its own: seen stays a copy of the shown loop's files, and a
 // loop off screen still changes its option.
 const loopsAtom = atom({ plugin: 'loop-crew', key: 'loops' } as const, null)
+// The session's /project focus as last read, so a poll moves the pane only when the focus has changed.
+const focusAtom = atom({ plugin: 'loop-crew', key: 'focus' } as const, null)
 // Counts the reads of every loop, so a switch's, which nothing waits for, doesn't overwrite a newer one
 // when it ends later.
 let loopReads = 0
@@ -80,6 +82,30 @@ async function rootOf($: EngineInterface): Promise<string | null> {
   const exists = (path: string) => $.fs.exists(path)
   const launch = await read($, launchAtom)
   return (launch && (await findRoot(launch, exists))) || findRoot(await $.session.root(), exists)
+}
+
+// Copied from loop-pane's hooks/register.tsx, with the same bodies: one installed mod can't import from
+// another. They only read.
+
+// This session's focus file, the one /project and the GitHub line use, or null when the id is refused
+// or can't name one. The id is asked for each time.
+async function sessionFile($: EngineInterface, root: string): Promise<string | null> {
+  return focusFile(root, await $.session.id().catch(() => null))
+}
+
+// The project in focus: a real folder directly under projects/ that this session's file names. A file,
+// a link, a missing folder, or any failure means none. Never cached.
+async function readFocus($: EngineInterface, root: string): Promise<string | null> {
+  try {
+    const file = await sessionFile($, root)
+    if (!file) return null
+    const name = focusName(await $.fs.read(file))
+    if (!name) return null
+    const stat = await $.fs.stat(`${root}/projects/${name}`).catch(() => null)
+    return stat !== null && stat.kind === 'dir' && !stat.isLink ? name : null
+  } catch {
+    return null
+  }
 }
 
 // Whether the process named in the lock is alive. A killed run leaves its lock behind.
@@ -238,12 +264,35 @@ async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<v
   await show($, value)
 }
 
+// Read the focus and keep it as the one last read. Gives the loop the command opens on with no name:
+// the project in focus when the picker lists its loop, else the harness.
+async function openingName($: EngineInterface, root: string): Promise<string> {
+  const focus = await readFocus($, root)
+  await update($, focusAtom, () => focus)
+  return focus !== null && isListed(await readLoops($, root), focus) ? focus : ''
+}
+
+// Follow the session's /project focus. Only a focus that differs from the last read moves the pane: to
+// that project's loop when the picker lists it, or to the harness when the focus is cleared. Moving goes
+// through a pick, so it never closes the pane. A pick or a named loop holds until the focus changes.
+async function follow($: EngineInterface): Promise<void> {
+  const root = await rootOf($)
+  if (!root) return
+  const focus = await readFocus($, root)
+  if (focus === (await read($, focusAtom))) return
+  await update($, focusAtom, () => focus)
+  await pick($, focus ?? '', await readLoops($, root))
+}
+
 // Poll only while the pane is up, so a session that never opens it reads nothing.
 function startPolling($: EngineInterface): void {
   if (stopPolling) return
   const timer = $.clock.every(POLL_MS, () => {
     void (async () => {
-      if (await paneIsUp($)) return refresh($)
+      if (await paneIsUp($)) {
+        await follow($).catch(() => {})
+        return refresh($)
+      }
       stopPolling?.()
       stopPolling = null
       drawn = null
@@ -331,7 +380,7 @@ export const register: Register = on => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     try {
-      const name = e.args.trim()
+      let name = e.args.trim()
       const root = await rootOf($)
       if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.` }
       if (name) {
@@ -340,6 +389,11 @@ export const register: Register = on => {
         if (!entries.some(entry => entry.kind === 'dir' && entry.name === name)) {
           return { text: `No loop for ${name} under .loop/projects/.` }
         }
+        // The focus as it stands is kept, so the next poll doesn't move the pane off the loop named.
+        const focus = await readFocus($, root)
+        await update($, focusAtom, () => focus)
+      } else {
+        name = await openingName($, root)
       }
       const isShown = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
       if (isShown && (await read($, shownAtom)) === name) {

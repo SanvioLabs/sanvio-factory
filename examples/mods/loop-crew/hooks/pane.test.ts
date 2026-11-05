@@ -57,11 +57,18 @@ const lastBlit = (blits: { key: string; cells: string }[], key: string): string 
 
 // The engine beneath the mod: a harness whose loop files are `files`, by path, and a pane. The test
 // changes `files` between polls, `panes` to stand a pane behind another, and `flip` to refuse a close,
-// take the root away, leave the lock's holder gone or fail the listing of .loop/projects/.
-function world(on: On, files: Map<string, string>) {
+// take the root away, leave the lock's holder gone or fail the listing of .loop/projects/. `focus`
+// gives the session's id, which the test can change and null refuses, the default, and what fs.stat
+// finds directly under projects/. fs.write, the one change to files the engine offers, is recorded and
+// never answered with a write.
+type Kinds = Record<string, 'dir' | 'file' | 'link'>
+type Focus = { session?: { id: string | null }; projects?: Kinds }
+function world(on: On, files: Map<string, string>, focus: Focus = {}) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const ran: string[][] = []
   const reads: string[] = []
+  const writes: { path: string; text: string }[] = []
+  const session = focus.session ?? { id: null }
   const titles: string[] = []
   const sizes: [number | undefined, number | undefined][] = []
   const blits: { key: string; cells: string }[] = []
@@ -70,6 +77,19 @@ function world(on: On, files: Map<string, string>) {
   const flip = { closeFails: false, rootGone: false, staleLock: false, unplaced: false, listFails: false, closes: 0, paneReads: 0, blit: 'take' as 'take' | 'deny' | 'none', hold: null as Promise<void> | null }
   const process = (exitCode: number, stderr: string) => ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   on('session.root', async () => ({ value: ROOT }))
+  on('session.id', async () => (session.id === null ? { deny: 'no session id' } : { value: session.id }))
+  on('fs.stat', async (_$, e) => {
+    const name = e.path.startsWith(`${ROOT}/projects/`) ? e.path.slice(`${ROOT}/projects/`.length) : ''
+    const kind = (focus.projects ?? {})[name]
+    if (kind === 'dir') return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } }
+    if (kind === 'file') return { value: { kind: 'file', size: 1, mtimeMs: 0, isLink: false } }
+    if (kind === 'link') return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: true } }
+    return { deny: `no ${e.path}` }
+  })
+  on('fs.write', async (_$, e) => {
+    writes.push({ path: e.path, text: e.text })
+    return { deny: 'read-only' }
+  })
   on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
   on('fs.read', async (_$, e) => {
     reads.push(e.path)
@@ -124,7 +144,7 @@ function world(on: On, files: Map<string, string>) {
     await clock.advance(2000)
     await drain()
   }
-  return { clock, ran, reads, titles, sizes, blits, invalidated, panes, flip, close }
+  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close }
 }
 
 type Dollar = { command: { run: (i: object) => Promise<unknown> } }
@@ -1544,6 +1564,132 @@ group('the spend', () => {
       }
       await ui.unmount()
     }
+    await close()
+  })
+})
+
+group('the project in focus', () => {
+  const APP = `${ROOT}/.loop/projects/app`
+  const OTHER = `${ROOT}/.loop/projects/other`
+  const LOST = `${ROOT}/.loop/projects/lost`
+  const ID = '0123abcd-4567'
+  const FOCUS = `${ROOT}/.harness/project/${ID}`
+  // What fs.stat finds under projects/: app, other and lost are folders, though lost has no loop yet.
+  const PROJECTS: Kinds = { app: 'dir', other: 'dir', lost: 'dir', linked: 'link', plain: 'file' }
+  // The harness, app and other, each running with its own job, so the lanes say which loop is on screen.
+  const loops = () => new Map([
+    [STATUS, statusText(job(12, 'BUILD'))],
+    [`${HARNESS}/lock`, '4242'],
+    [`${APP}/status.json`, statusText(job(30, 'BUILD'))],
+    [`${APP}/lock`, '4242'],
+    [`${OTHER}/status.json`, statusText(job(40, 'TEST'))],
+    [`${OTHER}/lock`, '4242'],
+  ])
+  // A world whose session has this id, and whose focus file holds `text`, or no file for null.
+  const focused = (on: On, text: string | null, id: string | null = ID, files = loops()) => {
+    if (text !== null) files.set(FOCUS, text)
+    return { files, ...world(on, files, { session: { id }, projects: PROJECTS }) }
+  }
+  type Clock = { advance: (ms: number) => Promise<unknown> }
+  // Past the next poll, and the switch it may make.
+  const poll = async (clock: Clock): Promise<void> => {
+    await clock.advance(2000)
+    for (let i = 0; i < 4; i++) await drain()
+  }
+  const last = (titles: string[]): string | undefined => titles[titles.length - 1]
+  type Picks = Finds & { select: (query: { key: string; value: string }) => Promise<unknown>; redraw: () => Promise<void>; unmount: () => Promise<void> }
+
+  for (const [what, text, title] of [
+    ['on a listed project opens on it', 'app', 'Loop crew: app'],
+    ['given as projects/app opens on it', 'projects/app\n', 'Loop crew: app'],
+    ['on a project with no loop opens on the harness', 'lost', 'Loop crew'],
+    ['missing opens on the harness', null, 'Loop crew'],
+  ] as const) {
+    test(`the focus ${what}`, async ($, on) => {
+      const { titles, writes, close } = focused(on, text)
+      expect(await say($)).toBe('Loop crew opened.')
+      expect(titles).toEqual([title])
+      expect(writes).toEqual([])
+      await close()
+    })
+  }
+  for (const [what, text, id] of [
+    ['names a link', 'linked', ID],
+    ['names a file', 'plain', ID],
+    ['names a folder that is missing', 'gone', ID],
+    ['names ../x', '../x', ID],
+    ['is named by an id the engine refuses', 'app', null],
+    ['is named by an id SESSION refuses', 'app', 'not an id'],
+  ] as const) {
+    test(`a focus that ${what} opens on the harness, and polls don't move it`, async ($, on) => {
+      const { clock, titles, writes, close } = focused(on, text, id)
+      expect(await say($)).toBe('Loop crew opened.')
+      expect(titles).toEqual(['Loop crew'])
+      await poll(clock)
+      await poll(clock)
+      expect(titles).toEqual(['Loop crew'])
+      expect(writes).toEqual([])
+      await close()
+    })
+  }
+  test('/loop-crew other with the focus on app opens other, and polls leave it there', async ($, on) => {
+    const { clock, titles, writes, close } = focused(on, 'app')
+    expect(await say($, 'other')).toBe('Loop crew opened.')
+    expect(titles).toEqual(['Loop crew: other'])
+    for (let i = 0; i < 3; i++) await poll(clock)
+    expect(titles).toEqual(['Loop crew: other'])
+    expect(writes).toEqual([])
+    await close()
+  })
+  test('/loop-crew twice with the focus set opens on it and then closes', async ($, on) => {
+    const { titles, flip, writes, close } = focused(on, 'app')
+    expect(await say($)).toBe('Loop crew opened.')
+    expect(await say($)).toBe('Loop crew closed.')
+    expect(titles).toEqual(['Loop crew: app'])
+    expect(flip.closes).toBe(1)
+    expect(writes).toEqual([])
+    await close()
+  })
+  test('a focus changed between polls switches the pane, and a cleared one goes back to the harness', async ($, on) => {
+    const { clock, files, titles, flip, writes, close } = focused(on, 'app')
+    await say($)
+    files.set(FOCUS, 'other')
+    await poll(clock)
+    expect(last(titles)).toBe('Loop crew: other')
+    files.delete(FOCUS)
+    await poll(clock)
+    expect(titles).toEqual(['Loop crew: app', 'Loop crew: other', 'Loop crew'])
+    expect(flip.closes).toBe(0)
+    expect(writes).toEqual([])
+    await close()
+  })
+  test('a focus on a project with no loop switches nothing, nor does its loop appearing later', async ($, on) => {
+    const { clock, files, titles, writes, close } = focused(on, 'app')
+    await say($)
+    files.set(FOCUS, 'lost')
+    await poll(clock)
+    expect(titles).toEqual(['Loop crew: app'])
+    files.set(`${LOST}/status.json`, statusText(job(50, 'BUILD')))
+    for (let i = 0; i < 3; i++) await poll(clock)
+    expect(titles).toEqual(['Loop crew: app'])
+    expect(writes).toEqual([])
+    await close()
+  })
+  test('a pick in the dropdown stays put across 3 polls while the focus is unchanged', async ($, on) => {
+    const { clock, titles, writes, close } = focused(on, 'app')
+    await say($)
+    await drain()
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    await ui.select({ key: 'loop-pick', value: 'other' })
+    await drain()
+    await drain()
+    expect(last(titles)).toBe('Loop crew: other')
+    for (let i = 0; i < 3; i++) await poll(clock)
+    await ui.redraw()
+    expect(titles).toEqual(['Loop crew: app', 'Loop crew: other'])
+    expect(await ui.find({ key: 'lane-40' })).toBeDefined()
+    expect(writes).toEqual([])
+    await ui.unmount()
     await close()
   })
 })

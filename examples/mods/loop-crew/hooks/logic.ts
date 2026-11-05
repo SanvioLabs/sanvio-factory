@@ -134,6 +134,31 @@ export function loopOptions(loops: Loop[]): { value: string; label: string }[] {
   return [...working, ...rest].map(loop => ({ value: loop.project ?? '', label: loopButtonLabel(loop) }))
 }
 
+// The session's project focus. Copied from loop-pane's hooks/logic.ts, which copied them from
+// github-status, with the same bodies: one installed mod can't import from another.
+
+// The folder under projects/ that a /github argument names: `acme` or `projects/acme`, one folder deep.
+// Anything that could reach outside projects/ is refused before anything runs.
+export function projectName(arg: string): { name: string } | { why: string } {
+  const name = arg.trim().replace(/^projects\//, '').replace(/\/$/, '')
+  if (/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name) && !name.includes('..')) return { name }
+  return { why: `"${arg.trim()}" isn't a project: give the name of a folder under projects/, such as /github acme, or /github all.` }
+}
+
+// A session id that can name a file: harness-lens's rule. Anything else means no focus.
+export const SESSION = /^[0-9a-fA-F-]{8,64}$/
+
+// This session's focus file under the harness root, or null for an id that can't name one.
+export function focusFile(root: string, id: string | null): string | null {
+  return id !== null && SESSION.test(id) ? `${root}/.harness/project/${id}` : null
+}
+
+// The project a focus file's text names, before the folder is checked, or null.
+export function focusName(text: string): string | null {
+  const picked = projectName(text.trim())
+  return 'name' in picked ? picked.name : null
+}
+
 const WORDS: Record<string, string> = {
   SHAPE: 'planning',
   TEST: 'writing tests',
