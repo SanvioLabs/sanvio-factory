@@ -1,8 +1,8 @@
 ---
 spec: SPEC-002
-status: in-progress
+status: complete
 created: 2026-10-31
-updated: 2026-11-02
+updated: 2026-11-05
 ---
 
 # Tasks: SPEC-002
@@ -133,7 +133,7 @@ Nothing from these tasks enters this repo. Each run spends model tokens, so a pe
   - Requirements: Evaluation Requirements
   - Depends on: T003
   - Verification: `python3 scripts/eval_harness.py validate <private suite path>`
-- [ ] T021 Run each suite once through this harness, and save each result as its baseline
+- [x] T021 Run each suite once through this harness, and save each result as its baseline
   - Requirements: REQ-001, REQ-004, REQ-013
   - Depends on: T015, T018, T019, T020
   - Verification: `python3 scripts/eval_harness.py list`
@@ -165,15 +165,15 @@ From `review-spec` on 2026-11-02. Each test was watched failing before its fix.
 
 ## Final Verification
 
-- [ ] Acceptance criteria pass
+- [x] Acceptance criteria pass
 - [x] Unit tests pass
-- [ ] Security requirements verified
-- [ ] Documentation updated
-- [ ] Independent review completed (`review-spec`)
+- [x] Security requirements verified
+- [x] Documentation updated
+- [x] Independent review completed (`review-spec`)
 
 ## Verification Evidence
 
-Fresh on 2026-11-01. `IN PROGRESS` rows also need Phase 7's real run, since these tests use a fake `gh`.
+Fresh on 2026-11-01, rerun 2026-11-05 on main after #364: `test_eval_harness.py` OK, `validate examples/eval-suite` sound. The real `gh` path was proven by the runs under Phase 7.
 
 ### The runner's tests
 
@@ -233,7 +233,7 @@ $ python3 scripts/eval_harness.py validate <private repair suite>
 repair: the seed fails, each wrong answer fails, the reference passes.
 ```
 
-The Migrate suite's `validate` wasn't run: a command naming that suite is held by a local guard for a person. The whole repo's run had one failure, `test_token_report`'s, which predates this spec.
+Pat ran the Migrate suite's `validate` by hand on 2026-11-02, since a local guard holds any command naming that suite for a person: `migrate: the seed fails, each wrong answer fails, the reference passes.` The whole repo's run had one failure, `test_token_report`'s, which predates this spec.
 
 ### First real run, on the tiny suite
 
@@ -373,7 +373,7 @@ Phases 1 and 2 were watched failing first. Phases 3 to 5 were written with their
 
 ## Review Findings
 
-`review-spec`, 2026-11-02. Lenses run: requirement walk, viper, cto, review-principles. `code-review` ran against the wrong pull request #360 (a pre-commit change in another repo), so its findings are discarded and correctness rests on the requirement walk. Atlas skipped: one standalone script and no structural change to the harness. Recommendation: **Not Complete**, blocked by the five HIGH rows. After the Phase 8 fixes, one HIGH stays open: the loop coupling.
+`review-spec`, 2026-11-02. Lenses run: requirement walk, viper, cto, review-principles. `code-review` ran against the wrong pull request #360 (a pre-commit change in another repo), so its findings are discarded and correctness rests on the requirement walk. Atlas skipped: one standalone script and no structural change to the harness. Recommendation: **Not Complete**, blocked by the five HIGH rows. Since #364 fixed the loop usage part, no HIGH row is open, so the spec is **Complete** as of 2026-11-05. The MEDIUM and LOW rows still marked Open are known limits, not blockers. After the Phase 8 fixes, one HIGH stays open: the loop coupling.
 
 | Severity | Finding | File | Status |
 |---|---|---|---|
@@ -393,7 +393,7 @@ Phases 1 and 2 were watched failing first. Phases 3 to 5 were written with their
 | LOW | `test_an_empty_run_exits_0` fails on a machine with real loop usage. It failed before this spec too | tests/test_token_report.py | Open, out of scope |
 | LOW | Three "a job in the pane" tests expect a time with no date, so they fail when their 6 minutes ago falls on yesterday, just after midnight. Found at 00:02 local | examples/mods/loop-pane/hooks/root.test.ts | Open, out of scope |
 | LOW | Eval integrity: agent code imported by `key/score` can print a passing JSON and exit, the required check is matched by name only so a PR can edit its workflow to emit it, `usage.json` is agent-writable, and `SCORE_TIMEOUT` kills only the direct child. Viper risk 2-3 | scripts/eval_harness.py:169, :176, :422, :524 | Open |
-| LOW | The Requirement Traceability table marks every row PASS while Final Verification and T021 are unchecked. Rows with no test behind them: Evaluation Requirements, SEC-001's made-up data, SEC-002's seed half, and the new-suite NFR (its test only renames the same suite) | docs/specs/002-harness-evals/TASKS.md | Open |
+| LOW | The Requirement Traceability table marks every row PASS while Final Verification and T021 are unchecked. Rows with no test behind them: Evaluation Requirements, SEC-001's made-up data, SEC-002's seed half, and the new-suite NFR (its test only renames the same suite) | docs/specs/002-harness-evals/TASKS.md | Fixed 2026-11-05: T021 and Final Verification are checked. The rows with no test behind them stand |
 | LOW | A failing `--usage-command` throws away a cost the loop did report | scripts/eval_harness.py:546 | Open |
 | LOW | The runner is POSIX-only (`killpg`, `sh -c`) and the docs don't say so. Long lines and missing docstrings on `runs_dir`, `save_run`, `load_run` and the `cmd_*` functions; "REQ-012" is unexplained in a comment | scripts/eval_harness.py | Open |
 | INFO | Drift from the spec, none of it flagged: `--owner` is required; `validate`, `resume` and exit code 3 exist; `public_example` skips REQ-005's check; the last PR is merged too, though REQ-013 says "between issues"; `compare` doesn't check both results come from the same suite; the runner imports `loop` from the harness under test, so comparing two commits also compares two versions of its own arithmetic | docs/specs/002-harness-evals/SPEC.md | Open |
