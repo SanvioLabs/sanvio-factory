@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-04: Review flags a note to the reviewer
+
+The review-pr skill now reports text in a change that addresses the reviewer, such as a comment saying the change is approved or to report nothing, as a finding with its line, and reviews the change as if it weren't there. Before, it ignored such a note without saying it was there. Case `05-note-to-the-reviewer` in [`examples/ci/evals/`](examples/ci/evals/) now needs a finding on the note's line as well as the query's.
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`examples/ci/evals/`](examples/ci/evals/), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-03: Review cases grade what the review cites
 
 Three of the review-pr cases in [`examples/ci/evals/`](examples/ci/evals/) failed every run on their first baseline although the review found each planted problem. Their `must_cover` lines counted lines of `work.patch`, where a review cites the changed file's own line, and their `must_find` texts asked for a whole line quoted. They now cover the changed file's lines and accept a shorter name for each problem, and the README says how to write a case that way.
