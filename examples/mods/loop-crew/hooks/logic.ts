@@ -122,6 +122,12 @@ export function loopButtonLabel(seen: Loop): string {
 
 // The loop picker's options: the loops on a job first, each group in its own order. A project's
 // value is its name, the harness's ''.
+// Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
+// sends, so this guards against anything else reaching a switch.
+export function isListed(loops: Loop[], value: string): boolean {
+  return loops.some(loop => (loop.project ?? '') === value)
+}
+
 export function loopOptions(loops: Loop[]): { value: string; label: string }[] {
   const working = loops.filter(l => workingCount(l) > 0)
   const rest = loops.filter(l => workingCount(l) === 0)

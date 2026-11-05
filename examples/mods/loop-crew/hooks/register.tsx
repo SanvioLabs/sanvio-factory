@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './logic'
 import type { Ink, Lane, Loop, Placement } from './logic'
 import type { Row, Seen, Spend } from '../types'
 
@@ -233,7 +233,7 @@ async function show($: EngineInterface, name: string) {
 // A pick from the dropdown. Only a loop it lists, and one not already on screen, switches the pane, as
 // the command does. A pick never closes the pane.
 async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<void> {
-  if (!loops.some(loop => (loop.project ?? '') === value)) return
+  if (!isListed(loops, value)) return
   if ((await read($, shownAtom)) === value) return
   await show($, value)
 }

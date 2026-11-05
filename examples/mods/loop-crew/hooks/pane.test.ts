@@ -959,10 +959,9 @@ group('the loop picker', () => {
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
     const opened = titles.length
-    // The Select's own handler, called with what it doesn't list: the guard is the mod's, not the kit's.
-    const onSelect = (await picker(ui))?.props.onSelect as (value: string) => Promise<void>
-    expect(typeof onSelect).toBe('function')
-    for (const value of ['gamma', 'nope']) await onSelect(value)
+    // The kit refuses a value the Select doesn't list, as a surface sends only its options. The mod's own
+    // guard, isListed, is tested in logic.test.ts. Either way nothing switches.
+    for (const value of ['gamma', 'nope']) await ui.select({ key: 'loop-pick', value }).catch(() => undefined)
     await drain()
     await ui.redraw()
     expect(titles.length).toBe(opened)

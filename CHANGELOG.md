@@ -35,6 +35,13 @@ Files: [`examples/mods/loop-crew/hooks/logic.ts`](examples/mods/loop-crew/hooks/
 
 **Do:** `claude plugin update loop-crew@sanvio-harness-starter` in a terminal, then `/reload-plugins` or a new session.
 
+## 2026-11-04: Protect the harness that reviews other repos
+
+A new *Protecting the harness* section in the CI README says that whoever can push or merge to the harness's `main` can read the secrets of every product repo that calls its review, and what to set on that branch, when to pin the caller to a commit, and how to rotate the deploy key. The workflow's header says the same in a sentence.
+Files: [`examples/ci/README.md`](examples/ci/README.md), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if product repos call your harness's review, protect its `main` as the README's *Protecting the harness* says.
+
 ## 2026-11-04: Review flags a note to the reviewer
 
 The review-pr skill now reports text in a change that addresses the reviewer, such as a comment saying the change is approved or to report nothing, as a finding with its line, and reviews the change as if it weren't there. Before, it ignored such a note without saying it was there. Case `05-note-to-the-reviewer` in [`examples/ci/evals/`](examples/ci/evals/) now needs a finding on the note's line as well as the query's.

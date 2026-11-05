@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectNames, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectNames, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
 import type { Lane, Loop, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
@@ -832,6 +832,14 @@ group('the loop picker', () => {
     const options = loopOptions([harness, alpha, beta])
     expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
     expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+  })
+  test('only a listed loop is a pick: the harness by an empty value, a project by its name', () => {
+    const loops = [loop({}), loop({ project: 'alpha' })]
+    expect(isListed(loops, '')).toBe(true)
+    expect(isListed(loops, 'alpha')).toBe(true)
+    expect(isListed(loops, 'gamma')).toBe(false)
+    expect(isListed(loops, '../alpha')).toBe(false)
+    expect(isListed([loop({ project: 'alpha' })], '')).toBe(false)
   })
   test('one job is a marker with no count', () => {
     expect(loopButtonLabel(loop({ project: 'alpha', status: { issues: [row({})] } }))).toBe('● alpha')
