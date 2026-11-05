@@ -29,7 +29,7 @@ fine).
 
 ## 2026-11-05: The loop's review sends a build back only for what would cost something
 
-The loop's review now says FIX only when the tests fail, a requirement in the plan has no test, or a problem would cost something real if the change merged. An untested extra behaviour, or a departure from the plan that changes no requirement's outcome, is still listed in the review's table, which the pull request carries, and no longer costs a round.
+The loop's review now says FIX only when the tests fail, a requirement in the plan has no test, the build worked around tests a separate agent wrote first (with `test_first` on), or a problem would cost something real if the change merged. An untested extra behaviour, or a departure from the plan that changes no requirement's outcome, is still listed in the review's table, which the pull request carries, and no longer costs a round.
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
 

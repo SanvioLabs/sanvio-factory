@@ -395,6 +395,16 @@ class TestPureParts(unittest.TestCase):
             for part in ("Say VERDICT: FIX only for", "doesn't make the verdict FIX"):
                 self.assertNotIn(part, other)
 
+    def test_with_tests_written_first_working_around_them_is_a_reason_for_fix(self):
+        # The list of reasons for FIX says "only", so the test-first one has to be in it, not only after it.
+        prompt = loop.review_prompt("Plan.", "+x", "ok", 0, fixed=("tests/test_x.py",))
+        reasons = prompt[prompt.index("Say VERDICT: FIX only for one of these"):prompt.index("Otherwise say VERDICT: PASS")]
+        self.assertIn("the build worked around the tests a separate agent wrote first", reasons)
+        self.assertIn("say FIX if it did", prompt)
+        plain = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertNotIn("worked around", plain)
+        self.assertNotIn(EM_DASH, prompt)
+
     def test_the_new_asks_stay_out_of_the_build_and_tester_prompts(self):
         for prompt in (loop.build_prompt(4, "Plan."),
                        loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest")):
