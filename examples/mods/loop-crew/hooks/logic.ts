@@ -89,6 +89,46 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
   return null
 }
 
+// One loop as the picker lists it: the root it's under, its project (unset for the harness's own), its
+// status file, and whether a live process holds its lock.
+export type Loop = { root: string; project?: string; status: Status | null; isLocked: boolean }
+
+// Copied from loop-pane's hooks/logic.ts, with the same bodies: one installed mod can't import from another.
+
+// The projects with a loop to show, by name: folders under PROJECTS_DIR that hold a status file.
+export async function projectNames(entries: { name: string; kind: string }[], hasStatus: (name: string) => Promise<boolean>): Promise<string[]> {
+  const folders = entries.filter(e => e.kind === 'dir').map(e => e.name).sort((a, b) => a.localeCompare(b))
+  const held = await Promise.all(folders.map(name => hasStatus(name)))
+  return folders.filter((_, i) => held[i])
+}
+
+// What a loop is called: the project's name, or the root's folder for the harness.
+export function loopLabel(seen: Loop): string {
+  return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
+}
+
+// How many jobs a live loop is on. The lock is the truth about running, so with no live lock it's
+// none, whatever the file's rows say. A stop request doesn't change it: those jobs are still being worked.
+export function workingCount(seen: Loop): number {
+  if (!seen.isLocked) return 0
+  return seen.status?.issues.filter(r => r.state === 'working').length ?? 0
+}
+
+// What a loop's button says: its name, with a marker while it's on a job and a count past one.
+export function loopButtonLabel(seen: Loop): string {
+  const working = workingCount(seen)
+  if (!working) return loopLabel(seen)
+  return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
+}
+
+// The loop picker's options: the loops on a job first, each group in its own order. A project's
+// value is its name, the harness's ''.
+export function loopOptions(loops: Loop[]): { value: string; label: string }[] {
+  const working = loops.filter(l => workingCount(l) > 0)
+  const rest = loops.filter(l => workingCount(l) === 0)
+  return [...working, ...rest].map(loop => ({ value: loop.project ?? '', label: loopButtonLabel(loop) }))
+}
+
 const WORDS: Record<string, string> = {
   SHAPE: 'planning',
   TEST: 'writing tests',

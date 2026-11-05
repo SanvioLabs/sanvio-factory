@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, parseSpend, parseStatus, place, scene, showsBoard, svgColumns } from './logic'
-import type { Ink, Lane, Placement } from './logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './logic'
+import type { Ink, Lane, Loop, Placement } from './logic'
 import type { Row, Seen, Spend } from '../types'
 
 const PANE = 'loop-crew'
@@ -16,15 +16,21 @@ const HEAD_KEY = 'head'
 const laneKey = (number: number): string => `lane-${number}`
 // How often the other surfaces redraw while a time counts. They don't run the tick.
 const REDRAW_MS = 30_000
-// What the pane asks for when it opens: a board with room for three lanes. The words take a row a lane,
-// the lane its 3 rows, its row of times and its row of spend.
+// What the pane asks for when it opens: a board with room for three lanes. One row is the loop picker's
+// and one the header's. The words take a row a lane, the lane its 3 rows, its row of times and its row of
+// spend.
 const WANT_COLUMNS = 72
 const LANE_HEIGHT = LANE_ROWS + 3
-const WANT_ROWS = 1 + 3 * LANE_HEIGHT
+const WANT_ROWS = 2 + 3 * LANE_HEIGHT
 
 const launchAtom = atom({ plugin: 'loop-crew', key: 'launch' } as const, null)
 const shownAtom = atom({ plugin: 'loop-crew', key: 'shown' } as const, '')
 const seenAtom = atom({ plugin: 'loop-crew', key: 'seen' } as const, null)
+// Every loop the picker lists, compared on its own: seen stays a copy of the shown loop's files, and a
+// loop off screen still changes its option.
+const loopsAtom = atom({ plugin: 'loop-crew', key: 'loops' } as const, null)
+// Counts the reads of every loop, so an older one that ends later doesn't overwrite a newer one.
+let loopReads = 0
 
 let stopPolling: (() => void) | null = null
 let stopBoard: (() => void) | null = null
@@ -93,6 +99,33 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
+// Every loop the picker lists: the harness first, then each project folder holding a status file, by
+// name. A project whose status file can't be read or doesn't parse is left out. The harness always
+// stays, since the command can always show it. A folder that can't be listed gives the harness alone.
+async function readLoops($: EngineInterface, root: string): Promise<Loop[]> {
+  const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
+  const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`).catch(() => false))
+  const one = async (project?: string): Promise<Loop | null> => {
+    const [text, holder] = await Promise.all([
+      $.fs.read(`${root}/${loopDir(project)}/status.json`).catch(() => null),
+      lockHolderAlive($, root, project),
+    ])
+    const status = parseStatus(text)
+    if (project && !status) return null
+    return { root, ...(project ? { project } : {}), status, isLocked: holder === true }
+  }
+  const loops = await Promise.all([one(), ...names.map(name => one(name))])
+  return loops.filter((loop): loop is Loop => loop !== null)
+}
+
+// Keep a read of every loop when no newer one has started and it differs from the last. Says whether
+// it was kept, so the caller asks for the redraw.
+async function storeLoops($: EngineInterface, at: number, loops: Loop[]): Promise<boolean> {
+  if (at !== loopReads || JSON.stringify(await read($, loopsAtom)) === JSON.stringify(loops)) return false
+  await update($, loopsAtom, () => loops)
+  return true
+}
+
 // Read usage.json for each lane drawn, or about to be, that has no read yet, or whose run, tokens or cost
 // has changed since its last read, and for no other: a lane a short terminal pane leaves out is never
 // read. A file that's missing or can't be read is no spend.
@@ -147,11 +180,22 @@ function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placeme
 // A read that a switch overtook is dropped. The project is part of what's compared, so a switch always
 // counts. `isOpening` is the read the command makes: it has no previous placement, even when it equals
 // the last read, because a reopen can read the same data. A placement from another loop is none either.
+// Every run reads every loop too, for the picker. A poll waits for them, so a change in the shown loop
+// and in the list asks for one redraw between them. The command's read doesn't wait, and the picker
+// follows with its own redraw when it differs.
 async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const root = await rootOf($)
   if (!root) return
   const name = await read($, shownAtom)
-  const next = await look($, root, name || undefined)
+  const at = ++loopReads
+  const reading = readLoops($, root)
+  if (isOpening) {
+    void reading
+      .then(loops => storeLoops($, at, loops))
+      .then(kept => kept && $.ui.invalidate('ui.render'))
+      .catch(() => {})
+  }
+  const [next, loops] = await Promise.all([look($, root, name || undefined), isOpening ? null : reading])
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name) return
   forgetUnlisted(next)
@@ -167,9 +211,28 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const placement = place(next, known?.placement ?? null, now)
   placed = { shown: name, placement }
   endWalkOuts($, known?.placement ?? null, placement)
-  if (JSON.stringify(await read($, seenAtom)) === JSON.stringify(next)) return
-  await update($, seenAtom, () => next)
-  $.ui.invalidate('ui.render')
+  const loopsKept = loops !== null && (await storeLoops($, at, loops))
+  const seenChanged = JSON.stringify(await read($, seenAtom)) !== JSON.stringify(next)
+  if (seenChanged) await update($, seenAtom, () => next)
+  if (seenChanged || loopsKept) $.ui.invalidate('ui.render')
+}
+
+// Show a loop, by its project's name or '' for the harness: the command's switch and a pick's. On a pane
+// already open this retitles it.
+async function show($: EngineInterface, name: string) {
+  await update($, shownAtom, () => name)
+  await refresh($, true)
+  const opened = await $.ui.open({ id: PANE, title: name ? `Loop crew: ${name}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
+  startPolling($)
+  return opened
+}
+
+// A pick from the dropdown. Only a loop it lists, and one not already on screen, switches the pane, as
+// the command does. A pick never closes the pane.
+async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<void> {
+  if (!loops.some(loop => (loop.project ?? '') === value)) return
+  if ((await read($, shownAtom)) === value) return
+  await show($, value).catch(() => {})
 }
 
 // Poll only while the pane is up, so a session that never opens it reads nothing.
@@ -284,11 +347,7 @@ export const register: Register = on => {
           return { text: "The loop crew pane couldn't close. The × in its corner closes it." }
         }
       }
-      await update($, shownAtom, () => name)
-      await refresh($, true)
-      // On a pane already open this retitles it.
-      const opened = await $.ui.open({ id: PANE, title: name ? `Loop crew: ${name}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
-      startPolling($)
+      const opened = await show($, name)
       return { text: opened.isPlaced ? 'Loop crew opened.' : 'Loop crew opened. Widen the terminal to see it.' }
     } catch {
       return { text: "The loop crew pane couldn't open." }
@@ -304,10 +363,28 @@ export const register: Register = on => {
     const seen = await read($, seenAtom)
     if (isTerminal) mounted = null
     if (!seen) return <Text dimColor>Looking for the loop…</Text>
+    // The loop picker, above everything else, when there's more than one loop. The mobile app draws no
+    // Select, so there the command is the only way to switch.
+    const Select = e.surface === 'mobile' ? null : elements.Select
+    const loops = (await read($, loopsAtom)) ?? []
+    const picks = !!Select && loops.length > 1
+    const picker = picks && Select && (
+      <Select key="loop-pick" options={loopOptions(loops)} value={seen.project ?? ''} onSelect={value => pick($, value, loops)} />
+    )
     const { message } = scene(seen)
     const now = await $.clock.now()
     const placement = placementFor(seen, now)
-    if (message && !showsBoard(message, placement, now)) return <Text key="message" dimColor>{message}</Text>
+    if (message && !showsBoard(message, placement, now)) {
+      const said = <Text key="message" dimColor>{message}</Text>
+      return picker ? (
+        <Box flexDirection="column">
+          {picker}
+          {said}
+        </Box>
+      ) : (
+        said
+      )
+    }
     const lanes = lanesOf(placement, now)
 
     // A lane's words: where it has got to in the colour of that step, and on a terminal never the part cut.
@@ -327,7 +404,7 @@ export const register: Register = on => {
       const { Raster } = elements
       const columns = boardColumns(e.props.bodyColumns)
       const bodyRows = e.props.scroll?.bodyRows
-      const room = bodyRows === undefined ? undefined : bodyRows - (columns ? 1 : 0)
+      const room = bodyRows === undefined ? undefined : bodyRows - (columns ? 1 : 0) - (picks ? 1 : 0)
       const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
       const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
       const more = lanes.length - shown.length
@@ -340,6 +417,7 @@ export const register: Register = on => {
       if (columns) painted.set(HEAD_KEY, head)
       return (
         <Box flexDirection="column">
+          {picker}
           {columns && <Raster key={HEAD_KEY} columns={columns} rows={1} cells={head} />}
           {shown.map(lane => {
             const cells = columns ? laneCells(lane, columns, now, ink, spendOf(seen, lane.row.number)) : ''
@@ -364,6 +442,7 @@ export const register: Register = on => {
     await readSpends($, seen, lanes.map(lane => lane.row))
     return (
       <Box flexDirection="column" rowGap={1}>
+        {picker}
         {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink, columns)} alt="The loop's steps, left to right" />}
         {lanes.map(lane => (
           <Box key={`lane-box-${lane.row.number}`} flexDirection="column">

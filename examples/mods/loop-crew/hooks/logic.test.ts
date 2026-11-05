@@ -1,7 +1,7 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, parseSpend, parseStatus, place, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
-import type { Lane, Station, Walk } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectNames, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import type { Lane, Loop, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
 const NOW = 1_800_000_000_000
@@ -816,5 +816,24 @@ group('the copied helpers', () => {
     const exists = async (path: string) => path === '/h/starter/scripts/loop.py'
     expect(await findRoot('/h/starter/projects/acme', exists)).toBe('/h/starter')
     expect(await findRoot('/elsewhere', exists)).toBeNull()
+  })
+})
+
+group('the loop picker', () => {
+  const loop = (over: Partial<Loop>): Loop => ({ root: '/h/starter', status: { issues: [] }, isLocked: true, ...over })
+  test('the projects are the folders holding a status file, by name, and nothing else', async () => {
+    const entries = [{ name: 'gamma', kind: 'dir' }, { name: 'beta', kind: 'dir' }, { name: 'alpha', kind: 'dir' }, { name: 'a-file', kind: 'file' }]
+    expect(await projectNames(entries, async name => name !== 'gamma')).toEqual(['alpha', 'beta'])
+  })
+  test('the loops on a job come first, the harness is named by its folder, and a loop with no live lock counts none', () => {
+    const harness = loop({ status: { issues: [row({ number: 12, state: 'pr' })] } })
+    const alpha = loop({ project: 'alpha', status: { issues: [row({ number: 30 }), row({ number: 31 })] } })
+    const beta = loop({ project: 'beta', isLocked: false, status: { issues: [row({ number: 40 })] } })
+    const options = loopOptions([harness, alpha, beta])
+    expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
+    expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+  })
+  test('one job is a marker with no count', () => {
+    expect(loopButtonLabel(loop({ project: 'alpha', status: { issues: [row({})] } }))).toBe('● alpha')
   })
 })

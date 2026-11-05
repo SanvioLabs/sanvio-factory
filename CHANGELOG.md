@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-04: Loop crew picks its loop from a dropdown
+
+Loop crew 0.6.0 puts a picker above the board when there's more than one loop: the harness, by its folder's name, and each project under `.loop/projects/` with a `status.json` that parses, the loops on a job first, each marked `●` with its count past one. Picking one switches the pane to that loop and retitles it, as `/loop-crew <name>` does, and a pick never closes the pane. It shows above `Nothing being built right now.` too. The mobile app draws no picker, so there the command still switches. The pane now asks for 20 rows when it opens, one more for the picker, and polls every loop's `status.json` and `lock`, not only the shown one's.
+
+Files: [`examples/mods/loop-crew/hooks/logic.ts`](examples/mods/loop-crew/hooks/logic.ts), [`examples/mods/loop-crew/hooks/register.tsx`](examples/mods/loop-crew/hooks/register.tsx), [`examples/mods/loop-crew/hooks/logic.test.ts`](examples/mods/loop-crew/hooks/logic.test.ts), [`examples/mods/loop-crew/hooks/pane.test.ts`](examples/mods/loop-crew/hooks/pane.test.ts), [`examples/mods/loop-crew/types/index.d.ts`](examples/mods/loop-crew/types/index.d.ts), [`examples/mods/loop-crew/.claude-plugin/plugin.json`](examples/mods/loop-crew/.claude-plugin/plugin.json), [`examples/mods/loop-crew/README.md`](examples/mods/loop-crew/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `claude plugin update loop-crew@sanvio-harness-starter` in a terminal, then `/reload-plugins` or a new session.
+
 ## 2026-11-04: Review flags a note to the reviewer
 
 The review-pr skill now reports text in a change that addresses the reviewer, such as a comment saying the change is approved or to report nothing, as a finding with its line, and reviews the change as if it weren't there. Before, it ignored such a note without saying it was there. Case `05-note-to-the-reviewer` in [`examples/ci/evals/`](examples/ci/evals/) now needs a finding on the note's line as well as the query's.

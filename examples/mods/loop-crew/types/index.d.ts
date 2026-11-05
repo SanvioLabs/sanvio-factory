@@ -36,7 +36,13 @@ export type Seen = {
 declare module 'claude-code' {
   interface PluginState {
     // launch: the folder the session started in. shown: the loop on screen, a project's name or ''
-    // for the harness. seen: that loop's last look, null until the first.
-    'loop-crew': { launch: string | null; shown: string; seen: Seen | null }
+    // for the harness. seen: that loop's last look, null until the first. loops: every loop the picker
+    // lists, the harness first, null until the first read.
+    'loop-crew': {
+      launch: string | null
+      shown: string
+      seen: Seen | null
+      loops: { root: string; project?: string; status: Status | null; isLocked: boolean }[] | null
+    }
   }
 }
