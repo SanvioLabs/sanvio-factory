@@ -29,7 +29,8 @@ const seenAtom = atom({ plugin: 'loop-crew', key: 'seen' } as const, null)
 // Every loop the picker lists, compared on its own: seen stays a copy of the shown loop's files, and a
 // loop off screen still changes its option.
 const loopsAtom = atom({ plugin: 'loop-crew', key: 'loops' } as const, null)
-// Counts the reads of every loop, so an older one that ends later doesn't overwrite a newer one.
+// Counts the reads of every loop, so a switch's, which nothing waits for, doesn't overwrite a newer one
+// when it ends later.
 let loopReads = 0
 
 let stopPolling: (() => void) | null = null
@@ -100,8 +101,8 @@ async function look($: EngineInterface, root: string, project?: string): Promise
 }
 
 // Every loop the picker lists: the harness first, then each project folder holding a status file, by
-// name. A project whose status file can't be read or doesn't parse is left out. The harness always
-// stays, since the command can always show it. A folder that can't be listed gives the harness alone.
+// name. A loop whose status file can't be read or doesn't parse is left out, the harness's too. A
+// folder that can't be listed gives the harness alone, or nothing when it's left out too.
 async function readLoops($: EngineInterface, root: string): Promise<Loop[]> {
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`).catch(() => false))
@@ -111,7 +112,7 @@ async function readLoops($: EngineInterface, root: string): Promise<Loop[]> {
       lockHolderAlive($, root, project),
     ])
     const status = parseStatus(text)
-    if (project && !status) return null
+    if (!status) return null
     return { root, ...(project ? { project } : {}), status, isLocked: holder === true }
   }
   const loops = await Promise.all([one(), ...names.map(name => one(name))])
@@ -180,8 +181,9 @@ function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placeme
 // A read that a switch overtook is dropped. The project is part of what's compared, so a switch always
 // counts. `isOpening` is the read the command makes: it has no previous placement, even when it equals
 // the last read, because a reopen can read the same data. A placement from another loop is none either.
-// Every run reads every loop too, for the picker. A poll waits for them, so a change in the shown loop
-// and in the list asks for one redraw between them. The command's read doesn't wait, and the picker
+// Every run reads every loop too, for the picker. A poll and an open wait for them, so the list is kept
+// before the seen comparison and a change in either asks for one redraw between them. A switch on a
+// pane already up doesn't wait: a slow read of another loop doesn't hold up the pane, and the picker
 // follows with its own redraw when it differs.
 async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const root = await rootOf($)
@@ -189,13 +191,14 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const name = await read($, shownAtom)
   const at = ++loopReads
   const reading = readLoops($, root)
-  if (isOpening) {
+  const isSwitch = isOpening && (await paneIsUp($))
+  if (isSwitch) {
     void reading
       .then(loops => storeLoops($, at, loops))
       .then(kept => kept && $.ui.invalidate('ui.render'))
       .catch(() => {})
   }
-  const [next, loops] = await Promise.all([look($, root, name || undefined), isOpening ? null : reading])
+  const [next, loops] = await Promise.all([look($, root, name || undefined), isSwitch ? null : reading])
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name) return
   forgetUnlisted(next)
@@ -232,7 +235,7 @@ async function show($: EngineInterface, name: string) {
 async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<void> {
   if (!loops.some(loop => (loop.project ?? '') === value)) return
   if ((await read($, shownAtom)) === value) return
-  await show($, value).catch(() => {})
+  await show($, value)
 }
 
 // Poll only while the pane is up, so a session that never opens it reads nothing.

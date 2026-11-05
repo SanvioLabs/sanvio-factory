@@ -1,5 +1,5 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
-import type { Row, Seen, Spend, Status } from '../types'
+import type { Loop, Row, Seen, Spend, Status } from '../types'
 
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
@@ -89,9 +89,8 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
   return null
 }
 
-// One loop as the picker lists it: the root it's under, its project (unset for the harness's own), its
-// status file, and whether a live process holds its lock.
-export type Loop = { root: string; project?: string; status: Status | null; isLocked: boolean }
+// One loop as the picker lists it, written out in the types beside Seen.
+export type { Loop } from '../types'
 
 // Copied from loop-pane's hooks/logic.ts, with the same bodies: one installed mod can't import from another.
 

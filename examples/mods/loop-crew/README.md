@@ -97,8 +97,8 @@ Checked in this order:
 ## The board
 
 When there's more than one loop, a picker sits above the header, and above the pane's message when
-there's no board. It lists the harness, by its folder's name, and each folder under
-`.loop/projects/` with a `status.json` that parses, the loops on a job first, each marked `●` with
+there's no board. It lists each loop whose `status.json` parses, the harness by its folder's name
+and each folder under `.loop/projects/` by its own, the loops on a job first, each marked `●` with
 its count past one. Picking a loop switches the pane to it and retitles it, as `/loop-crew <name>`
 does. Picking the loop already shown changes nothing, and a pick never closes the pane. The mobile
 app draws no picker; there the command switches.

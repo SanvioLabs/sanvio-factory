@@ -57,7 +57,7 @@ const lastBlit = (blits: { key: string; cells: string }[], key: string): string 
 
 // The engine beneath the mod: a harness whose loop files are `files`, by path, and a pane. The test
 // changes `files` between polls, `panes` to stand a pane behind another, and `flip` to refuse a close,
-// take the root away or leave the lock's holder gone.
+// take the root away, leave the lock's holder gone or fail the listing of .loop/projects/.
 function world(on: On, files: Map<string, string>) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const ran: string[][] = []
@@ -67,7 +67,7 @@ function world(on: On, files: Map<string, string>) {
   const blits: { key: string; cells: string }[] = []
   const invalidated: string[] = []
   const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-  const flip = { closeFails: false, rootGone: false, staleLock: false, unplaced: false, closes: 0, paneReads: 0, blit: 'take' as 'take' | 'deny' | 'none', hold: null as Promise<void> | null }
+  const flip = { closeFails: false, rootGone: false, staleLock: false, unplaced: false, listFails: false, closes: 0, paneReads: 0, blit: 'take' as 'take' | 'deny' | 'none', hold: null as Promise<void> | null }
   const process = (exitCode: number, stderr: string) => ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   on('session.root', async () => ({ value: ROOT }))
   on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
@@ -78,7 +78,7 @@ function world(on: On, files: Map<string, string>) {
     return text === undefined ? { deny: `no ${e.path}` } : { value: text }
   })
   on('fs.list', async (_$, e) => {
-    if (e.path !== `${ROOT}/.loop/projects`) return { deny: `no ${e.path}` }
+    if (flip.listFails || e.path !== `${ROOT}/.loop/projects`) return { deny: `no ${e.path}` }
     const names = [...files.keys()].flatMap(p => p.match(/\/\.loop\/projects\/([^/]+)\//)?.[1] ?? [])
     const dirs = [...new Set(names)].map(name => ({ name, kind: 'dir' as const, size: 0 }))
     return { value: [...dirs, { name: 'a-file', kind: 'file' as const, size: 0 }] } as never
@@ -846,6 +846,12 @@ group('the loop picker', () => {
     await drain()
   }
   const picker = async (ui: Picks): Promise<Found | undefined> => ui.find({ key: 'loop-pick' })
+  const values = async (ui: Picks): Promise<string[]> => ((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)
+  // Which of the pane's top children first holds `needle`, as loop-pane's tests find its row.
+  const childAt = async (ui: Picks, needle: string): Promise<number> => {
+    const top = (await ui.drawn()) as { children?: unknown[] }
+    return (top.children ?? []).findIndex(c => JSON.stringify(c).includes(needle))
+  }
   const choose = async (ui: Picks, value: string): Promise<void> => {
     await ui.select({ key: 'loop-pick', value })
     await drain()
@@ -896,7 +902,7 @@ group('the loop picker', () => {
     await ui.unmount()
     await close()
   })
-  test('with two loops the mobile app has no picker, and the desktop has one above the header', async ($, on) => {
+  test('with two loops the mobile app has no picker, and the desktop has one as its first child, above the header', async ($, on) => {
     const { close } = world(on, two())
     await open($)
     const phone = (await $.ui.mount(pane(72, 40, 'mobile'))) as unknown as Picks
@@ -904,10 +910,109 @@ group('the loop picker', () => {
     expect((await laneSvgs(phone)).length).toBe(2)
     await phone.unmount()
     const desk = (await $.ui.mount(pane(72, 40, 'desktop'))) as unknown as Picks
-    const drawn = JSON.stringify(await desk.drawn())
     expect(await picker(desk)).toBeDefined()
-    expect(drawn.indexOf('loop-pick')).toBeLessThan(drawn.indexOf('head'))
+    expect(await childAt(desk, '"loop-pick"')).toBe(0)
+    expect(await childAt(desk, '#12')).toBeGreaterThan(0)
     await desk.unmount()
+    await close()
+  })
+  test('on a terminal the picker is the first child, above the header and the lanes', async ($, on) => {
+    const { close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await ui.find({ key: 'head' })).toBeDefined()
+    expect(await childAt(ui, '"loop-pick"')).toBe(0)
+    expect(await childAt(ui, '#12')).toBeGreaterThan(0)
+    await ui.unmount()
+    await close()
+  })
+  test('an open keeps every loop before it compares the shown one: the picker at once, and one redraw', async ($, on) => {
+    const { invalidated, close } = world(on, two())
+    await say($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await picker(ui)).toBeDefined()
+    await drain()
+    await drain()
+    expect(invalidated.length).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  for (const [what, text] of [['missing', undefined], ["one that won't parse", '{not json']] as const) {
+    test(`the harness is left out of the picker when its status file is ${what}`, async ($, on) => {
+      const files = new Map([
+        [`${HARNESS}/lock`, '4242'],
+        [`${ALPHA}/status.json`, statusText(job(30, 'BUILD'))],
+        [`${ALPHA}/lock`, '4242'],
+        [`${BETA}/status.json`, statusText(job(40, 'TEST'))],
+      ])
+      if (text !== undefined) files.set(STATUS, text)
+      const { close } = world(on, files)
+      await open($)
+      const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+      expect(await values(ui)).toEqual(['alpha', 'beta'])
+      await ui.unmount()
+      await close()
+    })
+  }
+  test("a value that isn't one of the options switches nothing, even a folder the command would take", async ($, on) => {
+    const { titles, flip, close } = world(on, four())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    const opened = titles.length
+    // The Select's own handler, called with what it doesn't list: the guard is the mod's, not the kit's.
+    const onSelect = (await picker(ui))?.props.onSelect as (value: string) => Promise<void>
+    expect(typeof onSelect).toBe('function')
+    for (const value of ['gamma', 'nope']) await onSelect(value)
+    await drain()
+    await ui.redraw()
+    expect(titles.length).toBe(opened)
+    expect(flip.closes).toBe(0)
+    expect((await picker(ui))?.props.value).toBe('')
+    expect(JSON.stringify(await ui.drawn())).toContain('Nothing being built right now.')
+    await ui.unmount()
+    await close()
+  })
+  test("a projects folder that can't be listed gives the harness alone, so the picker goes", async ($, on) => {
+    const { clock, flip, reads, close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await picker(ui)).toBeDefined()
+    const alphaReads = () => reads.filter(path => path === `${ALPHA}/status.json`).length
+    const before = alphaReads()
+    flip.listFails = true
+    await clock.advance(2000)
+    await drain()
+    await ui.redraw()
+    expect(await picker(ui)).toBeUndefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(alphaReads()).toBe(before)
+    await ui.unmount()
+    await close()
+  })
+  test("a switch's read of every loop that ends after a newer one is dropped", async ($, on) => {
+    const files = two()
+    const { clock, flip, close } = world(on, files)
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    // The switch doesn't wait for its read of every loop, which holds at the harness's status file.
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    await say($, 'alpha')
+    await drain()
+    // beta appears, and the next poll's read, not held, lists it.
+    flip.hold = null
+    files.set(`${BETA}/status.json`, statusText(job(40, 'TEST')))
+    await clock.advance(2000)
+    await drain()
+    await ui.redraw()
+    expect(await values(ui)).toEqual(['', 'alpha', 'beta'])
+    // The switch's read, from before beta, ends last and changes nothing.
+    release()
+    await drain()
+    await drain()
+    await ui.redraw()
+    expect(await values(ui)).toEqual(['', 'alpha', 'beta'])
+    await ui.unmount()
     await close()
   })
   test("picking alpha retitles the pane and draws alpha's lanes, and picking the harness goes back", async ($, on) => {
