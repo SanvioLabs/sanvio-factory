@@ -54,7 +54,7 @@ name: Review pull request
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -74,6 +74,7 @@ jobs:
       HARNESS_DEPLOY_KEY: ${{ secrets.HARNESS_DEPLOY_KEY }}
 ```
 
+A draft pull request skips the review with a notice, and gets its review when it's marked ready for review.
 It passes the two secrets by name rather than with `secrets: inherit`, so the
 harness's workflow gets those two and none of the product repo's others. The
 permissions are the most it gets: a called workflow can't widen them.

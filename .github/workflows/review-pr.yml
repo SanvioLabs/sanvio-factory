@@ -86,8 +86,18 @@ jobs:
           fi
           echo "review=true" >> "$GITHUB_OUTPUT"
 
-      - name: Skip when Claude has no key
+      - name: Skip a draft pull request
         if: steps.scope.outputs.review == 'true'
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [ "$DRAFT" = "true" ]; then
+            echo "REVIEW_SKIPPED=true" >> "$GITHUB_ENV"
+            echo "::notice::This pull request is a draft, so the review skips until it's marked ready for review."
+          fi
+
+      - name: Skip when Claude has no key
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
