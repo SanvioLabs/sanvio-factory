@@ -49,7 +49,9 @@ Set it up in this order. Each step links to its detail in
    organization".
    [A private harness repo](../examples/ci/README.md#a-private-harness-repo)
 3. **Make a deploy key** on your machine, and add its public half to the
-   harness repo with write access off.
+   harness repo with write access off. If GitHub answers "Deploy keys are
+   disabled for this repository", your organisation has them switched off, and
+   an organisation owner has to allow them first.
    [The credential](../examples/ci/README.md#the-credential)
 4. **Add two secrets**, before the caller, so its first pull request doesn't
    skip: `HARNESS_DEPLOY_KEY`, the deploy key's private half, and

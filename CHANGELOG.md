@@ -29,9 +29,9 @@ fine).
 
 ## 2026-11-05: Guides for CI and for measuring a harness
 
-Two guides, each with an animation, linked from a new Guides section in the README. [`docs/harness-in-ci.md`](docs/harness-in-ci.md) walks through putting your harness in a product repo's CI: checks first, then a review on every pull request from one harness repo, in the order to set it up, then the loop on a runner. [`docs/harness-evals.md`](docs/harness-evals.md) covers checking a reviewer still catches what it should, running the whole harness through a suite, reading the scorecard and comparing two runs. "The loop" in [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says what the review's FIX is for.
+Two guides, each with an animation, linked from a new Guides section in the README. [`docs/harness-in-ci.md`](docs/harness-in-ci.md) walks through putting your harness in a product repo's CI: checks first, then a review on every pull request from one harness repo, in the order to set it up, then the loop on a runner. [`docs/harness-evals.md`](docs/harness-evals.md) covers checking a reviewer still catches what it should, running the whole harness through a suite, reading the scorecard and comparing two runs. "The loop" in [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says what the review's FIX is for. [`examples/ci/README.md`](examples/ci/README.md) says what to do when an organisation has deploy keys switched off.
 
-Files: [`docs/harness-in-ci.md`](docs/harness-in-ci.md), [`docs/harness-in-ci.gif`](docs/harness-in-ci.gif), [`docs/harness-evals.md`](docs/harness-evals.md), [`docs/harness-evals.gif`](docs/harness-evals.gif), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`docs/harness-in-ci.md`](docs/harness-in-ci.md), [`docs/harness-in-ci.gif`](docs/harness-in-ci.gif), [`docs/harness-evals.md`](docs/harness-evals.md), [`docs/harness-evals.gif`](docs/harness-evals.gif), [`examples/ci/README.md`](examples/ci/README.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
 
