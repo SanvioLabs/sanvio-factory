@@ -84,7 +84,7 @@ A name must be exactly a folder under `.loop/projects/`. Anything else, `../x` i
 `No loop for <name> under .loop/projects/.` and changes nothing.
 
 The focus is the one `/project` sets, read from `.harness/project/<session id>` the way the loop
-pane reads it: a real folder directly under `projects/`, not a link. While the pane is open it
+pane reads it: a real folder directly under [`projects/`](../../../projects/), not a link. While the pane is open it
 follows `/project` changes on each poll: a new focus whose loop the picker lists switches the pane
 to it, and a cleared focus switches it to the harness. A focus whose loop isn't listed switches
 nothing. A pick, or `/loop-crew <name>`, holds until the focus changes. Loop crew never sets the

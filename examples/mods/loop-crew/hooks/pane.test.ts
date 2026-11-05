@@ -1692,4 +1692,17 @@ group('the project in focus', () => {
     await ui.unmount()
     await close()
   })
+  test('a focus changed after the pane closes reopens nothing and switches nothing', async ($, on) => {
+    const { clock, files, titles, reads, panes, writes, close } = focused(on, 'app')
+    expect(await say($)).toBe('Loop crew opened.')
+    expect(await say($)).toBe('Loop crew closed.')
+    const before = reads.length
+    files.set(FOCUS, 'other')
+    for (let i = 0; i < 3; i++) await poll(clock)
+    expect(titles).toEqual(['Loop crew: app'])
+    expect(panes).toEqual([])
+    expect(reads.slice(before)).not.toContain(FOCUS)
+    expect(writes).toEqual([])
+    await close()
+  })
 })
