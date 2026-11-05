@@ -83,11 +83,14 @@ Set it up in this order. Each step links to its detail in
 
 Before you point it at real work, open a pull request in a repo of your own
 with problems you planted, and check the review names each one with its file
-and line. Three that work in any repo:
+and line. Two that work in any repo:
 
 - a function that branches on its input, with no test
 - `except Exception: pass` around a call that can fail
-- a made-up database password written into the code
+
+A made-up password in the code is worth a pull request of its own. The review
+names its file and line without repeating the value, then stops there, as the
+skill says to, so anything planted beside it goes unread.
 
 [`examples/ci/evals/`](../examples/ci/evals/) holds six changes like these, each with what a good
 review of it finds. `python3 scripts/eval_agents.py examples/ci/evals` runs
