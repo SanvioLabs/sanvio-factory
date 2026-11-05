@@ -92,6 +92,13 @@ the issue: the tests and the review would only repeat. A pass needs the tests to
 **and** the review to say PASS: the script runs the tests, so the agent never
 grades its own work.
 
+The review says FIX only when the tests failed, a requirement in the plan has
+no test, a build with `test_first` on worked around the tests written first, or
+the change would cost something real if it merged, such as wrong behaviour, a
+security or privacy gap, or lost data. Anything else it finds, such as an
+untested extra the plan didn't ask for, goes in its table on the pull request
+for the person who merges, and costs no round.
+
 ![scripts/loop.py takes issue #12 through five steps. Discover picks the loop-ready issue and writes ticket.md. Shape: a fresh agent writes plan.md. Build: another fresh agent makes the change in a worktree outside the clone. Validate: the script runs the tests and a second agent reads the diff; round 1 fails with review FIX, so it goes back to Build. Round 2 passes the tests and the review says PASS. Scale opens a pull request that closes #12 and doesn't merge it, and what went wrong goes to lessons.md. Each step writes one line to .loop/loop.log as it happens.](docs/one-issue-through-the-loop.gif)
 
 **Watch it** with `tail -f .loop/loop.log`, or run it in tmux and attach: the `loop-control` skill starts it that way when tmux is installed, and a run inside tmux logs a `START` line with the attach command. One line per event, the issue

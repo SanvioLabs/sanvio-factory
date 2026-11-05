@@ -37,6 +37,12 @@ alone.
    public half, and leave "Allow write access" off. The review only reads the
    harness, and a key that can't write can't change it.
 
+If GitHub refuses the key with "Deploy keys are disabled for this repository",
+the organisation has turned deploy keys off for every repo in it. An
+organisation owner allows them in the organisation's settings, and then the key
+can be added. Turning them on lets any repo admin in the organisation add one,
+so it's a decision for whoever set that policy.
+
 ## The caller
 
 Add this to each product repo as a workflow file, `.github/workflows/review.yml` say, with

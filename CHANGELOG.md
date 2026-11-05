@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-05: Guides for CI and for measuring a harness
+
+Two guides, each with an animation, linked from a new Guides section in the README. [`docs/harness-in-ci.md`](docs/harness-in-ci.md) walks through putting your harness in a product repo's CI: checks first, then a review on every pull request from one harness repo, in the order to set it up, then the loop on a runner. [`docs/harness-evals.md`](docs/harness-evals.md) covers checking a reviewer still catches what it should, running the whole harness through a suite, reading the scorecard and comparing two runs. "The loop" in [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says what the review's FIX is for. [`examples/ci/README.md`](examples/ci/README.md) says what to do when an organisation has deploy keys switched off. The CI guide lists the errors a first setup hits, from a trial run, with each one's fix.
+
+Files: [`docs/harness-in-ci.md`](docs/harness-in-ci.md), [`docs/harness-in-ci.gif`](docs/harness-in-ci.gif), [`docs/harness-evals.md`](docs/harness-evals.md), [`docs/harness-evals.gif`](docs/harness-evals.gif), [`examples/ci/README.md`](examples/ci/README.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-05: The loop's review sends a build back only for what would cost something
 
 The loop's review now says FIX only when the tests fail, a requirement in the plan has no test, the build worked around tests a separate agent wrote first (with `test_first` on), or a problem would cost something real if the change merged. An untested extra behaviour, or a departure from the plan that changes no requirement's outcome, is still listed in the review's table, which the pull request carries, and no longer costs a round.
