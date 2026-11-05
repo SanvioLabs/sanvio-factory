@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-05: The loop's review sends a build back only for what would cost something
+
+The loop's review now says FIX only when the tests fail, a requirement in the plan has no test, the build worked around tests a separate agent wrote first (with `test_first` on), or a problem would cost something real if the change merged. An untested extra behaviour, or a departure from the plan that changes no requirement's outcome, is still listed in the review's table, which the pull request carries, and no longer costs a round.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** stop and start a running loop for its reviews to use the new rule.
+
 ## 2026-11-04: Standup asks about each item with a recommendation
 
 Standup's walk through the items is now a multiple-choice question per item, through `AskUserQuestion` (up to four a call), in the same turn as the report. Each question names the item and why it matters, offers two to four next actions, and puts the recommended one first, marked `(Recommended)`, with a line on why. Every item under **On you** and **Waiting on someone** is asked, and it never falls back to asking for a reply in prose. A tool without the question window gets the same question as numbered options in plain text. It still changes nothing.

@@ -698,6 +698,8 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
     held = (" A separate agent wrote these tests before the build: {}. Judge whether the build worked around "
             "them, for example with a skip or a mock that makes them meaningless, and say FIX if it "
             "did.".format(", ".join(fixed))) if fixed else ""
+    # With tests written first, working around them is a reason for FIX too, so the list says so.
+    worked = ", the build worked around the tests a separate agent wrote first" if fixed else ""
     return rules + (
         "You are the reviewer, in a fresh context. Do not edit any file.\n"
         "Below are the plan, the diff, and the test output (the tests exited {code}). Say "
@@ -709,11 +711,15 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
         "the verdict is VERDICT: FIX. A requirement that only adds prose, such as a changelog "
         "entry or a rule in a doc, names that file in the Test column instead. Anything the diff makes "
         "the code do that the plan's requirements don't ask for, such as an extra refusal, gets its own "
-        "row, and with no test in the diff the verdict is VERDICT: FIX too.\n"
-        "Your last line must be exactly VERDICT: PASS or VERDICT: FIX. PASS only if the "
-        "tests exited 0, the diff matches the plan and every requirement and added behaviour has a test.{generate}{held}\n\n"
+        "row. With no test in the diff it gets none in the Test column, for the person who merges, and "
+        "doesn't make the verdict FIX.\n"
+        "Your last line must be exactly VERDICT: PASS or VERDICT: FIX. Say VERDICT: FIX only for one of "
+        "these: the tests didn't exit 0, a requirement in the plan has no test{worked}, or a problem that would cost "
+        "something real if this merged, such as wrong behaviour, a security or privacy gap, or lost data. "
+        "Otherwise say VERDICT: PASS. A departure from the plan that changes no requirement's outcome is a "
+        "problem to list, not a reason for FIX.{generate}{held}\n\n"
         "PLAN:\n{plan}\n\nDIFF:\n{diff}\n\nTEST OUTPUT:\n{tests}\n"
-    ).format(code=code, plan=plan.strip(), diff=tail(diff, 60_000), tests=tail(tests), held=held,
+    ).format(code=code, plan=plan.strip(), diff=tail(diff, 60_000), tests=tail(tests), held=held, worked=worked,
              generate=generated(generate, "Its files in the diff aren't outside the plan, and don't ask for it to be "
                                           "run by hand."))
 

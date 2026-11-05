@@ -357,18 +357,52 @@ class TestPureParts(unittest.TestCase):
 
     def test_the_reviewer_tests_behaviour_the_plan_did_not_ask_for(self):
         prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
-        for part in ("don't ask for", "an extra refusal", "gets its own row", "added behaviour has a test"):
+        for part in ("don't ask for", "an extra refusal", "gets its own row",
+                     "With no test in the diff it gets none in the Test column, for the person who merges, "
+                     "and doesn't make the verdict FIX."):
             self.assertIn(part, prompt)
 
     def test_the_reviewer_is_asked_for_a_table_of_requirements_and_their_tests(self):
         prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
         for part in ("columns Requirement and Test", "from the diff", "gets none in the Test column",
-                     "the verdict is VERDICT: FIX", "every requirement and added behaviour has a test",
+                     "the verdict is VERDICT: FIX",
+                     "Say VERDICT: FIX only for one of these: the tests didn't exit 0, a requirement in the plan "
+                     "has no test, or a problem that would cost something real if this merged, such as wrong "
+                     "behaviour, a security or privacy gap, or lost data. Otherwise say VERDICT: PASS.",
+                     "A departure from the plan that changes no requirement's outcome is a problem to list, "
+                     "not a reason for FIX.",
                      "names that file in the Test column instead"):
             self.assertIn(part, prompt)
         # The verdict line is still what the loop reads, so the table can't be what comes last.
         self.assertLess(prompt.index("Below the problems"), prompt.index("Your last line must be exactly VERDICT"))
         self.assertIn("Your last line must be exactly VERDICT: PASS or VERDICT: FIX.", prompt)
+        self.assertNotIn(EM_DASH, prompt)
+
+    def test_the_reviewer_sends_a_build_back_only_for_what_would_cost_something(self):
+        prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertNotIn("PASS only if", prompt)
+        self.assertNotIn("added behaviour has a test", prompt)
+        # The one FIX left in the table is the requirement rule, not the added-behaviour one.
+        self.assertEqual(prompt.count("the verdict is VERDICT: FIX"), 1)
+        at = prompt.index("the verdict is VERDICT: FIX")
+        self.assertLess(prompt.index("A requirement with no test in the diff gets none"), at)
+        self.assertLess(at, prompt.index("Your last line must be exactly VERDICT"))
+        self.assertNotIn(EM_DASH, prompt)
+        for other in (loop.build_prompt(4, "Plan."),
+                      loop.shape_prompt(issue(4)),
+                      loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest"),
+                      loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit")):
+            for part in ("Say VERDICT: FIX only for", "doesn't make the verdict FIX"):
+                self.assertNotIn(part, other)
+
+    def test_with_tests_written_first_working_around_them_is_a_reason_for_fix(self):
+        # The list of reasons for FIX says "only", so the test-first one has to be in it, not only after it.
+        prompt = loop.review_prompt("Plan.", "+x", "ok", 0, fixed=("tests/test_x.py",))
+        reasons = prompt[prompt.index("Say VERDICT: FIX only for one of these"):prompt.index("Otherwise say VERDICT: PASS")]
+        self.assertIn("the build worked around the tests a separate agent wrote first", reasons)
+        self.assertIn("say FIX if it did", prompt)
+        plain = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertNotIn("worked around", plain)
         self.assertNotIn(EM_DASH, prompt)
 
     def test_the_new_asks_stay_out_of_the_build_and_tester_prompts(self):
