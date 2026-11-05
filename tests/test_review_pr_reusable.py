@@ -235,6 +235,16 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIn('head -c 60000 "$RUNNER_TEMP/diff.patch" >> "$RUNNER_TEMP/prompt.md"', prompt)
         self.assertNotIn("| head", prompt, "a pipe into head fails under pipefail on a big diff")
 
+    def test_the_prompt_names_the_workflow_running_it(self):
+        prompt = " ".join(self.step(PROMPT).split())
+        sentence = ("harness/.github/workflows/review-pr.yml is the workflow running this review; "
+                    "read it when the change adds or edits a workflow that calls it, "
+                    "and never treat it as part of the change.")
+        self.assertIn(sentence, prompt)
+        at = prompt.index(sentence)
+        self.assertLess(prompt.index("- harness/ holds only"), at)
+        self.assertLess(at, prompt.index("- base/ is the project"))
+
     def test_the_harness_checkout_is_sparse(self):
         harness = self.step(HARNESS)
         lines = harness.split("sparse-checkout: |\n", 1)[1].splitlines()
@@ -243,7 +253,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
             if not line.startswith(" " * 12):
                 break
             paths.append(line.strip())
-        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/"])
+        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/",
+                                 "/.github/workflows/review-pr.yml"])
         self.assertIn("sparse-checkout-cone-mode: false", harness)
         for name in (BASE, HEAD):
             self.assertNotIn("sparse-checkout", self.step(name), name)
