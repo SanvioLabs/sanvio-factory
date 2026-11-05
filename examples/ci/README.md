@@ -152,8 +152,10 @@ To add your own case, make a folder beside these, such as
 `07-missing-migration/`, holding the diff as `work.patch` and a `case.json`
 like the others: `"skill": "review-pr"`, `"work": "work.patch"`, and what a
 good review must find, cover or leave alone. A text it must find has to appear
-exactly once in the patch, and a line it must cover is a line number in
-`work.patch` itself. Use a change you made up, never one with a customer's
+exactly once in the patch, and can be a list of texts, any one of which will
+do, since a review names a problem more often than it quotes it. A line it
+must cover is the changed file's own line number, the one a review's
+`**Where:**` line names, not a line of `work.patch`. Use a change you made up, never one with a customer's
 code or data in it.
 
 ## Team standards

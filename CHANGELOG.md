@@ -27,6 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-03: Review cases grade what the review cites
+
+Three of the review-pr cases in [`examples/ci/evals/`](examples/ci/evals/) failed every run on their first baseline although the review found each planted problem. Their `must_cover` lines counted lines of `work.patch`, where a review cites the changed file's own line, and their `must_find` texts asked for a whole line quoted. They now cover the changed file's lines and accept a shorter name for each problem, and the README says how to write a case that way.
+Files: [`examples/ci/evals/`](examples/ci/evals/), [`examples/ci/README.md`](examples/ci/README.md), [`scripts/eval_agents.py`](scripts/eval_agents.py), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. A baseline saved before this compares as changed on cases 02, 04 and 05.
+
 ## 2026-11-03: Team standards for the CI review
 
 The reusable review workflow now checks out the harness's `standards/` folder too, lists every Markdown file in it, at any depth and except any named README, in the prompt, and tells the review to hold the change to them and name the file and heading of each standard a finding breaks. With no folder, or nothing in it, the posted comment says on its first line that no team standards were loaded.

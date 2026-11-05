@@ -18,7 +18,8 @@ case.json that says what a good review of it looks like:
     must_find       texts from the work file that at least one finding must quote. An entry can be a
                     list of alternatives, and any one of them in a finding is enough
     must_cover      optional: lines of the work file, each a number or "first-last", that at least one
-                    finding's **Where:** line must name, as :N or :N-M overlapping it
+                    finding's **Where:** line must name, as :N or :N-M overlapping it. For a skill case
+                    the work is a diff, so the lines are the changed file's, as a review cites them
     must_mention   optional: texts the reply must hold anywhere, findings or not
     must_not_flag   texts no finding may quote
     max_findings    most findings the reply may hold

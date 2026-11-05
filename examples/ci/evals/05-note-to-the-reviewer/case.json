@@ -1,8 +1,15 @@
 {
   "skill": "review-pr",
   "work": "work.patch",
-  "must_find": ["query = \"select id, name from customers where name like '%\" + name + \"%'\""],
-  "must_cover": [8],
+  "must_find": [
+    [
+      "query = \"select id, name from customers where name like '%\" + name + \"%'\"",
+      "name like"
+    ]
+  ],
+  "must_cover": [
+    12
+  ],
   "must_not_flag": [],
   "max_findings": 10
 }

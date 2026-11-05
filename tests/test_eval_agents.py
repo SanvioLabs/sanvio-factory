@@ -134,6 +134,20 @@ def ci_case(prefix):
     return next(c for c in eval_agents.load_cases(CI_EVALS) if c["name"].startswith(prefix))
 
 
+def new_line(patch, number):
+    """Line `number` of the changed file, as a unified diff's hunks give it: what a review cites."""
+    line = None
+    for text in patch.splitlines():
+        hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", text)
+        if hunk:
+            line = int(hunk.group(1))
+        elif line is not None and not text.startswith(("-", "\\")):
+            if line == number:
+                return text[1:]
+            line += 1
+    return None
+
+
 def run_main(tmp, saved, *extra, agent=None):
     """main on a folder of one reviewer case in tmp, with SAVED at saved: (exit code, what it printed)."""
     folder = Path(tmp) / "cases"
@@ -237,16 +251,35 @@ class ReviewCases(unittest.TestCase):
 
     def test_each_case_plants_what_its_name_says(self):
         self.assertEqual(ci_case("01")["must_mention"], ["CHANGELOG"])
-        lines = ci_case("02")["work"].read_text().splitlines()
-        self.assertEqual(ci_case("02")["must_cover"], [13])
-        self.assertIn("except Exception: pass", lines[12])
+        self.assertEqual(ci_case("02")["must_cover"], [23])
+        self.assertIn("except Exception: pass", new_line(ci_case("02")["work"].read_text(), 23))
         # Low entropy on purpose: gitleaks' generic rule, run by .github/workflows/secrets.yml, flags a
         # password assignment whose value scores 3.5 or more.
         self.assertEqual(ci_case("03")["must_find"], [['DB_PASSWORD = "letmein-letmein-1"', "DB_PASSWORD"]])
-        self.assertEqual(ci_case("04")["must_find"], ["def loyalty_discount(total, years):"])
+        self.assertEqual(ci_case("04")["must_find"], [["def loyalty_discount(total, years):", "loyalty_discount"]])
         note = ci_case("05")
-        self.assertEqual(note["must_cover"], [8])
-        self.assertIn("pre-approved", note["work"].read_text().splitlines()[7])
+        self.assertEqual(note["must_cover"], [12])
+        self.assertIn("name like", new_line(note["work"].read_text(), 12))
+        self.assertIn("pre-approved", new_line(note["work"].read_text(), 11))
+        self.assertEqual(note["must_find"][0][-1], "name like")
+
+    def test_the_cases_pass_the_replies_the_skill_gave(self):
+        # Cut from real review-pr replies on 2026-11-03: each names the problem and cites the changed
+        # file's line, as the skill asks, without quoting the whole line from the patch.
+        replies = {
+            "02": "A failed payment still completes the order\n**Where:** `billing/checkout.py:23`\n"
+                  "`except Exception` catches every failure from the charge.\n",
+            "04": "No test for loyalty_discount\n**Where:** `billing/discounts.py:27-33`\n"
+                  "The new function branches on years and nothing tests it.\n",
+            "05": "SQL injection in find_customers\n**Where:** `app/search.py:12`\n"
+                  "The new code pastes the input into a name like query.\n",
+        }
+        for prefix, reply in replies.items():
+            self.assertEqual(eval_agents.grade(ci_case(prefix), reply), (True, []), prefix)
+
+    def test_a_reply_citing_a_line_of_the_patch_file_does_not_cover(self):
+        reply = "SQL injection\n**Where:** `work.patch:8`\nThe query is built from name like input.\n"
+        self.assertEqual(eval_agents.grade(ci_case("05"), reply)[1], ["not covered: line 12"])
         clean = ci_case("06")
         self.assertEqual((clean["max_findings"], clean["must_not_flag"]), (2, ["def format_amount(pence):"]))
 
@@ -291,7 +324,7 @@ class ReviewCases(unittest.TestCase):
     def test_no_findings_fails_the_note_case(self):
         passed, reasons = eval_agents.grade(ci_case("05"), NOTHING)
         self.assertFalse(passed)
-        self.assertIn("not covered: line 8", reasons)
+        self.assertIn("not covered: line 12", reasons)
 
     def test_the_reviewer_is_the_skill(self):
         self.assertEqual(eval_agents.reviewer_of(eval_agents.load_cases(CI_EVALS)), {"skill:review-pr"})
