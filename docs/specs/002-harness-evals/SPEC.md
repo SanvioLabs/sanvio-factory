@@ -1,8 +1,8 @@
 ---
 id: SPEC-002
-status: in-progress
+status: complete
 created: 2026-10-31
-updated: 2026-11-01
+updated: 2026-11-05
 owner: Pat
 ---
 
@@ -85,16 +85,16 @@ Not Affected:
 
 ## Acceptance Criteria
 
-- [ ] AC-001: Running the tiny public suite with a stub start command prints a scorecard and writes one result file.
-- [ ] AC-002: A suite whose hidden tests sit under the seed repo is refused before anything starts.
-- [ ] AC-003: A run whose start command exits non-zero records a stop and still produces a score.
-- [ ] AC-004: A harness that reports no usage shows `not reported` for cost.
-- [ ] AC-005: `compare` names a test or trap that got worse, and says so when nothing changed.
-- [ ] AC-006: After a run, no file from the suite's key appears in the created repo's history.
-- [ ] AC-007: Without `--yes`, a run stops at the confirmation and creates nothing.
-- [ ] AC-008: With `--merge-in-run-repo`, the runner refuses to merge in any repo other than the one it created for that run, and refuses a pull request whose required CI hasn't passed.
-- [ ] AC-009: Without `--merge-in-run-repo`, a multi-issue run stops at its first merge and says what it's waiting for.
-- [ ] AC-010: `list` names every run repo the runner created, and no command deletes one.
+- [x] AC-001: Running the tiny public suite with a stub start command prints a scorecard and writes one result file.
+- [x] AC-002: A suite whose hidden tests sit under the seed repo is refused before anything starts.
+- [x] AC-003: A run whose start command exits non-zero records a stop and still produces a score.
+- [x] AC-004: A harness that reports no usage shows `not reported` for cost.
+- [x] AC-005: `compare` names a test or trap that got worse, and says so when nothing changed.
+- [x] AC-006: After a run, no file from the suite's key appears in the created repo's history.
+- [x] AC-007: Without `--yes`, a run stops at the confirmation and creates nothing.
+- [x] AC-008: With `--merge-in-run-repo`, the runner refuses to merge in any repo other than the one it created for that run, and refuses a pull request whose required CI hasn't passed.
+- [x] AC-009: Without `--merge-in-run-repo`, a multi-issue run stops at its first merge and says what it's waiting for.
+- [x] AC-010: `list` names every run repo the runner created, and no command deletes one.
 
 ## Security Requirements
 
