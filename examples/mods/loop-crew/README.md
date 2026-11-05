@@ -96,13 +96,20 @@ Checked in this order:
 
 ## The board
 
+When there's more than one loop, a picker sits above the header, and above the pane's message when
+there's no board. It lists each loop whose `status.json` parses, the harness by its folder's name
+and each folder under `.loop/projects/` by its own, the loops on a job first, each marked `●` with
+its count past one. Picking a loop switches the pane to it and retitles it, as `/loop-crew <name>`
+does. Picking the loop already shown changes nothing, and a pick never closes the pane. The mobile
+app draws no picker; there the command switches.
+
 On a terminal the board is as wide as the pane, from 42 columns to 120, and wider panes leave the
-rest empty. The header takes a row and each lane 6: its words, three rows of lane, its row of
-times, then its row of spend. The pane shows the lanes that fit, at least one and at most 8, then
-`and <n> more`. The mod cuts only the title, to the pane's width. In a pane too narrow for where the
-issue has got to, those words wrap. Below 42 columns the pane shows the words alone, a line an issue.
-`/loop-crew` asks for 72 columns by 19 rows when it opens, room for three lanes, and a terminal gives
-what it has.
+rest empty. The picker takes a row when it's there, the header a row and each lane 6: its words,
+three rows of lane, its row of times, then its row of spend. The pane shows the lanes that fit, at
+least one and at most 8, then `and <n> more`. The mod cuts only the title, to the pane's width. In a
+pane too narrow for where the issue has got to, those words wrap. Below 42 columns the pane shows the
+words alone, a line an issue. `/loop-crew` asks for 72 columns by 20 rows when it opens, room for the
+picker and three lanes, and a terminal gives what it has.
 
 Every other surface draws the header and each lane as an Svg with a viewBox and no size of its own,
 so the drawing fills the pane's width at its own shape. It's drawn three columns wide for each of the
@@ -213,9 +220,10 @@ station's colour.
 
 ## What it doesn't do
 
-It only reads. Every 2 seconds while the pane is open it reads the shown loop's `status.json` and
-`lock`, and the `usage.json` of each issue whose lane it draws when [the spend](#the-spend) has changed,
-and it stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
+It only reads. Every 2 seconds while the pane is open it reads every loop's `status.json` and `lock`,
+for the board and the picker, and the `usage.json` of each issue whose lane it draws when
+[the spend](#the-spend) has changed, and it stops once the pane closes. It doesn't read or set the
+session's `/project` focus. The one process it runs is `kill -0 <pid>`, to check the
 lock's holder. It never writes a file, never runs [`scripts/loop.py`](../../../scripts/loop.py) or `gh`, and spends no model
 tokens. Controls such as stop stay in the [loop pane](../loop-pane/). It shows one loop at a time, and
 doesn't show issues that are queued, blocked or ended. The board doesn't scroll or zoom.

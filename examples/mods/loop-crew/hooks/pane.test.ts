@@ -57,7 +57,7 @@ const lastBlit = (blits: { key: string; cells: string }[], key: string): string 
 
 // The engine beneath the mod: a harness whose loop files are `files`, by path, and a pane. The test
 // changes `files` between polls, `panes` to stand a pane behind another, and `flip` to refuse a close,
-// take the root away or leave the lock's holder gone.
+// take the root away, leave the lock's holder gone or fail the listing of .loop/projects/.
 function world(on: On, files: Map<string, string>) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const ran: string[][] = []
@@ -67,7 +67,7 @@ function world(on: On, files: Map<string, string>) {
   const blits: { key: string; cells: string }[] = []
   const invalidated: string[] = []
   const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-  const flip = { closeFails: false, rootGone: false, staleLock: false, unplaced: false, closes: 0, paneReads: 0, blit: 'take' as 'take' | 'deny' | 'none', hold: null as Promise<void> | null }
+  const flip = { closeFails: false, rootGone: false, staleLock: false, unplaced: false, listFails: false, closes: 0, paneReads: 0, blit: 'take' as 'take' | 'deny' | 'none', hold: null as Promise<void> | null }
   const process = (exitCode: number, stderr: string) => ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
   on('session.root', async () => ({ value: ROOT }))
   on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
@@ -78,7 +78,7 @@ function world(on: On, files: Map<string, string>) {
     return text === undefined ? { deny: `no ${e.path}` } : { value: text }
   })
   on('fs.list', async (_$, e) => {
-    if (e.path !== `${ROOT}/.loop/projects`) return { deny: `no ${e.path}` }
+    if (flip.listFails || e.path !== `${ROOT}/.loop/projects`) return { deny: `no ${e.path}` }
     const names = [...files.keys()].flatMap(p => p.match(/\/\.loop\/projects\/([^/]+)\//)?.[1] ?? [])
     const dirs = [...new Set(names)].map(name => ({ name, kind: 'dir' as const, size: 0 }))
     return { value: [...dirs, { name: 'a-file', kind: 'file' as const, size: 0 }] } as never
@@ -260,10 +260,10 @@ group('the board', () => {
     await ui.unmount()
     await close()
   })
-  test('the pane asks for room for three lanes when it opens: 19 rows by 72 columns', async ($, on) => {
+  test('the pane asks for room for three lanes when it opens: 20 rows by 72 columns', async ($, on) => {
     const { sizes, close } = world(on, twoWorking())
     await say($)
-    expect(sizes).toEqual([[19, 72]])
+    expect(sizes).toEqual([[20, 72]])
     await close()
   })
 })
@@ -815,6 +815,254 @@ group('the command', () => {
     const { flip, close } = world(on, both())
     flip.unplaced = true
     expect(await say($)).toBe('Loop crew opened. Widen the terminal to see it.')
+    await close()
+  })
+})
+
+group('the loop picker', () => {
+  const BETA = `${ROOT}/.loop/projects/beta`
+  // The harness idle under a live lock. alpha live with two at working, beta with no lock and one at
+  // working, and gamma a folder with no status file.
+  const four = () => new Map([
+    [STATUS, statusText(job(12, 'BUILD', { state: 'pr' }))],
+    [`${HARNESS}/lock`, '4242'],
+    [`${ALPHA}/status.json`, statusText(job(30, 'BUILD'), job(31, 'SHAPE'))],
+    [`${ALPHA}/lock`, '4242'],
+    [`${BETA}/status.json`, statusText(job(40, 'TEST'))],
+    [`${ROOT}/.loop/projects/gamma/notes.txt`, ''],
+  ])
+  // The harness with two at working, and alpha beside it with one.
+  const two = () => {
+    const files = twoWorking()
+    files.set(`${ALPHA}/status.json`, statusText(job(30, 'BUILD')))
+    files.set(`${ALPHA}/lock`, '4242')
+    return files
+  }
+  type Picks = Finds & { select: (query: { key: string; value: string }) => Promise<unknown>; redraw: () => Promise<void>; drawn: () => Promise<unknown>; unmount: () => Promise<void> }
+  // Open the pane and let the read of every loop, which the command doesn't wait for, land.
+  const open = async ($: unknown, args = ''): Promise<void> => {
+    await say($, args)
+    await drain()
+    await drain()
+  }
+  const picker = async (ui: Picks): Promise<Found | undefined> => ui.find({ key: 'loop-pick' })
+  const values = async (ui: Picks): Promise<string[]> => ((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)
+  // Which of the pane's top children first holds `needle`, as loop-pane's tests find its row.
+  const childAt = async (ui: Picks, needle: string): Promise<number> => {
+    const top = (await ui.drawn()) as { children?: unknown[] }
+    return (top.children ?? []).findIndex(c => JSON.stringify(c).includes(needle))
+  }
+  const choose = async (ui: Picks, value: string): Promise<void> => {
+    await ui.select({ key: 'loop-pick', value })
+    await drain()
+    await drain()
+    await ui.redraw()
+  }
+
+  test('it lists the loops on a job first, the harness by its folder, and leaves out a folder with no status file', async ($, on) => {
+    const { close } = world(on, four())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    const options = (await picker(ui))?.props.options as { value: string; label: string }[]
+    expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
+    expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+    expect((await picker(ui))?.props.value).toBe('')
+    await ui.unmount()
+    await close()
+  })
+  test("a project whose status file won't parse is left out, and the board still draws", async ($, on) => {
+    const files = two()
+    files.set(`${ROOT}/.loop/projects/delta/status.json`, '{not json')
+    const { close } = world(on, files)
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)).toEqual(['', 'alpha'])
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-13' })).toBeDefined()
+    await ui.unmount()
+    await close()
+  })
+  test('the picker sits above the message when nothing is being built', async ($, on) => {
+    const { close } = world(on, four())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('Nothing being built right now.')
+    expect(drawn.indexOf('loop-pick')).toBeGreaterThan(-1)
+    expect(drawn.indexOf('loop-pick')).toBeLessThan(drawn.indexOf('Nothing being built right now.'))
+    await ui.unmount()
+    await close()
+  })
+  test('with only the harness there is no picker', async ($, on) => {
+    const { close } = world(on, twoWorking())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await picker(ui)).toBeUndefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    await ui.unmount()
+    await close()
+  })
+  test('with two loops the mobile app has no picker, and the desktop has one as its first child, above the header', async ($, on) => {
+    const { close } = world(on, two())
+    await open($)
+    const phone = (await $.ui.mount(pane(72, 40, 'mobile'))) as unknown as Picks
+    expect(await picker(phone)).toBeUndefined()
+    expect((await laneSvgs(phone)).length).toBe(2)
+    await phone.unmount()
+    const desk = (await $.ui.mount(pane(72, 40, 'desktop'))) as unknown as Picks
+    expect(await picker(desk)).toBeDefined()
+    expect(await childAt(desk, '"loop-pick"')).toBe(0)
+    expect(await childAt(desk, '#12')).toBeGreaterThan(0)
+    await desk.unmount()
+    await close()
+  })
+  test('on a terminal the picker is the first child, above the header and the lanes', async ($, on) => {
+    const { close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await ui.find({ key: 'head' })).toBeDefined()
+    expect(await childAt(ui, '"loop-pick"')).toBe(0)
+    expect(await childAt(ui, '#12')).toBeGreaterThan(0)
+    await ui.unmount()
+    await close()
+  })
+  test('an open keeps every loop before it compares the shown one: the picker at once, and one redraw', async ($, on) => {
+    const { invalidated, close } = world(on, two())
+    await say($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await picker(ui)).toBeDefined()
+    await drain()
+    await drain()
+    expect(invalidated.length).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  for (const [what, text] of [['missing', undefined], ["one that won't parse", '{not json']] as const) {
+    test(`the harness is left out of the picker when its status file is ${what}`, async ($, on) => {
+      const files = new Map([
+        [`${HARNESS}/lock`, '4242'],
+        [`${ALPHA}/status.json`, statusText(job(30, 'BUILD'))],
+        [`${ALPHA}/lock`, '4242'],
+        [`${BETA}/status.json`, statusText(job(40, 'TEST'))],
+      ])
+      if (text !== undefined) files.set(STATUS, text)
+      const { close } = world(on, files)
+      await open($)
+      const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+      expect(await values(ui)).toEqual(['alpha', 'beta'])
+      await ui.unmount()
+      await close()
+    })
+  }
+  test("a value that isn't one of the options switches nothing, even a folder the command would take", async ($, on) => {
+    const { titles, flip, close } = world(on, four())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    const opened = titles.length
+    // The kit refuses a value the Select doesn't list, as a surface sends only its options. The mod's own
+    // guard, isListed, is tested in logic.test.ts. Either way nothing switches.
+    for (const value of ['gamma', 'nope']) await ui.select({ key: 'loop-pick', value }).catch(() => undefined)
+    await drain()
+    await ui.redraw()
+    expect(titles.length).toBe(opened)
+    expect(flip.closes).toBe(0)
+    expect((await picker(ui))?.props.value).toBe('')
+    expect(JSON.stringify(await ui.drawn())).toContain('Nothing being built right now.')
+    await ui.unmount()
+    await close()
+  })
+  test("a projects folder that can't be listed gives the harness alone, so the picker goes", async ($, on) => {
+    const { clock, flip, reads, close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    expect(await picker(ui)).toBeDefined()
+    const alphaReads = () => reads.filter(path => path === `${ALPHA}/status.json`).length
+    const before = alphaReads()
+    flip.listFails = true
+    await clock.advance(2000)
+    await drain()
+    await ui.redraw()
+    expect(await picker(ui)).toBeUndefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(alphaReads()).toBe(before)
+    await ui.unmount()
+    await close()
+  })
+  test("a switch's read of every loop that ends after a newer one is dropped", async ($, on) => {
+    const files = two()
+    const { clock, flip, close } = world(on, files)
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    // The switch doesn't wait for its read of every loop, which holds at the harness's status file.
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    await say($, 'alpha')
+    await drain()
+    // beta appears, and the next poll's read, not held, lists it.
+    flip.hold = null
+    files.set(`${BETA}/status.json`, statusText(job(40, 'TEST')))
+    await clock.advance(2000)
+    await drain()
+    await ui.redraw()
+    expect(await values(ui)).toEqual(['', 'alpha', 'beta'])
+    // The switch's read, from before beta, ends last and changes nothing.
+    release()
+    await drain()
+    await drain()
+    await ui.redraw()
+    expect(await values(ui)).toEqual(['', 'alpha', 'beta'])
+    await ui.unmount()
+    await close()
+  })
+  test("picking alpha retitles the pane and draws alpha's lanes, and picking the harness goes back", async ($, on) => {
+    const { titles, close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    await choose(ui, 'alpha')
+    expect(titles[titles.length - 1]).toBe('Loop crew: alpha')
+    expect(await ui.find({ key: 'lane-30' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeUndefined()
+    expect((await picker(ui))?.props.value).toBe('alpha')
+    await choose(ui, '')
+    expect(titles[titles.length - 1]).toBe('Loop crew')
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-30' })).toBeUndefined()
+    await ui.unmount()
+    await close()
+  })
+  test('picking the loop on screen opens and closes nothing, no pick closes the pane, and none reads a focus', async ($, on) => {
+    const { titles, panes, flip, reads, close } = world(on, two())
+    await open($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Picks
+    const opened = titles.length
+    await choose(ui, '')
+    expect(titles.length).toBe(opened)
+    await choose(ui, 'alpha')
+    await choose(ui, 'alpha')
+    expect(titles.length).toBe(opened + 1)
+    expect(flip.closes).toBe(0)
+    expect(panes.length).toBe(1)
+    expect(reads.filter(path => path.includes('/.harness/project/'))).toEqual([])
+    await ui.unmount()
+    await close()
+  })
+  test('the picker takes a row: three working lanes at 14 rows show one fewer lane with it than without', async ($, on) => {
+    const lanes = async (ui: Picks): Promise<number> => (await Promise.all([1, 2, 3].map(n => ui.find({ key: `lane-${n}` })))).filter(Boolean).length
+    const files = working(job(1, 'BUILD'), job(2, 'TEST'), job(3, 'SHAPE'))
+    const { clock, close } = world(on, files)
+    await open($)
+    const ui = (await $.ui.mount(pane(72, 14))) as unknown as Picks
+    expect(await picker(ui)).toBeUndefined()
+    expect(await lanes(ui)).toBe(2)
+    // A second loop appears, and the next poll brings the picker.
+    files.set(`${ALPHA}/status.json`, statusText(job(30, 'BUILD')))
+    files.set(`${ALPHA}/lock`, '4242')
+    await clock.advance(2000)
+    await drain()
+    await ui.redraw()
+    expect(await picker(ui)).toBeDefined()
+    expect(await lanes(ui)).toBe(1)
+    await ui.unmount()
     await close()
   })
 })

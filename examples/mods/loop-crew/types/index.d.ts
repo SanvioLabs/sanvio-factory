@@ -33,10 +33,15 @@ export type Seen = {
   isLive: boolean
 }
 
+// One loop as the picker lists it: the root it's under, its project (unset for the harness's own), its
+// status file, and whether a live process holds its lock.
+export type Loop = { root: string; project?: string; status: Status | null; isLocked: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
     // launch: the folder the session started in. shown: the loop on screen, a project's name or ''
-    // for the harness. seen: that loop's last look, null until the first.
-    'loop-crew': { launch: string | null; shown: string; seen: Seen | null }
+    // for the harness. seen: that loop's last look, null until the first. loops: every loop the picker
+    // lists, the harness first, null until the first read.
+    'loop-crew': { launch: string | null; shown: string; seen: Seen | null; loops: Loop[] | null }
   }
 }

@@ -1,5 +1,5 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
-import type { Row, Seen, Spend, Status } from '../types'
+import type { Loop, Row, Seen, Spend, Status } from '../types'
 
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
@@ -87,6 +87,51 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
     dir = dir.slice(0, dir.lastIndexOf('/'))
   }
   return null
+}
+
+// One loop as the picker lists it, written out in the types beside Seen.
+export type { Loop } from '../types'
+
+// Copied from loop-pane's hooks/logic.ts, with the same bodies: one installed mod can't import from another.
+
+// The projects with a loop to show, by name: folders under PROJECTS_DIR that hold a status file.
+export async function projectNames(entries: { name: string; kind: string }[], hasStatus: (name: string) => Promise<boolean>): Promise<string[]> {
+  const folders = entries.filter(e => e.kind === 'dir').map(e => e.name).sort((a, b) => a.localeCompare(b))
+  const held = await Promise.all(folders.map(name => hasStatus(name)))
+  return folders.filter((_, i) => held[i])
+}
+
+// What a loop is called: the project's name, or the root's folder for the harness.
+export function loopLabel(seen: Loop): string {
+  return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
+}
+
+// How many jobs a live loop is on. The lock is the truth about running, so with no live lock it's
+// none, whatever the file's rows say. A stop request doesn't change it: those jobs are still being worked.
+export function workingCount(seen: Loop): number {
+  if (!seen.isLocked) return 0
+  return seen.status?.issues.filter(r => r.state === 'working').length ?? 0
+}
+
+// What a loop's button says: its name, with a marker while it's on a job and a count past one.
+export function loopButtonLabel(seen: Loop): string {
+  const working = workingCount(seen)
+  if (!working) return loopLabel(seen)
+  return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
+}
+
+// The loop picker's options: the loops on a job first, each group in its own order. A project's
+// value is its name, the harness's ''.
+// Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
+// sends, so this guards against anything else reaching a switch.
+export function isListed(loops: Loop[], value: string): boolean {
+  return loops.some(loop => (loop.project ?? '') === value)
+}
+
+export function loopOptions(loops: Loop[]): { value: string; label: string }[] {
+  const working = loops.filter(l => workingCount(l) > 0)
+  const rest = loops.filter(l => workingCount(l) === 0)
+  return [...working, ...rest].map(loop => ({ value: loop.project ?? '', label: loopButtonLabel(loop) }))
 }
 
 const WORDS: Record<string, string> = {
