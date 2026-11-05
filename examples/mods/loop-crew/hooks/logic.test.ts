@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectNames, poseAt, roundText, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectName, projectNames, poseAt, roundText, SESSION, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
 import type { Lane, Loop, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
@@ -843,5 +843,25 @@ group('the loop picker', () => {
   })
   test('one job is a marker with no count', () => {
     expect(loopButtonLabel(loop({ project: 'alpha', status: { issues: [row({})] } }))).toBe('● alpha')
+  })
+})
+
+group('the project in focus', () => {
+  test('a name or projects/name is a project, one folder deep', () => {
+    for (const arg of ['app', 'projects/app', ' projects/app/ ']) expect(projectName(arg)).toEqual({ name: 'app' })
+    for (const text of ['app', 'projects/app', 'app\n']) expect(focusName(text)).toBe('app')
+  })
+  test('a name that could reach outside projects/ is refused', () => {
+    for (const arg of ['projects/../x', '../x', 'a/b', '.hidden', '']) {
+      expect('why' in projectName(arg)).toBe(true)
+      expect(focusName(arg)).toBeNull()
+    }
+  })
+  test("the focus file sits under .harness/project/, and an id SESSION refuses gives none", () => {
+    expect(focusFile('/h/starter', '0123abcd-4567')).toBe('/h/starter/.harness/project/0123abcd-4567')
+    for (const id of [null, 'short', '../../etc/passwd', 'not-hex-zzzzzzzz', '0'.repeat(65)]) {
+      if (id !== null) expect(SESSION.test(id)).toBe(false)
+      expect(focusFile('/h/starter', id)).toBeNull()
+    }
   })
 })
