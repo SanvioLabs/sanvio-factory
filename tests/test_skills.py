@@ -112,6 +112,13 @@ class Skills(unittest.TestCase):
         body = text.split("---", 2)[2]
         self.assertIn("changes nothing", body.lower())
 
+    def test_standup_asks_each_item_as_a_question_with_a_recommendation(self):
+        text = " ".join((ROOT / "skills" / "standup" / "SKILL.md").read_text().split())
+        walk = text[text.index("6. **Walk the items"):text.index("7. **Suggest the order")]
+        for words in ("`AskUserQuestion`", "(Recommended)", "Every item", "in plain text", "change nothing else"):
+            self.assertIn(words, walk)
+        self.assertNotIn("one at a time", text)
+
     def test_standup_reads_an_optional_source_only_when_data_md_clears_it(self):
         text = (ROOT / "skills" / "standup" / "SKILL.md").read_text()
         self.assertIn("No `company/DATA.md` means none is", text)

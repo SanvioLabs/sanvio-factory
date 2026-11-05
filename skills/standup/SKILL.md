@@ -1,14 +1,14 @@
 ---
 name: standup
-description: One morning read of what's on this person, from the sources the harness can reach, then a walk through the items one at a time and a suggested order for the day. Reads only, changes nothing. Use when someone says "standup", "morning check", "what's on me today", "what's on my plate", "what do I need to do first", or "start my day".
+description: One morning read of what's on this person, from the sources the harness can reach, then a multiple-choice question on each item with a recommended next step, and a suggested order for the day. Reads only, changes nothing. Use when someone says "standup", "morning check", "what's on me today", "what's on my plate", "what do I need to do first", or "start my day".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 
 # Standup
 
 Starting the day means checking the same places by hand. This skill checks them
-in one pass, says where to start, and asks about each item so the order for the
-day comes from the person, not a guess.
+in one pass, says where to start, and asks about each item, with a
+recommendation, so the order for the day comes from the person, not a guess.
 
 It changes nothing. It sends nothing, comments nowhere, and edits no issue,
 label, pull request or calendar entry. Where an answer implies a change, it
@@ -100,12 +100,33 @@ gives the command and the person runs it.
    **Waiting on someone** and before the skipped-source lines:
    `Today's pulse: <chip>. Say "pulse" to answer.` It prints even when the day is
    clear, and step 6 doesn't walk it as an item. The skipped-source lines go last.
-6. **Walk the items.** After the report, ask about the items one at a time, in
-   the order they're listed, one question per turn: *done, still on, drop, or
-   move up?* Wait for the answer before the next. Take "all still on" or "skip
-   the rest" as an answer for everything left.
-7. **Suggest the order.** End with the day's order: what they said is still on,
-   with "move up" first, then by what blocks someone else. A review someone is
+6. **Walk the items, one multiple-choice question each.** Start in the same
+   turn as the report. Ending the report with a line asking them to reply in
+   prose instead is the failure this step exists to prevent. Every item under
+   **On you** and **Waiting on someone** gets its own question, in the order
+   listed: a long list is more rounds, not a sample. Use `AskUserQuestion`, up
+   to four items per call, and wait for the answers before the next call. In a
+   tool without it, ask the same question in plain text with numbered options,
+   one item per turn.
+   - **The question carries the item.** Name it and the one fact that makes it
+     matter (`Review #214 in api: requested two days ago, and its author is
+     blocked on it`), so it reads on its own after the report has scrolled away.
+   - **The options are next actions,** two to four, from what the sources
+     showed: `Do it first today`, `Later today`, `Done already`, `Not today`,
+     `Drop it`, and for something waiting, `Nudge <who>` or `Leave it`.
+   - **One is recommended.** Put the one you'd take first at the top, with
+     ` (Recommended)` after its label. Every option gets a description saying
+     what picking it means, and the recommended one's says why it beats the
+     others: it blocks someone, its checks are failing, it's due today. Make
+     the call on every question; an unmarked list hands the judgement back.
+     The window adds Other for anything else.
+   - Take "all still on" or "skip the rest" as an answer for everything left.
+
+   The answers set the order in step 7 and change nothing else. A pick such as
+   `Nudge <who>` or `Drop it` gets the command or the one line to do it, and
+   they run it.
+7. **Suggest the order.** End with the day's order: what they kept, with
+   `Do it first today` first, then by what blocks someone else. A review someone is
    waiting on goes ahead of work only they are waiting on. Drop the dropped and
    the done.
 
@@ -129,6 +150,6 @@ gives the command and the person runs it.
 ## Output
 
 The "Start here" line, "On you", "Waiting on someone" (each omitted if empty),
-the pulse line, the skipped-source lines, then the one-at-a-time questions, and last the
+the pulse line, the skipped-source lines, then a question on each item, and last the
 suggested order for the day. Per [`steering/response-style.md`](../../steering/response-style.md),
 no confidence line: this is a lookup, not a recommendation.

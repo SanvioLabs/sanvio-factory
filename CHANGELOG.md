@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-04: Standup asks about each item with a recommendation
+
+Standup's walk through the items is now a multiple-choice question per item, through `AskUserQuestion` (up to four a call), in the same turn as the report. Each question names the item and why it matters, offers two to four next actions, and puts the recommended one first, marked `(Recommended)`, with a line on why. Every item under **On you** and **Waiting on someone** is asked, and it never falls back to asking for a reply in prose. A tool without the question window gets the same question as numbered options in plain text. It still changes nothing.
+
+Files: [`skills/standup/SKILL.md`](skills/standup/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-04: Loop crew picks its loop from a dropdown
 
 Loop crew 0.6.0 puts a picker above the board when there's more than one loop. It lists each loop whose `status.json` parses, the harness by its folder's name and each project under `.loop/projects/` by its own, the loops on a job first, each marked `●` with its count past one. Picking one switches the pane to that loop and retitles it, as `/loop-crew <name>` does, and a pick never closes the pane. It shows above `Nothing being built right now.` too. The mobile app draws no picker, so there the command still switches. The pane now asks for 20 rows when it opens, one more for the picker, and polls every loop's `status.json` and `lock`, not only the shown one's.
