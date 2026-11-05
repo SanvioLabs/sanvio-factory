@@ -49,9 +49,8 @@ Set it up in this order. Each step links to its detail in
    organization".
    [A private harness repo](../examples/ci/README.md#a-private-harness-repo)
 3. **Make a deploy key** on your machine, and add its public half to the
-   harness repo with write access off. If GitHub answers "Deploy keys are
-   disabled for this repository", your organisation has them switched off, and
-   an organisation owner has to allow them first.
+   harness repo with write access off. If GitHub refuses it,
+   [When the first review fails](#when-the-first-review-fails) has why.
    [The credential](../examples/ci/README.md#the-credential)
 4. **Add two secrets**, before the caller, so its first pull request doesn't
    skip: `HARNESS_DEPLOY_KEY`, the deploy key's private half, and
@@ -78,6 +77,24 @@ Set it up in this order. Each step links to its detail in
    files in a `standards/` folder at the harness repo's root. A finding then
    names the file and heading of the standard it breaks.
    [Team standards](../examples/ci/README.md#team-standards)
+
+### When the first review fails
+
+Each of these stops a first setup, and each one says so in the run's log. A
+failure from Claude itself shows in the step "Run the review-pr skill on
+Claude", after `claude exited 1. What it said:`.
+
+| The message | What it means | The fix |
+|---|---|---|
+| `Deploy keys are disabled for this repository`, when you add the key | The organisation has deploy keys switched off for every repo | An organisation owner allows them in the organisation's settings. Then add the key again |
+| `HARNESS_DEPLOY_KEY is not set` | The product repo has no deploy-key secret | Step 4 |
+| `has no skills/review-pr/SKILL.md` | `harness-repo` names the wrong repo, or the key belongs to another one | Check both places the caller names the harness, and the deploy key's repo |
+| `Credit balance is too low` | The Anthropic account the key bills to has no credit | Add credit in the Anthropic Console, then rerun the job: no new push needed |
+| `This API key is not scoped to a workspace` | The key was made for the organisation, not inside a workspace | Make a new key inside a workspace, set `ANTHROPIC_API_KEY` again, and rerun |
+| `This pull request has no ANTHROPIC_API_KEY`, as a notice | The secret isn't set in this repo, or it's a Dependabot pull request | Step 4, or nothing for Dependabot |
+
+To rerun a failed review after a fix, use the run's Re-run button, or
+`gh run rerun <run id> --repo <your-org>/<product>`.
 
 ### Try it on a change you made up
 
