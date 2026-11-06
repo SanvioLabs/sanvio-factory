@@ -34,6 +34,13 @@ The harness checkout in [`.github/workflows/review-pr.yml`](.github/workflows/re
 Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
+## 2026-11-05: The CI review skips draft pull requests
+
+The review that product repos call from [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now skips a draft pull request with a notice, and runs nothing after that check. The pull request is reviewed once it's marked ready for review, as long as the caller listens for `ready_for_review`, which the caller in [`examples/ci/README.md`](examples/ci/README.md) now does.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add `ready_for_review` to the `types` in each product repo's caller.
 
 ## 2026-11-05: Guides for CI and for measuring a harness
 
