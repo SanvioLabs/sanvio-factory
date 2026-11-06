@@ -24,6 +24,8 @@ PROMPT = "Run the review-pr skill: build the prompt"
 CLAUDE = "Run the review-pr skill on Claude"
 POST = "Post the report as one comment"
 RULES = "Remove the pull request's own rules"
+DRAFT = "Skip a draft pull request"
+DRAFT_NOTICE = "::notice::This pull request is a draft, so the review skips until it's marked ready for review."
 
 
 def children(text, key):
@@ -139,7 +141,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
 
     def test_the_steps_run_in_the_planned_order(self):
         names = self.names()
-        order = ["Skip a pull request from a fork", "Skip when Claude has no key", CREDENTIAL, HARNESS,
+        order = ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL, HARNESS,
                  HARNESS_SHA, BASE, HEAD, "Remove the pull request's own rules", PROMPT, CLAUDE, POST]
         self.assertEqual([name for name in names if name in order], order)
 
@@ -149,6 +151,37 @@ class ReusableReviewWorkflow(unittest.TestCase):
             self.assertIn("steps.scope.outputs.review == 'true'", text, name)
             self.assertIn("env.REVIEW_SKIPPED != 'true'", text, name)
         self.assertNotIn("always()", self.code)
+
+    def test_a_draft_skips_with_a_notice(self):
+        result, _, added = self.run_step(DRAFT, DRAFT="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("REVIEW_SKIPPED=true", added)
+        self.assertIn(DRAFT_NOTICE, result.stdout)
+
+    def test_a_pull_request_that_is_not_a_draft_goes_on(self):
+        result, _, added = self.run_step(DRAFT, DRAFT="false")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(added, "")
+        self.assertNotIn("::notice::", result.stdout)
+        present = "k"
+        result, _, added = self.run_step("Skip when Claude has no key", ANTHROPIC_API_KEY=present)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def test_a_draft_runs_nothing_after_it(self):
+        names = self.names()
+        after = self.steps()[names.index(DRAFT) + 1:]
+        self.assertTrue(after, "no steps after the draft check")
+        for name, text in after:
+            if_line = next((line for line in text.splitlines() if line.strip().startswith("if:")), "")
+            self.assertIn("env.REVIEW_SKIPPED != 'true'", if_line, name)
+        draft = self.step(DRAFT)
+        env = draft.split("env:\n", 1)[1].split("run: |", 1)[0]
+        self.assertIn("DRAFT: ${{ github.event.pull_request.draft }}", env)
+
+    def test_a_fork_never_reaches_the_draft_check(self):
+        if_lines = [line.strip() for line in self.step(DRAFT).splitlines() if line.strip().startswith("if:")]
+        self.assertEqual(if_lines, ["if: steps.scope.outputs.review == 'true'"])
 
     def test_the_harness_comes_from_its_default_branch_with_the_deploy_key(self):
         harness = self.step(HARNESS)
@@ -366,7 +399,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(self.secrets_in(CLAUDE), {"ANTHROPIC_API_KEY"})
         self.assertEqual(self.secrets_in("Skip when Claude has no key"), {"ANTHROPIC_API_KEY"})
         self.assertEqual(self.secrets_in(CREDENTIAL), {"HARNESS_DEPLOY_KEY"})
-        for name in (PROMPT, POST, BASE, HEAD, HARNESS_SHA):
+        for name in (DRAFT, PROMPT, POST, BASE, HEAD, HARNESS_SHA):
             self.assertEqual(self.secrets_in(name), set(), name)
 
     def test_the_comment_goes_on_the_calling_repo_after_the_checkouts(self):
@@ -415,7 +448,7 @@ class CallerReadme(unittest.TestCase):
         self.assertIn("harness-repo: your-org/harness", caller)
         for name in ("ANTHROPIC_API_KEY", "HARNESS_DEPLOY_KEY"):
             self.assertIn("{0}: ${{{{ secrets.{0} }}}}".format(name), caller)
-        self.assertIn("types: [opened, synchronize, reopened]", caller)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", caller)
         self.assertNotIn("secrets: inherit", caller)
         self.assertNotIn("skills/", caller)
         self.assertNotIn("pull_request_target", caller)

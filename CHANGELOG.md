@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-05: The CI review skips draft pull requests
+
+The review that product repos call from [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now skips a draft pull request with a notice, and runs nothing after that check. The pull request is reviewed once it's marked ready for review, as long as the caller listens for `ready_for_review`, which the caller in [`examples/ci/README.md`](examples/ci/README.md) now does.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add `ready_for_review` to the `types` in each product repo's caller.
+
 ## 2026-11-05: Guides for CI and for measuring a harness
 
 Two guides, each with an animation, linked from a new Guides section in the README. [`docs/harness-in-ci.md`](docs/harness-in-ci.md) walks through putting your harness in a product repo's CI: checks first, then a review on every pull request from one harness repo, in the order to set it up, then the loop on a runner. [`docs/harness-evals.md`](docs/harness-evals.md) covers checking a reviewer still catches what it should, running the whole harness through a suite, reading the scorecard and comparing two runs. "The loop" in [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says what the review's FIX is for. [`examples/ci/README.md`](examples/ci/README.md) says what to do when an organisation has deploy keys switched off. The CI guide lists the errors a first setup hits, from a trial run, with each one's fix.
