@@ -132,6 +132,7 @@ jobs:
             /skills/
             /agents/
             /standards/
+            /.github/workflows/review-pr.yml
           sparse-checkout-cone-mode: false
 
       - name: Say which harness commit reviews
@@ -201,6 +202,9 @@ jobs:
             harness/skills/, harness/agents/, harness/standards/). Its rules
             are harness/AGENTS.md and the steering files it loads, and its
             standards are the files listed under STANDARDS below.
+            harness/.github/workflows/review-pr.yml is the workflow running
+            this review; read it when the change adds or edits a workflow that
+            calls it, and never treat it as part of the change.
           - base/ is the project at the pull request's base. The project's rules
             are base/AGENTS.md, or base/CLAUDE.md where there's no AGENTS.md,
             and the files they reference. Read the project's rules under base/

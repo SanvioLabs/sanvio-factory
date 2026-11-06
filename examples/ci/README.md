@@ -14,7 +14,7 @@ harness repo, so every review follows the same skill and the same rules, and
 a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
-[`steering/`](../../steering/), [`skills/`](../../skills/) and [`agents/`](../../agents/), `base/` (the product repo at the pull
+[`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
