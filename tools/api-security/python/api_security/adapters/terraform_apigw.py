@@ -291,7 +291,17 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
         base = root / rel
         if not base.is_dir():
             raise AdapterError(f"terraform path {rel!r} does not exist under {root}")
-        bases.append(base.resolve())
+        here = root
+        for part in Path(rel).parts:  # the path itself, and every folder above it, is a real folder
+            here = here / part
+            if here.is_symlink():
+                raise AdapterError(f"terraform path {rel!r}: {here.relative_to(root)} is a symlink; the check "
+                                   "reads only real folders")
+        resolved = base.resolve()
+        if not resolved.is_relative_to(root.resolve()) \
+                or SKIP.intersection(resolved.relative_to(root.resolve()).parts):
+            raise AdapterError(f"terraform path {rel!r} is outside the repository or in a skipped folder")
+        bases.append(resolved)
         for p in base.rglob("*"):  # rglob does not follow a linked folder, so its files go unread
             if p.is_symlink():
                 raise AdapterError(f"{p.relative_to(root)}: a symlink under the terraform paths; the "
@@ -300,13 +310,14 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
     found: Set[Tuple[str, str]] = set()
     for tf in _files(root):
         rel = tf.relative_to(root)
-        text = tf.read_text(encoding="utf-8")
+        text = tf.read_bytes().decode("utf-8")  # not read_text: it turns a lone CR into a newline
         inside = any(tf.resolve().is_relative_to(b) for b in bases)
         if tf.name.endswith(JSON_SUFFIXES):
             raise AdapterError(f"{rel}: JSON Terraform cannot be read; write it as .tf")
         odd = _unreadable_character(text)
         if odd:
             raise AdapterError(f"{rel}: {odd} may read differently to Terraform; the check refuses it")
+        text = text.replace("\r\n", "\n")  # CRLF is a newline to both; a lone CR was refused above
         try:
             masked = mask(text)
         except AdapterError as exc:

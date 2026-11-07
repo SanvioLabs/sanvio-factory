@@ -310,6 +310,28 @@ class TerraformUnreadableTests(unittest.TestCase):
                                   'data "aws_caller_identity" "me" {}\noutput "o" {\n  value = local.a\n}\n')
         self.assertEqual(len(terraform_apigw.deployed_routes(fixture.project(terraform=tf), ["infra"])), 2)
 
+    def test_a_configured_path_that_is_or_sits_under_a_symlink_is_refused(self):
+        # Security re-review 6, 2026-11-06: the path itself was resolved, never checked.
+        for link, paths in (("infra2", ["infra", "infra2"]), ("deep", ["infra", "deep/prod"])):
+            with self.subTest(link=link):
+                root = fixture.project()
+                (root / "node_modules" / "evil" / "prod").mkdir(parents=True)
+                (root / "node_modules" / "evil" / "prod" / "main.tf").write_text(self.HIDDEN)
+                (root / "node_modules" / "evil" / "main.tf").write_text(self.HIDDEN)
+                (root / link).symlink_to(root / "node_modules" / "evil")
+                with self.assertRaises(AdapterError):
+                    terraform_apigw.deployed_routes(root, paths)
+
+    def test_crlf_line_endings_are_read(self):
+        root = fixture.project(terraform=fixture.TERRAFORM.replace("\n", "\r\n"))
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_a_lone_carriage_return_is_refused(self):
+        root = fixture.project()
+        (root / "infra" / "cr.tf").write_bytes(b'locals {\r  a = 1\n}\n')
+        with self.assertRaises(AdapterError):
+            terraform_apigw.deployed_routes(root, ["infra"])
+
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'
         root = fixture.project(terraform=tf)
