@@ -178,9 +178,61 @@ def check_shadowed_skills(root, home=None):
             "one, so everyone using this harness runs the same skill.")
 
 
+SECURITY_LEVELS = ("off", "guided", "enforced", "hardened")
+SECURITY_ENFORCED_FILES = ("security/VERSION", "security/allowed_signers", "security/public-routes.txt",
+                           ".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
+
+
+def _workspace(path):
+    """security_level, live_users and regulated from a .studio-project.yaml's workspace block."""
+    fields, inside = {}, False
+    for line in path.read_text(errors="replace").splitlines():
+        if re.match(r"^workspace:\s*(#.*)?$", line):
+            inside = True
+            continue
+        if inside and line and not line[0].isspace():
+            break
+        m = re.match(r"^\s+(security_level|live_users|regulated):\s*(.*)$", line) if inside else None
+        if m:
+            fields[m.group(1)] = m.group(2).split(" #")[0].strip().strip("\"'").lower()
+    return fields
+
+
+def check_security_levels(root):
+    """Each project's API security level (steering/api-security.md). Off is never a problem on its
+    own; a live or regulated project at off is, and so is a level its files don't back."""
+    levels, warnings = [], []
+    for folder in sorted(p for p in (root / "projects").glob("*") if p.is_dir()):
+        identity = folder / ".studio-project.yaml"
+        if not identity.is_file():
+            continue
+        fields = _workspace(identity)
+        level = fields.get("security_level", "off")
+        level = level if level in SECURITY_LEVELS else "off"
+        levels.append("{} {}".format(folder.name, level))
+        if level == "off":
+            why = [k + ": true" for k in ("live_users", "regulated") if fields.get(k) == "true"]
+            if why:
+                warnings.append("{} is off with {}".format(folder.name, " and ".join(why)))
+            continue
+        missing = [] if list((folder / ".claude" / "rules").glob("api-security-*.md")) else [".claude/rules"]
+        if SECURITY_LEVELS.index(level) >= SECURITY_LEVELS.index("enforced"):
+            missing += [f for f in SECURITY_ENFORCED_FILES if not (folder / f).exists()]
+        if missing:
+            warnings.append("{} is {} but {} missing".format(folder.name, level, ", ".join(missing)))
+    if warnings:
+        return ("WARN", "security: " + "; ".join(warnings),
+                "Run python3 tools/api-security/apply.py --level <level> projects/<name>. "
+                "steering/api-security.md has what each level means.")
+    if not levels:
+        return ("PASS", "security: no project under projects/ declares an API security level", None)
+    return ("PASS", "security: " + ", ".join(levels), None)
+
+
 def run(root, home=None):
     return [check_python(), check_hooks(root), check_links(root), check_gate(root),
-            check_company(root), check_shadowed_skills(root, home), check_remote(root)]
+            check_company(root), check_shadowed_skills(root, home), check_security_levels(root),
+            check_remote(root)]
 
 
 def main(argv):

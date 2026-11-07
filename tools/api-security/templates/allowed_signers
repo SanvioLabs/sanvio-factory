@@ -1,0 +1,5 @@
+# Keys whose signature approves a change to security/ or the security workflows (SPEC-034).
+# One per line:  <email> <key type> <public key>
+# The key must need a physical touch or a biometric for every signature: a Secure Enclave key, or
+# `ssh-keygen -t ed25519-sk -O verify-required` on a hardware key. A plain key in ssh-agent does
+# not qualify. Land this file on the default branch before requiring security-approval.

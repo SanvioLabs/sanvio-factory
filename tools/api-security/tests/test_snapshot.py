@@ -1,0 +1,45 @@
+"""SPEC-034 REQ-015, AC-008: the public surface against the checked-in snapshot."""
+import unittest
+
+import _path  # noqa: F401  (imported for its sys.path side effect)
+import fixture
+
+NEW_PUBLIC = fixture.HANDLERS + '''
+@router.route("GET /v1/consent/terms/{code}")
+@public(reason="consent page")
+def terms(event, identity):
+    return {"statusCode": 200}
+'''
+NEW_TF = fixture.TERRAFORM + 'resource "aws_apigatewayv2_route" "t" {\n  route_key = "GET /v1/consent/terms/{code}"\n}\n'
+
+
+class SnapshotTests(unittest.TestCase):
+    def test_a_new_public_route_without_a_snapshot_update_fails(self):
+        r = fixture.run_check(fixture.project(handlers=NEW_PUBLIC, terraform=NEW_TF))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("+ GET /v1/consent/terms/{code}", r.stdout)
+
+    def test_update_snapshot_writes_it_and_then_passes(self):
+        root = fixture.project(handlers=NEW_PUBLIC, terraform=NEW_TF)
+        r = fixture.run_check(root, "--update-snapshot")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        text = (root / "security" / "public-routes.txt").read_text()
+        self.assertIn("GET /v1/consent/terms/{code}", text)
+        self.assertEqual(fixture.run_check(root).returncode, 0)
+
+    def test_a_missing_snapshot_fails(self):
+        r = fixture.run_check(fixture.project(snapshot=None))
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_comments_and_blank_lines_in_the_snapshot_are_ignored(self):
+        r = fixture.run_check(fixture.project(snapshot="# public routes\n\nGET /v1/health\n"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_route_in_the_snapshot_that_is_no_longer_public_fails(self):
+        r = fixture.run_check(fixture.project(snapshot="GET /v1/health\nGET /v1/gone\n"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("- GET /v1/gone", r.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

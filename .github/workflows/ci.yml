@@ -27,6 +27,15 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Tests
         run: python3 -m unittest discover -s tests -v
+      # uv runs the API security tool's generated-authz tests, which need pytest.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: The API security tool's own tests
+        working-directory: tools/api-security
+        run: python3 -m unittest discover -s tests -v
+      # Local rules only, metrics off, pinned: the hosted Semgrep platform receives code.
+      - name: The API security Semgrep rules
+        if: matrix.python == '3.13'
+        run: uvx semgrep@1.175.0 --metrics=off --test tools/api-security/semgrep/
       - name: The example's proposals pass their gate
         run: python3 examples/proposal/gates/proposal_gate.py
       - name: Every file name in the Markdown is a link

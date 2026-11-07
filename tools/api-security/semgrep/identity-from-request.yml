@@ -1,0 +1,114 @@
+# SPEC-034 REQ-013: a handler reads who the caller is from request input instead of the verified
+# credential. One rule per language. Run locally only:
+#   semgrep --metrics=off --config security/semgrep/ <paths>
+# Never `--config auto` and never `semgrep login`: the hosted platform receives code and is not
+# an Approved System.
+#
+# A deliberate read is allowed with a reason, on the same line:
+#   ... # nosemgrep: <rule id> -- <why this is safe>
+# Semgrep honours the nosemgrep; `python3 -m security.api_security.markers` fails a marker for these
+# rules that carries no reason.
+#
+# The identity field names below are the default list. apply.py rewrites them from
+# security/config.json's "identity_fields" when a project names its own.
+rules:
+  - id: api-security.identity-from-request.python
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Identity field read from request input. Take the caller's identity from the verified
+      credential the declaration hands in, not from the body, query string or a caller-set header.
+    mode: taint
+    pattern-sources:
+      - pattern: $E["body"]
+      - pattern: $E.get("body", ...)
+      - pattern: $E["queryStringParameters"]
+      - pattern: $E.get("queryStringParameters", ...)
+      - pattern: $E["headers"]
+      - pattern: $E.get("headers", ...)
+      - pattern: request.json
+      - pattern: request.get_json(...)
+      - pattern: request.args
+      - pattern: request.form
+      - pattern: request.headers
+      - pattern: request.query_params
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $S[$K]
+              - pattern: $S.get($K, ...)
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^["'](user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)["']$
+          - focus-metavariable: $S
+
+  - id: api-security.identity-from-request.typescript
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Identity field read from request input. Take the caller's identity from the verified
+      credential, not from req.body, req.query, a caller-set header or the raw event body.
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.body
+      - pattern: $REQ.query
+      - pattern: $REQ.headers
+      - pattern: JSON.parse($E.body)
+      - pattern: $E.queryStringParameters
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: $S.$K
+                  - metavariable-regex:
+                      metavariable: $K
+                      regex: ^(user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId)$
+              - patterns:
+                  - pattern: $S[$K]
+                  - metavariable-regex:
+                      metavariable: $K
+                      regex: ^["'](user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)["']$
+          - focus-metavariable: $S
+
+  - id: api-security.identity-from-request.php
+    languages: [php]
+    severity: ERROR
+    message: >-
+      Identity field read from request input. Take the caller's identity from the authenticated
+      user (e.g. $request->user()), not from input, query, a header or a superglobal.
+    patterns:
+      - pattern-either:
+          - pattern: $R->input($K, ...)
+          - pattern: $R->query($K, ...)
+          - pattern: $R->get($K, ...)
+          - pattern: $R->post($K, ...)
+          - pattern: $R->header($K, ...)
+          - pattern: $_GET[$K]
+          - pattern: $_POST[$K]
+          - pattern: $_REQUEST[$K]
+      - metavariable-regex:
+          metavariable: $K
+          regex: ^["'](user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)["']$
+
+  - id: api-security.identity-from-request.csharp
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      Identity field read from request input. Take the caller's identity from User (the verified
+      principal), not from a [FromBody] model, the query string or a caller-set header.
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: Request.Query[$K]
+              - pattern: Request.Form[$K]
+              - pattern: Request.Headers[$K]
+          - metavariable-regex:
+              metavariable: $K
+              regex: ^"(user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)"$
+      - patterns:
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $T $P, ...) { ... }
+          - pattern: $P.$F
+          - metavariable-regex:
+              metavariable: $F
+              regex: ^(UserId|AccountId|OwnerId|DeviceId|TenantId)$

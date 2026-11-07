@@ -1,0 +1,5 @@
+# Paths whose change the loop merge pass holds for a person until a security review has run
+# (SPEC-034, hardened). One glob per line.
+infra/**
+infrastructure/**
+**/*.tf

@@ -1,0 +1,46 @@
+# SPEC-034 security approval. Copied in by the api-security tool's apply.py at `enforced`.
+#
+# pull_request_target runs THIS FILE AS IT IS ON THE BASE BRANCH, so a pull request cannot edit
+# the job that judges it. That is also what makes this trigger dangerous: the job holds a token
+# for the base repository. Rules, each of which keeps it safe, and none of which may be relaxed:
+#   - never check out the pull request's code (no `ref:` on checkout, no `git checkout` of it);
+#   - never run anything from the pull request: the script below is the base branch's copy, and
+#     the PR's commits are fetched only as objects for git to read;
+#   - never interpolate pull request fields into a `run:` line; pass them through `env:`;
+#   - `contents: read` and nothing else.
+# Any change to this file is a security review (SPEC-034 SEC-003), and it is itself guarded: a PR
+# changing any workflow needs a commit signed by a key in the base branch's security/allowed_signers.
+# `edited` covers a retarget to another base. Protection should also require branches to be up to
+# date, so the base judged here is the base the merge lands on.
+# No `paths:` filter, ever: this is a required check, and a required check that does not run
+# never reports.
+name: security-approval
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  security-approval:
+    name: security-approval
+    runs-on: ubuntu-latest
+    steps:
+      # The base branch, which is pull_request_target's default. Full history for merge-base.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Fetch the pull request's commits as objects, without checking them out
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+
+      # The base is the commit checked out above, where this verifier and the signers file came
+      # from. The event's base sha is taken when the event fires and can be older.
+      - name: Verify with the base branch's copy of the verifier
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 security/api_security/verify_approval.py --base "$(git rev-parse HEAD)" --head "$HEAD_SHA"
