@@ -73,10 +73,10 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(children(self.code, "on"), ["workflow_call"])
         self.assertNotIn("pull_request_target", self.text)
 
-    def test_it_takes_the_harness_repo_and_two_optional_secrets(self):
+    def test_it_takes_the_harness_repo_and_three_optional_secrets(self):
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertRegex(on, r"harness-repo:\n(?:\s+\S.*\n)*?\s+required: true\n(?:\s+\S.*\n)*?\s+type: string")
-        for name in ("ANTHROPIC_API_KEY", "HARNESS_DEPLOY_KEY"):
+        for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HARNESS_DEPLOY_KEY"):
             self.assertRegex(on, r"{}:\n(?:\s+description: .*\n)?\s+required: false".format(name))
 
     def test_permissions_are_read_contents_and_write_comments_only(self):
@@ -124,6 +124,38 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("REVIEW_SKIPPED=true", added)
         self.assertIn("::notice::", result.stdout)
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", result.stdout)
+
+    def test_a_subscription_token_alone_runs_the_review(self):
+        result, _, added = self.run_step("Skip when Claude has no key", CLAUDE_CODE_OAUTH_TOKEN="t")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def review_with(self, report, **env):
+        """Run the Claude step with a stand-in claude that writes `report`. Returns it and whether a report is left."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "claude").write_text("#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$FAKE_REPORT\"\n")
+            (bin_dir / "claude").chmod(0o755)
+            (Path(tmp) / "prompt.md").write_text("review\n")
+            result = self.run_in(CLAUDE, tmp, PATH=f"{bin_dir}:{os.environ['PATH']}", RUNNER_TEMP=tmp,
+                                 GITHUB_WORKSPACE=tmp, FAKE_REPORT=report, **env)
+            return result, (Path(tmp) / "report.md").exists()
+
+    def test_a_report_holding_either_credential_is_not_posted(self):
+        for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
+            result, kept = self.review_with("Looks fine. cred-123", **{name: "cred-123"})
+            self.assertNotEqual(result.returncode, 0, name)
+            self.assertFalse(kept, name)
+            self.assertIn("::error::", result.stdout, name)
+            self.assertNotIn("cred-123", result.stdout + result.stderr, name)
+
+    def test_a_clean_report_with_one_credential_set_is_kept(self):
+        for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
+            result, kept = self.review_with("Looks fine.", **{name: "cred-123"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(kept, name)
 
     def test_a_pull_request_from_a_fork_skips_with_a_notice(self):
         result, output, _ = self.run_step("Skip a pull request from a fork", HEAD_REPO="fork/r", THIS_REPO="o/r")
@@ -407,8 +439,9 @@ class ReusableReviewWorkflow(unittest.TestCase):
             self.assertNotIn("HARNESS_DEPLOY_KEY", self.step(name), name)
 
     def test_each_step_holds_only_its_own_key(self):
-        self.assertEqual(self.secrets_in(CLAUDE), {"ANTHROPIC_API_KEY"})
-        self.assertEqual(self.secrets_in("Skip when Claude has no key"), {"ANTHROPIC_API_KEY"})
+        claude = {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
+        self.assertEqual(self.secrets_in(CLAUDE), claude)
+        self.assertEqual(self.secrets_in("Skip when Claude has no key"), claude)
         self.assertEqual(self.secrets_in(CREDENTIAL), {"HARNESS_DEPLOY_KEY"})
         for name in (DRAFT, PROMPT, POST, BASE, HEAD, HARNESS_SHA):
             self.assertEqual(self.secrets_in(name), set(), name)
@@ -424,7 +457,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
     def test_the_header_says_it_never_approves_or_merges(self):
         header = self.text.split("\nname:", 1)[0]
         self.assertIn("never", header)
-        for word in ("approves", "merges", "examples/ci/README.md", "HARNESS_DEPLOY_KEY", "ANTHROPIC_API_KEY"):
+        for word in ("approves", "merges", "examples/ci/README.md", "HARNESS_DEPLOY_KEY", "ANTHROPIC_API_KEY",
+                     "CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token"):
             self.assertIn(word, header)
 
     def test_the_header_says_its_main_runs_in_every_caller(self):
