@@ -34,7 +34,7 @@ class ApiSecurity(unittest.TestCase):
 
     def test_the_steering_says_what_the_approval_guards_and_what_the_check_does_not(self):
         text = (ROOT / "steering" / "api-security.md").read_text()
-        self.assertIn("`.github/workflows/`", text)
+        self.assertIn("the two security workflows", text)
         self.assertIn("catches mistakes, not an adversary", text)
         self.assertIn("up to date", text)
 
@@ -78,6 +78,45 @@ class ApiSecurity(unittest.TestCase):
             status, line, _ = check_setup.check_security_levels(root)
             self.assertEqual(status, "WARN")
             self.assertIn("security/allowed_signers", line)
+
+    # Review, 2026-11-06.
+
+    def test_setup_check_survives_a_comment_at_column_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project(root, "app", '  type: "product"\n# a note\n  live_users: true\n')
+            status, line, _ = check_setup.check_security_levels(root)
+            self.assertEqual(status, "WARN")
+            self.assertIn("app", line)
+
+    def test_setup_check_takes_levels_and_files_from_the_tool(self):
+        text = (ROOT / "scripts" / "check_setup.py").read_text()
+        self.assertNotIn("SECURITY_LEVELS = (", text)
+        self.assertNotIn("SECURITY_ENFORCED_FILES = (", text)
+
+    def test_setup_check_flags_a_copy_that_differs_from_its_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            d = project(root, "app", '  security_level: "enforced"\n')
+            for rel in ("security/VERSION", "security/allowed_signers", "security/public-routes.txt",
+                        ".github/workflows/security-check.yml", ".github/workflows/security-approval.yml",
+                        ".claude/rules/api-security-python.md"):
+                (d / rel).parent.mkdir(parents=True, exist_ok=True)
+                (d / rel).write_text("x\n")
+            (d / "security" / "VERSION").write_text("0.1.0+000000000000\n")
+            status, line, _ = check_setup.check_security_levels(root)
+            self.assertEqual(status, "WARN")
+            self.assertIn("differ", line)
+
+    def test_the_steering_covers_what_a_holder_hits_first(self):
+        text = (ROOT / "steering" / "api-security.md").read_text()
+        for needle in ("--runtime lambda-httpapi", "register_role", "Update branch", "deploy_workflows",
+                       "security/config.json", "deploy bundle"):
+            self.assertIn(needle, text)
+        self.assertNotIn("personal, health, financial or children's data", text)
+
+    def test_a_private_way_to_report_a_vulnerability(self):
+        self.assertTrue((ROOT / ".github" / "SECURITY.md").is_file())
 
     def test_setup_check_runs_it(self):
         self.assertIn("check_security_levels(root)", (ROOT / "scripts" / "check_setup.py").read_text())

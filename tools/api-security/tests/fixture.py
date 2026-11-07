@@ -29,9 +29,9 @@ router = Router()
 def health(event, identity):
     return {"statusCode": 200, "body": "ok"}
 
-@router.route("GET /v1/patterns/{user_id}")
+@router.route("GET /v1/records/{user_id}")
 @role("user", owns="user_id")
-def patterns(event, identity):
+def records(event, identity):
     return {"statusCode": 200, "body": json.dumps({"sub": identity["sub"]})}
 '''
 
@@ -40,15 +40,16 @@ resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.api.id
   route_key = "GET /v1/health"
 }
-resource "aws_apigatewayv2_route" "patterns" {
+resource "aws_apigatewayv2_route" "records" {
   api_id             = aws_apigatewayv2_api.api.id
-  route_key          = "GET /v1/patterns/{user_id}"
+  route_key          = "GET /v1/records/{user_id}"
   authorization_type = "JWT"
 }
 '''
 
 
-def project(handlers=HANDLERS, terraform=TERRAFORM, snapshot="GET /v1/health\n", adapter=None, extra=None):
+def project(handlers=HANDLERS, terraform=TERRAFORM, snapshot="GET /v1/health\n", adapter=None, extra=None,
+            handler_modules=None):
     root = Path(tempfile.mkdtemp(prefix="api-security-"))
     (root / "app").mkdir()
     (root / "app" / "__init__.py").write_text("")
@@ -61,7 +62,7 @@ def project(handlers=HANDLERS, terraform=TERRAFORM, snapshot="GET /v1/health\n",
         (root / "security" / "public-routes.txt").write_text(snapshot)
     config = {
         "roles_module": "app.roles",
-        "handler_modules": ["app.handlers"],
+        "handler_modules": handler_modules or ["app.handlers"],
         "adapter": adapter or {"kind": "terraform", "paths": ["infra"]},
     }
     (root / "security" / "config.json").write_text(json.dumps(config))

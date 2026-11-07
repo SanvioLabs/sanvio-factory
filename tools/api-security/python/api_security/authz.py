@@ -2,7 +2,9 @@
 
     pytest -p security.api_security.authz security/fixtures.py
 
-`security/fixtures.py` imports the project's roles and handlers, then defines four hooks:
+The plugin imports `roles_module` and every `handler_modules` entry named in
+`security/config.json` itself, so every declared role route gets its cases whatever
+`security/fixtures.py` imports. The fixtures file defines four hooks:
 
     token_for(role) -> credential that holds `role`
     token_without(roles) -> a valid credential holding none of `roles`
@@ -11,11 +13,15 @@
 
 For every route declared with role(...), the plugin generates: no credential gets 401; a
 credential without the role gets 403; and under owns, another user's resource gets 403 while the
-caller's own is allowed. Public routes get no refusal cases. A missing hook is a collection error,
-so a project cannot pass by leaving the fixtures out.
+caller's own is allowed. Public routes get no refusal cases. A missing hook or an unreadable
+config is a collection error, so a project cannot pass by leaving the fixtures out. A project with
+no role routes gets one passing case saying so, rather than pytest's "no tests ran".
 """
+import importlib
 import importlib.util
+import json
 import re
+import sys
 from typing import Iterator
 
 import pytest
@@ -24,6 +30,20 @@ from . import registry
 
 HOOKS = ("token_for", "token_without", "owner_params", "invoke")
 PARAM = re.compile(r"\{([^}+]+)\+?\}")
+
+
+def _import_declared(root):
+    """Import what security/config.json names, the same modules the check reads."""
+    try:
+        config = json.loads((root / "security" / "config.json").read_text(encoding="utf-8"))
+        modules = [config["roles_module"]] if config.get("roles_module") else []
+        modules += list(config["handler_modules"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise pytest.UsageError(f"security/config.json could not be read: {type(exc).__name__}: {exc}")
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    for name in modules:
+        importlib.import_module(name)
 
 
 def _load(path):
@@ -50,10 +70,12 @@ class AuthzCase(pytest.Item):
 
 class AuthzFile(pytest.File):
     def collect(self) -> Iterator[AuthzCase]:
+        _import_declared(self.path.parent.parent)
         hooks = _load(self.path)
-        for route in registry.routes():
-            if route.policy is None or route.policy.kind != "role":
-                continue
+        protected = [r for r in registry.routes() if r.policy is not None and r.policy.kind == "role"]
+        if not protected:
+            yield AuthzCase.from_parent(self, name="no role routes declared", check=lambda: None)
+        for route in protected:
             yield from self._cases(hooks, route)
 
     def _cases(self, hooks, route):

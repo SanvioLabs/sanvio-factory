@@ -1,6 +1,6 @@
 <?php
 
-class PatternController
+class RecordController
 {
     public function store($request)
     {

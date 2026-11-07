@@ -48,6 +48,26 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(markers.main(["--root", str(root)]), 1)
         self.assertEqual(markers.main(["--root", str(tree({"a.py": "x = 1\n"}))]), 0)
 
+    # review-spec, 2026-11-06 (T035): every spelling semgrep honours is held to the same rule.
+
+    def test_every_spelling_semgrep_honours_needs_a_reason(self):
+        qualified = "security.semgrep." + RULE
+        for line in ("x = 1  # nosem\n", "x = 1  # NOSEMGREP\n", "x = 1  # nosemgrep -- because\n",
+                     f"x = 1  # nosemgrep: other-rule, {RULE}\n", f"x = 1  # nosemgrep: other-rule {RULE}\n",
+                     f"x = 1  # nosemgrep: {qualified}\n", f"x = 1  # NoSem: {RULE}\n"):
+            with self.subTest(line=line):
+                self.assertEqual(len(markers.unreasoned(tree({"app/h.py": line}))), 1)
+
+    def test_the_qualified_id_ci_prints_passes_with_a_reason(self):
+        line = f"x = 1  # nosemgrep: security.semgrep.{RULE} -- echoed back only\n"
+        self.assertEqual(markers.unreasoned(tree({"app/h.py": line})), [])
+
+    def test_bin_and_obj_are_scanned_and_the_librarys_own_copy_is_not(self):
+        root = tree({"bin/run.py": "a # nosemgrep\n", "obj/x.cs": "a // nosemgrep\n",
+                     "security/api_security/markers.py": "NOSEMGREP = 'nosemgrep'\n"})
+        found = markers.unreasoned(root)
+        self.assertEqual(sorted(f.split(":")[0] for f in found), ["bin/run.py", "obj/x.cs"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,8 +19,8 @@ builder.Services.AddAuthorization(o =>
 [HttpGet("/v1/health")] public IActionResult Health() => Ok();
 
 [Authorize(Roles = "user")]
-[HttpGet("/v1/patterns/{userId}")]
-public async Task<IActionResult> Patterns(string userId)
+[HttpGet("/v1/records/{userId}")]
+public async Task<IActionResult> Records(string userId)
 {
     var result = await _auth.AuthorizeAsync(User, userId, "Owns");  // resource-based check
     if (!result.Succeeded) return Forbid();
@@ -40,4 +40,6 @@ Rules:
   same change.
 
 The `enforced` check is built for Python first, so a .NET project stays at `guided` until its own
-check exists. The harness's `api-security.md` steering file has the full model.
+check exists. Nothing is copied in at `guided`: the project writes the fallback policy and the
+authorization handlers itself, in its framework's own way. The harness's `api-security.md` steering
+file has the full model.

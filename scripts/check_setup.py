@@ -178,48 +178,52 @@ def check_shadowed_skills(root, home=None):
             "one, so everyone using this harness runs the same skill.")
 
 
-SECURITY_LEVELS = ("off", "guided", "enforced", "hardened")
-SECURITY_ENFORCED_FILES = ("security/VERSION", "security/allowed_signers", "security/public-routes.txt",
-                           ".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
+API_SECURITY_TOOL = Path(__file__).resolve().parent.parent / "tools" / "api-security" / "apply.py"
 
 
-def _workspace(path):
-    """security_level, live_users and regulated from a .studio-project.yaml's workspace block."""
-    fields, inside = {}, False
-    for line in path.read_text(errors="replace").splitlines():
-        if re.match(r"^workspace:\s*(#.*)?$", line):
-            inside = True
-            continue
-        if inside and line and not line[0].isspace():
-            break
-        m = re.match(r"^\s+(security_level|live_users|regulated):\s*(.*)$", line) if inside else None
-        if m:
-            fields[m.group(1)] = m.group(2).split(" #")[0].strip().strip("\"'").lower()
-    return fields
+def _api_security_tool():
+    """The levels, the files each needs, the identity-file parser and the content stamp come from
+    the tool itself, so this check and apply.py cannot disagree."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_api_security_apply", str(API_SECURITY_TOOL))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def check_security_levels(root):
     """Each project's API security level (steering/api-security.md). Off is never a problem on its
-    own; a live or regulated project at off is, and so is a level its files don't back."""
+    own; a live or regulated project at off is, and so is a level its files don't back, or a copy
+    of the tool that no longer matches its stamp."""
+    try:
+        tool = _api_security_tool()
+    except Exception as exc:  # report it; the setup check never stops on one line
+        return ("WARN", "security: tools/api-security/apply.py could not be loaded ({})".format(exc),
+                "Restore tools/api-security/ from the harness.")
     levels, warnings = [], []
     for folder in sorted(p for p in (root / "projects").glob("*") if p.is_dir()):
         identity = folder / ".studio-project.yaml"
         if not identity.is_file():
             continue
-        fields = _workspace(identity)
-        level = fields.get("security_level", "off")
-        level = level if level in SECURITY_LEVELS else "off"
+        fields = tool.workspace_fields(identity.read_text(errors="replace"))
+        raw = fields.get("security_level", "off")
+        level = raw if raw in tool.LEVELS else "off"
         levels.append("{} {}".format(folder.name, level))
+        if raw not in tool.LEVELS:
+            warnings.append("{} says security_level {!r}, which is not a level".format(folder.name, raw))
         if level == "off":
             why = [k + ": true" for k in ("live_users", "regulated") if fields.get(k) == "true"]
             if why:
                 warnings.append("{} is off with {}".format(folder.name, " and ".join(why)))
             continue
         missing = [] if list((folder / ".claude" / "rules").glob("api-security-*.md")) else [".claude/rules"]
-        if SECURITY_LEVELS.index(level) >= SECURITY_LEVELS.index("enforced"):
-            missing += [f for f in SECURITY_ENFORCED_FILES if not (folder / f).exists()]
+        missing += [f for f in tool.required_files(level) if not (folder / f).exists()]
         if missing:
             warnings.append("{} is {} but {} missing".format(folder.name, level, ", ".join(missing)))
+        stamp = folder / "security" / "VERSION"
+        digest = stamp.read_text().strip().partition("+")[2] if stamp.is_file() else ""
+        if digest and tool.project_hash(folder) != digest:
+            warnings.append("{}'s security/api_security or security workflows differ from its stamp".format(folder.name))
     if warnings:
         return ("WARN", "security: " + "; ".join(warnings),
                 "Run python3 tools/api-security/apply.py --level <level> projects/<name>. "

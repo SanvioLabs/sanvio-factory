@@ -18,7 +18,7 @@ ways to say it:
 | Declaration | Means |
 |---|---|
 | `public(reason)` | Anyone may call it. The reason is required and says why, e.g. "payment webhook, signature checked" |
-| `role(*roles, owns=None)` | Only a caller holding one of the named roles. With `owns="user_id"`, only when the verified caller owns the resource that path parameter names |
+| `role(*roles, owns=None, unowned=None)` | Only a caller holding one of the named roles. With `owns="user_id"`, only when the verified caller owns the resource that path parameter names. A route with a path parameter and no owner says why with `unowned="..."` |
 
 Three rules hold under both:
 
@@ -49,11 +49,11 @@ level needs and nothing else.
 | `off` (default) | Prototypes, anything not deployed, every project that has not chosen | Nothing is loaded or checked |
 | `guided` | Deployed, no real users yet | A rules file for the project's language, loaded when handler code is edited and pointed at from the project's `AGENTS.md`. Endpoint tickets carry a wrong-user-is-refused check ([`tickets.md`](tickets.md)). Nothing blocks |
 | `enforced` | Real users | A check in the project repo as a required status: every deployed route declared, no identity read from request input, generated 401/403/`owns` tests pass, and a new public route carries a signed approval. The project's `deploy_ready` gate runs it |
-| `hardened` | Personal, health, financial or children's data | The checklist below, plus a security review on every PR touching handlers or infrastructure before it merges |
+| `hardened` | Restricted data: health or medical records, children's data, biometrics, payment cards, financial account or tax records, government ID numbers, precise location | The checklist below, plus a security review on every PR touching handlers or infrastructure before it merges |
 
 `off` is the default so that a harness already in use changes nothing until
 someone chooses. The cost is that a live project can sit at `off` unnoticed, so
-`python3 scripts/check_setup.py` warns about any project under `projects/`
+`python3 scripts/check_setup.py` warns about any project under [`projects/`](../projects/)
 whose `.studio-project.yaml` says `live_users: true` or `regulated: true` while
 its level is `off`.
 
@@ -66,15 +66,48 @@ turned on.
 
 | Language | Refused by default | `public` | `role` | `owns` |
 |---|---|---|---|---|
-| Python | The library's router refuses an undeclared handler | `@public(reason=...)` | `@role("admin")` | `@role("user", owns="user_id")`; FastAPI can do the same through dependencies |
+| Python | The library's router refuses an undeclared handler | `@public(reason=...)` | `@role("admin")` | `@role("user", owns="user_id")` |
 | TypeScript, NestJS | A global guard | `@Public()` with a reason | `@Roles("admin")` | A guard comparing the route param with the verified caller |
 | TypeScript, Express, Hono, bare Lambda | One wrapper every route is registered through | `route(publicRoute("reason"), handler)` | `route(role("admin"), handler)` | `route(role("user", { owns: "userId" }), handler)` |
 | PHP, Laravel | A default `auth` middleware group | A separate public group, reason in a comment | `can:` middleware or a gate | Policies |
 | PHP, Symfony | `access_control` ending in deny-all | `#[IsGranted('PUBLIC_ACCESS')]` | `#[IsGranted('ROLE_ADMIN')]` | A voter |
 | .NET, ASP.NET Core | `FallbackPolicy = RequireAuthenticatedUser()` | `[AllowAnonymous]` | `[Authorize(Roles = "admin")]` | A resource-based `AuthorizationHandler` |
 
-The `enforced` check is built for Python first. Projects in other languages can
-go up to `guided` until their own check exists.
+The `enforced` check is built for one shape so far: **Python on Lambda behind
+API Gateway HTTP API v2, with the function's handler set to the library's
+`router.handle`**. `apply.py` asks for `--runtime lambda-httpapi` to say so. A
+Python API on FastAPI, Flask or Django, and every other language, goes no higher
+than `guided` until its own check exists.
+
+At `guided`, Python gets the library itself under `security/api_security/`, so
+the rules file's import works from the first handler. Every other language gets
+the rules file only: the guard, wrapper or middleware in the table above is the
+project's to write, in its framework's own way.
+
+## Registering roles
+
+Each role is registered once, with one verifier, in the module
+`security/config.json` names as `roles_module`, imported before any handler:
+
+```python
+from security.api_security import register_ownership, register_role
+
+def user(event):
+    """The verified identity, or None. Never a bool, never async."""
+    claims = verify_jwt(event["headers"].get("authorization", ""))  # your own verification
+    return {"sub": claims["sub"]} if claims else None
+
+def owns(identity, param, value):
+    """Compare the path value exactly as the handler will read it."""
+    return identity["sub"] == value
+
+register_role("user", user)
+register_ownership(owns)
+```
+
+A verifier returning anything but an identity (a bool, an empty value, a
+coroutine) is a refusal, and registering a second verifier under a taken name
+raises, so a later import can't swap it.
 
 ## `enforced`: what holds it
 
@@ -85,30 +118,62 @@ go up to `guided` until their own check exists.
   another identity's token; and the list of public routes against the checked-in
   `security/public-routes.txt`.
 - **The approval** (`security-approval.yml`, on `pull_request_target`): any line
-  added to `security/public-routes.txt`, and any other change under `security/`
-  or `.github/workflows/`, needs a commit signed by a key in the **base
-  branch's** `security/allowed_signers`. It judges what would land, the merge of
-  the PR into its base, and one signed commit containing that base has to hold
-  exactly what lands under both. Removing a public route needs no signature.
+  added to `security/public-routes.txt`, and any other change under `security/`,
+  to the two security workflows, or to a deploy workflow the base's
+  `security/config.json` lists under `deploy_workflows`, needs a commit signed by
+  a key in the **base branch's** `security/allowed_signers`. It judges what would
+  land, the merge of the PR into its base, and one signed commit containing that
+  base has to hold exactly what lands across those paths. Ordinary CI isn't
+  guarded, so a Dependabot bump to it needs no signature, but no other workflow
+  may define a job named `security-check` or `security-approval`. Removing a
+  public route needs no signature.
 - **Both are required statuses** on every protected branch, with branches
-  required to be up to date before merging. Turn them on in this order: create
-  the key, run `apply.py --level enforced`, put the key in
-  `security/allowed_signers`, land that on the default branch, then require
-  `security-check` and `security-approval` ([`project-setup.md`](project-setup.md)).
+  required to be up to date before merging. Turn them on in this order
+  ([`project-setup.md`](project-setup.md)): create the key; run
+  `apply.py --level enforced --runtime lambda-httpapi`; put the key in
+  `security/allowed_signers`; fill in `security/config.json` and
+  `security/fixtures.py` until the check passes locally (the templates fail on
+  purpose); make sure the function's deploy bundle carries `security/`, which
+  the handlers import at runtime; land that on the default branch; then require
+  `security-check` and `security-approval`.
 
 **The check catches mistakes, not an adversary.** It imports the project's
 handlers to list their declarations, so code written to subvert it can make it
 pass. The approval is the part that holds against a hostile PR, and it covers
-only `security/` and the workflows. A deliberate change to app code is what
+only `security/` and the guarded workflows. A deliberate change to app code is what
 review is for, and at `hardened` that review is required before merge.
 
 **Updating a branch from its base after signing needs a new signature** when
 the branch changes a guarded file: sign the merge commit
 (`git commit --amend -S` on it). A signature on a commit built on an older base
 doesn't count, because an old signed commit could otherwise be replayed over a
-later fix. Every workflow edit in an `enforced` repo needs a signature,
-deploy workflows included. A merge queue isn't supported: the approval job
-doesn't run there.
+later fix. List every workflow that deploys in `deploy_workflows`: they hold
+the deploy credentials, and listing them is what puts them behind the
+signature. A merge queue isn't supported: the approval job doesn't run there.
+
+### Signing
+
+The approval needs an SSH signature from a key in the base branch's
+`security/allowed_signers`, made by the same email the commit carries:
+
+```bash
+git config gpg.format ssh
+git config user.signingkey <path to the public half of the touch-required key>
+git config commit.gpgsign true          # or pass -S on the commits that need it
+# security/allowed_signers, one line per key:
+#   you@example.com ssh-ed25519 AAAA...
+```
+
+The refusal names its cause:
+
+| It says | Do |
+|---|---|
+| no commit is signed by a listed key | Sign the commit (`git commit --amend -S`, then push). Check the commit email matches the `allowed_signers` line; a GitHub noreply address doesn't |
+| the signed commit is built on an older base | Update from the base on your machine, sign the merge commit, push. Never use GitHub's **Update branch** button on a guarded PR: it makes an unsigned merge |
+| what lands differs from every signed commit | A later commit changed a guarded file. Sign the latest |
+
+A rebase or squash rewrites commits and drops their signatures, so sign after
+it.
 
 Why it is built this way:
 

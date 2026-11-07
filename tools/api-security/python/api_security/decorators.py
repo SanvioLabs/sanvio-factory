@@ -27,18 +27,26 @@ def public(*, reason: str) -> Callable:
     return _attach(Policy(kind="public", reason=reason.strip()))
 
 
-def role(*roles: str, owns: Optional[str] = None) -> Callable:
+def role(*roles: str, owns: Optional[str] = None, unowned: Optional[str] = None) -> Callable:
     """Only a caller holding one of `roles`. With `owns`, only when that caller owns the resource the
-    named path parameter points at."""
+    named path parameter points at. A route whose path carries a parameter takes `owns`, or
+    `unowned` saying why any holder of the role may reach every value of it; the check fails one
+    that says neither."""
     if not roles:
         raise ValueError("role() needs at least one role name")
+    if unowned is not None:
+        if owns is not None:
+            raise ValueError("role() takes owns or unowned, not both")
+        if not isinstance(unowned, str) or not unowned.strip():
+            raise ValueError("unowned needs a reason saying why any holder of the role may reach every value")
     missing = [r for r in roles if not registry.has_role(r)]
     if missing:
         raise UnknownRole(f"no verifier registered for role(s) {', '.join(missing)}; "
                           "register roles before the handlers that use them are imported")
     if owns is not None and (not isinstance(owns, str) or not owns.strip()):
         raise ValueError("owns names a path parameter, e.g. owns='user_id'")
-    return _attach(Policy(kind="role", roles=tuple(roles), owns=owns))
+    return _attach(Policy(kind="role", roles=tuple(roles), owns=owns,
+                          unowned=(unowned or "").strip()))
 
 
 def policy_of(fn: Callable) -> Optional[Policy]:

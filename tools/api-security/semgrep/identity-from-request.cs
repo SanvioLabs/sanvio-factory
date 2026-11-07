@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 
-public class PatternsController : ControllerBase
+public class RecordsController : ControllerBase
 {
-    [HttpPost("/v1/interpret")]
-    public IActionResult Interpret([FromBody] InterpretRequest body)
+    [HttpPost("/v1/summarize")]
+    public IActionResult Summarize([FromBody] SummarizeRequest body)
     {
         // ruleid: api-security.identity-from-request.csharp
         var user = body.UserId;

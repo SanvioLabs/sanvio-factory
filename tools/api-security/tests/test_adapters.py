@@ -12,7 +12,7 @@ class TerraformAdapterTests(unittest.TestCase):
     def test_reads_literal_route_keys(self):
         root = fixture.project()
         got = terraform_apigw.deployed_routes(root, ["infra"])
-        self.assertEqual(got, {("GET", "/v1/health"), ("GET", "/v1/patterns/{user_id}")})
+        self.assertEqual(got, {("GET", "/v1/health"), ("GET", "/v1/records/{user_id}")})
 
     def test_an_interpolated_route_key_fails_closed(self):
         tf = 'resource "aws_apigatewayv2_route" "r" {\n  route_key = "GET ${var.prefix}/x"\n}\n'
@@ -51,10 +51,10 @@ class CheckAgainstDeployedTests(unittest.TestCase):
         self.assertIn("deployed with no declared handler", r.stdout)
 
     def test_a_handler_with_no_deployed_route_fails(self):
-        tf = fixture.TERRAFORM.split('resource "aws_apigatewayv2_route" "patterns"')[0]
+        tf = fixture.TERRAFORM.split('resource "aws_apigatewayv2_route" "records"')[0]
         r = fixture.run_check(fixture.project(terraform=tf))
         self.assertEqual(r.returncode, 1)
-        self.assertIn("GET /v1/patterns/{user_id}", r.stdout)
+        self.assertIn("GET /v1/records/{user_id}", r.stdout)
         self.assertIn("declared with no deployed route", r.stdout)
 
     def test_an_undeclared_handler_fails(self):
@@ -69,16 +69,24 @@ def forgotten(event, identity):
         self.assertIn("POST /v1/forgotten", r.stdout)
         self.assertIn("no declaration", r.stdout)
 
-    def test_dispatch_adapter_both_directions(self):
-        table = 'ROUTES = {"GET /v1/health": None, "GET /v1/patterns/{user_id}": None, "DELETE /v1/x": None}\n'
-        r = fixture.run_check(fixture.project(adapter={"kind": "dispatch", "table": "app.table:ROUTES"},
-                                              extra={"app/table.py": table}))
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("DELETE /v1/x", r.stdout)
-        table_ok = 'ROUTES = {("GET", "/v1/health"): None, ("GET", "/v1/patterns/{user_id}"): None}\n'
-        r = fixture.run_check(fixture.project(adapter={"kind": "dispatch", "table": "app.table:ROUTES"},
-                                              extra={"app/table.py": table_ok}))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+    def test_dispatch_adapter_reads_the_router_and_refuses_a_plain_table(self):
+        # review-spec, 2026-11-06 (T036): a plain table cannot show requests go through Router.handle.
+        ok = fixture.run_check(fixture.project(adapter={"kind": "dispatch", "table": "app.handlers:router"}))
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        table = 'ROUTES = {"GET /v1/health": None, "GET /v1/records/{user_id}": None}\n'
+        plain = fixture.run_check(fixture.project(adapter={"kind": "dispatch", "table": "app.table:ROUTES"},
+                                                  extra={"app/table.py": table}))
+        self.assertEqual(plain.returncode, 2, plain.stdout)
+        self.assertIn("Router", plain.stdout)
+
+    def test_dispatch_adapter_finds_a_route_declared_on_another_router(self):
+        other = ("from api_security import Router, role\nrouter = Router()\n"
+                 "@router.route('DELETE /v1/x')\n@role('user')\ndef x(event, identity):\n    return {}\n")
+        r = fixture.run_check(fixture.project(adapter={"kind": "dispatch", "table": "app.handlers:router"},
+                                              extra={"app/other.py": other},
+                                              handler_modules=["app.handlers", "app.other"]))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("DELETE /v1/x: declared with no deployed route", r.stdout)
 
     def test_a_broken_config_is_an_error_not_a_pass(self):
         root = fixture.project()
@@ -89,6 +97,78 @@ def forgotten(event, identity):
     def test_a_handler_module_that_fails_to_import_is_an_error(self):
         r = fixture.run_check(fixture.project(handlers="raise RuntimeError('boom')\n"))
         self.assertNotEqual(r.returncode, 0)
+
+# review-spec, 2026-11-06 (T036): Terraform the adapter cannot read is a failure, never a skip.
+class TerraformUnreadableTests(unittest.TestCase):
+    def assertRefused(self, terraform=fixture.TERRAFORM, extra=None, needle=None):
+        root = fixture.project(terraform=terraform, extra=extra)
+        with self.assertRaises(AdapterError) as ctx:
+            terraform_apigw.deployed_routes(root, ["infra"])
+        if needle:
+            self.assertIn(needle, str(ctx.exception))
+
+    def test_json_terraform(self):
+        self.assertRefused(extra={"infra/routes.tf.json": "{}"}, needle="tf.json")
+
+    def test_a_route_key_that_is_not_on_its_own_line(self):
+        tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_route" "x" { route_key = "GET /v1/x" }\n'
+        self.assertRefused(terraform=tf, needle="route_key")
+
+    def test_a_function_url_rest_api_or_openapi_body(self):
+        for tf in ('resource "aws_lambda_function_url" "u" {\n  authorization_type = "NONE"\n}\n',
+                   'resource "aws_api_gateway_method" "m" {\n  http_method = "GET"\n}\n',
+                   'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  body = file("openapi.json")\n}\n',
+                   'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  target = aws_lambda_function.f.arn\n}\n'):
+            with self.subTest(tf=tf.split(chr(10))[0]):
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_a_route_outside_the_configured_paths(self):
+        extra = {"modules/api/routes.tf": 'resource "aws_apigatewayv2_route" "x" {\n  route_key = "GET /v1/x"\n}\n'}
+        self.assertRefused(extra=extra, needle="modules/api/routes.tf")
+
+    def test_an_api_with_a_name_only_is_still_read(self):
+        tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'
+        root = fixture.project(terraform=tf)
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+
+# review-spec, 2026-11-06 (T034): a role route reaching a resource by id says whose it is.
+UNOWNED_TF = fixture.TERRAFORM + '''
+resource "aws_apigatewayv2_route" "thing" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "GET /v1/things/{thing_id}"
+}
+'''
+
+
+def _thing(declaration):
+    return fixture.HANDLERS + (
+        "\n@router.route('GET /v1/things/{thing_id}')\n"
+        f"@{declaration}\n"
+        "def thing(event, identity):\n"
+        "    return {'statusCode': 200, 'body': 'x'}\n")
+
+
+class OwnershipDeclarationTests(unittest.TestCase):
+    def test_a_role_route_with_an_id_parameter_and_no_owns_fails(self):
+        r = fixture.run_check(fixture.project(handlers=_thing('role("user")'), terraform=UNOWNED_TF))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("GET /v1/things/{thing_id}", r.stdout)
+        self.assertIn("owns", r.stdout)
+
+    def test_unowned_with_a_reason_passes(self):
+        decl = 'role("user", unowned="things are a shared catalogue every user may read")'
+        r = fixture.run_check(fixture.project(handlers=_thing(decl), terraform=UNOWNED_TF))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_unowned_needs_a_reason_and_excludes_owns(self):
+        from api_security import registry
+        from api_security.decorators import role
+        registry.reset()
+        registry.register_role("user", lambda event: None)
+        for kwargs in ({"unowned": ""}, {"unowned": "x", "owns": "thing_id"}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                role("user", **kwargs)
 
 
 if __name__ == "__main__":

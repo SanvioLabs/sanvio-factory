@@ -9,7 +9,7 @@
 #   - never interpolate pull request fields into a `run:` line; pass them through `env:`;
 #   - `contents: read` and nothing else.
 # Any change to this file is a security review (SPEC-034 SEC-003), and it is itself guarded: a PR
-# changing any workflow needs a commit signed by a key in the base branch's security/allowed_signers.
+# changing it needs a commit signed by a key in the base branch's security/allowed_signers.
 # `edited` covers a retarget to another base. Protection should also require branches to be up to
 # date, so the base judged here is the base the merge lands on.
 # No `paths:` filter, ever: this is a required check, and a required check that does not run

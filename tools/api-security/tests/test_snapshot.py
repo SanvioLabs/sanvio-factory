@@ -40,6 +40,13 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("- GET /v1/gone", r.stdout)
 
+    def test_a_semgrepignore_fails_the_check(self):
+        # review-spec, 2026-11-06 (T035): an ignore file can hide every handler from the scan.
+        root = fixture.project(extra={".semgrepignore": "app/\n"})
+        r = fixture.run_check(root)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn(".semgrepignore", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

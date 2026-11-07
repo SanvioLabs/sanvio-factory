@@ -24,8 +24,8 @@ health() {}
 
 @Roles("user")
 @Owns("userId")          // the guard compares this route param with the verified caller
-@Get("/v1/patterns/:userId")
-patterns(@CurrentUser() caller: Caller) {}
+@Get("/v1/records/:userId")
+records(@CurrentUser() caller: Caller) {}
 ```
 
 **Express, Hono, a bare Lambda:** register every route through one wrapper that refuses a handler
@@ -33,7 +33,7 @@ it was not given a declaration for:
 
 ```ts
 route("GET /v1/health", publicRoute("health check, returns no data"), health);
-route("GET /v1/patterns/:userId", role("user", { owns: "userId" }), patterns);
+route("GET /v1/records/:userId", role("user", { owns: "userId" }), records);
 ```
 
 Rules:
@@ -47,4 +47,6 @@ Rules:
   same change.
 
 The `enforced` check is built for Python first, so a TypeScript project stays at `guided` until its
-own check exists. The harness's `api-security.md` steering file has the full model.
+own check exists. Nothing is copied in at `guided`: the project writes the global guard or the
+wrapper itself, in its framework's own way. The harness's `api-security.md` steering file has the
+full model.

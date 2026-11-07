@@ -29,16 +29,26 @@ jobs:
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
+      # The check imports the handler modules, and they import the project's dependencies.
+      - name: Install the project's dependencies
+        run: |
+          if [ -f uv.lock ]; then uv sync --frozen
+          elif [ -f pyproject.toml ]; then uv sync
+          elif [ -f requirements.txt ]; then uv venv && uv pip install -r requirements.txt
+          fi
+
       - name: Declarations, deployed routes and the public snapshot
         run: uv run python -m security.api_security.check
 
       - name: Every suppression of the identity rules carries a reason
         run: uv run python -m security.api_security.markers
 
+      # --strict and no size limit: semgrep otherwise skips a file it cannot parse, or one over
+      # 1 MB, and exits 0.
       # Local rules only. Never `--config auto` and never `semgrep login`: the hosted platform
       # receives code and is not an Approved System.
       - name: No identity read from request input
-        run: uvx semgrep@1.175.0 scan --metrics=off --error --config security/semgrep/identity-from-request.yml --exclude security/semgrep .
+        run: uvx semgrep@1.175.0 scan --metrics=off --error --strict --max-target-bytes 0 --config security/semgrep/identity-from-request.yml --exclude security/semgrep .
 
       - name: Generated authorization tests
         run: uv run --with pytest python -m pytest -p security.api_security.authz -p no:cacheprovider security/fixtures.py

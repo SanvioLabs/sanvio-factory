@@ -3,6 +3,7 @@
 One module-level registry per process. The check imports the project's handler modules and reads
 it, so nothing has to be deployed to know what a route requires.
 """
+import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -16,6 +17,7 @@ class Policy:
     reason: str = ""
     roles: Tuple[str, ...] = ()
     owns: Optional[str] = None
+    unowned: str = ""  # why any holder of the role may reach every value of the path's parameters
 
 
 @dataclass(frozen=True)
@@ -39,8 +41,15 @@ def reset() -> None:
 
 
 def register_role(name: str, verifier: Verifier) -> None:
+    """One verifier per role, registered once. The verifier returns the verified identity, or None
+    when the caller does not hold the role; it must not be `async`. Registering a different
+    verifier under a name already taken raises, so a later import cannot swap it."""
     if not name or not callable(verifier):
         raise ValueError("a role needs a name and a callable verifier")
+    if inspect.iscoroutinefunction(verifier):
+        raise ValueError(f"the verifier for role {name!r} is async; verifiers must return the identity")
+    if name in _roles and _roles[name] is not verifier:
+        raise ValueError(f"role {name!r} already has a verifier")
     _roles[name] = verifier
 
 
@@ -53,8 +62,13 @@ def has_role(name: str) -> bool:
 
 
 def register_ownership(fn: Ownership) -> None:
+    """The one ownership test. It receives the path parameter's value exactly as the handler will
+    read it, and must compare it as given: a test that normalises (case, whitespace) and a handler
+    that does not is a route that reaches someone else's record."""
     if not callable(fn):
         raise ValueError("the ownership test must be callable")
+    if _ownership and _ownership[0] is not fn:
+        raise ValueError("an ownership test is already registered")
     _ownership[:] = [fn]
 
 

@@ -36,7 +36,7 @@ def invoke(method, path, token, path_params):
 LEAKY = FIXTURES.replace(
     'def invoke(method, path, token, path_params):',
     'def invoke(method, path, token, path_params):\n'
-    '    if path == "/v1/patterns/{user_id}":\n'
+    '    if path == "/v1/records/{user_id}":\n'
     '        return 200\n'
     '    return _real(method, path, token, path_params)\n\n'
     'def _real(method, path, token, path_params):')
@@ -67,10 +67,10 @@ class GeneratedAuthzTests(unittest.TestCase):
         r = run_authz(root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         out = r.stdout
-        self.assertIn("GET /v1/patterns/{user_id} no-token 401", out)
-        self.assertIn("GET /v1/patterns/{user_id} without-role 403", out)
-        self.assertIn("GET /v1/patterns/{user_id} not-owner 403", out)
-        self.assertIn("GET /v1/patterns/{user_id} owner allowed", out)
+        self.assertIn("GET /v1/records/{user_id} no-token 401", out)
+        self.assertIn("GET /v1/records/{user_id} without-role 403", out)
+        self.assertIn("GET /v1/records/{user_id} not-owner 403", out)
+        self.assertIn("GET /v1/records/{user_id} owner allowed", out)
         self.assertNotIn("GET /v1/health no-token", out)  # public routes get no refusal cases
 
     def test_a_route_that_skips_its_check_fails(self):
@@ -83,6 +83,45 @@ class GeneratedAuthzTests(unittest.TestCase):
         root = fixture.project(extra={"security/fixtures.py": "import app.roles\nimport app.handlers\n"})
         r = run_authz(root)
         self.assertNotEqual(r.returncode, 0)
+
+    # review-spec, 2026-11-06 (T033): coverage comes from security/config.json, not from what
+    # fixtures.py happens to import.
+
+    def test_a_role_route_in_a_module_the_fixtures_never_import_still_gets_its_cases(self):
+        other = (
+            "from api_security import Router, role\n"
+            "router = Router()\n"
+            "@router.route('GET /v1/export')\n"
+            "@role('user')\n"
+            "def export(event, identity):\n"
+            "    return {'statusCode': 200, 'body': 'everyone'}\n"
+        )
+        wide_open = FIXTURES.replace(
+            'def invoke(method, path, token, path_params):',
+            'def invoke(method, path, token, path_params):\n'
+            '    if path == "/v1/export":\n'
+            '        return 200\n'
+            '    return _real(method, path, token, path_params)\n\n'
+            'def _real(method, path, token, path_params):')
+        root = fixture.project(extra={"security/fixtures.py": wide_open, "app/other.py": other},
+                               handler_modules=["app.handlers", "app.other"])
+        r = run_authz(root)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("GET /v1/export no-token 401", r.stdout)
+
+    def test_a_project_with_no_role_routes_passes(self):
+        public_only = (
+            "from api_security import Router, public\n"
+            "router = Router()\n"
+            "@router.route('GET /v1/health')\n"
+            "@public(reason='health check, returns no data')\n"
+            "def health(event, identity):\n"
+            "    return {'statusCode': 200, 'body': 'ok'}\n"
+        )
+        hooks = FIXTURES.replace("import app.roles  # registers the roles before the handlers load\n", "")
+        root = fixture.project(handlers=public_only, extra={"security/fixtures.py": hooks})
+        r = run_authz(root)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

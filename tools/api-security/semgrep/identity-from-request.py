@@ -1,9 +1,10 @@
 import json
+from urllib.parse import parse_qs
 
 from flask import request
 
 
-def interpret(event, identity):
+def summarize(event, identity):
     body = json.loads(event["body"])
     # ruleid: api-security.identity-from-request.python
     user = body["user_id"]
@@ -30,3 +31,18 @@ def flask_view():
     # ok: api-security.identity-from-request.python
     sender = request.json["user_id"]  # nosemgrep: api-security.identity-from-request.python -- echoed back to the caller only, never trusted
     return uid, acct, sender
+
+
+def gateway_variants(event, identity):
+    # review-spec, 2026-11-06 (T041)
+    hdr = event["headers"]
+    # ruleid: api-security.identity-from-request.python
+    a = hdr.get("X-User-Id")
+    lowered = {k.lower(): v for k, v in event["headers"].items()}
+    # ruleid: api-security.identity-from-request.python
+    b = lowered.get("x-user-id")
+    # ruleid: api-security.identity-from-request.python
+    c = parse_qs(event["rawQueryString"])["user_id"]
+    # ok: api-security.identity-from-request.python
+    d = hdr.get("Content-Type")
+    return a, b, c, d

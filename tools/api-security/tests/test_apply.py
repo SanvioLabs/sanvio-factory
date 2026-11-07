@@ -10,6 +10,7 @@ from pathlib import Path
 import _path
 
 APPLY = _path.TOOL / "apply.py"
+RUNTIME = ("--runtime", "lambda-httpapi")
 
 IDENTITY = """repo:
   github: "o/example"
@@ -78,14 +79,17 @@ class ApplyTests(unittest.TestCase):
         self.assertTrue(rules.is_file())
         self.assertTrue(rules.read_text().startswith("---\npaths:"))
         self.assertFalse((root / ".claude" / "rules" / "api-security-typescript.md").exists())
-        self.assertFalse((root / "security").exists())
+        self.assertTrue((root / "security" / "api_security" / "router.py").is_file(),
+                        "the library the Python rules import arrives at guided")
+        self.assertFalse((root / "security" / "config.json").exists())
+        self.assertFalse((root / ".github").exists())
         self.assertIn(".claude/rules/api-security-python.md", (root / "AGENTS.md").read_text())
         self.assertIn("Existing guidance.", (root / "AGENTS.md").read_text())
         self.assertEqual((root / ".gates.yaml").read_text(), GATES)
 
     def test_enforced_adds_the_check_workflows_snapshot_version_and_gates(self):
         root = repo()
-        r = apply(root, "--level", "enforced")
+        r = apply(root, "--level", "enforced", *RUNTIME)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         for rel in ("security/__init__.py", "security/api_security/check.py",
                     "security/api_security/verify_approval.py", "security/semgrep/identity-from-request.yml",
@@ -105,28 +109,28 @@ class ApplyTests(unittest.TestCase):
     def test_enforced_keeps_files_the_holder_already_filled_in(self):
         root = repo({"security/allowed_signers": "owner@example.com ssh-ed25519 AAAA\n",
                      "security/public-routes.txt": "GET /v1/health\n"})
-        apply(root, "--level", "enforced")
+        apply(root, "--level", "enforced", *RUNTIME)
         self.assertIn("owner@example.com", (root / "security" / "allowed_signers").read_text())
         self.assertIn("GET /v1/health", (root / "security" / "public-routes.txt").read_text())
 
     def test_running_twice_does_not_duplicate(self):
         root = repo()
-        apply(root, "--level", "enforced")
-        apply(root, "--level", "enforced")
+        apply(root, "--level", "enforced", *RUNTIME)
+        apply(root, "--level", "enforced", *RUNTIME)
         gates = (root / ".gates.yaml").read_text()
         self.assertEqual(gates.count('file_exists: "security/allowed_signers"'), 1)
         self.assertEqual((root / "AGENTS.md").read_text().count("api-security:start"), 1)
 
     def test_hardened_sets_the_flag_and_the_hold_paths(self):
         root = repo()
-        r = apply(root, "--level", "hardened")
+        r = apply(root, "--level", "hardened", *RUNTIME)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(json.loads((root / "security" / "config.json").read_text())["hardened"])
         self.assertTrue((root / "security" / "hold-paths.txt").read_text().strip())
 
     def test_lowering_needs_the_flag(self):
         root = repo()
-        apply(root, "--level", "enforced")
+        apply(root, "--level", "enforced", *RUNTIME)
         r = apply(root, "--level", "guided")
         self.assertNotEqual(r.returncode, 0)
         self.assertEqual(level(root), "enforced")
@@ -159,7 +163,7 @@ class ApplyTests(unittest.TestCase):
         root = repo()
         (root / "pyproject.toml").unlink()
         (root / "package.json").write_text("{}")
-        r = apply(root, "--level", "enforced")
+        r = apply(root, "--level", "enforced", *RUNTIME)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("python", (r.stdout + r.stderr).lower())
 
@@ -167,10 +171,110 @@ class ApplyTests(unittest.TestCase):
         r = apply(repo(identity=None), "--level", "guided")
         self.assertNotEqual(r.returncode, 0)
 
-    def test_enforced_without_a_gates_file_is_refused(self):
-        r = apply(repo(gates=None), "--level", "enforced")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn(".gates.yaml", r.stdout + r.stderr)
+    # review-spec, 2026-11-06 (T037).
+
+    def test_enforced_without_a_gates_file_works_and_prints_the_manual_step(self):
+        root = repo(gates=None)
+        r = apply(root, "--level", "enforced", *RUNTIME)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(level(root), "enforced")
+        self.assertFalse((root / ".gates.yaml").exists())
+        self.assertIn("python3 -m security.api_security.check", r.stdout)
+
+    def test_a_refused_run_writes_nothing(self):
+        broken = GATES.replace("  deploy_ready:", "  deploy_later:")
+        root = repo(gates=broken)
+        before = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        r = apply(root, "--level", "enforced", *RUNTIME)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        after = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_python_enforced_names_its_runtime(self):
+        r = apply(repo(), "--level", "enforced")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--runtime lambda-httpapi", r.stderr)
+
+    def test_a_symlinked_destination_is_refused_and_nothing_outside_is_touched(self):
+        outside = Path(tempfile.mkdtemp(prefix="outside-"))
+        (outside / "target.txt").write_text("keep\n")
+        (outside / "api_security").mkdir()
+        (outside / "api_security" / "keep.txt").write_text("keep\n")
+        for link, target, level_ in (("AGENTS.md", outside / "target.txt", "guided"),
+                                     ("security", outside, "enforced")):
+            with self.subTest(link=link):
+                root = repo()
+                (root / link).unlink() if (root / link).exists() else None
+                (root / link).symlink_to(target)
+                r = apply(root, "--level", level_, *RUNTIME)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("symlink", r.stderr)
+        self.assertEqual((outside / "target.txt").read_text(), "keep\n")
+        self.assertTrue((outside / "api_security" / "keep.txt").exists())
+
+    def test_an_identity_file_outside_the_repo(self):
+        root = repo(identity=None)
+        elsewhere = Path(tempfile.mkdtemp(prefix="client-")) / ".studio-project.yaml"
+        elsewhere.write_text(IDENTITY)
+        r = apply(root, "--level", "guided", "--identity", str(elsewhere))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('security_level: "guided"', elsewhere.read_text())
+
+    def test_a_mixed_language_refusal_names_lang(self):
+        root = repo({"package.json": "{}"})
+        r = apply(root, "--level", "enforced", *RUNTIME)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--lang python", r.stderr)
+        r = apply(root, "--level", "enforced", "--lang", "python", *RUNTIME)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_what_apply_writes_names_no_internal_spec(self):
+        root = repo()
+        apply(root, "--level", "enforced", *RUNTIME)
+        for rel in (".gates.yaml", "AGENTS.md"):
+            self.assertNotIn("SPEC-", (root / rel).read_text(), rel)
+
+    def test_an_older_marked_block_is_still_replaced(self):
+        old = ("# Agents\n\n<!-- api-security:start (SPEC-034, written by apply.py) -->\nold\n"
+               "<!-- api-security:end -->\n")
+        root = repo({"AGENTS.md": old})
+        apply(root, "--level", "guided")
+        text = (root / "AGENTS.md").read_text()
+        self.assertEqual(text.count("api-security:start"), 1)
+        self.assertNotIn("\nold\n", text)
+
+    def test_hardened_holds_the_handler_modules(self):
+        root = repo({"security/config.json": json.dumps({
+            "roles_module": "app.roles", "handler_modules": ["app.handlers", "app.api.users"],
+            "adapter": {"kind": "terraform", "paths": ["infra"]}})})
+        r = apply(root, "--level", "hardened", *RUNTIME)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        hold = (root / "security" / "hold-paths.txt").read_text()
+        for glob in ("app/handlers.py", "app/handlers/**", "app/api/users.py", "app/api/users/**"):
+            self.assertIn(glob, hold)
+
+
+class VersionStampTests(unittest.TestCase):
+    """review-spec, 2026-11-06 (T039): VERSION names its content, so a copy can be checked."""
+
+    def test_the_stamp_matches_the_files_it_names(self):
+        sys.path.insert(0, str(_path.TOOL))
+        import apply as tool
+        number, _, digest = (_path.TOOL / "VERSION").read_text().strip().partition("+")
+        self.assertTrue(number and digest, "VERSION is <number>+<hash>")
+        self.assertEqual(digest, tool.tool_hash(),
+                         "the library or a workflow changed without a new stamp: run `python3 apply.py --stamp`")
+
+    def test_an_applied_project_matches_its_stamp_until_it_is_edited(self):
+        sys.path.insert(0, str(_path.TOOL))
+        import apply as tool
+        root = repo()
+        apply(root, "--level", "enforced", *RUNTIME)
+        stamp = (root / "security" / "VERSION").read_text().strip().partition("+")[2]
+        self.assertEqual(tool.project_hash(root), stamp)
+        router = root / "security" / "api_security" / "router.py"
+        router.write_text(router.read_text() + "# edited\n")
+        self.assertNotEqual(tool.project_hash(root), stamp)
 
 
 if __name__ == "__main__":

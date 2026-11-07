@@ -5,6 +5,7 @@ handler is refused with 403, a role route with no credential gets 401, and a cre
 verifier accepts gets 403. The handler receives the identity the verifier returned and nothing
 the caller asserted. Anything that goes wrong while deciding is a refusal, never a pass.
 """
+import inspect
 import json
 import logging
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -28,6 +29,19 @@ def _has_credential(event: dict) -> bool:
     return any(headers.get(h) for h in CREDENTIAL_HEADERS)
 
 
+def _identity(result: Any) -> Optional[Any]:
+    """A verifier's result counts only when it is an identity. A bool, an empty value or an
+    awaitable is a verifier written wrongly, and a wrongly written verifier refuses."""
+    if inspect.isawaitable(result):
+        close = getattr(result, "close", None)
+        if callable(close):
+            close()
+        return None
+    if result is None or isinstance(result, bool) or not result:
+        return None
+    return result
+
+
 class Router:
     def __init__(self) -> None:
         self._handlers: Dict[Tuple[str, str], Callable] = {}
@@ -45,6 +59,10 @@ class Router:
             registry.record(method, path, policy_of(fn), f"{fn.__module__}.{fn.__qualname__}")
             return fn
         return wrap
+
+    def routes(self):
+        """The (METHOD, /path) pairs this router serves."""
+        return sorted(self._handlers)
 
     def handle(self, event: dict, context: Any) -> dict:
         route_key = event.get("routeKey") or ""
@@ -76,7 +94,7 @@ class Router:
             verify = registry.verifier(name)
             if verify is None:
                 return False, 403, None
-            identity = verify(event)
+            identity = _identity(verify(event))
             if identity is not None:
                 break
         if identity is None:

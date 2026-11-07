@@ -235,10 +235,10 @@ class ApprovalTests(unittest.TestCase):
 
     def test_a_criss_cross_merge_rolling_back_a_guarded_file_fails(self):
         self.g("checkout", "-q", "main")
-        self.r.write("security/config.json", "0\n")
+        self.r.write("security/rule.yml", "0\n")
         self.r.commit("config starts at 0", key=self.r.trusted)
         self.g("checkout", "-q", "-b", "feat")
-        self.r.write("security/config.json", "A\n")
+        self.r.write("security/rule.yml", "A\n")
         self.r.commit("feat sets A", key=self.r.trusted)
         p2 = self.r.head()
         self.g("checkout", "-q", "main")
@@ -249,26 +249,26 @@ class ApprovalTests(unittest.TestCase):
         self.r.base = self.r.head()  # base tip holds A, through a merge commit
         self.g("checkout", "-q", "-b", "atk", p1)
         self.g("merge", "-q", "--no-commit", "--no-ff", p2)
-        self.r.write("security/config.json", "0\n")
+        self.r.write("security/rule.yml", "0\n")
         self.g("add", "-A")
         self.g("commit", "-q", "-m", "merge the other way, config back to nothing")
-        self.assertFails("security/config.json")
+        self.assertFails("security/rule.yml")
 
     def test_replaying_an_old_signed_commit_fails(self):
         self.g("checkout", "-q", "main")
         self.g("checkout", "-q", "-b", "pr1")
-        self.r.write("security/config.json", "F1\n")
+        self.r.write("security/rule.yml", "F1\n")
         self.r.commit("signed F1, later fixed", key=self.r.trusted)
         s1 = self.r.head()
         self.g("checkout", "-q", "main")
-        self.r.write("security/config.json", "F1\n")
+        self.r.write("security/rule.yml", "F1\n")
         self.r.commit("squash of pr1")
-        self.r.write("security/config.json", "F2\n")
+        self.r.write("security/rule.yml", "F2\n")
         self.r.commit("signed fix", key=self.r.trusted)
         self.r.base = self.r.head()
         self.g("checkout", "-q", "-b", "replay", s1)
         self.g("merge", "-q", "-s", "ours", "--no-edit", self.r.base)
-        self.assertFails("security/config.json")
+        self.assertFails("security/rule.yml")
 
     def test_a_pull_request_that_conflicts_with_its_base_fails(self):
         self.r.write("security/config.json", "pr\n")
@@ -294,13 +294,53 @@ class ApprovalTests(unittest.TestCase):
             "commit", "-q", "--amend", "--no-edit", "-S")
         self.assertPasses()
 
-    def test_a_change_to_any_workflow_needs_a_signature(self):
-        self.r.write(".github/workflows/x.yaml", "name: security-approval\n")
-        self.r.commit("a second job under the same name")
-        self.assertFails(".github/workflows/x.yaml")
+    # Pat's ruling, 2026-11-06 (T038): the security workflows and the base's deploy workflows are
+    # guarded; ordinary CI is not, and no other workflow may carry the two required job names.
 
-    # Security re-review, 2026-11-06 (T027, viper). A signature covers the guarded surface as a
-    # whole: what lands under it must be exactly what one signed commit holds.
+    def test_an_ordinary_workflow_change_needs_no_signature(self):
+        self.r.write(".github/workflows/ci.yml", "name: ci\non: push\n")
+        self.r.commit("a dependency bump to ordinary CI")
+        self.assertPasses()
+
+    def test_another_workflow_carrying_a_required_job_name_fails(self):
+        for text in ("name: security-approval\n",
+                     "jobs:\n  security-approval:\n    runs-on: ubuntu-latest\n",
+                     "jobs:\n  x:\n    name: security-check\n"):
+            with self.subTest(text=text):
+                self.r.write(".github/workflows/x.yaml", text)
+                self.r.commit("a second job under a required name", key=self.r.trusted)
+                self.assertFails(".github/workflows/x.yaml")
+                self.g("reset", "-q", "--hard", "HEAD~1")
+
+    def test_a_deploy_workflow_the_base_lists_needs_a_signature(self):
+        self.g("checkout", "-q", "main")
+        self.r.write("security/config.json", '{"deploy_workflows": [".github/workflows/deploy.yml"]}\n')
+        self.r.write(".github/workflows/deploy.yml", "name: deploy\n")
+        self.r.commit("list the deploy workflow", key=self.r.trusted)
+        self.r.base = self.r.head()
+        self.g("checkout", "-q", "-b", "deploy-edit")
+        self.r.write(".github/workflows/deploy.yml", "name: deploy\non: push\n")
+        self.r.commit("edit the deploy workflow")
+        self.assertFails(".github/workflows/deploy.yml")
+
+    def test_the_refusal_names_its_cause(self):
+        self.r.append("security/public-routes.txt", "GET /v1/new\n")
+        self.r.commit("unsigned")
+        self.assertFails("no commit in the pull request is signed by a key")
+        self.g("reset", "-q", "--hard", "HEAD~1")
+        self.r.append("security/public-routes.txt", "GET /v1/new\n")
+        self.r.commit("signed", key=self.r.trusted)
+        self.r.append("security/public-routes.txt", "GET /v1/more\n")
+        self.r.commit("unsigned on top")
+        self.assertFails("differs from every signed commit")
+        self.g("reset", "-q", "--hard", "HEAD~1")
+        self.g("checkout", "-q", "main")
+        self.r.write("app/other.py", "y = 1\n")
+        self.r.commit("main moves")
+        self.r.base = self.r.head()
+        self.g("checkout", "-q", "pr")
+        self.g("merge", "-q", "--no-edit", "main")
+        self.assertFails("built on an older base")
 
     def test_an_invalid_utf8_guarded_path_is_not_covered_by_an_unrelated_signature(self):
         self.r.write("app/g.txt", "signed\n")

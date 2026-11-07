@@ -26,6 +26,12 @@ rules:
       - pattern: $E.get("queryStringParameters", ...)
       - pattern: $E["headers"]
       - pattern: $E.get("headers", ...)
+      - pattern: '{$KK: $VV for $A, $B in $E["headers"].items()}'
+      - pattern: '{$KK: $VV for $A, $B in $E.get("headers", ...).items()}'
+      - pattern: $E["rawQueryString"]
+      - pattern: $E.get("rawQueryString", ...)
+      - pattern: $E["cookies"]
+      - pattern: $E.get("cookies", ...)
       - pattern: request.json
       - pattern: request.get_json(...)
       - pattern: request.args
@@ -39,7 +45,7 @@ rules:
               - pattern: $S.get($K, ...)
           - metavariable-regex:
               metavariable: $K
-              regex: ^["'](user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)["']$
+              regex: (?i)^["'](user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId|x-user-id|x-account-id|x-device-id)["']$
           - focus-metavariable: $S
 
   - id: api-security.identity-from-request.typescript

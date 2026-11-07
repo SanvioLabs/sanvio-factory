@@ -6,8 +6,8 @@ Fill in each hook for this project. Until you do, every hook raises, and the gen
 a project cannot pass the enforced check by leaving this file as it came.
 Never put a real credential here. Mint test tokens the way the project's own tests do.
 """
-# Import the module that registers your roles first, then the modules holding your handlers.
-# import app.security_roles
+# The plugin imports security/config.json's roles_module and handler_modules itself, so every
+# declared route gets its cases. Import here only what invoke() needs, such as the router:
 # from app.handlers import router
 
 

@@ -25,9 +25,9 @@ router = Router()
 def health(event, identity):
     ...
 
-@router.route("GET /v1/patterns/{user_id}")
+@router.route("GET /v1/records/{user_id}")
 @role("user", owns="user_id")
-def get_patterns(event, identity):
+def get_records(event, identity):
     ...  # identity is the verified caller. Never read who the caller is from event["body"].
 ```
 
@@ -35,15 +35,19 @@ Rules:
 
 - `public` needs a reason that says why anyone may call the route. A webhook names how its
   signature is checked.
-- `role` names roles registered once, each with one verifier. A route that names a user's resource
-  in its path takes `owns=` that parameter. `role("user")` alone lets any signed-in user reach
-  anyone's records.
+- `role` names roles registered once, each with one verifier, through `register_role` in the
+  module `security/config.json` calls `roles_module`. A verifier returns the verified identity or
+  `None`: never a bool, never `async`.
+- A route with a parameter in its path takes `owns=` that parameter, checked by the one
+  `register_ownership` test. `role("user")` alone lets any signed-in user reach anyone's records.
+  Where any holder of the role may reach every value, say why: `unowned="..."`.
 - The caller's identity comes only from `identity`, which the declaration hands in. Never take
   `user_id`, `device_id` or any other identity from the body, the query string or a header the
   caller sets.
 - A handler with no declaration is refused with 403 at runtime.
-- With FastAPI, express the same with a dependency on every route and a router-level default that
-  refuses; the rule is unchanged.
+- The library's `Router` is for Lambda behind API Gateway HTTP API v2, with the function's handler
+  set to `router.handle`. On FastAPI, Flask or Django, keep the same rule with that framework's own
+  default-deny (a dependency or middleware on every route); the project then stays at `guided`.
 
 **Removing a feature removes its server side**: its routes, tables, secrets and permissions, in the
 same change.

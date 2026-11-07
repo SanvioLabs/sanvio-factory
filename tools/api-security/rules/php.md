@@ -22,7 +22,7 @@ middleware or a gate. A route that names a user's resource is authorized through
 Route::get('/v1/health', HealthController::class);
 
 Route::middleware('auth')->group(function () {
-    Route::get('/v1/patterns/{user}', [PatternController::class, 'show']);  // $this->authorize('view', $user)
+    Route::get('/v1/records/{user}', [RecordController::class, 'show']);  // $this->authorize('view', $user)
 });
 ```
 
@@ -40,4 +40,6 @@ Rules:
   same change.
 
 The `enforced` check is built for Python first, so a PHP project stays at `guided` until its own
-check exists. The harness's `api-security.md` steering file has the full model.
+check exists. Nothing is copied in at `guided`: the project writes the middleware groups and
+policies itself, in its framework's own way. The harness's `api-security.md` steering file has the
+full model.

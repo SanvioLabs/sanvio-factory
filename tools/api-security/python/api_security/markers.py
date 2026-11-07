@@ -2,9 +2,12 @@
 
     python3 -m security.api_security.markers [--root DIR]
 
-Semgrep honours `nosemgrep: <rule>` with or without text after it, so the reason is enforced here:
-`nosemgrep: api-security.identity-from-request.<lang> -- <why>`. A bare `nosemgrep` silences every
-rule on its line, these included, and fails too. Exit 0 clean, 1 a finding, 2 could not run.
+Semgrep honours `nosem` and `nosemgrep` in any case, with rule ids separated by commas or spaces
+and with or without text after them, so the reason is enforced here:
+`nosemgrep: api-security.identity-from-request.<lang> -- <why>`. The fully qualified id semgrep
+prints in CI (`security.semgrep.api-security...`) counts the same. A bare marker silences every
+rule on its line, these included, and fails whatever follows it. The library's own copy under
+`security/api_security/` is not scanned. Exit 0 clean, 1 a finding, 2 could not run.
 """
 import argparse
 import re
@@ -13,9 +16,11 @@ from pathlib import Path
 from typing import List
 
 RULE_PREFIX = "api-security.identity-from-request"
-NOSEMGREP = re.compile(r"nosemgrep(?::\s*(?P<ids>[^\s]+))?(?P<rest>.*)$")
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "vendor", "bin", "obj", "dist", "build",
+NOSEMGREP = re.compile(r"\bnosem(?:grep)?\b(?P<colon>:)?(?P<body>.*)$", re.IGNORECASE)
+# Folders semgrep itself skips by default, plus the rule tests. `bin/` and `obj/` are scanned.
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "vendor", "dist", "build",
              "__pycache__", ".terraform", "semgrep"}
+LIBRARY = ("security", "api_security")
 SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".php", ".cs"}
 
 
@@ -25,21 +30,30 @@ def unreasoned(root: Path) -> List[str]:
     for path in sorted(root.rglob("*")):
         if path.suffix not in SUFFIXES or not path.is_file():
             continue
-        if any(part in SKIP_DIRS for part in path.relative_to(root).parts[:-1]):
+        parts = path.relative_to(root).parts
+        if any(part in SKIP_DIRS for part in parts[:-1]) or parts[:2] == LIBRARY:
             continue
         for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            m = NOSEMGREP.search(line)
-            if not m:
-                continue
-            ids = m.group("ids")
-            if ids and not any(i.startswith(RULE_PREFIX) for i in ids.split(",")):
-                continue
-            reason = m.group("rest").strip()
-            if not reason.startswith("--") or not reason[2:].strip():
-                where = f"{path.relative_to(root)}:{n}"
-                what = "bare nosemgrep silences the identity rules" if not ids else "marker has no reason"
-                found.append(f"{where}: {what}; write `nosemgrep: {RULE_PREFIX}.<lang> -- <why this is safe>`")
+            what = _problem(line)
+            if what:
+                found.append(f"{path.relative_to(root)}:{n}: {what}; "
+                             f"write `nosemgrep: {RULE_PREFIX}.<lang> -- <why this is safe>`")
     return found
+
+
+def _problem(line: str) -> str:
+    m = NOSEMGREP.search(line)
+    if not m:
+        return ""
+    if not m.group("colon"):
+        return "bare nosemgrep silences the identity rules"
+    ids_part, sep, reason = m.group("body").partition("--")
+    ids = [i for i in re.split(r"[,\s]+", ids_part.strip()) if i]
+    if not any(RULE_PREFIX in i for i in ids):
+        return ""  # a marker for other rules is not this check's business
+    if not sep or not reason.strip():
+        return "marker has no reason"
+    return ""
 
 
 def main(argv=None) -> int:

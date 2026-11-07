@@ -2,7 +2,7 @@ import express from "express";
 
 const app = express();
 
-app.post("/v1/interpret", (req, res) => {
+app.post("/v1/summarize", (req, res) => {
   // ruleid: api-security.identity-from-request.typescript
   const user = req.body.userId;
   // ruleid: api-security.identity-from-request.typescript
