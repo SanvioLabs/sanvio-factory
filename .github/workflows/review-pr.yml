@@ -17,18 +17,21 @@
 #
 # Claude runs `claude -p` with Read, Grep and Glob only, confined to those
 # three folders, with no shell, no MCP servers and no settings or hooks
-# loaded. Its report is posted after a check that it doesn't contain the key,
+# loaded. Its report is posted after a check that it doesn't contain a key,
 # with its images broken so they fetch nothing. The last step is the only one that posts, and it never
 # approves, requests changes or merges: a person decides what happens to the
 # pull request.
 #
 # The secrets: ANTHROPIC_API_KEY, which has to be scoped to a workspace in the
-# Anthropic Console, and HARNESS_DEPLOY_KEY, the private half of a deploy key
-# on this repo with write access left off. Both are optional below so that a
-# missing one gets this workflow's own message. A missing Anthropic key skips
-# the review with a notice; a missing deploy key fails the run and posts
-# nothing. Only the credential check and the harness checkout see the deploy
-# key, and only the key check and the review see the Anthropic key. That
+# Anthropic Console, or CLAUDE_CODE_OAUTH_TOKEN in its place, a token from
+# `claude setup-token` that bills a Claude subscription instead of the API;
+# and HARNESS_DEPLOY_KEY, the private half of a deploy key on this repo with
+# write access left off. All three are optional below so that a missing one
+# gets this workflow's own message. With neither Claude credential the review
+# skips with a notice; with both, the CLI uses the API key. A missing deploy
+# key fails the run and posts nothing. Only the credential check and the
+# harness checkout see the deploy key, and only the key check and the review
+# see the Claude credentials. That
 # boundary holds inside this file only: the caller lives in the product repo,
 # so anyone who can push a branch there can change it to print both keys.
 # Give the deploy key to repos whose writers you'd trust with the harness.
@@ -58,6 +61,9 @@ on:
     secrets:
       ANTHROPIC_API_KEY:
         description: "The Anthropic API key Claude reviews with, scoped to a workspace."
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: "Instead of the API key: a Claude subscription token from claude setup-token."
         required: false
       HARNESS_DEPLOY_KEY:
         description: "The private half of a read-only deploy key on the harness repo."
@@ -100,10 +106,11 @@ jobs:
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "REVIEW_SKIPPED=true" >> "$GITHUB_ENV"
-            echo "::notice::This pull request has no ANTHROPIC_API_KEY (Dependabot's don't get Actions secrets), so the review skips."
+            echo "::notice::This pull request has no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (Dependabot's don't get Actions secrets), so the review skips."
           fi
 
       - name: Fail when the harness has no credential
@@ -260,12 +267,15 @@ jobs:
       # environment of the process the tools run in, and /proc is outside the
       # workspace, so a Read of /proc/self/environ is refused. The report is
       # posted as written, bar its images, so this step refuses one that contains
-      # the key: a backstop for a key written out as it is, not a guarantee
-      # against an encoded one, which is why the confinement matters more.
+      # either credential: a backstop for one written out as it is, not a
+      # guarantee against an encoded one, which is why the confinement matters
+      # more. Each is checked only when set, since an empty pattern matches
+      # every report.
       - name: Run the review-pr skill on Claude
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           cd "$GITHUB_WORKSPACE"
           set +e
@@ -273,9 +283,16 @@ jobs:
             < "$RUNNER_TEMP/prompt.md" > "$RUNNER_TEMP/report.md"
           code=$?
           set -e
-          if grep -qF -e "$ANTHROPIC_API_KEY" "$RUNNER_TEMP/report.md"; then
+          leaked=false
+          if [ -n "$ANTHROPIC_API_KEY" ] && grep -qF -e "$ANTHROPIC_API_KEY" "$RUNNER_TEMP/report.md"; then
+            leaked=true
+          fi
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && grep -qF -e "$CLAUDE_CODE_OAUTH_TOKEN" "$RUNNER_TEMP/report.md"; then
+            leaked=true
+          fi
+          if [ "$leaked" = true ]; then
             rm -f "$RUNNER_TEMP/report.md"
-            echo "::error::The report contained the API key, so it was not posted."
+            echo "::error::The report contained the Claude credential, so it was not posted."
             exit 1
           fi
           # The CLI writes its errors where the report goes. Show them, after

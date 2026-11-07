@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-07: Review on a Claude subscription
+The reusable pull request review, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), takes
+`CLAUDE_CODE_OAUTH_TOKEN` as well as `ANTHROPIC_API_KEY`, so a repo can review
+on a Claude subscription instead of the API. Make the token with
+`claude setup-token`; with both set, the API key is used. Before this, a run
+with no API key also refused every report, because the leak check matched an
+empty key against everything.
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md),
+[`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py).
+**Do:** nothing to keep the API key. To use a subscription, add the
+`CLAUDE_CODE_OAUTH_TOKEN` line to your caller as
+[`examples/ci/README.md`](examples/ci/README.md) shows, set that secret, and remove `ANTHROPIC_API_KEY`.
+
 ## 2026-11-06: API security levels
 A project that exposes an API can now choose how hard the harness holds it to
 one rule: every route is refused unless it says who may call it. Four levels,

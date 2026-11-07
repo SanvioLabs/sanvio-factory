@@ -71,16 +71,17 @@ jobs:
       harness-repo: your-org/harness
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       HARNESS_DEPLOY_KEY: ${{ secrets.HARNESS_DEPLOY_KEY }}
 ```
 
 A draft pull request skips the review with a notice, and gets its review when it's marked ready for review.
-It passes the two secrets by name rather than with `secrets: inherit`, so the
-harness's workflow gets those two and none of the product repo's others. The
+It passes the secrets by name rather than with `secrets: inherit`, so the
+harness's workflow gets those three and none of the product repo's others. The
 permissions are the most it gets: a called workflow can't widen them.
 That holds for the harness's file, not the caller: the caller lives in the
 product repo, so anyone who can push a branch there can change it, in that
-branch's pull request, to print both secrets. Add `HARNESS_DEPLOY_KEY` only
+branch's pull request, to print the secrets. Add `HARNESS_DEPLOY_KEY` only
 to repos whose writers you'd trust to read the harness.
 `harness-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
@@ -94,7 +95,8 @@ the workflow checks out. [Protecting the harness](#protecting-the-harness)
 says what to set on the harness so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
-So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's. One with no
+So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
+such as Dependabot's. One with no
 `HARNESS_DEPLOY_KEY` fails and says so.
 
 ## The secret
@@ -112,6 +114,14 @@ Then delete both key files. GitHub holds the only copies it needs.
 The Anthropic key has to be scoped to a workspace (create it inside a
 workspace in the Anthropic Console). An organisation-level key fails with
 "must include the anthropic-workspace-id header".
+
+To bill a Claude subscription instead of the API, run `claude setup-token`
+signed in to that subscription, and save what it prints as
+`CLAUDE_CODE_OAUTH_TOKEN` in place of `ANTHROPIC_API_KEY`:
+`gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo your-org/product`, which asks
+for the value. Set one or the other: with both, the review uses the API key.
+The reviews then count against that subscription's usage limits, shared with
+whoever uses it interactively.
 
 ## A private harness repo
 
