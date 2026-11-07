@@ -4713,6 +4713,29 @@ class TestProject(unittest.TestCase):
         cfg["tester_agent"] = "claude"  # it edits as the build agent does, so it's held the same way
         self.assertIn("--settings", loop.Loop(self.harness, cfg, project=self.project).argv("tester_agent")[0])
 
+    def test_the_build_agent_runs_no_tests_of_its_own_unless_the_harness_says_so(self):
+        self.go()
+        built = json.loads((self.state / "build-argv").read_text())
+        self.assertNotIn("--allowedTools", built)
+        self.assertIn("Don't run the test suite: the loop runs it.", (self.state / "build-prompt").read_text())
+
+    def test_with_builder_runs_tests_the_build_agent_may_run_the_test_command_and_nothing_more(self):
+        self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
+                             "worktree_dir": str(self.trees), "builder_runs_tests": True})
+        self.assertEqual(self.go(), 0)
+        built = json.loads((self.state / "build-argv").read_text())
+        self.assertEqual(built[built.index("--allowedTools") + 1], "Bash({}:*)".format(PROJECT_TESTS))
+        self.assertEqual(built.count("--allowedTools"), 1)
+        prompt = (self.state / "build-prompt").read_text()
+        self.assertIn("Run the tests with `{}` before you finish".format(PROJECT_TESTS), prompt)
+        self.assertNotIn("Don't run the test suite", prompt)
+        for step in ("plan", "review"):
+            self.assertNotIn("--allowedTools", json.loads((self.state / (step + "-argv")).read_text()), step)
+
+    def test_builder_runs_tests_gives_a_build_agent_that_isnt_claude_nothing_new(self):
+        cfg = dict(loop.load_config(self.project), agent="codex", generate_command="", builder_runs_tests=True)
+        self.assertNotIn("--allowedTools", loop.Loop(self.harness, cfg, project=self.project).argv("agent")[0])
+
     def test_the_project_test_command_runs_in_the_checkout_without_the_tokens(self):
         self.go()
         self.assertEqual(Path((self.state / "test-cwd").read_text().strip()).resolve(),

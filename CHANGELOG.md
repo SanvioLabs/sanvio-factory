@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-07: The build agent can run the tests itself
+
+A new loop setting, `builder_runs_tests`, off by default. Turned on, a `claude` build agent may run the project's `test_command` inside its round and is asked to fix what fails before it finishes, instead of learning about a failure only in the next round. Nothing else it may run changes, and the loop still runs the tests and the review after it. On a local model it took fewer rounds and about a quarter less time for the same eval scores.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, add `"builder_runs_tests": true` to `loop.json`.
+
 ## 2026-11-07: Review on a Claude subscription
 The reusable pull request review, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), takes
 `CLAUDE_CODE_OAUTH_TOKEN` as well as `ANTHROPIC_API_KEY`, so a repo can review
