@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-07: The loop's reviewer checks every reader of a new state
+
+The loop's reviewer is now told that when a change adds a state, status or kind, it should search the whole worktree for everything that reads or filters on that field, code the diff doesn't touch included, and say FIX for any place that doesn't handle the new value. A new status that slips past an old filter passes every visible test, so only a search finds it. On a local model it took the starter from missing these to catching all of them in most runs, with no extra rounds on work that adds no state.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-07: Review on a Claude subscription
 The reusable pull request review, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), takes
 `CLAUDE_CODE_OAUTH_TOKEN` as well as `ANTHROPIC_API_KEY`, so a repo can review
