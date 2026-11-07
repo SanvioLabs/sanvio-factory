@@ -27,6 +27,30 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-06: API security levels
+A project that exposes an API can now choose how hard the harness holds it to
+one rule: every route is refused unless it says who may call it. Four levels,
+set as `workspace.security_level` in the project's `.studio-project.yaml`:
+`off` (the default, so nothing changes until you choose), `guided` (a rules
+file for the project's language), `enforced` (a required check, plus a signed
+approval for any new public route) and `hardened` (a checklist and a security
+review before merge). From `enforced`, any change under `security/`,
+[`.github/workflows/`](.github/workflows/) or `.github/actions/`, or to `CODEOWNERS`, needs that
+signature too; Dependabot ref bumps skip it only in workflows listed under
+`dependabot_exempt_workflows`. [`scripts/check_setup.py`](scripts/check_setup.py) warns about a project marked
+`live_users: true` or `regulated: true` that is still at `off`. The `enforced`
+check covers Python on Lambda behind API Gateway HTTP API v2 first; other
+Python frameworks, TypeScript, PHP and .NET go up to `guided`. A private way to
+report a vulnerability is in [`.github/SECURITY.md`](.github/SECURITY.md).
+
+Files: [`steering/api-security.md`](steering/api-security.md), [`tools/api-security/`](tools/api-security/), [`AGENTS.md`](AGENTS.md),
+[`steering/project-setup.md`](steering/project-setup.md), [`steering/tickets.md`](steering/tickets.md), [`gates/README.md`](gates/README.md),
+[`scripts/check_setup.py`](scripts/check_setup.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/SECURITY.md`](.github/SECURITY.md).
+
+**Do:** nothing to keep things as they are. To opt a project in, run
+`python3 tools/api-security/apply.py --level guided <repo>`, which writes the
+level into the project's `.studio-project.yaml`.
+
 ## 2026-11-05: The CI review can read the workflow it runs in
 
 The harness checkout in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now includes that workflow file, and the prompt tells the review to read it when a change adds or edits a workflow that calls it, so it can check a new caller against what the workflow expects.

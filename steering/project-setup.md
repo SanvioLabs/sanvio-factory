@@ -37,6 +37,19 @@ is cheaper than the problem it prevents.
   filter: on a PR it doesn't run for, it never reports, and the PR can't merge.
 - Copy this harness's [`.githooks/`](../.githooks/) and run `git config core.hooksPath .githooks`
   in every clone. The setting doesn't travel with a clone.
+- **If the project exposes an API, set its security level.** Add
+  `security_level` under `workspace:` in its `.studio-project.yaml` (absent
+  means `off`) and `regulated: true` if it holds restricted data (the list is in
+  [`api-security.md`](api-security.md)). Then run
+  `python3 tools/api-security/apply.py --level <level> <repo>`.
+  Turning on `enforced` has an order, because the approval check reads the base
+  branch: create a key that needs a touch for every signature, run
+  `apply.py --level enforced --runtime lambda-httpapi`, put its public half in
+  `security/allowed_signers`, fill in `security/config.json` and
+  `security/fixtures.py` until the check passes locally, land that on the
+  default branch, and only then require `security-check` and
+  `security-approval`, with branches required to be up to date before merging.
+  Neither workflow may carry a `paths:` filter.
 
 ## 2. Spec before code (30 to 60 min)
 

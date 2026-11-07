@@ -20,4 +20,10 @@ covers, after the ones already there, and a step to [`.github/workflows/ci.yml`]
 Whether a check earns a gate, which of those places it runs in, and what to
 check between phases: [`steering/gates.md`](../steering/gates.md).
 
+An API project's security check is the one gate the harness ships ready-made:
+`python3 tools/api-security/apply.py --level enforced --runtime lambda-httpapi <repo>`
+copies it in with its workflows, and adds it to the repo's `.gates.yaml` if it has
+one (otherwise it prints the command for your own gate to run). [`steering/api-security.md`](../steering/api-security.md) has
+what it checks.
+
 Never edit a gate to make work pass. Fix the work.

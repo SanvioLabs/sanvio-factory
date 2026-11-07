@@ -39,6 +39,15 @@ Learned 2026-10-28: #279 said a mod test could print, and under
 `claude plugin test` its output never reached the caller. The loop spent its
 whole token budget finding out.
 
+**A ticket that touches an endpoint**, in a project whose `security_level` is
+`guided` or higher ([`api-security.md`](api-security.md)), names the declaration each route takes
+in Scope (`public(reason)`, or `role(...)` with `owns` where the route names a
+user's resource), and states the wrong-user check as behaviour in Acceptance
+Criteria: "a request with another user's token is refused with 403", and "a
+request with no token is refused with 401" for any non-public route. A ticket
+that removes a feature lists the routes, tables, secrets and permissions it
+leaves behind, and removes them in the same change.
+
 **One change per ticket.** If the acceptance criteria hold two unrelated
 outcomes, it's two tickets. If it can't fit one pull request, split it so each
 part can be tested on its own.
