@@ -22,7 +22,6 @@ security/ or the workflows: that, and the branch protection that requires them, 
 call. Stdlib only, Python 3.9 or later, so it runs on whatever python3 a holder has.
 """
 import argparse
-import hashlib
 import json
 import re
 import shutil
@@ -30,8 +29,11 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-TOOL = Path(__file__).resolve().parent
-LEVELS = ("off", "guided", "enforced", "hardened")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from api_security_levels import (  # noqa: E402  (the shared surface; harness-health reads it too)
+    DEFAULT_FIELDS, ENFORCED_FILES, LEVELS, TOOL, WORKFLOWS, Refused, content_hash, current_level,
+    project_hash, required_files, stamp, tool_hash, with_level, workspace_fields)
+
 LANGS = ("python", "typescript", "php", "dotnet")
 ENFORCED_LANGS = ("python",)
 RUNTIMES = ("lambda-httpapi",)
@@ -41,114 +43,6 @@ AGENTS_START_ANY = r"<!-- api-security:start[^>]*-->"
 AGENTS_END = "<!-- api-security:end -->"
 DESTINATIONS = (".claude", ".claude/rules", "AGENTS.md", "security", "security/api_security",
                 "security/semgrep", ".github", ".github/workflows", ".gates.yaml")
-DEFAULT_FIELDS = "user_id|userId|account_id|accountId|owner_id|ownerId|device_id|deviceId|tenant_id|tenantId"
-WORKFLOWS = ("security-check.yml", "security-approval.yml")
-
-
-class Refused(Exception):
-    pass
-
-
-# ── VERSION: <number>+<hash of the library and the two workflows> ────
-
-def content_hash(lib: Path, workflows: Path) -> str:
-    """What a project copies verbatim: the library and the two workflows. The same hash over the
-    tool and over a project shows whether the project's copy is the stamped one."""
-    h = hashlib.sha256()
-    files = sorted(f for f in lib.rglob("*") if f.is_file() and "__pycache__" not in f.parts
-                   and f.suffix != ".pyc") if lib.is_dir() else []
-    for f in files:
-        h.update(b"api_security/" + f.relative_to(lib).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
-    for name in WORKFLOWS:
-        f = workflows / name
-        h.update(b"workflows/" + name.encode() + b"\0" + (f.read_bytes() if f.is_file() else b"<absent>") + b"\0")
-    return h.hexdigest()[:12]
-
-
-def tool_hash() -> str:
-    return content_hash(TOOL / "python" / "api_security", TOOL / "workflows")
-
-
-def project_hash(repo: Path) -> str:
-    return content_hash(repo / "security" / "api_security", repo / ".github" / "workflows")
-
-
-def stamp() -> str:
-    number = (TOOL / "VERSION").read_text(encoding="utf-8").strip().partition("+")[0]
-    value = f"{number}+{tool_hash()}"
-    (TOOL / "VERSION").write_text(value + "\n", encoding="utf-8")
-    return value
-
-
-# ── .studio-project.yaml ─────────────────────────────────────────────
-
-def _scalar(raw: str) -> str:
-    raw = raw.strip()
-    if raw[:1] in ('"', "'"):
-        end = raw.find(raw[0], 1)
-        return raw[1:end] if end != -1 else raw[1:]
-    return raw.split(" #")[0].strip()
-
-
-WORKSPACE_KEYS = ("security_level", "live_users", "regulated")
-
-
-def _workspace_lines(identity: str):
-    """(index, line) for each line inside the top-level `workspace:` block. Blank lines and
-    comments, at any indent, neither end the block nor count as its content."""
-    lines = identity.splitlines()
-    inside = False
-    for i, line in enumerate(lines):
-        if re.match(r"^workspace:\s*(#.*)?$", line):
-            inside = True
-            continue
-        if not inside or not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if not line[0].isspace():
-            return
-        yield i, line
-
-
-def workspace_fields(identity: str) -> dict:
-    """security_level, live_users and regulated from the `workspace:` block, lower-cased. The one
-    parser apply.py, harness-health and the starter's setup check share."""
-    fields = {}
-    for _, line in _workspace_lines(identity):
-        m = re.match(r"^\s+(" + "|".join(WORKSPACE_KEYS) + r"):\s*(.*)$", line)
-        if m and m.group(1) not in fields:
-            fields[m.group(1)] = _scalar(m.group(2)).lower()
-    return fields
-
-
-def current_level(identity: str) -> str:
-    """The declared level; absent or unrecognised is `off`."""
-    value = workspace_fields(identity).get("security_level", "off")
-    return value if value in LEVELS else "off"
-
-
-def required_files(level: str) -> List[str]:
-    """The files a level needs beyond the rules file, as harness-health and the setup check test."""
-    if level not in LEVELS or LEVELS.index(level) < LEVELS.index("enforced"):
-        return []
-    return list(ENFORCED_FILES) + (["security/hold-paths.txt"] if level == "hardened" else [])
-
-
-def with_level(identity: str, level: str) -> str:
-    lines = identity.splitlines()
-    block = list(_workspace_lines(identity))
-    for i, line in block:
-        if re.match(r"^\s+security_level:", line):
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[i] = f'{indent}security_level: "{level}"'
-            return "\n".join(lines) + "\n"
-    for i, line in enumerate(lines):
-        if re.match(r"^workspace:\s*(#.*)?$", line):
-            indent = block[0][1][: len(block[0][1]) - len(block[0][1].lstrip())] if block else "  "
-            lines.insert(i + 1, f'{indent}security_level: "{level}"')
-            return "\n".join(lines) + "\n"
-    if re.search(r"^workspace:", identity, re.M):
-        raise Refused("the identity file's `workspace:` is not a block mapping; add security_level by hand")
-    return identity.rstrip("\n") + f'\n\nworkspace:\n  security_level: "{level}"\n'
 
 
 # ── languages ────────────────────────────────────────────────────────
@@ -244,8 +138,6 @@ def _insert_under(lines: List[str], gate: str, items: List[str]) -> None:
     lines[r + 1:r + 1] = [pad + item.replace("\n", "\n" + pad) for item in items]
 
 
-ENFORCED_FILES = ("security/VERSION", "security/allowed_signers", "security/public-routes.txt",
-                  ".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
 CHECK_COMMAND = "python3 -m security.api_security.check"
 
 
@@ -299,6 +191,21 @@ def write_hold_paths(sec: Path, config: dict, notes: List[str]) -> None:
                      "yet; add the handler paths to it, or re-run once config.json is filled in")
 
 
+def read_config(repo: Path) -> Optional[dict]:
+    """The project's security/config.json, or None when there is none yet. Read before anything is
+    written, so a malformed file refuses the run instead of stopping it half way."""
+    path = repo / "security" / "config.json"
+    if not path.exists():
+        return None
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise Refused(f"security/config.json is not valid JSON ({exc}); fix it and run again") from None
+    if not isinstance(config, dict):
+        raise Refused("security/config.json is not a JSON object; fix it and run again")
+    return config
+
+
 def write_enforced(repo: Path, hardened: bool, gates: Optional[str], notes: List[str]) -> None:
     sec = repo / "security"
     copy_library(repo)
@@ -306,7 +213,7 @@ def write_enforced(repo: Path, hardened: bool, gates: Optional[str], notes: List
         _copy_if_absent(TOOL / "templates" / name, sec / name)
 
     config_path = sec / "config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config = json.loads(config_path.read_text(encoding="utf-8"))  # checked by read_config already
     config["hardened"] = hardened
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
@@ -315,7 +222,11 @@ def write_enforced(repo: Path, hardened: bool, gates: Optional[str], notes: List
     if extra:
         rule = rule.replace(DEFAULT_FIELDS, DEFAULT_FIELDS + "|" + "|".join(extra))
     (sec / "semgrep").mkdir(exist_ok=True)
-    (sec / "semgrep" / "identity-from-request.yml").write_text(rule, encoding="utf-8")
+    rule_path = sec / "semgrep" / "identity-from-request.yml"
+    if rule_path.exists() and rule_path.read_text(encoding="utf-8") != rule:
+        notes.append("replaced security/semgrep/identity-from-request.yml with this version's rule; "
+                     "add fields with security/config.json identity_fields, not by editing it")
+    rule_path.write_text(rule, encoding="utf-8")
 
     wf = repo / ".github" / "workflows"
     wf.mkdir(parents=True, exist_ok=True)
@@ -372,6 +283,7 @@ def apply(repo: Path, level: str, langs: Optional[List[str]], lower: bool,
                       "or name it with --identity")
     identity = identity_path.read_text(encoding="utf-8")
     current = current_level(identity)
+    new_identity = with_level(identity, level)  # refuses here, before anything is written
     rank = LEVELS.index
     if rank(level) < rank(current) and not lower:
         raise Refused(f"the project is at `{current}`; lowering it to `{level}` needs --lower")
@@ -400,6 +312,7 @@ def apply(repo: Path, level: str, langs: Optional[List[str]], lower: bool,
                     + tuple(f".github/workflows/{w}" for w in WORKFLOWS))
     if identity_path.is_symlink():
         raise Refused(f"{identity_path} is a symlink; name the real file")
+    read_config(repo)
 
     if level == "off":
         remove_gates(repo)
@@ -412,14 +325,17 @@ def apply(repo: Path, level: str, langs: Optional[List[str]], lower: bool,
         if rank(level) >= rank("enforced"):
             write_enforced(repo, hardened=(level == "hardened"), gates=gates, notes=notes)
             notes.append("next: fill in security/config.json, security/fixtures.py and security/allowed_signers, "
-                         "then follow project-setup.md's order for requiring the two checks")
+                         "and land security/ and both workflows together on the default branch: the "
+                         "approval runs the base's security/api_security/verify_approval.py, so a "
+                         "workflow landed without it fails every PR. Then follow project-setup.md's "
+                         "order for requiring the two checks")
         else:
             remove_gates(repo)
             unharden(repo)
             if (repo / "security" / "config.json").exists():
                 notes.append("security/ and the workflows were left in place; the gate additions were removed")
 
-    identity_path.write_text(with_level(identity, level), encoding="utf-8")
+    identity_path.write_text(new_identity, encoding="utf-8")
     notes.insert(0, f"security_level: {current} -> {level}")
     return notes
 

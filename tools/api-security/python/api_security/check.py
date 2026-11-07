@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Set, Tuple
 
 from . import pins, registry
+from .markers import SEMGREP_SKIPS
 from .adapters import AdapterError, dispatch, terraform_apigw
 
 SNAPSHOT = Path("security") / "public-routes.txt"
@@ -53,9 +54,6 @@ def read_snapshot(root: Path) -> Set[str]:
     lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
     return {line for line in lines if line and not line.startswith("#")}
 
-# Folders semgrep leaves out of a scan with no .semgrepignore at all (its built-in default).
-SEMGREP_SKIPS = {"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox", ".npm", ".yarn",
-                 "test", "tests", ".semgrep", ".semgrep_logs", ".git"}
 PARAM = re.compile(r"\{([^}+]+)\+?\}")  # {name} and greedy {name+}
 
 
@@ -101,7 +99,10 @@ def run(root: Path, update_snapshot: bool) -> Tuple[int, List[str]]:
     declared = {(r.method, r.path) for r in routes}
     live = deployed(root, config["adapter"])
     for method, path in sorted(live - declared):
-        findings.append(f"{method} {path}: deployed with no declared handler; declare it, or remove the route")
+        greedy = method == "ANY" or "+}" in path
+        findings.append(f"{method} {path}: deployed with no declared handler; declare it, or remove the route"
+                        + ("; a greedy route hands every path to one function, which the dispatch adapter "
+                           "reads (api-security.md, Choosing an adapter)" if greedy else ""))
     for method, path in sorted(declared - live):
         findings.append(f"{method} {path}: declared with no deployed route; remove the handler, or deploy the route")
 

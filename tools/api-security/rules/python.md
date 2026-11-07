@@ -37,7 +37,9 @@ Rules:
   signature is checked.
 - `role` names roles registered once, each with one verifier, through `register_role` in the
   module `security/config.json` calls `roles_module`. A verifier returns the verified identity or
-  `None`: never a bool, never `async`.
+  `None`: never a bool, a number, a tuple or list, an empty value, or anything `async`. Each of
+  those refuses the request and logs `api_security.bad_identity`; return a numeric user id as
+  `str(user_id)` or inside a dict such as `{"sub": user_id}`.
 - A route with a parameter in its path takes `owns=` that parameter, checked by the one
   `register_ownership` test. `role("user")` alone lets any signed-in user reach anyone's records.
   Where any holder of the role may reach every value, say why: `unowned="..."`.

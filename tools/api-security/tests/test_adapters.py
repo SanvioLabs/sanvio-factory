@@ -50,6 +50,12 @@ class CheckAgainstDeployedTests(unittest.TestCase):
         self.assertIn("POST /v1/voice/twiml", r.stdout)
         self.assertIn("deployed with no declared handler", r.stdout)
 
+    def test_a_greedy_route_with_no_handler_points_at_the_dispatch_adapter(self):
+        tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_route" "p" {\n  route_key = "ANY /{proxy+}"\n}\n'
+        r = fixture.run_check(fixture.project(terraform=tf))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("dispatch", r.stdout)
+
     def test_a_handler_with_no_deployed_route_fails(self):
         tf = fixture.TERRAFORM.split('resource "aws_apigatewayv2_route" "records"')[0]
         r = fixture.run_check(fixture.project(terraform=tf))
@@ -156,7 +162,7 @@ class TerraformUnreadableTests(unittest.TestCase):
 
     def test_an_api_built_from_a_target_outside_the_paths_is_refused(self):
         tf = 'resource "aws_apigatewayv2_api" "z" {\n  name = "z"\n  target = "arn"\n}\n'
-        self.assertRefused(extra={"other/x.tf": tf}, needle="target")
+        self.assertRefused(extra={"other/x.tf": tf}, needle="outside the configured terraform paths")
 
     def test_a_route_key_that_is_not_one_plain_string_is_refused(self):
         for line in ('route_key = "GET /a"=="x"?"GET/b":"POST/c"', '"route_key" = "GET /hidden"'):
@@ -331,6 +337,55 @@ class TerraformUnreadableTests(unittest.TestCase):
         (root / "infra" / "cr.tf").write_bytes(b'locals {\r  a = 1\n}\n')
         with self.assertRaises(AdapterError):
             terraform_apigw.deployed_routes(root, ["infra"])
+
+    # review-spec 2, 2026-11-06: refuse ordinary infrastructure less, and say what to do.
+
+    def read(self, terraform=fixture.TERRAFORM, extra=None):
+        return terraform_apigw.deployed_routes(fixture.project(terraform=terraform, extra=extra), ["infra"])
+
+    def test_unrelated_terraform_outside_the_paths_is_not_read_closely(self):
+        for extra in ({"net/vpc.tf": 'module "vpc" {\n  source = "terraform-aws-modules/vpc/aws"\n}\n'},
+                      {"net/notes.tf": '# deploy → prod ⚠️\nlocals { x = 1 }\n'},
+                      {"net/user.tf": 'resource "aws_instance" "i" {\n  user_data = <<EOT\nsource = /data\nEOT\n}\n'}):
+            with self.subTest(extra=list(extra)):
+                self.assertEqual(len(self.read(extra=extra)), 2)
+
+    def test_an_api_route_or_url_declared_outside_the_paths_is_refused(self):
+        for tf in ('resource "aws_apigatewayv2_api" "z" {\n  name = "z"\n}\n',
+                   'resource "aws_lambda_function_url" "u" {\n  authorization_type = "NONE"\n}\n',
+                   'resource "aws_cloudformation_stack" "s" {\n  name = "s"\n}\n',
+                   'module "api" {\n  source = "terraform-aws-modules/apigateway-v2/aws"\n}\n',
+                   'module "fn" {\n  source = "terraform-aws-modules/lambda/aws"\n}\n'):
+            with self.subTest(tf=tf.split(chr(10))[0]):
+                self.assertRefused(extra={"other/x.tf": tf}, needle="adapter.paths")
+
+    def test_ordinary_text_inside_the_paths_is_read(self):
+        tf = fixture.TERRAFORM + ('﻿' if False else '') + (
+            '# ⚠️ careful \U0001F469‍\U0001F4BB\n'
+            'resource "aws_instance" "i" {\n  user_data = <<EOT\n[x]\nsource = /data\ntarget = s3://b\nEOT\n}\n')
+        self.assertEqual(len(self.read(terraform=tf)), 2)
+        root = fixture.project()
+        (root / "infra" / "main.tf").write_bytes(b"\xef\xbb\xbf" + fixture.TERRAFORM.encode())
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_links_inside_node_modules_or_dot_terraform_under_the_paths_are_ignored(self):
+        root = fixture.project()
+        for d in ("infra/node_modules/.bin", "infra/.terraform/modules"):
+            (root / d).mkdir(parents=True)
+        (root / "infra" / "node_modules" / ".bin" / "cdk").symlink_to("../cdk/bin/cdk")
+        (root / "infra" / ".terraform" / "modules" / "m").symlink_to("../../modules/m")
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_a_catch_all_route_key_points_at_the_dispatch_adapter(self):
+        tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_route" "d" {\n  route_key = "$default"\n}\n'
+        self.assertRefused(terraform=tf, needle="dispatch")
+
+    def test_a_hidden_token_is_named(self):
+        self.assertRefused(terraform=fixture.TERRAFORM + '/*\nroute_key = "GET /old"\n*/\n', needle="route_key")
+
+    def test_a_registry_module_in_the_paths_says_to_move_it_out(self):
+        tf = fixture.TERRAFORM + 'module "vpc" {\n  source = "terraform-aws-modules/vpc/aws"\n}\n'
+        self.assertRefused(terraform=tf, needle="move it out of adapter.paths")
 
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'

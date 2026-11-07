@@ -4,5 +4,6 @@
   "adapter": {"kind": "terraform", "paths": ["infrastructure"]},
   "identity_fields": [],
   "deploy_workflows": [],
+  "dependabot_exempt_workflows": [],
   "hardened": false
 }

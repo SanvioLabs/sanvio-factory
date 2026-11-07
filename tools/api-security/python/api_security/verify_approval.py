@@ -7,16 +7,17 @@ Run by `security-approval.yml` on `pull_request_target`, from the BASE branch's 
 over the pull request's commits as git objects. It never checks out or executes anything from the
 pull request.
 
-The guarded surface is everything under `security/` and `.github/workflows/`. Every workflow is
-guarded because a required status matches by name, and no reading of a workflow's text can tell
-what name a job will report under: it can take it from the pull request's own title. One change
-needs no signature: a pull request Dependabot opened, judged on an `opened` or `synchronize` event
-that Dependabot sent, that
-moves only the `@ref` of existing `uses:` lines in a workflow that is neither a security workflow,
-nor one the base's `security/config.json` lists under `deploy_workflows`, nor a reusable workflow
-(`workflow_call`). Content alone cannot be the test: a commit that exists only in a fork resolves
-through the parent's path, so the same action path is not the same publisher. A malformed
-`deploy_workflows` list counts every workflow as a deploy workflow. The verifier judges
+The guarded surface is everything under `security/`, `.github/workflows/` and `.github/actions/`,
+and `CODEOWNERS` wherever GitHub reads it (`.github/`, the root, `docs/`). Every workflow is guarded
+because a required status matches by name, and no reading of a workflow's text can tell what name
+a job will report under: it can take it from the pull request's own title. A local action runs
+inside whatever workflow calls it. One change needs no signature: a pull request Dependabot
+opened, judged on an `opened` or `synchronize` event that Dependabot sent, that moves only the
+`@ref` of existing `uses:` lines in a workflow the base's `security/config.json` lists under
+`dependabot_exempt_workflows` (opt-in, empty by default), and that is not a security workflow, not
+listed under `deploy_workflows`, and not a reusable workflow (`workflow_call`). Content alone
+cannot be the test: a commit that exists only in a fork resolves through the parent's path, so the
+same action path is not the same publisher. A malformed list exempts nothing. The verifier judges
 what would land: the three-way merge of the head into the base, the tree GitHub merges. A pull
 request that changes a guarded file in that tree passes only when one commit in the pull
 request, built on top of this base and signed with an SSH key listed in the base's
@@ -44,8 +45,12 @@ SIGNERS = "security/allowed_signers"
 SNAPSHOT = "security/public-routes.txt"
 CONFIG = "security/config.json"
 WORKFLOWS_DIR = ".github/workflows/"
+GUARDED_DIRS = ("security/", WORKFLOWS_DIR, ".github/actions/")
+CODEOWNERS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")  # the three places GitHub reads
 SECURITY_WORKFLOWS = (".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
-BARE = ("security", ".github", ".github/workflows")  # replacing one of these replaces what is under it
+# Replacing one of these entries (with a file, a link or a submodule) replaces what is under it.
+BARE = ("security", ".github", ".github/workflows", ".github/actions", "docs")
+SURFACE_PATHSPEC = ("security", ".github", "CODEOWNERS", "docs")
 USES = re.compile(r"^(\s*-?\s*uses:\s*)([^@\s'\"]+)@([A-Za-z0-9._/-]+)(\s+#.*)?$")
 DEPENDABOT = "dependabot[bot]"
 # The events where the sender is who pushed the head. On `edited` or `reopened` the sender did not
@@ -98,7 +103,7 @@ def show(text: str) -> str:
 
 def surface(repo: str, treeish: str, skip: Set[str]) -> Dict[str, str]:
     """Every guarded file in `treeish` with its mode, type and object id, less `skip`."""
-    out = git(repo, "ls-tree", "-r", "-z", "--full-tree", treeish, "--", "security", ".github").stdout
+    out = git(repo, "ls-tree", "-r", "-z", "--full-tree", treeish, "--", *SURFACE_PATHSPEC).stdout
     found = {}
     for item in out.split("\0"):
         meta, _, name = item.partition("\t")
@@ -108,7 +113,7 @@ def surface(repo: str, treeish: str, skip: Set[str]) -> Dict[str, str]:
 
 
 def guarded(path: str) -> bool:
-    return path.startswith(("security/", WORKFLOWS_DIR)) or path in BARE
+    return path.startswith(GUARDED_DIRS) or path in CODEOWNERS or path in BARE
 
 
 def routes(text: str) -> Set[str]:
@@ -173,13 +178,26 @@ def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
     return True
 
 
+def exempt_workflows(repo: str, base: str) -> Set[str]:
+    """The workflows the base opts in to Dependabot's unsigned ref bumps. Read from the base, so a
+    pull request cannot list its own; a malformed list exempts nothing."""
+    text = content(repo, base, CONFIG)
+    try:
+        listed = json.loads(text).get("dependabot_exempt_workflows", []) if text.strip() else []
+    except (ValueError, AttributeError):
+        return set()
+    if not isinstance(listed, list) or not all(isinstance(w, str) and DEPLOY_ENTRY.match(w) for w in listed):
+        return set()
+    return set(listed)
+
+
 def exempt_bumps(repo: str, base: str, tree: str, files: List[str], dependabot: bool) -> Set[str]:
-    """Dependabot's ref bumps to ordinary workflows, which need no signature."""
+    """Dependabot's ref bumps to the workflows the base opts in, which need no signature."""
     deploy = deploy_workflows(repo, base)
     if not dependabot or deploy is None:
         return set()
-    return {p for p in files if p.startswith(WORKFLOWS_DIR) and p not in SECURITY_WORKFLOWS
-            and p not in deploy and ref_bump_only(repo, base, tree, p)}
+    allowed = exempt_workflows(repo, base) - set(SECURITY_WORKFLOWS) - deploy
+    return {p for p in files if p in allowed and ref_bump_only(repo, base, tree, p)}
 
 
 def needs_signature(repo: str, base: str, tree: str, files: List[str]) -> List[str]:

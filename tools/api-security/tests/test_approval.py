@@ -323,8 +323,11 @@ class ApprovalTests(unittest.TestCase):
 
     DEPENDABOT = {"author": "dependabot[bot]", "sender": "dependabot[bot]", "action": "synchronize"}
 
-    def _bump_branch(self, before="actions/checkout@" + "a" * 40 + " # v4.1.0", ci=None):
+    EXEMPT_CI = '{"dependabot_exempt_workflows": [".github/workflows/ci.yml"]}\n'
+
+    def _bump_branch(self, before="actions/checkout@" + "a" * 40 + " # v4.1.0", ci=None, config=None):
         self.g("checkout", "-q", "main")
+        self.r.write("security/config.json", self.EXEMPT_CI if config is None else config)
         self.r.write(".github/workflows/ci.yml", (ci or self._ci)(before))
         self.r.commit("CI exists on the base", key=self.r.trusted)
         self.r.base = self.r.head()
@@ -391,7 +394,8 @@ class ApprovalTests(unittest.TestCase):
 
     def test_a_ref_bump_to_a_deploy_workflow_still_needs_a_signature(self):
         self.g("checkout", "-q", "main")
-        self.r.write("security/config.json", '{"deploy_workflows": [".github/workflows/deploy.yml"]}\n')
+        self.r.write("security/config.json", '{"deploy_workflows": [".github/workflows/deploy.yml"], '
+                     '"dependabot_exempt_workflows": [".github/workflows/deploy.yml"]}\n')
         self.r.write(".github/workflows/deploy.yml", self._ci("actions/checkout@v4"))
         self.r.commit("deploy exists on the base", key=self.r.trusted)
         self.r.base = self.r.head()
@@ -402,7 +406,8 @@ class ApprovalTests(unittest.TestCase):
 
     def test_a_malformed_deploy_list_widens_the_guard(self):
         self.g("checkout", "-q", "main")
-        self.r.write("security/config.json", '{"deploy_workflows": ".github/workflows/ci.yml"}\n')
+        self.r.write("security/config.json", '{"deploy_workflows": ".github/workflows/ci.yml", '
+                     '"dependabot_exempt_workflows": [".github/workflows/ci.yml"]}\n')
         self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@v4"))
         self.r.commit("a list that is not a list", key=self.r.trusted)
         self.r.base = self.r.head()
@@ -410,6 +415,53 @@ class ApprovalTests(unittest.TestCase):
         self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@v5"))
         self.r.commit("bump")
         self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+
+    # Pat, 2026-11-06: the exemption is opt-in, from a list on the base.
+
+    def test_a_dependabot_bump_to_a_workflow_the_base_does_not_list_needs_a_signature(self):
+        for config in ("{}\n", '{"dependabot_exempt_workflows": [".github/workflows/other.yml"]}\n',
+                       '{"dependabot_exempt_workflows": ".github/workflows/ci.yml"}\n',
+                       '{"dependabot_exempt_workflows": ["ci.yml"]}\n',
+                       '{"dependabot_exempt_workflows": [".github/workflows/security-check.yml", '
+                       '".github/workflows/ci.yml"], "deploy_workflows": [".github/workflows/ci.yml"]}\n'):
+            with self.subTest(config=config):
+                self.setUp()
+                self._bump_branch(config=config)
+                self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
+                self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
+                self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+                self.tearDown()
+        self.setUp()
+
+    def test_a_pull_request_cannot_list_its_own_workflow_as_exempt(self):
+        self._bump_branch(config="{}\n")
+        self.r.write("security/config.json", self.EXEMPT_CI)
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
+        self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
+        self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+
+    # Pat, 2026-11-06: local actions and CODEOWNERS are guarded too.
+
+    def test_an_unsigned_change_to_a_local_action_or_codeowners_fails(self):
+        for rel in (".github/actions/build/action.yml", ".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
+            with self.subTest(rel=rel):
+                self.r.write(rel, "x\n")
+                self.r.commit("unsigned")
+                self.assertFails(rel)
+                self.g("reset", "-q", "--hard", "HEAD~1")
+
+    def test_codeowners_changed_after_the_signed_commit_fails_wherever_it_lives(self):
+        for rel in (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"):
+            with self.subTest(rel=rel):
+                self.setUp()
+                self.r.write("security/config.json", "{}\n")
+                self.r.write(rel, "* @owner\n")
+                self.r.commit("signed", key=self.r.trusted)
+                self.r.write(rel, "* @someone-else\n")
+                self.r.commit("unsigned after")
+                self.assertFails(rel)
+                self.tearDown()
+        self.setUp()
 
     def test_a_deploy_workflow_the_base_lists_needs_a_signature(self):
         self.g("checkout", "-q", "main")

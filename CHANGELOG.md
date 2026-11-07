@@ -34,7 +34,10 @@ set as `workspace.security_level` in the project's `.studio-project.yaml`:
 `off` (the default, so nothing changes until you choose), `guided` (a rules
 file for the project's language), `enforced` (a required check, plus a signed
 approval for any new public route) and `hardened` (a checklist and a security
-review before merge). [`scripts/check_setup.py`](scripts/check_setup.py) warns about a project marked
+review before merge). From `enforced`, any change under `security/`,
+[`.github/workflows/`](.github/workflows/) or `.github/actions/`, or to `CODEOWNERS`, needs that
+signature too; Dependabot ref bumps skip it only in workflows listed under
+`dependabot_exempt_workflows`. [`scripts/check_setup.py`](scripts/check_setup.py) warns about a project marked
 `live_users: true` or `regulated: true` that is still at `off`. The `enforced`
 check covers Python on Lambda behind API Gateway HTTP API v2 first; other
 Python frameworks, TypeScript, PHP and .NET go up to `guided`. A private way to

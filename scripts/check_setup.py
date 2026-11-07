@@ -178,14 +178,14 @@ def check_shadowed_skills(root, home=None):
             "one, so everyone using this harness runs the same skill.")
 
 
-API_SECURITY_TOOL = Path(__file__).resolve().parent.parent / "tools" / "api-security" / "apply.py"
+API_SECURITY_TOOL = Path(__file__).resolve().parent.parent / "tools" / "api-security" / "api_security_levels.py"
 
 
 def _api_security_tool():
     """The levels, the files each needs, the identity-file parser and the content stamp come from
     the tool itself, so this check and apply.py cannot disagree."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("_api_security_apply", str(API_SECURITY_TOOL))
+    spec = importlib.util.spec_from_file_location("_api_security_levels", str(API_SECURITY_TOOL))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -198,7 +198,7 @@ def check_security_levels(root):
     try:
         tool = _api_security_tool()
     except Exception as exc:  # report it; the setup check never stops on one line
-        return ("WARN", "security: tools/api-security/apply.py could not be loaded ({})".format(exc),
+        return ("WARN", "security: tools/api-security/api_security_levels.py could not be loaded ({})".format(exc),
                 "Restore tools/api-security/ from the harness.")
     levels, warnings = [], []
     for folder in sorted(p for p in (root / "projects").glob("*") if p.is_dir()):

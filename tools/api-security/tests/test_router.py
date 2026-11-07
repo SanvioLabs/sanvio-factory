@@ -142,6 +142,15 @@ class RouterTests(unittest.TestCase):
                 registry.register_role("user", lambda event, r=result: r)
                 self.assertIn(self.call("POST /v1/summarize")["statusCode"], (401, 403))
 
+    def test_a_refused_verifier_result_is_logged_with_its_type(self):
+        # review-spec 2, 2026-11-06: a numeric user id got 403 on every request and nothing said why.
+        registry.reset()
+        registry.register_role("user", lambda event: 42)
+        with self.assertLogs("api_security", level="WARNING") as logs:
+            self.assertEqual(self.call("POST /v1/summarize", token="tok-alice")["statusCode"], 403)
+        self.assertTrue(any("api_security.bad_identity" in m and "type=int" in m and "role=user" in m
+                            for m in logs.output), logs.output)
+
     def test_an_ownership_answer_that_is_not_true_is_refused(self):
         def coroutine_like(identity, param, value):
             async def later():

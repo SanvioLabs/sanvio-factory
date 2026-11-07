@@ -118,17 +118,20 @@ raises, so a later import can't swap it.
   another identity's token; and the list of public routes against the checked-in
   `security/public-routes.txt`.
 - **The approval** (`security-approval.yml`, on `pull_request_target`): any line
-  added to `security/public-routes.txt`, and any other change under `security/`
-  or [`.github/workflows/`](../.github/workflows/), needs a commit signed by a key in the **base
+  added to `security/public-routes.txt`, and any other change under `security/`,
+  [`.github/workflows/`](../.github/workflows/) or `.github/actions/`, or to a `CODEOWNERS` file (in
+  [`.github/`](../.github/), the root or [`docs/`](../docs/)), needs a commit signed by a key in the **base
   branch's** `security/allowed_signers`. It judges what would land, the merge of
   the PR into its base, and one signed commit containing that base has to hold
   exactly what lands across those paths. Every workflow is guarded because a
   required status matches by job name, and a workflow can take that name from
-  the PR's own title. Two changes need no signature: removing a public route,
-  and a Dependabot bump: a PR Dependabot opened and only Dependabot pushed to,
-  moving only the `@ref` of existing `uses:` lines, in a workflow that is not a
-  security workflow, not a reusable one (`workflow_call`), and not listed under
-  `deploy_workflows` in the base's `security/config.json`. The same change from
+  the PR's own title, and a local action runs inside whatever workflow calls
+  it. Two changes need no signature: removing a public route, and a Dependabot
+  bump: a PR Dependabot opened and only Dependabot pushed to, moving only the
+  `@ref` of existing `uses:` lines, in a workflow the base's
+  `security/config.json` lists under `dependabot_exempt_workflows` (empty by
+  default), and that is not a security workflow, not a reusable one
+  (`workflow_call`) and not listed under `deploy_workflows`. The same change from
   anyone else is signed: a commit that exists only in a fork resolves through
   the parent's path, so the same action path is not the same publisher.
 - **Both are required statuses** on every protected branch, with branches
@@ -144,7 +147,7 @@ raises, so a later import can't swap it.
 **The check catches mistakes, not an adversary.** It imports the project's
 handlers to list their declarations, so code written to subvert it can make it
 pass. The approval is the part that holds against a hostile PR, and it covers
-only `security/` and [`.github/workflows/`](../.github/workflows/). A deliberate change to app code is what
+only `security/`, [`.github/workflows/`](../.github/workflows/), `.github/actions/` and `CODEOWNERS`. A deliberate change to app code is what
 review is for, and at `hardened` that review is required before merge.
 
 **Updating a branch from its base after signing needs a new signature** when
@@ -177,10 +180,9 @@ The refusal names its cause:
 | what lands differs from every signed commit | A later commit changed a guarded file. Sign the latest |
 
 A rebase or squash rewrites commits and drops their signatures, so sign after
-it. A Dependabot PR bumping a security, deploy or reusable workflow needs the
-same signature; one bumping any other workflow does not, as long as it changes
-nothing but `@ref`s, and only on the run Dependabot's own open or push
-fires. Pushing to a Dependabot branch, or editing, closing and reopening its
+it. A Dependabot PR needs the same signature unless every file it changes is a
+workflow listed under `dependabot_exempt_workflows` and the change is nothing
+but `@ref`s, judged on the run Dependabot's own open or push fires. Pushing to a Dependabot branch, or editing, closing and reopening its
 PR, needs a signature too; `@dependabot rebase` brings it back to Dependabot.
 
 Why it is built this way:
@@ -203,23 +205,87 @@ Why it is built this way:
   `vendor/` and `node_modules/`, so deployed code does not live under them: the
   check fails a handler module there, and code a handler imports from one goes
   unscanned.
-- **The Terraform adapter reads patterns, not HCL.** Comments, strings and
-  heredocs are masked first, `.tf` and `.tofu` are read, and anything it cannot
-  read fails the check: an unterminated string, comment or heredoc, a computed
-  `route_key`, a route outside the configured paths, any module that is not a
-  plain local folder, a symlink under the paths, and anywhere in the repository
-  JSON Terraform, a function URL, a REST API, an HTTP API built from `body` or
+- **The Terraform adapter reads patterns, not HCL.** Under `adapter.paths` it
+  masks comments, strings and heredocs, reads `.tf` and `.tofu`, and refuses
+  what it cannot read: an unterminated string, comment or heredoc, a computed
+  `route_key`, a module that is not a plain `./` or `../` folder in the repo, a
+  symlink, a function URL, a REST API, an HTTP API built from `body` or
   `target`, and any other road to a route or URL (CloudFormation, Cloud
-  Control, the `awscc` provider). Vendor a registry module into the configured
-  paths, with a plain `./` or `../` source, to use it at `enforced`. It also
-  refuses what could make its reading differ from Terraform's: control
-  characters, Unicode spaces and combining marks, `\u` escapes, a heredoc
-  template (`${...}`) spanning lines, anything at the top level of a file but
-  whole blocks, a `resource` or `module` line it cannot parse as a header, and
-  a block or `route_key`, `source`, `body` or `target` inside what it took for
-  a string, heredoc or `/* */` comment. Comment a route out with `#`. It is built
-  against mistakes; one built against a deliberate adversary is the follow-up
-  spec.
+  Control, the `awscc` provider). It also refuses what could make its reading
+  differ from Terraform's: control characters, Unicode spaces, a combining mark
+  after an ASCII letter, `\u` escapes, a heredoc template (`${...}`) spanning
+  lines, anything at a file's top level but whole blocks, a `resource` or
+  `module` line it cannot parse, and a block, `route_key`, or a `source`, `body`
+  or `target` of a module or HTTP API inside what it took for a string,
+  heredoc or `/* */` comment. Comment a route out with `#`. Outside the paths
+  it only searches the raw text for a declaration (a route, an API, a function
+  URL, another road to one, or a module whose source names API Gateway or
+  Lambda) and points it at `adapter.paths`; unrelated Terraform there is not
+  read closely. JSON Terraform is refused anywhere. It is built against
+  mistakes, not a deliberate adversary; one over `terraform show -json` is the
+  follow-up spec.
+
+### Choosing an adapter
+
+`security/config.json` `adapter.kind` says where the deployed routes come from.
+
+| Your API | Adapter |
+|---|---|
+| One API Gateway HTTP API with a Terraform `aws_apigatewayv2_route` per route | `terraform`, with `paths` listing only the folders that hold the API's Terraform |
+| One Lambda behind `$default` or `ANY /{proxy+}`, routing inside the function through the library's `Router` | `dispatch`, with `table` naming the `Router` as `module:name` |
+| A WebSocket API, a REST (v1) API, a function URL, routes built with `for_each` or a registry module | Not read yet: stay at `guided` |
+
+Keep `adapter.paths` to the API's own Terraform. A VPC or registry module
+elsewhere in the repo is fine outside the paths and refused inside them.
+
+### `security/config.json`
+
+| Key | Means |
+|---|---|
+| `roles_module` | The module that calls `register_role` and `register_ownership` |
+| `handler_modules` | Every module that declares a route; the check and the generated tests import each |
+| `adapter` | `{"kind": "terraform", "paths": [...]}` or `{"kind": "dispatch", "table": "module:router"}` |
+| `identity_fields` | Extra field names the Semgrep rule treats as identity, beside `user_id` and the like |
+| `deploy_workflows` | Workflows that deploy. The approval never exempts them, the loop holds them, and at `hardened` their actions must be pinned |
+| `dependabot_exempt_workflows` | Workflows whose Dependabot ref bumps need no signature. Empty by default; list only ones that hold no secrets |
+| `hardened` | Written by `apply.py`; true at `hardened` |
+
+The approval reads `deploy_workflows` and `dependabot_exempt_workflows` from the
+base branch, so a PR cannot list itself. A malformed list exempts nothing.
+
+### Dependabot
+
+A bump to an action the two security workflows pin (`actions/checkout`,
+`actions/setup-python`, `astral-sh/setup-uv`) touches them too, so that PR
+always needs a signed commit, and so does any bump to a deploy workflow, a
+reusable workflow or a local action under `.github/actions/`. Keep those out
+of Dependabot's grouped PR so the ordinary bumps still merge unsigned:
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      ordinary: {patterns: ["*"], exclude-patterns: ["actions/checkout", "actions/setup-python", "astral-sh/setup-uv"]}
+```
+
+Then bump the security workflows' pins yourself, signed, when this harness's
+copy of them changes (upgrading, below).
+
+### Upgrading a project's copy
+
+Run `apply.py --level <the project's level> --runtime lambda-httpapi <repo>`
+again. It replaces `security/api_security/`, the Semgrep rule and both
+workflows, notes any it replaced that had been edited, and keeps
+`config.json`, `fixtures.py`, `allowed_signers` and the snapshot. Review the
+diff, sign the commit (it is all guarded), and merge. `security/VERSION` is a
+hash of what a project copies verbatim (the library, the workflows and the
+Semgrep rule, less the `identity_fields` a project adds); templates and rules
+files are left out because a project fills them in. Harness-health and the
+setup check flag a copy that differs from its stamp or lags this harness.
 
 ## `hardened`: the checklist
 

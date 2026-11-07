@@ -190,6 +190,19 @@ class ApplyTests(unittest.TestCase):
         after = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
         self.assertEqual(before, after)
 
+    def test_a_flow_style_workspace_or_a_broken_config_writes_nothing(self):
+        # review-spec 2, 2026-11-06: both refused only after 25 files had been written.
+        for name, root in (("flow workspace", repo(identity='repo:\n  github: "o/x"\nworkspace: {type: internal}\n')),
+                           ("broken config", repo(files={"security/config.json": '{"hardened": false,}\n'}))):
+            with self.subTest(name):
+                before = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                r = apply(root, "--level", "enforced", *RUNTIME)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                if name == "broken config":
+                    self.assertIn("security/config.json", r.stderr)
+                after = {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                self.assertEqual(before, after)
+
     def test_python_enforced_names_its_runtime(self):
         r = apply(repo(), "--level", "enforced")
         self.assertEqual(r.returncode, 1)

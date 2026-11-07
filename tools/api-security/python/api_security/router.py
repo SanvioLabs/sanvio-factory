@@ -11,6 +11,7 @@ import logging
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import registry
+from .adapters import AdapterError, parse_route_key
 from .decorators import policy_of
 from .registry import Policy
 
@@ -33,14 +34,15 @@ def _identity(result: Any) -> Optional[Any]:
     """A verifier's result counts only when it is an identity. A bool, a number, a tuple or list
     (the `(ok, claims)` shape), an empty value or an awaitable is a verifier written wrongly, and a
     wrongly written verifier refuses."""
-    if _drop_awaitable(result):
+    if _close_if_awaitable(result):
         return None
     if result is None or isinstance(result, (bool, int, float, tuple, list, set, frozenset)) or not result:
         return None
     return result
 
 
-def _drop_awaitable(result: Any) -> bool:
+def _close_if_awaitable(result: Any) -> bool:
+    """True when `result` is an awaitable, closing it so it is never left un-awaited."""
     if not inspect.isawaitable(result):
         return False
     close = getattr(result, "close", None)
@@ -55,10 +57,10 @@ class Router:
 
     def route(self, route_key: str) -> Callable:
         """Register a handler for "METHOD /path", as API Gateway writes a route key."""
-        try:
-            method, path = route_key.split(" ", 1)
-        except ValueError:
-            raise ValueError(f"route key {route_key!r} is not 'METHOD /path'") from None
+        try:  # the one parser for "METHOD /path", shared with the adapters
+            method, path = parse_route_key(route_key, "Router.route")
+        except AdapterError as exc:
+            raise ValueError(str(exc)) from None
 
         def wrap(fn: Callable) -> Callable:
             key = (method.upper(), path)
@@ -101,9 +103,12 @@ class Router:
             verify = registry.verifier(name)
             if verify is None:
                 return False, 403, None
-            identity = _identity(verify(event))
+            result = verify(event)
+            identity = _identity(result)
             if identity is not None:
                 break
+            if result is not None:  # the verifier answered, but not with an identity
+                log.warning("api_security.bad_identity role=%s type=%s", name, type(result).__name__)
         if identity is None:
             return False, (401 if not _has_credential(event) else 403), None
         if policy.owns:
@@ -112,6 +117,6 @@ class Router:
             if owns is None or value is None:
                 return False, 403, None
             answer = owns(identity, policy.owns, value)
-            if _drop_awaitable(answer) or answer is not True:
+            if _close_if_awaitable(answer) or answer is not True:
                 return False, 403, None
         return True, 200, identity

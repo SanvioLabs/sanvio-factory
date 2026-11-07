@@ -17,10 +17,13 @@ from typing import List
 
 RULE_PREFIX = "api-security.identity-from-request"
 NOSEMGREP = re.compile(r"\bnosem(?:grep)?\b(?P<colon>:)?(?P<body>.*)$", re.IGNORECASE)
-# Folders semgrep itself skips by default (a marker there silences nothing), and nothing it scans:
-# `bin/`, `obj/`, `venv/`, `.terraform/` and a folder named `semgrep` are all read.
-SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "vendor", "dist", "build", "test", "tests",
-             ".env", ".tox", ".npm", ".yarn"}
+# Folders semgrep leaves out of a scan with no .semgrepignore at all (its built-in default), measured
+# on 1.175. `bin/`, `obj/`, `venv/`, `.terraform/` and a folder named `semgrep` are all read. The
+# check fails a handler module in one of these; the marker scan skips them, since a marker there
+# silences nothing.
+SEMGREP_SKIPS = {"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox", ".npm", ".yarn",
+                 "test", "tests", ".semgrep", ".semgrep_logs", ".git"}
+SKIP_DIRS = SEMGREP_SKIPS | {"__pycache__"}
 OWN = (("security", "api_security"), ("security", "semgrep"))  # the library and the rule tests
 SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".php", ".cs"}
 

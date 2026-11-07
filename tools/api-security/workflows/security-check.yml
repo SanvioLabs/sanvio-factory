@@ -34,8 +34,10 @@ jobs:
         run: |
           if [ -f uv.lock ]; then uv sync --frozen
           elif [ -f pyproject.toml ]; then uv sync
-          elif [ -f requirements.txt ]; then uv venv && uv pip install -r requirements.txt
+          else uv venv
           fi
+          # a requirements.txt beside a pyproject.toml is installed too; uv sync reads neither
+          if [ -f requirements.txt ]; then uv pip install -r requirements.txt; fi
 
       - name: Declarations, deployed routes and the public snapshot
         run: uv run python -m security.api_security.check
