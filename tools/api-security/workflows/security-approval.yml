@@ -40,7 +40,13 @@ jobs:
 
       # The base is the commit checked out above, where this verifier and the signers file came
       # from. The event's base sha is taken when the event fires and can be older.
+      # Author and sender decide only Dependabot's exemption for a ref bump: both must be
+      # dependabot[bot], so a person pushing to a Dependabot branch, or retitling its PR, signs.
       - name: Verify with the base branch's copy of the verifier
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 security/api_security/verify_approval.py --base "$(git rev-parse HEAD)" --head "$HEAD_SHA"
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+        run: >-
+          python3 security/api_security/verify_approval.py --base "$(git rev-parse HEAD)"
+          --head "$HEAD_SHA" --author "$PR_AUTHOR" --sender "$SENDER"

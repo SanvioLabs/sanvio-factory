@@ -125,9 +125,12 @@ raises, so a later import can't swap it.
   exactly what lands across those paths. Every workflow is guarded because a
   required status matches by job name, and a workflow can take that name from
   the PR's own title. Two changes need no signature: removing a public route,
-  and a Dependabot-style bump, which moves only the `@ref` of existing `uses:`
-  lines, in a workflow that is neither a security workflow nor one the base's
-  `security/config.json` lists under `deploy_workflows`.
+  and a Dependabot bump: a PR Dependabot opened and only Dependabot pushed to,
+  moving only the `@ref` of existing `uses:` lines, in a workflow that is not a
+  security workflow, not a reusable one (`workflow_call`), and not listed under
+  `deploy_workflows` in the base's `security/config.json`. The same change from
+  anyone else is signed: a commit that exists only in a fork resolves through
+  the parent's path, so the same action path is not the same publisher.
 - **Both are required statuses** on every protected branch, with branches
   required to be up to date before merging. Turn them on in this order
   ([`project-setup.md`](project-setup.md)): create the key; run
@@ -174,9 +177,10 @@ The refusal names its cause:
 | what lands differs from every signed commit | A later commit changed a guarded file. Sign the latest |
 
 A rebase or squash rewrites commits and drops their signatures, so sign after
-it. A Dependabot PR bumping a security or deploy workflow needs the same
-signature; one bumping any other workflow does not, as long as it changes
-nothing but `@ref`s.
+it. A Dependabot PR bumping a security, deploy or reusable workflow needs the
+same signature; one bumping any other workflow does not, as long as it changes
+nothing but `@ref`s. Pushing to a Dependabot branch, or closing and reopening
+its PR, makes you the sender, and then it needs a signature too.
 
 Why it is built this way:
 
@@ -200,10 +204,11 @@ Why it is built this way:
   unscanned.
 - **The Terraform adapter reads patterns, not HCL.** Comments, strings and
   heredocs are masked first, `.tf` and `.tofu` are read, and anything it cannot
-  read fails the check: a computed `route_key`, JSON Terraform, a route outside
-  the configured paths, a registry module that mentions routes, and anywhere in
-  the repository a function URL, a REST API, or an HTTP API built from `body`
-  or `target`.
+  read fails the check: an unterminated string, comment or heredoc, a computed
+  `route_key`, a route outside the configured paths, any module that is not a
+  plain local folder, and anywhere in the repository JSON Terraform, a function
+  URL, a REST API, or an HTTP API built from `body` or `target`. Vendor a
+  registry module into the configured paths to use it at `enforced`.
 
 ## `hardened`: the checklist
 

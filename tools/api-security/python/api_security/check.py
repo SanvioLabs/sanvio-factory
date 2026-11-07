@@ -74,9 +74,11 @@ def run(root: Path, update_snapshot: bool) -> Tuple[int, List[str]]:
         importlib.import_module(name)
 
     findings: List[str] = []
-    if (root / ".semgrepignore").exists():
-        findings.append(".semgrepignore: an ignore file can hide handlers from the identity scan; "
-                        "remove it, and exclude test data with a reasoned nosemgrep marker instead")
+    for ignore in sorted(root.rglob(".semgrepignore")):  # semgrep honours one in any folder
+        if ".git" not in ignore.relative_to(root).parts:
+            findings.append(f"{ignore.relative_to(root).as_posix()}: an ignore file can hide handlers from "
+                            "the identity scan; remove it, and exclude test data with a reasoned nosemgrep "
+                            "marker instead")
     for name in config["handler_modules"]:
         where = Path(getattr(sys.modules[name], "__file__", "") or "").resolve()
         rel = where.relative_to(root.resolve()) if where.is_relative_to(root.resolve()) else where

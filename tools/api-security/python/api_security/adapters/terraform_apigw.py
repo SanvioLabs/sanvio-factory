@@ -8,9 +8,12 @@ closed, because the check cannot say which routes it serves and refuses to guess
 - an interpolated or computed key (`${...}`, `each.key`, `local.x`, a conditional) or the
   `$default` catch-all;
 - a `route_key` sharing its line with other syntax, or written as a quoted attribute name;
-- JSON Terraform (`*.tf.json`, `*.tofu.json`) that mentions an API or a route;
+- JSON Terraform (`*.tf.json`, `*.tofu.json`) anywhere in the repository;
 - a route defined outside the configured paths;
-- a module from anywhere but a local path that mentions routes or API Gateway;
+- a module from anywhere but a plain local folder (`./` or `../`, not into `.terraform` or
+  `node_modules`);
+- an unterminated string, comment or heredoc, or a heredoc marker it cannot read: the mask would
+  lose its place, so it refuses rather than guess where the code resumes;
 - anywhere in the repository, a front door this adapter does not read: a Lambda function URL, a
   REST API (v1) resource, or an HTTP API built from an OpenAPI `body` or a quick-create `target`.
 
@@ -26,7 +29,6 @@ from . import AdapterError, parse_route_key
 SUFFIXES = (".tf", ".tofu")
 JSON_SUFFIXES = (".tf.json", ".tofu.json")
 SKIP = {".terraform", ".git", "node_modules"}  # derived or vendored; a module sourced from one is refused
-API_MARKERS = ("route_key", "aws_apigatewayv2", "aws_api_gateway_", "aws_lambda_function_url")
 LABEL = r'"?[\w-]+"?'
 OTHER_DOORS = (
     (re.compile(r'\bresource\s+"?aws_lambda_function_url"?\s'),
@@ -40,8 +42,8 @@ TOP_ATTR = re.compile(r'(?:^|[\s{;])(body|target)\s*=')
 SOURCE = re.compile(r'(?:^|[\s{;])source\s*=\s*"([^"]*)"')
 ROUTE_LINE = re.compile(r'^[ \t]*route_key[ \t]*=[ \t]*(\S.*?)[ \t]*$', re.M)
 ANY_ROUTE_KEY = re.compile(r'\broute_key"?\s*=')
-LITERAL = re.compile(r'^"[^"\\$]*"$')
-HEREDOC = re.compile(r'<<-?\s*([A-Za-z_][\w-]*)[ \t]*\n')
+LITERAL = re.compile(r'^"(?:[^"\\$%]|%(?!\{))*"$')
+HEREDOC = re.compile(r'<<-?([^\W\d][\w-]*)[^\S\n]*\n')
 SPECIAL = set('{}#/*="\\')
 
 
@@ -62,7 +64,12 @@ def mask(text: str) -> str:
     while i < n:
         c = text[i]
         if stack and stack[-1] == "s":
-            if c == "\\" and i + 1 < n:
+            if text.startswith(("$${", "%%{"), i):  # escaped: a literal ${ or %{, not a template
+                blank(i, i + 3)
+                i += 3
+            elif c == "\n":
+                raise AdapterError("a quoted string runs past the end of its line")
+            elif c == "\\" and i + 1 < n:
                 blank(i, i + 2)
                 i += 2
             elif c == '"':
@@ -87,14 +94,21 @@ def mask(text: str) -> str:
             i = end
         elif text.startswith("/*", i):
             end = text.find("*/", i + 2)
-            end = n if end < 0 else end + 2
+            if end < 0:
+                raise AdapterError("a /* comment never closes")
+            end += 2
             blank(i, end)
             i = end
-        elif c == "<" and HEREDOC.match(text, i):
+        elif text.startswith("<<", i):
             m = HEREDOC.match(text, i)
-            close = re.compile(r'^[ \t]*' + re.escape(m.group(1)) + r'[ \t]*$', re.M)
+            if m is None:
+                raise AdapterError("a heredoc marker the check cannot read")
+            # Terraform trims any whitespace around the closing marker, form feeds and NBSP included
+            close = re.compile(r'^[^\S\n]*' + re.escape(m.group(1)) + r'[^\S\n]*$', re.M)
             end_m = close.search(text, m.end())
-            end = n if end_m is None else end_m.end()
+            if end_m is None:
+                raise AdapterError(f"heredoc {m.group(1)} never closes")
+            end = end_m.end()
             blank(m.end(), end)
             i = end
         elif stack and stack[-1] == "i" and c in "{}":
@@ -109,6 +123,8 @@ def mask(text: str) -> str:
             i += 1
         else:
             i += 1
+    if stack:
+        raise AdapterError("a quoted string or interpolation never closes")
     return "".join(out)
 
 
@@ -162,9 +178,9 @@ def _modules(rel: Path, text: str, masked: str) -> None:
         src = SOURCE.search(top)
         source = text[a + src.start(1):a + src.end(1)] if src else ""
         local = source.startswith(("./", "../")) and not SKIP.intersection(Path(source).parts)
-        if not local and re.search(r"route|apigateway", text[a:b], re.I):
-            raise AdapterError(f"{rel}: module {source or '(no source)'!r} may define routes the check "
-                               "cannot read; use a local module under the configured paths")
+        if not local:
+            raise AdapterError(f"{rel}: module {source or '(no source)'!r} is not a plain local folder, so "
+                               "the check cannot read what it deploys; vendor it under the configured paths")
 
 
 def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
@@ -182,10 +198,11 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
         text = tf.read_text(encoding="utf-8")
         inside = any(tf.resolve().is_relative_to(b) for b in bases)
         if tf.name.endswith(JSON_SUFFIXES):
-            if inside or any(k in text for k in API_MARKERS):
-                raise AdapterError(f"{rel}: JSON Terraform cannot be read; write the routes as .tf")
-            continue
-        masked = mask(text)
+            raise AdapterError(f"{rel}: JSON Terraform cannot be read; write it as .tf")
+        try:
+            masked = mask(text)
+        except AdapterError as exc:
+            raise AdapterError(f"{rel}: {exc}; the check cannot read this file") from None
         _front_doors(rel, text, masked)
         if not inside:
             if ANY_ROUTE_KEY.search(masked) or "aws_apigatewayv2_route" in masked:

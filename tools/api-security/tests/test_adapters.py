@@ -169,6 +169,53 @@ class TerraformUnreadableTests(unittest.TestCase):
         root = fixture.project(terraform=tf)
         self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
 
+    # Security re-review 3, 2026-11-06: a mask that loses its place must refuse, never blank the rest.
+
+    HIDDEN = 'resource "aws_apigatewayv2_route" "h" {\n  route_key = "GET /hidden"\n}\n'
+
+    def assertSeesOrRefuses(self, tf, extra=None):
+        root = fixture.project(terraform=fixture.TERRAFORM + tf + self.HIDDEN, extra=extra)
+        try:
+            found = terraform_apigw.deployed_routes(root, ["infra"])
+        except AdapterError:
+            return
+        self.assertIn(("GET", "/hidden"), found)
+
+    def test_escapes_and_heredoc_closers_do_not_hide_a_later_route(self):
+        dd, pp = "$" + "${", "%" + "%{"
+        for tf in ('resource "aws_iam_policy" "p" {\n  policy = jsonencode({ R = "b/' + dd + 'aws:username}" })\n}\n',
+                   'locals {\n  d = "' + dd + '"\n}\n',
+                   'locals {\n  d = "' + pp + '"\n}\n',
+                   'locals {\n  d = <<EOT\nhello\nEOT\x0c\n}\n',
+                   'locals {\n  d = <<EOT\nhello\nEOT \n}\n',
+                   'locals {\n  d = <<-EOT\n    hello\n    EOT\n}\n',
+                   'locals {\n  d = <<ÉOT\nhello "\nÉOT\n}\n',
+                   'locals {\n  d = "a\\"b{"\n}\n'):
+            with self.subTest(tf=tf):
+                self.assertSeesOrRefuses(tf)
+
+    def test_an_unterminated_string_comment_or_heredoc_is_refused(self):
+        for tf in ('locals {\n  d = "open\n}\n', '/* open\n', 'locals {\n  d = <<EOT\nnever closed\n}\n',
+                   'locals {\n  d = << EOT\nx\nEOT\n}\n'):
+            with self.subTest(tf=tf):
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_any_module_not_from_a_plain_local_folder_is_refused(self):
+        for src, extra in (("./node_modules/a", {"infra/node_modules/a/main.tf": self.HIDDEN}),
+                           ("./.terraform/modules/a", {"infra/.terraform/modules/a/main.tf": self.HIDDEN}),
+                           ("terraform-aws-modules/lambda/aws", None),
+                           ("git::https://example.com/org/svc.git", None)):
+            with self.subTest(src=src):
+                tf = fixture.TERRAFORM + f'module "m" {{\n  source = "{src}"\n  name = "x"\n}}\n'
+                self.assertRefused(terraform=tf, extra=extra)
+
+    def test_a_route_key_with_a_template_directive_is_refused(self):
+        tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_route" "q" {\n  route_key = "GET /a%{if false}x%{endif}"\n}\n'
+        self.assertRefused(terraform=tf)
+
+    def test_any_json_terraform_outside_the_paths_is_refused(self):
+        self.assertRefused(extra={"other/x.tf.json": '{"resource": {"aws_apigatewayv2_\\u0072oute": {}}}'})
+
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'
         root = fixture.project(terraform=tf)

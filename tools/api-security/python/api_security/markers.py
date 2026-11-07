@@ -17,10 +17,11 @@ from typing import List
 
 RULE_PREFIX = "api-security.identity-from-request"
 NOSEMGREP = re.compile(r"\bnosem(?:grep)?\b(?P<colon>:)?(?P<body>.*)$", re.IGNORECASE)
-# Folders semgrep itself skips by default, plus the rule tests. `bin/` and `obj/` are scanned.
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "vendor", "dist", "build",
-             "__pycache__", ".terraform", "semgrep"}
-LIBRARY = ("security", "api_security")
+# Folders semgrep itself skips by default (a marker there silences nothing), and nothing it scans:
+# `bin/`, `obj/`, `venv/`, `.terraform/` and a folder named `semgrep` are all read.
+SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "vendor", "dist", "build", "test", "tests",
+             ".env", ".tox", ".npm", ".yarn"}
+OWN = (("security", "api_security"), ("security", "semgrep"))  # the library and the rule tests
 SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".php", ".cs"}
 
 
@@ -31,7 +32,7 @@ def unreasoned(root: Path) -> List[str]:
         if path.suffix not in SUFFIXES or not path.is_file():
             continue
         parts = path.relative_to(root).parts
-        if any(part in SKIP_DIRS for part in parts[:-1]) or parts[:2] == LIBRARY:
+        if any(part in SKIP_DIRS for part in parts[:-1]) or parts[:2] in OWN:
             continue
         for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             what = _problem(line)

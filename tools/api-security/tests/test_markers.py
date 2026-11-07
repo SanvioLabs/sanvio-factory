@@ -62,6 +62,14 @@ class MarkerTests(unittest.TestCase):
         line = f"x = 1  # nosemgrep: security.semgrep.{RULE} -- echoed back only\n"
         self.assertEqual(markers.unreasoned(tree({"app/h.py": line})), [])
 
+    def test_folders_semgrep_scans_are_scanned_here_too(self):
+        # Security re-review 3, 2026-11-06: semgrep reads venv/, .terraform/ and any folder named
+        # semgrep, so a bare marker there silenced it while this check looked away.
+        root = tree({"venv/h.py": "a # nosem\n", ".terraform/h.py": "a # nosem\n",
+                     "src/semgrep/h.py": "a # nosem\n", "security/semgrep/rule.py": "a # nosem\n"})
+        found = sorted(f.split(":")[0] for f in markers.unreasoned(root))
+        self.assertEqual(found, [".terraform/h.py", "src/semgrep/h.py", "venv/h.py"])
+
     def test_bin_and_obj_are_scanned_and_the_librarys_own_copy_is_not(self):
         root = tree({"bin/run.py": "a # nosemgrep\n", "obj/x.cs": "a // nosemgrep\n",
                      "security/api_security/markers.py": "NOSEMGREP = 'nosemgrep'\n"})

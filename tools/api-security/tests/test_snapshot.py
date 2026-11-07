@@ -48,6 +48,13 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn(".semgrepignore", r.stdout)
 
 
+    def test_a_nested_semgrepignore_fails_the_check(self):
+        # Security re-review 3, 2026-11-06: semgrep honours an ignore file in any folder.
+        root = fixture.project(extra={"app/.semgrepignore": "handlers.py\n"})
+        r = fixture.run_check(root)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("app/.semgrepignore", r.stdout)
+
     def test_a_handler_module_semgrep_skips_by_default_fails_the_check(self):
         # Security re-review, 2026-11-06: semgrep skips tests/, build/, dist/, vendor/ and the like
         # with no ignore file at all, so a handler there would never be scanned.

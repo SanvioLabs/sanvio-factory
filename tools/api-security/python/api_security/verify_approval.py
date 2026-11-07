@@ -1,6 +1,7 @@
 """Signed approval for the guarded surface, SPEC-034 REQ-016, SEC-002, SEC-004.
 
     python3 verify_approval.py --base <base sha> --head <head sha> [--repo DIR]
+                               [--author <PR author login> --sender <event sender login>]
 
 Run by `security-approval.yml` on `pull_request_target`, from the BASE branch's copy of this file,
 over the pull request's commits as git objects. It never checks out or executes anything from the
@@ -9,10 +10,12 @@ pull request.
 The guarded surface is everything under `security/` and `.github/workflows/`. Every workflow is
 guarded because a required status matches by name, and no reading of a workflow's text can tell
 what name a job will report under: it can take it from the pull request's own title. One change
-needs no signature: in a workflow that is neither a security workflow nor one the base's
-`security/config.json` lists under `deploy_workflows`, moving the `@ref` of existing `uses:` lines
-and nothing else, which is what Dependabot sends. A malformed `deploy_workflows` list counts every
-workflow as a deploy workflow. The verifier judges
+needs no signature: a pull request Dependabot opened, with every push to it Dependabot's own, that
+moves only the `@ref` of existing `uses:` lines in a workflow that is neither a security workflow,
+nor one the base's `security/config.json` lists under `deploy_workflows`, nor a reusable workflow
+(`workflow_call`). Content alone cannot be the test: a commit that exists only in a fork resolves
+through the parent's path, so the same action path is not the same publisher. A malformed
+`deploy_workflows` list counts every workflow as a deploy workflow. The verifier judges
 what would land: the three-way merge of the head into the base, the tree GitHub merges. A pull
 request that changes a guarded file in that tree passes only when one commit in the pull
 request, built on top of this base and signed with an SSH key listed in the base's
@@ -42,7 +45,9 @@ CONFIG = "security/config.json"
 WORKFLOWS_DIR = ".github/workflows/"
 SECURITY_WORKFLOWS = (".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
 BARE = ("security", ".github", ".github/workflows")  # replacing one of these replaces what is under it
-USES = re.compile(r"^(\s*-?\s*uses:\s*)([^@\s'\"]+)@([^\s'\"#]+)(\s+#.*)?$")
+USES = re.compile(r"^(\s*-?\s*uses:\s*)([^@\s'\"]+)@([A-Za-z0-9._/-]+)(\s+#.*)?$")
+DEPENDABOT = "dependabot[bot]"
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\x85\u2028\u2029]")
 DEPLOY_ENTRY = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 SSH_SIGNATURE = "-----BEGIN SSH SIGNATURE-----"
 
@@ -145,7 +150,11 @@ def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
     if before is None or after is None or not before.startswith("100644 blob ") \
             or not after.startswith("100644 blob "):
         return False
-    old, new = content(repo, base, path).splitlines(), content(repo, tree, path).splitlines()
+    before_text, after_text = content(repo, base, path), content(repo, tree, path)
+    if CONTROL.search(after_text) or re.search(r"^\s*workflow_call\s*:|[{,\s]workflow_call\b",
+                                                before_text + "\n" + after_text, re.M):
+        return False
+    old, new = before_text.split("\n"), after_text.split("\n")
     if len(old) != len(new):
         return False
     for x, y in zip(old, new):
@@ -157,10 +166,10 @@ def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
     return True
 
 
-def exempt_bumps(repo: str, base: str, tree: str, files: List[str]) -> Set[str]:
-    """Ref bumps to ordinary workflows, which need no signature."""
+def exempt_bumps(repo: str, base: str, tree: str, files: List[str], dependabot: bool) -> Set[str]:
+    """Dependabot's ref bumps to ordinary workflows, which need no signature."""
     deploy = deploy_workflows(repo, base)
-    if deploy is None:
+    if not dependabot or deploy is None:
         return set()
     return {p for p in files if p.startswith(WORKFLOWS_DIR) and p not in SECURITY_WORKFLOWS
             and p not in deploy and ref_bump_only(repo, base, tree, p)}
@@ -194,7 +203,7 @@ def contains(repo: str, ancestor: str, commit: str) -> bool:
     return res.returncode == 0
 
 
-def decide(repo: str, base: str, head: str) -> List[str]:
+def decide(repo: str, base: str, head: str, author: str = "", sender: str = "") -> List[str]:
     """Reasons to refuse; empty means pass."""
     for ref in (base, head):
         git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
@@ -205,7 +214,7 @@ def decide(repo: str, base: str, head: str) -> List[str]:
         return [f"{at}: the pull request conflicts with its base, so what would land is unknown. "
                 "Update the branch from its base, and sign the update if it touches a guarded file"]
     changed = changed_guarded(repo, base, tree)
-    exempt = exempt_bumps(repo, base, tree, changed)
+    exempt = exempt_bumps(repo, base, tree, changed, author == DEPENDABOT and sender == DEPENDABOT)
     covered = needs_signature(repo, base, tree, [p for p in changed if p not in exempt])
     if not covered:
         return []
@@ -254,9 +263,11 @@ def main(argv=None) -> int:
     ap.add_argument("--repo", default=".")
     ap.add_argument("--base", required=True)
     ap.add_argument("--head", required=True)
+    ap.add_argument("--author", default="", help="the pull request's author login")
+    ap.add_argument("--sender", default="", help="the login whose action fired this run")
     args = ap.parse_args(argv)
     try:
-        reasons = decide(args.repo, args.base, args.head)
+        reasons = decide(args.repo, args.base, args.head, args.author, args.sender)
     except Exception as exc:  # fail closed: could not decide is a refusal
         print(f"security approval could not decide: {type(exc).__name__}: {exc}")
         return 2

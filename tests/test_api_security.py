@@ -35,7 +35,7 @@ class ApiSecurity(unittest.TestCase):
     def test_the_steering_says_what_the_approval_guards_and_what_the_check_does_not(self):
         text = (ROOT / "steering" / "api-security.md").read_text()
         self.assertIn("`.github/workflows/`", text)
-        self.assertIn("Dependabot-style bump", text)
+        self.assertIn("only Dependabot pushed to", text)
         self.assertIn("catches mistakes, not an adversary", text)
         self.assertIn("up to date", text)
 
