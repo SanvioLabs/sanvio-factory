@@ -63,10 +63,11 @@ class Repo:
     def head(self):
         return git(self.dir, "rev-parse", "HEAD").stdout.strip()
 
-    def verify(self, author=None, sender=None):
+    def verify(self, author=None, sender=None, action=None):
         args = [sys.executable, str(VERIFY), "--repo", str(self.dir), "--base", self.base, "--head", self.head()]
         args += ["--author", author] if author is not None else []
         args += ["--sender", sender] if sender is not None else []
+        args += ["--action", action] if action is not None else []
         return subprocess.run(args, capture_output=True, text=True, env=CLEAN_ENV)
 
     def cleanup(self):
@@ -320,7 +321,7 @@ class ApprovalTests(unittest.TestCase):
         return ("name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
                 f"      - uses: {uses}\n      - run: make test\n")
 
-    DEPENDABOT = {"author": "dependabot[bot]", "sender": "dependabot[bot]"}
+    DEPENDABOT = {"author": "dependabot[bot]", "sender": "dependabot[bot]", "action": "synchronize"}
 
     def _bump_branch(self, before="actions/checkout@" + "a" * 40 + " # v4.1.0", ci=None):
         self.g("checkout", "-q", "main")
@@ -362,11 +363,30 @@ class ApprovalTests(unittest.TestCase):
                 self.g("reset", "-q", "--hard", "HEAD~1")
 
     def test_a_dependabot_bump_to_a_reusable_workflow_needs_a_signature(self):
-        reusable = lambda uses: self._ci(uses).replace("on: push", "on:\n  workflow_call:")
-        self._bump_branch(before="actions/checkout@v4", ci=reusable)
-        self.r.write(".github/workflows/ci.yml", reusable("actions/checkout@v5"))
-        self.r.commit("bump")
-        self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+        # Security re-review 4: flow style, quoted and escaped keys all declare workflow_call.
+        for trigger in ("on:\n  workflow_call:", "on: [workflow_call]", "on: ['workflow_call']",
+                        'on:\n  "workflow_call":', 'on:\n  "workflow\\x5fcall":', 'on:\n  "workflow\\u005fcall":'):
+            with self.subTest(trigger=trigger):
+                self.setUp()
+                reusable = lambda uses: self._ci(uses).replace("on: push", trigger)
+                self._bump_branch(before="actions/checkout@v4", ci=reusable)
+                self.r.write(".github/workflows/ci.yml", reusable("actions/checkout@v5"))
+                self.r.commit("bump")
+                self.assertFails(".github/workflows/ci.yml", **self.DEPENDABOT)
+                self.tearDown()
+        self.setUp()
+
+    def test_the_exemption_holds_only_for_opened_and_synchronize(self):
+        self._bump_branch()
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
+        self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
+        for action in ("opened", "synchronize"):
+            with self.subTest(action=action):
+                self.assertPasses(**{**self.DEPENDABOT, "action": action})
+        for action in ("edited", "reopened", "", None):
+            with self.subTest(action=action):
+                who = {**self.DEPENDABOT, "action": action}
+                self.assertFails(".github/workflows/ci.yml", **who)
 
     def test_a_ref_bump_to_a_deploy_workflow_still_needs_a_signature(self):
         self.g("checkout", "-q", "main")

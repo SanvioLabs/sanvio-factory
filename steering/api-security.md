@@ -179,8 +179,9 @@ The refusal names its cause:
 A rebase or squash rewrites commits and drops their signatures, so sign after
 it. A Dependabot PR bumping a security, deploy or reusable workflow needs the
 same signature; one bumping any other workflow does not, as long as it changes
-nothing but `@ref`s. Pushing to a Dependabot branch, or closing and reopening
-its PR, makes you the sender, and then it needs a signature too.
+nothing but `@ref`s, and only on the run Dependabot's own open or push
+fires. Pushing to a Dependabot branch, or editing, closing and reopening its
+PR, needs a signature too; `@dependabot rebase` brings it back to Dependabot.
 
 Why it is built this way:
 
@@ -206,9 +207,16 @@ Why it is built this way:
   heredocs are masked first, `.tf` and `.tofu` are read, and anything it cannot
   read fails the check: an unterminated string, comment or heredoc, a computed
   `route_key`, a route outside the configured paths, any module that is not a
-  plain local folder, and anywhere in the repository JSON Terraform, a function
-  URL, a REST API, or an HTTP API built from `body` or `target`. Vendor a
-  registry module into the configured paths to use it at `enforced`.
+  plain local folder, a symlink under the paths, and anywhere in the repository
+  JSON Terraform, a function URL, a REST API, or an HTTP API built from `body`
+  or `target`. Vendor a registry module into the configured paths to use it at
+  `enforced`. It also refuses what could make its reading differ from
+  Terraform's: control characters, Unicode spaces and combining marks, `\u`
+  escapes, a `resource` or `module` line it cannot parse as a header, and a
+  block or `route_key`, `source`, `body` or `target` inside what it took for a
+  string, heredoc or `/* */` comment. Comment a route out with `#`. It is built
+  against mistakes; one built against a deliberate adversary is the follow-up
+  spec.
 
 ## `hardened`: the checklist
 

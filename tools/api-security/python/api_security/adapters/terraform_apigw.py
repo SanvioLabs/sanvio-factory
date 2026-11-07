@@ -17,10 +17,17 @@ closed, because the check cannot say which routes it serves and refuses to guess
 - anywhere in the repository, a front door this adapter does not read: a Lambda function URL, a
   REST API (v1) resource, or an HTTP API built from an OpenAPI `body` or a quick-create `target`.
 
-This is a pattern reader, not an HCL parser. Projects that build routes dynamically use the
+This is a pattern reader, not an HCL parser, so three invariants make any misreading fail closed
+rather than hide code: characters Python and Terraform read differently (controls, Unicode spaces,
+format characters, combining marks, `\\u` escapes) are refused before masking; every `resource`
+or `module` that starts a line must parse as a header; and wherever the raw text starts a block
+or sets `route_key`, `source`, `body` or `target`, the mask must not have blanked it, outside a
+line that is a `#` or `//` comment. A reader that holds against a deliberate adversary, rather
+than a mistake, is the follow-up to SPEC-034. Projects that build routes dynamically use the
 dispatch adapter instead.
 """
 import re
+import unicodedata
 from pathlib import Path
 from typing import Iterable, Iterator, List, Set, Tuple
 
@@ -29,15 +36,18 @@ from . import AdapterError, parse_route_key
 SUFFIXES = (".tf", ".tofu")
 JSON_SUFFIXES = (".tf.json", ".tofu.json")
 SKIP = {".terraform", ".git", "node_modules"}  # derived or vendored; a module sourced from one is refused
-LABEL = r'"?[\w-]+"?'
-OTHER_DOORS = (
-    (re.compile(r'\bresource\s+"?aws_lambda_function_url"?\s'),
-     "a Lambda function URL is a front door the check cannot see"),
-    (re.compile(r'\bresource\s+"?aws_api_gateway_'),
-     "a REST API (v1) resource; only HTTP API v2 routes are read"),
-)
-API_HEADER = re.compile(r'\bresource\s+"?aws_apigatewayv2_api"?\s+' + LABEL + r'\s*\{')
-MODULE_HEADER = re.compile(r'\bmodule\s+' + LABEL + r'\s*\{')
+LABEL = r'("[^"\n]*"|[^\s{}"=]+)'
+# `resource` or `module` starting a line, not followed by what an attribute or a reference would be
+# (`resource = ...`, `module.x.arn`): a block header, or something the check refuses.
+NOT_HEADER = r'(?![^\S\n]*[=.,)\]\[}:?+*/%<>!&|-])'
+BLOCK_START = re.compile(r'^[^\S\n]*(resource|module)\b' + NOT_HEADER, re.M)
+RESOURCE_HEADER = re.compile(r'resource[^\S\n]+' + LABEL + r'[^\S\n]+' + LABEL + r'[^\S\n]*\{')
+MODULE_HEADER = re.compile(r'module[^\S\n]+' + LABEL + r'[^\S\n]*\{')
+# What deploys a route or a front door: a block, or an attribute the adapter reads. A reference to a
+# resource (`aws_apigatewayv2_api.x.api_endpoint` inside a heredoc) is not one.
+TOKEN = re.compile(r'\broute_key"?[^\S\n]*=|^[^\S\n]*(?:module|resource)\b' + NOT_HEADER + '|'
+                   r'^[^\S\n]*"?(?:source|body|target)"?[^\S\n]*=', re.M)
+ESCAPE = re.compile(r'(?<!\\)(?:\\\\)*\\[uU]')
 TOP_ATTR = re.compile(r'(?:^|[\s{;])(body|target)\s*=')
 SOURCE = re.compile(r'(?:^|[\s{;])source\s*=\s*"([^"]*)"')
 ROUTE_LINE = re.compile(r'^[ \t]*route_key[ \t]*=[ \t]*(\S.*?)[ \t]*$', re.M)
@@ -78,6 +88,7 @@ def mask(text: str) -> str:
             elif text.startswith("${", i) or text.startswith("%{", i):
                 stack.append("i")
                 depth.append(0)
+                blank(i, i + 2)  # its closing brace is blanked too, so block braces stay balanced
                 i += 2
             else:
                 if c in SPECIAL:
@@ -151,6 +162,45 @@ def _top_level(masked: str, a: int, b: int) -> str:
     return "".join(out)
 
 
+def _unreadable_character(text: str) -> str:
+    """A character Python and Terraform may read differently, or "" when there is none."""
+    for k, c in enumerate(text):
+        o = ord(c)
+        if (o < 32 and c not in "\t\n\r") or 0x7F <= o <= 0x9F or (c == "\r" and text[k + 1:k + 2] != "\n") \
+                or (o > 127 and unicodedata.category(c)[0] in "ZCM"):
+            return f"U+{o:04X} at line {text.count(chr(10), 0, k) + 1}"
+    m = ESCAPE.search(text)
+    return f"a \\u escape at line {text.count(chr(10), 0, m.start()) + 1}" if m else ""
+
+
+def _hidden(text: str, masked: str) -> str:
+    """The first line where the mask blanked a block start or an attribute the adapter reads,
+    outside a comment line, or "". However the mask was fooled, code it hid is refused here."""
+    for m in TOKEN.finditer(text):
+        if masked[m.start():m.end()] == text[m.start():m.end()]:
+            continue
+        start = text.rfind("\n", 0, m.start()) + 1
+        if text[start:].lstrip(" \t").startswith(("#", "//")):
+            continue
+        return str(text.count("\n", 0, m.start()) + 1)
+    return ""
+
+
+def _headers(rel: Path, masked: str) -> List[Tuple[str, str, int, int]]:
+    """(kind, resource type or module name, body start, body end) for every block that starts a
+    line. A `resource` or `module` line that does not parse as a header is refused."""
+    out = []
+    for m in BLOCK_START.finditer(masked):
+        kind = m.group(1)
+        h = (RESOURCE_HEADER if kind == "resource" else MODULE_HEADER).match(masked, m.start(1))
+        if h is None:
+            line = masked.count("\n", 0, m.start()) + 1
+            raise AdapterError(f"{rel}:{line}: a `{kind}` the check cannot read as a block header")
+        a, b = _block(masked, h.end(), kind, rel)
+        out.append((kind, h.group(1).strip('"').strip(), a, b))
+    return out
+
+
 def _files(root: Path) -> Iterator[Path]:
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.name.endswith(SUFFIXES + JSON_SUFFIXES) \
@@ -158,29 +208,29 @@ def _files(root: Path) -> Iterator[Path]:
             yield path
 
 
-def _front_doors(rel: Path, text: str, masked: str) -> None:
-    """Refuses a front door this adapter cannot read, wherever it is in the repository."""
-    for pattern, why in OTHER_DOORS:
-        if pattern.search(masked):
-            raise AdapterError(f"{rel}: {why}")
-    for m in API_HEADER.finditer(masked):
-        a, b = _block(masked, m.end(), "aws_apigatewayv2_api", rel)
-        attr = TOP_ATTR.search(_top_level(masked, a, b))
-        if attr:
-            raise AdapterError(f"{rel}: an HTTP API with `{attr.group(1)} =` defines routes this "
-                               "adapter cannot read")
-
-
-def _modules(rel: Path, text: str, masked: str) -> None:
-    for m in MODULE_HEADER.finditer(masked):
-        a, b = _block(masked, m.end(), "module", rel)
-        top = _top_level(masked, a, b)
-        src = SOURCE.search(top)
-        source = text[a + src.start(1):a + src.end(1)] if src else ""
-        local = source.startswith(("./", "../")) and not SKIP.intersection(Path(source).parts)
-        if not local:
-            raise AdapterError(f"{rel}: module {source or '(no source)'!r} is not a plain local folder, so "
-                               "the check cannot read what it deploys; vendor it under the configured paths")
+def _blocks(root: Path, tf: Path, rel: Path, text: str, masked: str) -> None:
+    """Refuses, wherever it is in the repository, a front door this adapter cannot read and a module
+    that is not a plain local folder inside the repository."""
+    for kind, name, a, b in _headers(rel, masked):
+        if kind == "resource" and name == "aws_lambda_function_url":
+            raise AdapterError(f"{rel}: a Lambda function URL is a front door the check cannot see")
+        if kind == "resource" and name.startswith("aws_api_gateway_") and name != "aws_api_gateway_account":
+            # the account resource sets the CloudWatch logging role for every API, and serves nothing
+            raise AdapterError(f"{rel}: a REST API (v1) resource; only HTTP API v2 routes are read")
+        if kind == "resource" and name == "aws_apigatewayv2_api":
+            attr = TOP_ATTR.search(_top_level(masked, a, b))
+            if attr:
+                raise AdapterError(f"{rel}: an HTTP API with `{attr.group(1)} =` defines routes this "
+                                   "adapter cannot read")
+        if kind == "module":
+            src = SOURCE.search(_top_level(masked, a, b))
+            source = text[a + src.start(1):a + src.end(1)] if src else ""
+            target = (tf.parent / source).resolve()
+            inside = source.startswith(("./", "../")) and target.is_relative_to(root.resolve())
+            if not inside or SKIP.intersection(target.relative_to(root.resolve()).parts):
+                raise AdapterError(f"{rel}: module {source or '(no source)'!r} is not a plain local folder "
+                                   "in this repository, so the check cannot read what it deploys; vendor "
+                                   "it under the configured paths")
 
 
 def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
@@ -191,6 +241,10 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
         if not base.is_dir():
             raise AdapterError(f"terraform path {rel!r} does not exist under {root}")
         bases.append(base.resolve())
+        for p in base.rglob("*"):  # rglob does not follow a linked folder, so its files go unread
+            if p.is_symlink():
+                raise AdapterError(f"{p.relative_to(root)}: a symlink under the terraform paths; the "
+                                   "check reads only real files")
 
     found: Set[Tuple[str, str]] = set()
     for tf in _files(root):
@@ -199,17 +253,23 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
         inside = any(tf.resolve().is_relative_to(b) for b in bases)
         if tf.name.endswith(JSON_SUFFIXES):
             raise AdapterError(f"{rel}: JSON Terraform cannot be read; write it as .tf")
+        odd = _unreadable_character(text)
+        if odd:
+            raise AdapterError(f"{rel}: {odd} may read differently to Terraform; the check refuses it")
         try:
             masked = mask(text)
         except AdapterError as exc:
             raise AdapterError(f"{rel}: {exc}; the check cannot read this file") from None
-        _front_doors(rel, text, masked)
+        hidden = _hidden(text, masked)
+        if hidden:
+            raise AdapterError(f"{rel}:{hidden}: code the check would not read (inside what it took for a "
+                               "string, heredoc or comment); the check cannot read this file")
+        _blocks(root, tf, rel, text, masked)
         if not inside:
             if ANY_ROUTE_KEY.search(masked) or "aws_apigatewayv2_route" in masked:
                 raise AdapterError(f"{rel}: defines a route outside the configured terraform paths; "
                                    "add its directory to security/config.json adapter.paths")
             continue
-        _modules(rel, text, masked)
         lines = list(ROUTE_LINE.finditer(masked))
         if len(lines) != len(ANY_ROUTE_KEY.findall(masked)):
             raise AdapterError(f"{rel}: a route_key shares its line with other syntax or is written as a "

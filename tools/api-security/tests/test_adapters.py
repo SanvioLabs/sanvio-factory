@@ -164,10 +164,14 @@ class TerraformUnreadableTests(unittest.TestCase):
                 tf = fixture.TERRAFORM + f'resource "aws_apigatewayv2_route" "q" {{\n  {line}\n}}\n'
                 self.assertRefused(terraform=tf)
 
-    def test_a_commented_out_route_is_not_deployed(self):
-        tf = fixture.TERRAFORM + '/*\nroute_key = "GET /old"\n*/\n# route_key = "GET /older"\n'
+    def test_a_route_commented_out_with_a_hash_is_not_deployed(self):
+        tf = fixture.TERRAFORM + '# route_key = "GET /older"\n  // route_key = "GET /oldest"\n'
         root = fixture.project(terraform=tf)
         self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_a_route_inside_a_block_comment_is_refused(self):
+        # The mask's idea of where a /* comment ends is exactly what an adversary would fool.
+        self.assertRefused(terraform=fixture.TERRAFORM + '/*\nroute_key = "GET /old"\n*/\n')
 
     # Security re-review 3, 2026-11-06: a mask that loses its place must refuse, never blank the rest.
 
@@ -215,6 +219,65 @@ class TerraformUnreadableTests(unittest.TestCase):
 
     def test_any_json_terraform_outside_the_paths_is_refused(self):
         self.assertRefused(extra={"other/x.tf.json": '{"resource": {"aws_apigatewayv2_\\u0072oute": {}}}'})
+
+    # Security re-review 4, 2026-11-06: invariants, so a mask that misreads HCL refuses rather than
+    # hiding code. Each case below hid a route, a module or a function URL from the third mask.
+
+    def test_code_the_mask_blanked_is_refused_however_the_mask_was_fooled(self):
+        tail = ('resource "aws_apigatewayv2_route" "h" {\n  route_key = "GET /hidden"\n}\n'
+                'module "m" {\n  source = "git::https://example.com/x.git"\n}\n'
+                'resource "aws_lambda_function_url" "u" {\n  authorization_type = "NONE"\n}\n')
+        for tf in ('locals {\n  x = <<EOT\nhello\nEOT\x1c\n/*\nEOT\n' + tail + '# */\n',
+                   'locals {\n  x = <<EOT\n${ /*\nEOT\n*/ "" }  /*\nEOT\n' + tail + '# */\n',
+                   'locals {\n  x = <<EOT\n${ <<INNER\nEOT\nINNER\n}\nEOT\n}\n' + tail):
+            with self.subTest(tf=tf):
+                self.assertSeesOrRefuses(tf)
+                root = fixture.project(terraform=fixture.TERRAFORM + tf)
+                with self.assertRaises(AdapterError):
+                    terraform_apigw.deployed_routes(root, ["infra"])
+
+    def test_characters_python_and_terraform_read_differently_are_refused(self):
+        for ch in ("\x1c", "\x00", "\x85", " ", " ", "​", "́", "\\u005f"):
+            with self.subTest(ch=ch):
+                self.assertRefused(terraform=fixture.TERRAFORM + f'locals {{\n  x = "a{ch}b"\n}}\n')
+
+    def test_ordinary_unicode_in_comments_and_strings_is_read(self):
+        tf = fixture.TERRAFORM + '# deploy → staging ✅\nlocals {\n  x = "café — ok"\n}\n'
+        root = fixture.project(terraform=tf)
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_a_block_header_the_check_cannot_read_is_refused(self):
+        for tf in ('module "á" {\n  source = "git::https://example.com/x.git"\n}\n',
+                   'resource "aws_apigatewayv2_api" "x" "extra" {\n  body = "x"\n}\n',
+                   'resource"aws_lambda_function_url""u"{\n}\n'):
+            with self.subTest(tf=tf):
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_the_api_gateway_account_setting_is_not_a_front_door(self):
+        tf = fixture.TERRAFORM + 'resource "aws_api_gateway_account" "this" {\n  cloudwatch_role_arn = "arn"\n}\n'
+        self.assertEqual(len(terraform_apigw.deployed_routes(fixture.project(terraform=tf), ["infra"])), 2)
+
+    def test_attributes_and_references_named_resource_or_module_are_read(self):
+        tf = fixture.TERRAFORM + ('locals {\n  y = {\n    resource = "arn"\n  }\n  z = [\n'
+                                  '    module.cdk.arn,\n  ]\n}\n')
+        root = fixture.project(terraform=tf)
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_comment_lines_naming_routes_or_modules_are_read(self):
+        tf = fixture.TERRAFORM + '# route_key = "GET /old"\n// module "x" {\n# resource "aws_lambda_function_url" "u"\n'
+        root = fixture.project(terraform=tf)
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
+    def test_a_symlink_under_the_paths_or_a_module_reaching_outside_is_refused(self):
+        root = fixture.project(terraform=fixture.TERRAFORM + 'module "m" {\n  source = "./mod"\n}\n')
+        (root / "node_modules" / "evil").mkdir(parents=True)
+        (root / "node_modules" / "evil" / "main.tf").write_text(self.HIDDEN)
+        (root / "infra" / "mod").symlink_to(root / "node_modules" / "evil")
+        with self.assertRaises(AdapterError):
+            terraform_apigw.deployed_routes(root, ["infra"])
+        root2 = fixture.project(terraform=fixture.TERRAFORM + 'module "m" {\n  source = "../../elsewhere"\n}\n')
+        with self.assertRaises(AdapterError):
+            terraform_apigw.deployed_routes(root2, ["infra"])
 
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'

@@ -1,7 +1,7 @@
 """Signed approval for the guarded surface, SPEC-034 REQ-016, SEC-002, SEC-004.
 
     python3 verify_approval.py --base <base sha> --head <head sha> [--repo DIR]
-                               [--author <PR author login> --sender <event sender login>]
+                               [--author <PR author> --sender <event sender> --action <event action>]
 
 Run by `security-approval.yml` on `pull_request_target`, from the BASE branch's copy of this file,
 over the pull request's commits as git objects. It never checks out or executes anything from the
@@ -10,7 +10,8 @@ pull request.
 The guarded surface is everything under `security/` and `.github/workflows/`. Every workflow is
 guarded because a required status matches by name, and no reading of a workflow's text can tell
 what name a job will report under: it can take it from the pull request's own title. One change
-needs no signature: a pull request Dependabot opened, with every push to it Dependabot's own, that
+needs no signature: a pull request Dependabot opened, judged on an `opened` or `synchronize` event
+that Dependabot sent, that
 moves only the `@ref` of existing `uses:` lines in a workflow that is neither a security workflow,
 nor one the base's `security/config.json` lists under `deploy_workflows`, nor a reusable workflow
 (`workflow_call`). Content alone cannot be the test: a commit that exists only in a fork resolves
@@ -47,6 +48,9 @@ SECURITY_WORKFLOWS = (".github/workflows/security-check.yml", ".github/workflows
 BARE = ("security", ".github", ".github/workflows")  # replacing one of these replaces what is under it
 USES = re.compile(r"^(\s*-?\s*uses:\s*)([^@\s'\"]+)@([A-Za-z0-9._/-]+)(\s+#.*)?$")
 DEPENDABOT = "dependabot[bot]"
+# The events where the sender is who pushed the head. On `edited` or `reopened` the sender did not
+# push it, so a person's commits under a Dependabot title would ride on Dependabot's name.
+BUMP_ACTIONS = ("opened", "synchronize")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\x85\u2028\u2029]")
 DEPLOY_ENTRY = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 SSH_SIGNATURE = "-----BEGIN SSH SIGNATURE-----"
@@ -151,8 +155,10 @@ def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
             or not after.startswith("100644 blob "):
         return False
     before_text, after_text = content(repo, base, path), content(repo, tree, path)
-    if CONTROL.search(after_text) or re.search(r"^\s*workflow_call\s*:|[{,\s]workflow_call\b",
-                                                before_text + "\n" + after_text, re.M):
+    # A reusable workflow can be called by a deploy workflow, so it is never exempt. Any mention, or
+    # any escape that could spell one, counts: no YAML is parsed here.
+    both = before_text + "\n" + after_text
+    if CONTROL.search(after_text) or "workflow_call" in both or re.search(r"\\[xuU]", both):
         return False
     old, new = before_text.split("\n"), after_text.split("\n")
     if len(old) != len(new):
@@ -203,7 +209,7 @@ def contains(repo: str, ancestor: str, commit: str) -> bool:
     return res.returncode == 0
 
 
-def decide(repo: str, base: str, head: str, author: str = "", sender: str = "") -> List[str]:
+def decide(repo: str, base: str, head: str, author: str = "", sender: str = "", action: str = "") -> List[str]:
     """Reasons to refuse; empty means pass."""
     for ref in (base, head):
         git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
@@ -214,7 +220,8 @@ def decide(repo: str, base: str, head: str, author: str = "", sender: str = "") 
         return [f"{at}: the pull request conflicts with its base, so what would land is unknown. "
                 "Update the branch from its base, and sign the update if it touches a guarded file"]
     changed = changed_guarded(repo, base, tree)
-    exempt = exempt_bumps(repo, base, tree, changed, author == DEPENDABOT and sender == DEPENDABOT)
+    exempt = exempt_bumps(repo, base, tree, changed, author == DEPENDABOT and sender == DEPENDABOT
+                          and action in BUMP_ACTIONS)
     covered = needs_signature(repo, base, tree, [p for p in changed if p not in exempt])
     if not covered:
         return []
@@ -265,9 +272,10 @@ def main(argv=None) -> int:
     ap.add_argument("--head", required=True)
     ap.add_argument("--author", default="", help="the pull request's author login")
     ap.add_argument("--sender", default="", help="the login whose action fired this run")
+    ap.add_argument("--action", default="", help="the pull_request_target event's action")
     args = ap.parse_args(argv)
     try:
-        reasons = decide(args.repo, args.base, args.head, args.author, args.sender)
+        reasons = decide(args.repo, args.base, args.head, args.author, args.sender, args.action)
     except Exception as exc:  # fail closed: could not decide is a refusal
         print(f"security approval could not decide: {type(exc).__name__}: {exc}")
         return 2
