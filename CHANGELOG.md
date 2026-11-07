@@ -38,11 +38,11 @@ review before merge). [`scripts/check_setup.py`](scripts/check_setup.py) warns a
 `live_users: true` or `regulated: true` that is still at `off`. The `enforced`
 check covers Python on Lambda behind API Gateway HTTP API v2 first; other
 Python frameworks, TypeScript, PHP and .NET go up to `guided`. A private way to
-report a vulnerability is in `.github/SECURITY.md`.
+report a vulnerability is in [`.github/SECURITY.md`](.github/SECURITY.md).
 
 Files: [`steering/api-security.md`](steering/api-security.md), [`tools/api-security/`](tools/api-security/), [`AGENTS.md`](AGENTS.md),
 [`steering/project-setup.md`](steering/project-setup.md), [`steering/tickets.md`](steering/tickets.md), [`gates/README.md`](gates/README.md),
-[`scripts/check_setup.py`](scripts/check_setup.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), `.github/SECURITY.md`.
+[`scripts/check_setup.py`](scripts/check_setup.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/SECURITY.md`](.github/SECURITY.md).
 
 **Do:** nothing to keep things as they are. To opt a project in, run
 `python3 tools/api-security/apply.py --level guided <repo>`, which writes the

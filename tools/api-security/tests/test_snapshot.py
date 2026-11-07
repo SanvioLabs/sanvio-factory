@@ -48,5 +48,16 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn(".semgrepignore", r.stdout)
 
 
+    def test_a_handler_module_semgrep_skips_by_default_fails_the_check(self):
+        # Security re-review, 2026-11-06: semgrep skips tests/, build/, dist/, vendor/ and the like
+        # with no ignore file at all, so a handler there would never be scanned.
+        root = fixture.project(handler_modules=["app.tests.handlers"])
+        (root / "app" / "tests").mkdir()
+        (root / "app" / "tests" / "__init__.py").write_text("")
+        (root / "app" / "handlers.py").rename(root / "app" / "tests" / "handlers.py")
+        r = fixture.run_check(root)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("app/tests/handlers.py", r.stdout)
+
 if __name__ == "__main__":
     unittest.main()

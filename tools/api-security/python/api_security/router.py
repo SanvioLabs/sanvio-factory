@@ -30,16 +30,23 @@ def _has_credential(event: dict) -> bool:
 
 
 def _identity(result: Any) -> Optional[Any]:
-    """A verifier's result counts only when it is an identity. A bool, an empty value or an
-    awaitable is a verifier written wrongly, and a wrongly written verifier refuses."""
-    if inspect.isawaitable(result):
-        close = getattr(result, "close", None)
-        if callable(close):
-            close()
+    """A verifier's result counts only when it is an identity. A bool, a number, a tuple or list
+    (the `(ok, claims)` shape), an empty value or an awaitable is a verifier written wrongly, and a
+    wrongly written verifier refuses."""
+    if _drop_awaitable(result):
         return None
-    if result is None or isinstance(result, bool) or not result:
+    if result is None or isinstance(result, (bool, int, float, tuple, list, set, frozenset)) or not result:
         return None
     return result
+
+
+def _drop_awaitable(result: Any) -> bool:
+    if not inspect.isawaitable(result):
+        return False
+    close = getattr(result, "close", None)
+    if callable(close):
+        close()
+    return True
 
 
 class Router:
@@ -102,6 +109,9 @@ class Router:
         if policy.owns:
             owns = registry.ownership()
             value = (event.get("pathParameters") or {}).get(policy.owns)
-            if owns is None or value is None or not owns(identity, policy.owns, value):
+            if owns is None or value is None:
+                return False, 403, None
+            answer = owns(identity, policy.owns, value)
+            if _drop_awaitable(answer) or answer is not True:
                 return False, 403, None
         return True, 200, identity

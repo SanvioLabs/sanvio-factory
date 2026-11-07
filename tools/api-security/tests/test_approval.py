@@ -294,23 +294,65 @@ class ApprovalTests(unittest.TestCase):
             "commit", "-q", "--amend", "--no-edit", "-S")
         self.assertPasses()
 
-    # Pat's ruling, 2026-11-06 (T038): the security workflows and the base's deploy workflows are
-    # guarded; ordinary CI is not, and no other workflow may carry the two required job names.
+    # Pat's ruling, 2026-11-06, after the re-review: every workflow is guarded, because no text check
+    # can stop another workflow reporting under a required job name (it can take its name from the
+    # PR title). One exemption: a change that only moves the @ref of existing `uses:` lines in a
+    # workflow that is not a security or deploy workflow, which is what Dependabot sends.
 
-    def test_an_ordinary_workflow_change_needs_no_signature(self):
+    def test_an_unsigned_change_to_ordinary_ci_fails(self):
         self.r.write(".github/workflows/ci.yml", "name: ci\non: push\n")
-        self.r.commit("a dependency bump to ordinary CI")
-        self.assertPasses()
+        self.r.commit("a person edits CI")
+        self.assertFails(".github/workflows/ci.yml")
 
-    def test_another_workflow_carrying_a_required_job_name_fails(self):
-        for text in ("name: security-approval\n",
-                     "jobs:\n  security-approval:\n    runs-on: ubuntu-latest\n",
-                     "jobs:\n  x:\n    name: security-check\n"):
+    def test_a_workflow_reporting_under_a_required_name_fails_however_it_is_spelt(self):
+        for text in ('jobs:\n  "security-check":\n    runs-on: ubuntu-latest\n',
+                     "jobs:\n  security-check: # ok\n    runs-on: ubuntu-latest\n",
+                     "jobs: {security-check: {runs-on: ubuntu-latest}}\n",
+                     "jobs:\n  x:\n    name: ${{ github.event.pull_request.title }}\n"):
             with self.subTest(text=text):
-                self.r.write(".github/workflows/x.yaml", text)
-                self.r.commit("a second job under a required name", key=self.r.trusted)
-                self.assertFails(".github/workflows/x.yaml")
+                self.r.write(".github/workflows/x.yml", text)
+                self.r.commit("a second job under a required name")
+                self.assertFails(".github/workflows/x.yml")
                 self.g("reset", "-q", "--hard", "HEAD~1")
+
+    def _ci(self, uses):
+        return ("name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n"
+                f"      - uses: {uses}\n      - run: make test\n")
+
+    def test_a_dependabot_style_ref_bump_to_ordinary_ci_passes_unsigned(self):
+        self.g("checkout", "-q", "main")
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "a" * 40 + " # v4.1.0"))
+        self.r.commit("CI exists on the base", key=self.r.trusted)
+        self.r.base = self.r.head()
+        self.g("checkout", "-q", "-b", "bump")
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@" + "b" * 40 + " # v4.2.0"))
+        self.r.commit("Bump actions/checkout from 4.1.0 to 4.2.0")
+        self.assertPasses()
+        self.r.write(".github/workflows/ci.yml", self._ci("evil/checkout@" + "b" * 40 + " # v4.2.0"))
+        self.r.commit("a different action under the bump's cover")
+        self.assertFails(".github/workflows/ci.yml")
+
+    def test_a_ref_bump_to_a_deploy_workflow_still_needs_a_signature(self):
+        self.g("checkout", "-q", "main")
+        self.r.write("security/config.json", '{"deploy_workflows": [".github/workflows/deploy.yml"]}\n')
+        self.r.write(".github/workflows/deploy.yml", self._ci("actions/checkout@v4"))
+        self.r.commit("deploy exists on the base", key=self.r.trusted)
+        self.r.base = self.r.head()
+        self.g("checkout", "-q", "-b", "bump")
+        self.r.write(".github/workflows/deploy.yml", self._ci("actions/checkout@v5"))
+        self.r.commit("bump")
+        self.assertFails(".github/workflows/deploy.yml")
+
+    def test_a_malformed_deploy_list_widens_the_guard(self):
+        self.g("checkout", "-q", "main")
+        self.r.write("security/config.json", '{"deploy_workflows": ".github/workflows/ci.yml"}\n')
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@v4"))
+        self.r.commit("a list that is not a list", key=self.r.trusted)
+        self.r.base = self.r.head()
+        self.g("checkout", "-q", "-b", "bump")
+        self.r.write(".github/workflows/ci.yml", self._ci("actions/checkout@v5"))
+        self.r.commit("bump")
+        self.assertFails(".github/workflows/ci.yml")
 
     def test_a_deploy_workflow_the_base_lists_needs_a_signature(self):
         self.g("checkout", "-q", "main")

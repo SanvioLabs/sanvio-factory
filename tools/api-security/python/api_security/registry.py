@@ -67,6 +67,8 @@ def register_ownership(fn: Ownership) -> None:
     that does not is a route that reaches someone else's record."""
     if not callable(fn):
         raise ValueError("the ownership test must be callable")
+    if inspect.iscoroutinefunction(fn):
+        raise ValueError("the ownership test is async; it must return True or False")
     if _ownership and _ownership[0] is not fn:
         raise ValueError("an ownership test is already registered")
     _ownership[:] = [fn]

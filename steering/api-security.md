@@ -118,15 +118,16 @@ raises, so a later import can't swap it.
   another identity's token; and the list of public routes against the checked-in
   `security/public-routes.txt`.
 - **The approval** (`security-approval.yml`, on `pull_request_target`): any line
-  added to `security/public-routes.txt`, and any other change under `security/`,
-  to the two security workflows, or to a deploy workflow the base's
-  `security/config.json` lists under `deploy_workflows`, needs a commit signed by
-  a key in the **base branch's** `security/allowed_signers`. It judges what would
-  land, the merge of the PR into its base, and one signed commit containing that
-  base has to hold exactly what lands across those paths. Ordinary CI isn't
-  guarded, so a Dependabot bump to it needs no signature, but no other workflow
-  may define a job named `security-check` or `security-approval`. Removing a
-  public route needs no signature.
+  added to `security/public-routes.txt`, and any other change under `security/`
+  or [`.github/workflows/`](../.github/workflows/), needs a commit signed by a key in the **base
+  branch's** `security/allowed_signers`. It judges what would land, the merge of
+  the PR into its base, and one signed commit containing that base has to hold
+  exactly what lands across those paths. Every workflow is guarded because a
+  required status matches by job name, and a workflow can take that name from
+  the PR's own title. Two changes need no signature: removing a public route,
+  and a Dependabot-style bump, which moves only the `@ref` of existing `uses:`
+  lines, in a workflow that is neither a security workflow nor one the base's
+  `security/config.json` lists under `deploy_workflows`.
 - **Both are required statuses** on every protected branch, with branches
   required to be up to date before merging. Turn them on in this order
   ([`project-setup.md`](project-setup.md)): create the key; run
@@ -140,7 +141,7 @@ raises, so a later import can't swap it.
 **The check catches mistakes, not an adversary.** It imports the project's
 handlers to list their declarations, so code written to subvert it can make it
 pass. The approval is the part that holds against a hostile PR, and it covers
-only `security/` and the guarded workflows. A deliberate change to app code is what
+only `security/` and [`.github/workflows/`](../.github/workflows/). A deliberate change to app code is what
 review is for, and at `hardened` that review is required before merge.
 
 **Updating a branch from its base after signing needs a new signature** when
@@ -173,7 +174,9 @@ The refusal names its cause:
 | what lands differs from every signed commit | A later commit changed a guarded file. Sign the latest |
 
 A rebase or squash rewrites commits and drops their signatures, so sign after
-it.
+it. A Dependabot PR bumping a security or deploy workflow needs the same
+signature; one bumping any other workflow does not, as long as it changes
+nothing but `@ref`s.
 
 Why it is built this way:
 
@@ -191,6 +194,16 @@ Why it is built this way:
   hardware key. A plain key in `ssh-agent` does not qualify.
 - **Semgrep runs locally.** Pinned version, `--metrics=off`, local rules only,
   no login and no `--config auto`, so your code never goes to a hosted service.
+  With no ignore file it still skips [`tests/`](../tests/), `test/`, `build/`, `dist/`,
+  `vendor/` and `node_modules/`, so deployed code does not live under them: the
+  check fails a handler module there, and code a handler imports from one goes
+  unscanned.
+- **The Terraform adapter reads patterns, not HCL.** Comments, strings and
+  heredocs are masked first, `.tf` and `.tofu` are read, and anything it cannot
+  read fails the check: a computed `route_key`, JSON Terraform, a route outside
+  the configured paths, a registry module that mentions routes, and anywhere in
+  the repository a function URL, a REST API, or an HTTP API built from `body`
+  or `target`.
 
 ## `hardened`: the checklist
 

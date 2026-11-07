@@ -133,6 +133,35 @@ class RouterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             registry.register_ownership(lambda identity, param, value: True)
 
+    # Security re-review, 2026-11-06: the ownership test and tuple-shaped results.
+
+    def test_a_tuple_or_list_verifier_result_is_refused(self):
+        for result in ((False, None), [None], ("alice",)):
+            with self.subTest(result=result):
+                registry.reset()
+                registry.register_role("user", lambda event, r=result: r)
+                self.assertIn(self.call("POST /v1/summarize")["statusCode"], (401, 403))
+
+    def test_an_ownership_answer_that_is_not_true_is_refused(self):
+        def coroutine_like(identity, param, value):
+            async def later():
+                return False
+            return later()
+        for owns in (lambda i, p, v: "no", lambda i, p, v: 1, coroutine_like):
+            with self.subTest(owns=owns):
+                registry.reset()
+                registry.register_role("user", user_verifier)
+                registry.register_ownership(owns)
+                resp = self.call("GET /v1/records/{user_id}", token="tok-bob", path_params={"user_id": "alice"})
+                self.assertEqual(resp["statusCode"], 403)
+
+    def test_an_async_ownership_test_is_refused_at_registration(self):
+        async def owns(identity, param, value):
+            return False
+        registry.reset()
+        with self.assertRaises(ValueError):
+            registry.register_ownership(owns)
+
     def test_registration_is_exported(self):
         import api_security
         self.assertIs(api_security.register_role, registry.register_role)

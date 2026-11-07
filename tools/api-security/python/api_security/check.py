@@ -53,6 +53,9 @@ def read_snapshot(root: Path) -> Set[str]:
     lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
     return {line for line in lines if line and not line.startswith("#")}
 
+# Folders semgrep leaves out of a scan with no .semgrepignore at all (its built-in default).
+SEMGREP_SKIPS = {"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox", ".npm", ".yarn",
+                 "test", "tests", ".semgrep", ".semgrep_logs", ".git"}
 PARAM = re.compile(r"\{([^}+]+)\+?\}")  # {name} and greedy {name+}
 
 
@@ -74,6 +77,12 @@ def run(root: Path, update_snapshot: bool) -> Tuple[int, List[str]]:
     if (root / ".semgrepignore").exists():
         findings.append(".semgrepignore: an ignore file can hide handlers from the identity scan; "
                         "remove it, and exclude test data with a reasoned nosemgrep marker instead")
+    for name in config["handler_modules"]:
+        where = Path(getattr(sys.modules[name], "__file__", "") or "").resolve()
+        rel = where.relative_to(root.resolve()) if where.is_relative_to(root.resolve()) else where
+        if SEMGREP_SKIPS.intersection(rel.parts[:-1]):
+            findings.append(f"{rel.as_posix()}: semgrep skips this folder by default, so the identity scan "
+                            "never reads this handler module; move it")
     routes = registry.routes()
     for r in routes:
         if r.policy is None:

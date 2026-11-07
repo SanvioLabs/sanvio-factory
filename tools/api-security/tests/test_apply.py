@@ -212,6 +212,21 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual((outside / "target.txt").read_text(), "keep\n")
         self.assertTrue((outside / "api_security" / "keep.txt").exists())
 
+    def test_a_symlinked_file_under_security_is_refused_before_anything_is_written(self):
+        outside = Path(tempfile.mkdtemp(prefix="outside-"))
+        (outside / "victim.json").write_text("{}\n")
+        root = repo()
+        (root / "security").mkdir()
+        (root / "security" / "config.json").symlink_to(outside / "victim.json")
+        (root / "security" / "public-routes.txt").symlink_to(outside / "absent.txt")
+        before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
+        r = apply(root, "--level", "enforced", *RUNTIME)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("symlink", r.stderr)
+        self.assertEqual((outside / "victim.json").read_text(), "{}\n")
+        self.assertFalse((outside / "absent.txt").exists())
+        self.assertEqual(sorted(p.relative_to(root).as_posix() for p in root.rglob("*")), before)
+
     def test_an_identity_file_outside_the_repo(self):
         root = repo(identity=None)
         elsewhere = Path(tempfile.mkdtemp(prefix="client-")) / ".studio-project.yaml"

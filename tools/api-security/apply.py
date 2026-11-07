@@ -346,13 +346,19 @@ def unharden(repo: Path) -> None:
 
 def refuse_symlinks(repo: Path, rels) -> None:
     """A destination, or a folder on the way to it, that is a symlink could send a write or a
-    delete outside the repo. Refuse rather than follow it."""
+    delete outside the repo. Refuse rather than follow it. Everything already under `security/`
+    and `.github/workflows/` is checked too, dangling links included, since apply.py writes there."""
     for rel in rels:
         cur = repo
         for part in Path(rel).parts:
             cur = cur / part
             if cur.is_symlink():
                 raise Refused(f"{cur.relative_to(repo)} is a symlink; apply.py writes only inside the repo")
+    for folder in (repo / "security", repo / ".github" / "workflows"):
+        if folder.is_dir() and not folder.is_symlink():
+            for path in folder.rglob("*"):
+                if path.is_symlink():
+                    raise Refused(f"{path.relative_to(repo)} is a symlink; apply.py writes only inside the repo")
 
 
 def apply(repo: Path, level: str, langs: Optional[List[str]], lower: bool,

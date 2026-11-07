@@ -224,6 +224,11 @@ def check_security_levels(root):
         digest = stamp.read_text().strip().partition("+")[2] if stamp.is_file() else ""
         if digest and tool.project_hash(folder) != digest:
             warnings.append("{}'s security/api_security or security workflows differ from its stamp".format(folder.name))
+        elif digest:
+            ours = (tool.TOOL / "VERSION").read_text().strip()
+            if stamp.read_text().strip() != ours:
+                warnings.append("{}'s security/VERSION {} is not this harness's {}".format(
+                    folder.name, stamp.read_text().strip(), ours))
     if warnings:
         return ("WARN", "security: " + "; ".join(warnings),
                 "Run python3 tools/api-security/apply.py --level <level> projects/<name>. "

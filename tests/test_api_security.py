@@ -34,7 +34,8 @@ class ApiSecurity(unittest.TestCase):
 
     def test_the_steering_says_what_the_approval_guards_and_what_the_check_does_not(self):
         text = (ROOT / "steering" / "api-security.md").read_text()
-        self.assertIn("the two security workflows", text)
+        self.assertIn("`.github/workflows/`", text)
+        self.assertIn("Dependabot-style bump", text)
         self.assertIn("catches mistakes, not an adversary", text)
         self.assertIn("up to date", text)
 
@@ -107,6 +108,22 @@ class ApiSecurity(unittest.TestCase):
             status, line, _ = check_setup.check_security_levels(root)
             self.assertEqual(status, "WARN")
             self.assertIn("differ", line)
+
+    def test_setup_check_flags_a_copy_that_is_another_build_of_the_tool(self):
+        tool = check_setup._api_security_tool()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            d = project(root, "app", '  security_level: "enforced"\n')
+            for rel in ("security/VERSION", "security/allowed_signers", "security/public-routes.txt",
+                        ".github/workflows/security-check.yml", ".github/workflows/security-approval.yml",
+                        ".claude/rules/api-security-python.md"):
+                (d / rel).parent.mkdir(parents=True, exist_ok=True)
+                (d / rel).write_text("x\n")
+            (d / "security" / "VERSION").write_text("0.0.1+{}\n".format(tool.project_hash(d)))
+            status, line, _ = check_setup.check_security_levels(root)
+            self.assertEqual(status, "WARN")
+            self.assertNotIn("differ", line)
+            self.assertIn("0.0.1", line)
 
     def test_the_steering_covers_what_a_holder_hits_first(self):
         text = (ROOT / "steering" / "api-security.md").read_text()

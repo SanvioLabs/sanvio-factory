@@ -126,6 +126,49 @@ class TerraformUnreadableTests(unittest.TestCase):
         extra = {"modules/api/routes.tf": 'resource "aws_apigatewayv2_route" "x" {\n  route_key = "GET /v1/x"\n}\n'}
         self.assertRefused(extra=extra, needle="modules/api/routes.tf")
 
+    # Security re-review, 2026-11-06: braces in strings, comments and heredocs; labels; other files.
+
+    def test_body_or_target_hidden_behind_a_brace_is_still_seen(self):
+        api = lambda inner: 'resource "aws_apigatewayv2_api" "x" {\n  name = "x"\n' + inner + '\n}\n'
+        for inner in ('  description = "}"\n  body = file("o.json")',
+                      '  # }\n  body = file("o.json")',
+                      '  description = <<EOT\n}\nEOT\n  body = file("o.json")',
+                      '  /* } */\n  body = file("o.json")',
+                      '  tags = { a = "}" }\n  target = aws_lambda_function.f.arn'):
+            with self.subTest(inner=inner):
+                self.assertRefused(terraform=fixture.TERRAFORM + api(inner))
+        for tf in ('resource aws_apigatewayv2_api x {\n  body = file("o.json")\n}\n',
+                   'resource "aws_apigatewayv2_api" "x" { body = file("o.json") }\n'):
+            with self.subTest(tf=tf):
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_a_registry_module_building_routes_is_refused(self):
+        tf = ('module "apigw" {\n  source = "terraform-aws-modules/apigateway-v2/aws"\n'
+              '  routes = {\n    "GET /secret" = {}\n  }\n}\n')
+        self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_tofu_files_and_venv_folders_are_read(self):
+        route = 'resource "aws_apigatewayv2_route" "h" {\n  route_key = "GET /hidden"\n}\n'
+        for rel in ("infra/extra.tofu", "infra/venv/a/main.tf"):
+            with self.subTest(rel=rel):
+                root = fixture.project(extra={rel: route})
+                self.assertIn(("GET", "/hidden"), terraform_apigw.deployed_routes(root, ["infra"]))
+
+    def test_an_api_built_from_a_target_outside_the_paths_is_refused(self):
+        tf = 'resource "aws_apigatewayv2_api" "z" {\n  name = "z"\n  target = "arn"\n}\n'
+        self.assertRefused(extra={"other/x.tf": tf}, needle="target")
+
+    def test_a_route_key_that_is_not_one_plain_string_is_refused(self):
+        for line in ('route_key = "GET /a"=="x"?"GET/b":"POST/c"', '"route_key" = "GET /hidden"'):
+            with self.subTest(line=line):
+                tf = fixture.TERRAFORM + f'resource "aws_apigatewayv2_route" "q" {{\n  {line}\n}}\n'
+                self.assertRefused(terraform=tf)
+
+    def test_a_commented_out_route_is_not_deployed(self):
+        tf = fixture.TERRAFORM + '/*\nroute_key = "GET /old"\n*/\n# route_key = "GET /older"\n'
+        root = fixture.project(terraform=tf)
+        self.assertEqual(len(terraform_apigw.deployed_routes(root, ["infra"])), 2)
+
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'
         root = fixture.project(terraform=tf)

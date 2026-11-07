@@ -6,10 +6,13 @@ Run by `security-approval.yml` on `pull_request_target`, from the BASE branch's 
 over the pull request's commits as git objects. It never checks out or executes anything from the
 pull request.
 
-The guarded surface is everything under `security/`, the two security workflows, and the deploy
-workflows the base's `security/config.json` lists under `deploy_workflows`. Ordinary CI is not
-guarded, so a dependency bump to it needs no signature; but no other workflow may define a job
-named `security-check` or `security-approval`, since a required status matches by name. The verifier judges
+The guarded surface is everything under `security/` and `.github/workflows/`. Every workflow is
+guarded because a required status matches by name, and no reading of a workflow's text can tell
+what name a job will report under: it can take it from the pull request's own title. One change
+needs no signature: in a workflow that is neither a security workflow nor one the base's
+`security/config.json` lists under `deploy_workflows`, moving the `@ref` of existing `uses:` lines
+and nothing else, which is what Dependabot sends. A malformed `deploy_workflows` list counts every
+workflow as a deploy workflow. The verifier judges
 what would land: the three-way merge of the head into the base, the tree GitHub merges. A pull
 request that changes a guarded file in that tree passes only when one commit in the pull
 request, built on top of this base and signed with an SSH key listed in the base's
@@ -39,7 +42,8 @@ CONFIG = "security/config.json"
 WORKFLOWS_DIR = ".github/workflows/"
 SECURITY_WORKFLOWS = (".github/workflows/security-check.yml", ".github/workflows/security-approval.yml")
 BARE = ("security", ".github", ".github/workflows")  # replacing one of these replaces what is under it
-REQUIRED_JOB = re.compile(r"^\s*(?:name:\s*['\"]?|)(security-check|security-approval)['\"]?\s*:?\s*$", re.M)
+USES = re.compile(r"^(\s*-?\s*uses:\s*)([^@\s'\"]+)@([^\s'\"#]+)(\s+#.*)?$")
+DEPLOY_ENTRY = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 SSH_SIGNATURE = "-----BEGIN SSH SIGNATURE-----"
 
 
@@ -83,19 +87,19 @@ def show(text: str) -> str:
     return text.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
 
 
-def surface(repo: str, treeish: str, skip: Set[str], deploy: Set[str]) -> Dict[str, str]:
+def surface(repo: str, treeish: str, skip: Set[str]) -> Dict[str, str]:
     """Every guarded file in `treeish` with its mode, type and object id, less `skip`."""
     out = git(repo, "ls-tree", "-r", "-z", "--full-tree", treeish, "--", "security", ".github").stdout
     found = {}
     for item in out.split("\0"):
         meta, _, name = item.partition("\t")
-        if name and guarded(name, deploy) and name not in skip:
+        if name and guarded(name) and name not in skip:
             found[name] = meta
     return found
 
 
-def guarded(path: str, deploy: Set[str] = frozenset()) -> bool:
-    return path.startswith("security/") or path in BARE or path in SECURITY_WORKFLOWS or path in deploy
+def guarded(path: str) -> bool:
+    return path.startswith(("security/", WORKFLOWS_DIR)) or path in BARE
 
 
 def routes(text: str) -> Set[str]:
@@ -113,35 +117,53 @@ def landed_tree(repo: str, base: str, head: str) -> Optional[str]:
     return res.stdout.split("\n", 1)[0].strip()
 
 
-def changed_guarded(repo: str, base: str, tree: str, deploy: Set[str]) -> List[str]:
+def changed_guarded(repo: str, base: str, tree: str) -> List[str]:
     out = git(repo, "diff", "-z", "--name-only", "--no-renames", base, tree).stdout
-    return sorted(p for p in out.split("\0") if p and guarded(p, deploy))
+    return sorted(p for p in out.split("\0") if p and guarded(p))
 
 
-def deploy_workflows(repo: str, base: str) -> Set[str]:
-    """The deploy workflows the base lists. Read from the base, so a PR cannot unlist its own."""
+def deploy_workflows(repo: str, base: str) -> Optional[Set[str]]:
+    """The deploy workflows the base lists, read from the base so a PR cannot unlist its own. None
+    when the list is not a list of `.github/workflows/<file>.yml` paths: every workflow is then
+    treated as a deploy workflow, which widens the guard and still lets a signed fix land."""
     text = content(repo, base, CONFIG)
     if not text.strip():
         return set()
     try:
-        listed = json.loads(text).get("deploy_workflows") or []
-    except (ValueError, AttributeError) as exc:
-        raise Undecided(f"the base's {CONFIG} cannot be read: {exc}")
-    return {w for w in listed if isinstance(w, str)}
+        listed = json.loads(text).get("deploy_workflows", [])
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(listed, list) or not all(isinstance(w, str) and DEPLOY_ENTRY.match(w) for w in listed):
+        return None
+    return set(listed)
 
 
-def impostors(repo: str, tree: str) -> List[str]:
-    """Workflows other than the two security ones that define a job under a required name."""
-    out = git(repo, "ls-tree", "-r", "-z", "--full-tree", tree, "--", ".github/workflows").stdout
-    found = []
-    for item in out.split("\0"):
-        meta, _, name = item.partition("\t")
-        if not name or name in SECURITY_WORKFLOWS or not name.endswith((".yml", ".yaml")):
+def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
+    """True when `path` differs between base and tree only in the @ref (and its trailing comment)
+    of `uses:` lines that keep the same action."""
+    before, after = entry(repo, base, path), entry(repo, tree, path)
+    if before is None or after is None or not before.startswith("100644 blob ") \
+            or not after.startswith("100644 blob "):
+        return False
+    old, new = content(repo, base, path).splitlines(), content(repo, tree, path).splitlines()
+    if len(old) != len(new):
+        return False
+    for x, y in zip(old, new):
+        if x == y:
             continue
-        parts = meta.split()
-        if len(parts) == 3 and parts[1] == "blob" and REQUIRED_JOB.search(git(repo, "cat-file", "blob", parts[2]).stdout):
-            found.append(name)
-    return found
+        mx, my = USES.match(x), USES.match(y)
+        if not (mx and my and mx.group(1) == my.group(1) and mx.group(2) == my.group(2)):
+            return False
+    return True
+
+
+def exempt_bumps(repo: str, base: str, tree: str, files: List[str]) -> Set[str]:
+    """Ref bumps to ordinary workflows, which need no signature."""
+    deploy = deploy_workflows(repo, base)
+    if deploy is None:
+        return set()
+    return {p for p in files if p.startswith(WORKFLOWS_DIR) and p not in SECURITY_WORKFLOWS
+            and p not in deploy and ref_bump_only(repo, base, tree, p)}
 
 
 def needs_signature(repo: str, base: str, tree: str, files: List[str]) -> List[str]:
@@ -182,17 +204,15 @@ def decide(repo: str, base: str, head: str) -> List[str]:
     if tree is None:
         return [f"{at}: the pull request conflicts with its base, so what would land is unknown. "
                 "Update the branch from its base, and sign the update if it touches a guarded file"]
-    reasons = [f"{show(p)}: defines a job named security-check or security-approval ({at}); only "
-               f"{' and '.join(SECURITY_WORKFLOWS)} may, since a required status matches by name"
-               for p in impostors(repo, tree)]
-    deploy = deploy_workflows(repo, base)
-    covered = needs_signature(repo, base, tree, changed_guarded(repo, base, tree, deploy))
+    changed = changed_guarded(repo, base, tree)
+    exempt = exempt_bumps(repo, base, tree, changed)
+    covered = needs_signature(repo, base, tree, [p for p in changed if p not in exempt])
     if not covered:
-        return reasons
+        return []
 
     signers = content(repo, base, SIGNERS)
     if not routes(signers):
-        return reasons + [
+        return [
             f"{at}: {', '.join(show(p) for p in covered)} changed, and the base has no {SIGNERS} to "
             f"approve it. Land {SIGNERS} on the base branch before security-approval becomes a "
             "required check (api-security.md, enforced)"]
@@ -200,8 +220,8 @@ def decide(repo: str, base: str, head: str) -> List[str]:
     # A signature covers the guarded surface as a whole: one signed commit must hold exactly what
     # lands, so part of a signed change, or parts of two, cannot land on their own. The snapshot is
     # left out only when it needs no signature, so an unsigned route removal still passes.
-    skip = set() if SNAPSHOT in covered else {SNAPSHOT}
-    wanted = surface(repo, tree, skip, deploy)
+    skip = set(exempt) | (set() if SNAPSHOT in covered else {SNAPSHOT})
+    wanted = surface(repo, tree, skip)
     commits = git(repo, "rev-list", head, f"^{base}").stdout.split()
     signed = on_base = False
     with tempfile.TemporaryDirectory() as tmp:
@@ -215,8 +235,8 @@ def decide(repo: str, base: str, head: str) -> List[str]:
             if not contains(repo, base, commit):
                 continue
             on_base = True
-            if surface(repo, commit, skip, deploy) == wanted:
-                return reasons
+            if surface(repo, commit, skip) == wanted:
+                return []
     if not signed:
         why = ("no commit in the pull request is signed by a key in the base's allowed_signers "
                "(unsigned, an OpenPGP signature, or a key or committer email that is not listed)")
@@ -226,7 +246,7 @@ def decide(repo: str, base: str, head: str) -> List[str]:
     else:
         why = ("what lands under the guarded paths differs from every signed commit on this base: a later "
                "commit changed a guarded file, or only part of a signed change is landing. Sign the latest")
-    return reasons + [f"{show(p)}: changed ({at}); {why}" for p in covered]
+    return [f"{show(p)}: changed ({at}); {why}" for p in covered]
 
 
 def main(argv=None) -> int:

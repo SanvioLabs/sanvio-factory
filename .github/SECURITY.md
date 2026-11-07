@@ -1,7 +1,7 @@
 # Reporting a vulnerability
 
 Please don't open a public issue for a security problem in this harness. That
-includes the API security tool under `tools/api-security/`, its approval check,
+includes the API security tool under [`tools/api-security/`](../tools/api-security/), its approval check,
 its workflows and the hooks.
 
 Report it privately instead: on this repository's **Security** tab, choose
