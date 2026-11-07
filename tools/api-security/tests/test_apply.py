@@ -305,5 +305,85 @@ class VersionStampTests(unittest.TestCase):
         self.assertNotEqual(tool.project_hash(root), stamp)
 
 
+class IdentityFieldTests(unittest.TestCase):
+    """review-spec 3, 2026-11-07: the rule's identity field list is one string apply.py extends and
+    the hash takes back out; both have to find it, and nothing else may escape the hash."""
+
+    RULE = _path.TOOL / "semgrep" / "identity-from-request.yml"
+
+    def levels(self):
+        sys.path.insert(0, str(_path.TOOL))
+        import api_security_levels as levels
+        return levels
+
+    def enforced(self, config=None):
+        root = repo()
+        if config is not None:
+            (root / "security").mkdir()
+            (root / "security" / "config.json").write_text(json.dumps(config))
+        r = apply(root, "--level", "enforced", *RUNTIME)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return root
+
+    def test_the_default_fields_appear_at_every_site_in_the_rule(self):
+        levels = self.levels()
+        self.assertEqual(self.RULE.read_text().count(levels.DEFAULT_FIELDS), levels.RULE_FIELD_SITES,
+                         "edit DEFAULT_FIELDS and the rule together, and RULE_FIELD_SITES with them")
+
+    def test_a_projects_identity_fields_reach_every_site_and_keep_the_stamp(self):
+        levels = self.levels()
+        root = self.enforced({"identity_fields": ["org_no", "bad name", 5]})
+        rule = (root / "security" / "semgrep" / "identity-from-request.yml").read_text()
+        self.assertEqual(rule.count(levels.DEFAULT_FIELDS + "|org_no"), levels.RULE_FIELD_SITES)
+        self.assertNotIn("bad name", rule)
+        stamp = (root / "security" / "VERSION").read_text().strip().partition("+")[2]
+        self.assertEqual(levels.project_hash(root), stamp)
+
+    def test_an_edit_to_the_header_names_in_the_rule_changes_the_hash(self):
+        levels = self.levels()
+        for config in (None, {"identity_fields": ["org_no"]}):
+            root = self.enforced(config)
+            before = levels.project_hash(root)
+            path = root / "security" / "semgrep" / "identity-from-request.yml"
+            path.write_text(path.read_text().replace("|x-user-id", "|x-other-id"))
+            self.assertNotEqual(levels.project_hash(root), before, config)
+
+    def test_an_extra_field_left_in_the_rule_after_it_leaves_the_config_is_drift(self):
+        levels = self.levels()
+        root = self.enforced({"identity_fields": ["org_no"]})
+        stamp = (root / "security" / "VERSION").read_text().strip().partition("+")[2]
+        (root / "security" / "config.json").write_text(json.dumps({"identity_fields": []}))
+        self.assertNotEqual(levels.project_hash(root), stamp)
+
+    def test_the_identity_field_reader_ignores_anything_but_a_list_of_names(self):
+        levels = self.levels()
+        for config in ({"identity_fields": "org_no"}, {"identity_fields": 5}, [], None, {}):
+            self.assertEqual(levels.identity_extras(config), [], config)
+
+
+class ApplyCommandTests(unittest.TestCase):
+    """review-spec 3, 2026-11-07: the command a check prints runs as printed."""
+
+    def test_the_command_names_runtime_and_identity_only_when_needed(self):
+        sys.path.insert(0, str(_path.TOOL))
+        import api_security_levels as levels
+        T = "t/apply.py"
+        self.assertEqual(levels.apply_command(T, "guided", Path("p/app")),
+                         "python3 t/apply.py --level guided p/app")
+        self.assertEqual(levels.apply_command(T, "enforced", Path("p/app"), Path("p/app/.studio-project.yaml")),
+                         "python3 t/apply.py --level enforced --runtime lambda-httpapi p/app")
+        self.assertEqual(levels.apply_command(T, "guided", Path("c/x/repos/a"), Path("c/x/.studio-project.yaml")),
+                         "python3 t/apply.py --level guided --identity c/x/.studio-project.yaml c/x/repos/a")
+        self.assertEqual(levels.apply_command(T, "guided", Path("a b")), "python3 t/apply.py --level guided 'a b'")
+
+    def test_apply_parses_every_flag_the_command_uses(self):
+        sys.path.insert(0, str(_path.TOOL))
+        import api_security_levels as levels
+        root = repo()
+        cmd = levels.apply_command(str(APPLY), "enforced", root, root / ".studio-project.yaml")
+        r = subprocess.run(cmd.replace("python3", sys.executable, 1), shell=True, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -31,12 +31,12 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api_security_levels import (  # noqa: E402  (the shared surface; harness-health reads it too)
-    DEFAULT_FIELDS, ENFORCED_FILES, LEVELS, TOOL, WORKFLOWS, Refused, content_hash, current_level,
+    ENFORCED_FILES, LEVELS, RUNTIMES, TOOL, WORKFLOWS, Refused, content_hash, current_level,
+    identity_extras, rule_with_fields,
     project_hash, required_files, stamp, tool_hash, with_level, workspace_fields)
 
 LANGS = ("python", "typescript", "php", "dotnet")
 ENFORCED_LANGS = ("python",)
-RUNTIMES = ("lambda-httpapi",)
 MARK = "# api-security"  # also matches the older "# api-security (SPEC-034)", so those strip too
 AGENTS_START = "<!-- api-security:start (written by apply.py) -->"
 AGENTS_START_ANY = r"<!-- api-security:start[^>]*-->"
@@ -218,9 +218,7 @@ def write_enforced(repo: Path, hardened: bool, gates: Optional[str], notes: List
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
     rule = (TOOL / "semgrep" / "identity-from-request.yml").read_text(encoding="utf-8")
-    extra = [f for f in (config.get("identity_fields") or []) if re.match(r"^[A-Za-z0-9_-]+$", f)]
-    if extra:
-        rule = rule.replace(DEFAULT_FIELDS, DEFAULT_FIELDS + "|" + "|".join(extra))
+    rule = rule_with_fields(rule, identity_extras(config))
     (sec / "semgrep").mkdir(exist_ok=True)
     rule_path = sec / "semgrep" / "identity-from-request.yml"
     if rule_path.exists() and rule_path.read_text(encoding="utf-8") != rule:

@@ -8,7 +8,8 @@ import _path
 
 LEVELS_FILE = _path.TOOL / "api_security_levels.py"
 CONSUMED = ("TOOL", "LEVELS", "ENFORCED_FILES", "WORKFLOWS", "workspace_fields", "current_level",
-            "required_files", "with_level", "project_hash", "tool_hash", "Refused")
+            "required_files", "with_level", "project_hash", "tool_hash", "Refused", "apply_command",
+            "RUNTIMES")
 
 
 def load():
