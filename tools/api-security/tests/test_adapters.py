@@ -279,6 +279,37 @@ class TerraformUnreadableTests(unittest.TestCase):
         with self.assertRaises(AdapterError):
             terraform_apigw.deployed_routes(root2, ["infra"])
 
+    # Security re-review 5, 2026-11-06.
+
+    def test_a_heredoc_that_moves_where_a_block_ends_is_refused(self):
+        for inner in ('${\ntrue\n}\ntrue\n  body = "x"\n', '${\ntrue\n}\n{\ntrue\n  body = "x"\n'):
+            with self.subTest(inner=inner):
+                tf = ('resource "aws_apigatewayv2_api" "x" {\n  name = "x"\n  description = <<true\n'
+                      + inner + '}\n')
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_anything_but_a_block_at_the_top_level_is_refused(self):
+        for tf in ('}\n', 'body = "x"\n', '{\n}\n'):
+            with self.subTest(tf=tf):
+                self.assertRefused(terraform=fixture.TERRAFORM + tf)
+
+    def test_a_module_source_that_is_not_a_plain_path_is_refused(self):
+        tf = fixture.TERRAFORM + 'module "x" {\n  source = "./${".terraform/evil"}"\n}\n'
+        self.assertRefused(terraform=tf)
+
+    def test_other_ways_to_deploy_a_route_or_a_url_are_refused(self):
+        for kind in ("aws_cloudformation_stack", "awscc_lambda_url", "awscc_apigatewayv2_api",
+                     "aws_cloudcontrolapi_resource", "aws_serverlessapplicationrepository_cloudformation_stack",
+                     "aws_apigateway_thing", "aws_lambda_url_x"):
+            with self.subTest(kind=kind):
+                self.assertRefused(terraform=fixture.TERRAFORM + f'resource "{kind}" "x" {{\n  name = "x"\n}}\n')
+
+    def test_ordinary_blocks_and_one_line_heredoc_templates_are_read(self):
+        tf = fixture.TERRAFORM + ('terraform {\n  required_version = ">= 1.5"\n}\nvariable "v" {\n  default = "x"\n}\n'
+                                  'locals { a = 1 }\nlocals {\n  t = <<-EOT\n    hello ${var.v} %{ if true }y%{ endif }\n  EOT\n}\n'
+                                  'data "aws_caller_identity" "me" {}\noutput "o" {\n  value = local.a\n}\n')
+        self.assertEqual(len(terraform_apigw.deployed_routes(fixture.project(terraform=tf), ["infra"])), 2)
+
     def test_an_api_with_a_name_only_is_still_read(self):
         tf = fixture.TERRAFORM + 'resource "aws_apigatewayv2_api" "api" {\n  name = "x"\n  protocol_type = "HTTP"\n}\n'
         root = fixture.project(terraform=tf)

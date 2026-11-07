@@ -158,7 +158,8 @@ def ref_bump_only(repo: str, base: str, tree: str, path: str) -> bool:
     # A reusable workflow can be called by a deploy workflow, so it is never exempt. Any mention, or
     # any escape that could spell one, counts: no YAML is parsed here.
     both = before_text + "\n" + after_text
-    if CONTROL.search(after_text) or "workflow_call" in both or re.search(r"\\[xuU]", both):
+    joined = re.sub(r"\\\n[ \t]*", "", both)  # a YAML escaped line break joins a quoted key's halves
+    if CONTROL.search(after_text) or "workflow_call" in joined or re.search(r"\\[xuU]", both):
         return False
     old, new = before_text.split("\n"), after_text.split("\n")
     if len(old) != len(new):

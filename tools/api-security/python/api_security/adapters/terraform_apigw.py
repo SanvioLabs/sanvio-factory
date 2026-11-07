@@ -43,6 +43,13 @@ NOT_HEADER = r'(?![^\S\n]*[=.,)\]\[}:?+*/%<>!&|-])'
 BLOCK_START = re.compile(r'^[^\S\n]*(resource|module)\b' + NOT_HEADER, re.M)
 RESOURCE_HEADER = re.compile(r'resource[^\S\n]+' + LABEL + r'[^\S\n]+' + LABEL + r'[^\S\n]*\{')
 MODULE_HEADER = re.compile(r'module[^\S\n]+' + LABEL + r'[^\S\n]*\{')
+ANY_HEADER = re.compile(r'[A-Za-z_][\w-]*(?:[^\S\n]+(?:"[^"\n]*"|[^\s{}"=]+))*[^\S\n]*\{')
+PLAIN_SOURCE = re.compile(r'\.{1,2}/[\w./-]*')
+# Resource types that deploy a route, an API or a URL by another road than the v2 resources read
+# here: CloudFormation, Cloud Control, the awscc provider, and any API Gateway or function URL type.
+OTHER_ROADS = re.compile(r'^(?:awscc_|aws_cloudformation_|aws_cloudcontrolapi_|'
+                         r'aws_serverlessapplicationrepository_)|apigateway|api_gateway_|function_url|lambda_url')
+READ_TYPES = re.compile(r'^aws_apigatewayv2_[a-z_]+$|^aws_api_gateway_account$')
 # What deploys a route or a front door: a block, or an attribute the adapter reads. A reference to a
 # resource (`aws_apigatewayv2_api.x.api_endpoint` inside a heredoc) is not one.
 TOKEN = re.compile(r'\broute_key"?[^\S\n]*=|^[^\S\n]*(?:module|resource)\b' + NOT_HEADER + '|'
@@ -120,6 +127,7 @@ def mask(text: str) -> str:
             if end_m is None:
                 raise AdapterError(f"heredoc {m.group(1)} never closes")
             end = end_m.end()
+            _one_line_templates(text, m.end(), end_m.start())
             blank(m.end(), end)
             i = end
         elif stack and stack[-1] == "i" and c in "{}":
@@ -137,6 +145,47 @@ def mask(text: str) -> str:
     if stack:
         raise AdapterError("a quoted string or interpolation never closes")
     return "".join(out)
+
+
+def _one_line_templates(text: str, a: int, b: int) -> None:
+    """Refuses a `${` or `%{` in a heredoc body that does not close on its own line: Terraform reads
+    it as code, where a line that looks like the closing marker does not close the heredoc."""
+    level = 0
+    i = a
+    while i < b:
+        if text.startswith(("$${", "%%{"), i):
+            i += 3
+            continue
+        c = text[i]
+        if text.startswith(("${", "%{"), i):
+            level += 1
+            i += 2
+            continue
+        if level and c == "{":
+            level += 1
+        elif level and c == "}":
+            level -= 1
+        elif c == "\n" and level:
+            raise AdapterError("a template sequence in a heredoc runs past the end of its line")
+        i += 1
+
+
+def _top_level_blocks(rel: Path, masked: str) -> None:
+    """Refuses anything at the top level of a file but whole blocks. A block that ended early in the
+    mask's reading leaves its last lines, or a stray brace, out here."""
+    i, n = 0, len(masked)
+    while True:
+        while i < n and masked[i].isspace():
+            i += 1
+        if i >= n:
+            return
+        m = ANY_HEADER.match(masked, i)
+        if m is None:
+            line = masked.count("\n", 0, i) + 1
+            raise AdapterError(f"{rel}:{line}: something other than a block at the top level; the check "
+                               "cannot tell where the blocks around it begin and end")
+        _, i = _block(masked, m.end(), "top-level", rel)
+        i += 1
 
 
 def _block(masked: str, start: int, what: str, rel: Path) -> Tuple[int, int]:
@@ -217,6 +266,8 @@ def _blocks(root: Path, tf: Path, rel: Path, text: str, masked: str) -> None:
         if kind == "resource" and name.startswith("aws_api_gateway_") and name != "aws_api_gateway_account":
             # the account resource sets the CloudWatch logging role for every API, and serves nothing
             raise AdapterError(f"{rel}: a REST API (v1) resource; only HTTP API v2 routes are read")
+        if kind == "resource" and OTHER_ROADS.search(name) and not READ_TYPES.match(name):
+            raise AdapterError(f"{rel}: a `{name}` resource can deploy routes or a URL the check cannot read")
         if kind == "resource" and name == "aws_apigatewayv2_api":
             attr = TOP_ATTR.search(_top_level(masked, a, b))
             if attr:
@@ -226,7 +277,7 @@ def _blocks(root: Path, tf: Path, rel: Path, text: str, masked: str) -> None:
             src = SOURCE.search(_top_level(masked, a, b))
             source = text[a + src.start(1):a + src.end(1)] if src else ""
             target = (tf.parent / source).resolve()
-            inside = source.startswith(("./", "../")) and target.is_relative_to(root.resolve())
+            inside = PLAIN_SOURCE.fullmatch(source) is not None and target.is_relative_to(root.resolve())
             if not inside or SKIP.intersection(target.relative_to(root.resolve()).parts):
                 raise AdapterError(f"{rel}: module {source or '(no source)'!r} is not a plain local folder "
                                    "in this repository, so the check cannot read what it deploys; vendor "
@@ -264,6 +315,7 @@ def deployed_routes(root: Path, paths: Iterable[str]) -> Set[Tuple[str, str]]:
         if hidden:
             raise AdapterError(f"{rel}:{hidden}: code the check would not read (inside what it took for a "
                                "string, heredoc or comment); the check cannot read this file")
+        _top_level_blocks(rel, masked)
         _blocks(root, tf, rel, text, masked)
         if not inside:
             if ANY_ROUTE_KEY.search(masked) or "aws_apigatewayv2_route" in masked:

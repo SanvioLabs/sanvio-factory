@@ -365,7 +365,8 @@ class ApprovalTests(unittest.TestCase):
     def test_a_dependabot_bump_to_a_reusable_workflow_needs_a_signature(self):
         # Security re-review 4: flow style, quoted and escaped keys all declare workflow_call.
         for trigger in ("on:\n  workflow_call:", "on: [workflow_call]", "on: ['workflow_call']",
-                        'on:\n  "workflow_call":', 'on:\n  "workflow\\x5fcall":', 'on:\n  "workflow\\u005fcall":'):
+                        'on:\n  "workflow_call":', 'on:\n  "workflow\\x5fcall":', 'on:\n  "workflow\\u005fcall":',
+                        'on:\n  "workflow_\\\n    call":'):
             with self.subTest(trigger=trigger):
                 self.setUp()
                 reusable = lambda uses: self._ci(uses).replace("on: push", trigger)

@@ -208,13 +208,16 @@ Why it is built this way:
   read fails the check: an unterminated string, comment or heredoc, a computed
   `route_key`, a route outside the configured paths, any module that is not a
   plain local folder, a symlink under the paths, and anywhere in the repository
-  JSON Terraform, a function URL, a REST API, or an HTTP API built from `body`
-  or `target`. Vendor a registry module into the configured paths to use it at
-  `enforced`. It also refuses what could make its reading differ from
-  Terraform's: control characters, Unicode spaces and combining marks, `\u`
-  escapes, a `resource` or `module` line it cannot parse as a header, and a
-  block or `route_key`, `source`, `body` or `target` inside what it took for a
-  string, heredoc or `/* */` comment. Comment a route out with `#`. It is built
+  JSON Terraform, a function URL, a REST API, an HTTP API built from `body` or
+  `target`, and any other road to a route or URL (CloudFormation, Cloud
+  Control, the `awscc` provider). Vendor a registry module into the configured
+  paths, with a plain `./` or `../` source, to use it at `enforced`. It also
+  refuses what could make its reading differ from Terraform's: control
+  characters, Unicode spaces and combining marks, `\u` escapes, a heredoc
+  template (`${...}`) spanning lines, anything at the top level of a file but
+  whole blocks, a `resource` or `module` line it cannot parse as a header, and
+  a block or `route_key`, `source`, `body` or `target` inside what it took for
+  a string, heredoc or `/* */` comment. Comment a route out with `#`. It is built
   against mistakes; one built against a deliberate adversary is the follow-up
   spec.
 
