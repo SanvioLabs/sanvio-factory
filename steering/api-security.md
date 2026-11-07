@@ -150,6 +150,13 @@ pass. The approval is the part that holds against a hostile PR, and it covers
 only `security/`, [`.github/workflows/`](../.github/workflows/), `.github/actions/` and `CODEOWNERS`. A deliberate change to app code is what
 review is for, and at `hardened` that review is required before merge.
 
+**A workflow runs code from outside those paths too.** A deploy workflow's
+`uses: ./tools/setup` or `run: scripts/deploy.sh` runs whatever the merged
+branch holds, and a PR changing only that file needs no signature. Keep a
+local action or script a deploy workflow calls under `.github/actions/` or
+`security/`, where the approval covers it; anywhere else it is app code, and
+the review before merge is what holds it.
+
 **Updating a branch from its base after signing needs a new signature** when
 the branch changes a guarded file: sign the merge commit
 (`git commit --amend -S` on it). A signature on a commit built on an older base
