@@ -33,8 +33,9 @@ Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
    reach only paths inside the harness root, after `..` and links resolve.
    Inside the root, they don't reach the files that hold tokens or company
    data: .claude/settings.local.json, any .git folder or bare repo (*.git),
-   company/, local-data/ and a leftover .inbox/. Each headless Grep is passed
-   on with !*.git added to its glob, so it leaves out bare repos at any depth.
+   and the folders PRIVATE_FOLDERS lists below. Each headless Grep is passed on
+   with those folders and !*.git added to its glob as excludes, so it leaves
+   them out, and bare repos at any depth.
 
 AGENTS.md says the same thing as a rule. This is the part that holds when the
 agent decides otherwise. It's a backstop for honest mistakes, not a sandbox: a
@@ -292,21 +293,28 @@ ORDINARY_NAMES = ("readme.md", "app.py", "index.ts", "main.go", "package.json", 
 # Inside the root, what a headless run doesn't reach: a token in the local settings' env block or
 # in a remote URL in git's config, and the company's own record and exports.
 PRIVATE_FILES = (".claude/settings.local.json",)
-PRIVATE_FOLDERS = ("company", "local-data", ".inbox")
+PRIVATE_FOLDERS = ("company", "local-data", ".inbox", "factories")
+# Every list below that names the private folders is built from PRIVATE_FOLDERS, so a folder added there
+# reaches the search exclude, the glob checks and the refusal at once.
 # What a headless glob must not match. A ripgrep glob that matches an ignored or hidden folder or
 # file brings it back into the search ({company,*.md} lists company/, measured 2026-10-25), and
 # ripgrep tests a glob without a / against each name and one with a / against each path.
 # company/** alone didn't get in when measured; a path below each folder refuses it anyway.
-PRIVATE_ENTRIES = ("company", "local-data", ".claude", ".git", ".claude/settings.local.json", ".git/config",
-                   "company/x", "local-data/x", ".inbox", ".inbox/x")
+PRIVATE_ENTRIES = (".claude", ".git", ".claude/settings.local.json", ".git/config") + tuple(
+    entry for folder in PRIVATE_FOLDERS for entry in (folder, folder + "/x"))
 # Added to every headless Grep's glob: ripgrep leaves out a bare repo at any depth. ripgrep's
 # globs match case, and the Mac's disk doesn't, so Lib.GIT counts (measured 2026-10-26).
 EXCLUDE_BARE_REPOS = "!*.[gG][iI][tT]"
+# Also added: the private folders at the root. .ignore lets company/ back into a search, so an ordinary
+# session can read it, and a headless Grep over the root would search it too (ripgrep 15.2.0 with Claude
+# Code's flags, measured 2026-11-07). The leading / anchors each to the root.
+EXCLUDE_PRIVATE = "!/{" + ",".join(PRIVATE_FOLDERS) + "}"
 # The names a headless Glob pattern may not carry in a later part: the private places themselves.
-PRIVATE_NAMES = {"company", "local-data", ".inbox", ".claude", ".git", "settings.local.json"}
+PRIVATE_NAMES = set(PRIVATE_FOLDERS) | {".claude", ".git", "settings.local.json"}
 HEADLESS_PRIVATE = ("A headless run doesn't read the files inside the root that hold tokens or company "
-                    "data: .claude/settings.local.json, any .git folder or bare repo, company/, local-data/ "
-                    "and .inbox/. Say in "
+                    "data: .claude/settings.local.json, any .git folder or bare repo, "
+                    + ", ".join(folder + "/" for folder in PRIVATE_FOLDERS[:-1])
+                    + " and " + PRIVATE_FOLDERS[-1] + "/. Say in "
                     "the report what you couldn't read.")
 # ripgrep's file types that take in a credential name: sh lists .env and *.env (rg --type-list, 2026-10-25).
 CREDENTIAL_TYPES = {"sh"}
@@ -482,9 +490,10 @@ def headless_outside(tool, data, cwd):
 def headless_private(tool, data, cwd):
     """Whether a headless file tool's call reaches a place in the root that holds tokens or company data.
 
-    A Grep over the root leaves them out: .gitignore lists them, and Claude Code's Grep passes
-    --glob '!.git' (with --hidden, so hidden protects nothing; Claude Code 2.1.310, measured
-    2026-10-25). So the guard checks the path it names, and refuses a glob that would bring one back in. Glob
+    A Grep over the root leaves them out: headless_rewrite adds them to its glob as excludes, since .ignore
+    lets company/ back in, and Claude Code's Grep passes --glob '!.git' (with --hidden, so
+    hidden protects nothing; Claude Code 2.1.310, measured 2026-10-25). So the guard checks the path it
+    names, and refuses a glob that would bring one back in. Glob
     lists names and reads nothing, so a pattern is refused when the folder its fixed parts name is
     private, or a later part names a private folder or file outright (**/company/*); c*/** can
     still list the names under company/.
@@ -581,7 +590,8 @@ def headless_rewrite(event):
     if os.environ.get("HARNESS_HEADLESS") != "1" or event.get("tool_name") != "Grep":
         return None
     data = event.get("tool_input") or {}
-    return dict(data, glob=((data.get("glob") or "") + " " + EXCLUDE_BARE_REPOS).strip())
+    return dict(data, glob=" ".join(part for part in (data.get("glob") or "", EXCLUDE_PRIVATE, EXCLUDE_BARE_REPOS)
+                                    if part))
 
 
 def main():

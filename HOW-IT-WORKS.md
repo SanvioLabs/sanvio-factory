@@ -618,6 +618,115 @@ It's never written into a file, the workflow, `loop.json` or an issue.
 secret it names, and read its opening comment: it lists the repository setting
 that has to be on for a workflow to open a pull request at all.
 
+## Handing work to another factory
+
+A factory is any system that takes work in and puts checked work out. This
+harness is one. So is another team's delivery system, or a second harness on
+the same machine. [`scripts/factories.py`](scripts/factories.py) hands an issue to one, and GitHub is
+the only thing between them: a label goes on the issue, a pull request comes
+back.
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Harness as This harness
+    participant GitHub
+    participant Factory
+    You->>Harness: dispatch #12, then yes
+    Harness->>GitHub: add the factory's submit label to #12
+    Factory->>GitHub: open a pull request that closes #12
+    Harness->>GitHub: status: read #12 and its pull request
+    Harness->>GitHub: review: loop.py review --pr N posts one comment
+    alt changes needed
+        You->>Harness: resend, then yes
+        Harness->>GitHub: put the submit label back on #12
+    else ready
+        Harness->>GitHub: read the required checks
+        Harness-->>You: ready for a person, or why not
+    end
+    You->>GitHub: merge
+```
+
+`factories.json` at the harness root names the factory as one step: its name,
+whether it runs on this machine (`local`, with a checkout in [`factories/`](factories/)) or
+somewhere else (`remote`), the label that submits an issue to it, the label it
+uses to give up, a time limit (24 hours by default) and a number of rounds
+(3 by default). `time_limit_hours` is above 0 and at most 8,760, a year, and
+`max_rounds` a whole number from 1 to 100; no value turns either off, `steps`
+refuses one outside them, and a record holding one reads as a record `status`
+can't read. The limit applies while a run waits on the factory, a review or
+its checks, counted from the submission, the last round sent back or the pull
+request's newest commit, whichever came last, so it also counts your own wait
+to review a head. A ready verdict waits on you with no limit whatever its
+checks read, `ready for a person`, failing, unknown, `changes CI`,
+`no required check` or not independent, except checks still pending, which
+keep it, a workflow held for approval included. What the limits allow and
+count is written here and nowhere else; `LIMITS` in
+[`scripts/factories.py`](scripts/factories.py) checks the ranges, and a test holds the two to each
+other. A GitHub read that fails changes nothing, except a
+failed read of the required checks after a ready verdict, which reads
+`checks unknown`, and a run that read ready reads `returned` from the moment
+status starts on it until a status gets all the way through. A run
+ends when its
+pull request is merged, or closed with nothing in its place. Only the
+factory's own pull request counts as what it returned: one in the issue's
+repo, into the default branch, by the step's `factory_login` when it names
+one, and from a branch in the repo or a fork that `factory_login` owns. [`factories.example.json`](factories.example.json) has every key, and [`factories/README.md`](factories/README.md) says what a
+factory has to do, and how a copy of this harness is set up as one. With no `factories.json`,
+nothing here runs. A chain of factories waits until one is proved.
+
+| Command | What it does | Writes to GitHub |
+|---|---|---|
+| `factories.py steps` | Reads `factories.json` and the factory's commit | Nothing |
+| `factories.py dispatch 12 --repo o/r` | Shows the factory, the repo, the issue and the label; warns when the branch requires no status check; says what goes to the factory the first time; then submits on `--yes` or a typed yes | The submit label on #12 |
+| `factories.py status` | Reads each run's issue and pull request, then the verdict and the required checks of a reviewed head, and names `review RUN` for a head not yet reviewed | Nothing |
+| `factories.py review RUN` | Has `loop.py review --pr N` review the run's pull request, spending model tokens, then moves the run on as `status` does. It runs while the loop runs and outside its hours, on a lock for that pull request alone, and only from the harness `factories.py` is in | The review's one comment, on your login |
+| `factories.py resend RUN` | Sends a run back for one more round, once per reviewed commit, on `--yes` or a typed yes: after changes needed, or after a ready verdict whose checks fail or that changes CI, or with `--because "why"` when a person disagrees. After a ready verdict it first posts why, ending `VERDICT: changes needed`, for the factory to read | The submit label on #12 again, and that comment |
+| `factories.py cancel RUN` | Shows what cancelling does and changes nothing; on `--yes` or a typed yes, takes the submit label off the issue and ends the run as `cancelled`. It doesn't withdraw what the factory already took: a pull request it opens afterwards is closed, and the factory told, by hand | The label off #12, on the yes |
+| `factories.py doctor --repo o/r --pr 31` | Builds the record dispatch would make, takes the head as reviewed, reading it as ready where you haven't reviewed it, and never gives a merge, and moves it on through the run's own code with `gh` held to an allowlist of reads, so it stops where a run would: the stopped label, a pull request that isn't the factory's, a draft, another base or changes needed read no checks, and it exits 1. Lists every call with what it came to, a reply it couldn't use or a row it skipped noted on the call that gave it, then what `status` would say, short of the merge, with every control character GitHub sent printed as `?` | Nothing |
+| `factories.py list` | Every run from its record alone | Nothing |
+
+Each run writes one record to `.harness/factories/`, gitignored: the issue,
+the factory, its commit and whether it was read from a checkout or only
+declared, the state, the pull request, the rounds, and when it started and
+ended. A factory's tokens and cost read `not reported`, since its usage isn't
+visible from here. A run belongs to the clone that dispatched it and the
+person who runs its review, and works with repos on github.com only:
+[`factories/README.md`](factories/README.md) has both, and *Getting to ready*, every setting a ready
+run needs.
+
+**What it holds to.** The only write to the issue is the submit label, each
+time on a yes. Nothing in `factories/<name>/` is run, imported or read except
+the checkout's commit and its local git config. The guard keeps a headless run out of
+[`factories/`](factories/) altogether. The reviewer is the loop's: it reads the diff detached,
+outside your clone, with read tools only, and the pull request's text is data
+in its prompt. The verdict is read from the trailer of your own review comment
+for the head commit, through the same reader the loop's round uses, and
+anything but "changes needed", "ready" or "ready with nits" goes to a person
+rather than another round. A factory's own verdict, such as
+"VERDICT: merge", is never read. The verdict that decides between another
+round and a person is the reviewer's last line, which the diff it read can
+steer: that's why the checks have to hold on their own. If the comment's
+verdict changed after the loop posted it, the run needs a person.
+
+Ready means the required checks passed on the commit the review read, read
+from the base repo, and none of the ways the harness knows for a factory to
+produce its own checks was found: a claim about what it can read, not proof,
+so read the diff. *Getting to ready* in [`factories/README.md`](factories/README.md) is the one place
+that says what it requires and what it can't show. Short of it, a run reads
+`checks failing`, `checks pending`, `checks unknown`, `changes CI`,
+`no required check` or `checks pass, not independent`, and says why. Nothing
+here merges, approves or closes. A ready run's line ends with one command for
+a person to copy. It checks the base just before merging, since a pull
+request's author can change it, and says why when it doesn't merge; it names
+the whole commit the review read, so a push after the review fails the merge.
+A retarget between that check and the merge isn't caught, since GitHub's merge
+pins the head and not the base, so protect every branch a pull request could
+target. A step's `merge_method` in `factories.json`, `merge`, `squash` or
+`rebase`, goes into the command; without one gh asks which, and fails with no
+terminal. `--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
+run `status` on the run right before merging. [`skills/dispatch/`](skills/dispatch/) is the conversation around it.
+
 ## Context: who remembers what
 
 - **Each agent has its own context.** A review agent, or any subagent, starts
@@ -634,10 +743,11 @@ that has to be on for a workflow to open a pull request at all.
 
 ## How much of it is code
 
-Very little. The agents are the tool's own agents, defined in Markdown. The
-skills are Markdown. The code is the gate, the git hook, the setup check and
-three small Claude Code hooks, all standard-library Python or shell, all with
-tests.
+Less than the rest. The agents are the tool's own agents, defined in
+Markdown, and the skills are Markdown. The code is standard-library Python or
+shell, all with tests: the gate, the git hook, the setup check, the Claude
+Code hooks, and the scripts in [`scripts/`](scripts/), of which the loop and `factories.py`
+are the largest.
 
 You'd write SDK code when a loop has to run without a person: in CI, on a
 schedule, or across many tickets at once. Even then, the harness files stay
