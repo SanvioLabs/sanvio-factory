@@ -47,7 +47,7 @@ skill.
 Exits 0 when no case is failing, 1 when one is, 2 when the folder has no cases or a default is asked of
 cases for more than one reviewer. A case that names both agent and skill, or neither, raises ValueError.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import argparse
 import json

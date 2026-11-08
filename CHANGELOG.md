@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: Every link points at SanvioLabs/sanvio-factory
+
+The last part of the rename to Sanvio Factory, after the GitHub repo became `SanvioLabs/sanvio-factory`. Every address in the docs, the skills and the scripts points at the new name: [`CITATION.cff`](CITATION.cff), the talk slides' link, the address drawn in [`docs/harness-anatomy.png`](docs/harness-anatomy.png), and the line at the top of each skill and script, which now reads "From Sanvio Factory by Sanvio Labs, MIT". Where the docs said "the starter" for the public repo, they say Sanvio Factory. The starter-updates skill keeps its name and every phrase that reaches it, "check the starter" included. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo by either address, since a clone taken before the rename keeps the old one and GitHub redirects it.
+
+Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`tests/test_skills.py`](tests/test_skills.py), [`CITATION.cff`](CITATION.cff), [`README.md`](README.md), [`docs/harness-anatomy.png`](docs/harness-anatomy.png), [`skills/starter-updates/`](skills/starter-updates/), [`CHANGELOG.md`](CHANGELOG.md), and every skill, script, hook and doc that named the old address or called the repo "the starter".
+
+**Do:** nothing is urgent: the old address redirects. When it suits you, point any remote that names it at the new one, for example `git remote set-url upstream https://github.com/SanvioLabs/sanvio-factory`, and change any product repo's caller that says `uses: SanvioLabs/sanvio-harness-starter/...` to `uses: SanvioLabs/sanvio-factory/...`.
+
 ## 2026-11-08: The CI review takes factory-repo and FACTORY_DEPLOY_KEY
 
 The fourth part of the rename to Sanvio Factory. The review workflow product repos call, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), now takes the input `factory-repo` and the secret `FACTORY_DEPLOY_KEY`, in place of `harness-repo` and `HARNESS_DEPLOY_KEY`. Unlike the earlier parts, the old names don't keep working: a caller that passes them fails. The caller in [`examples/ci/README.md`](examples/ci/README.md) uses the new names and `your-org/factory`, and its sections *A private factory repo* and *Protecting the factory repo* are renamed. The job still checks the rules out into `harness/`, since what it checks out is the harness.

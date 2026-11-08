@@ -1,7 +1,7 @@
 ---
 name: review-tests
 description: Check whether a set of tests, especially AI-generated ones, would actually catch a bug. Breaks the code on purpose in a scratch copy, runs the tests, and reports which tests protect something and which only pass. Use when asked "are these tests any good", "review the tests", "would these catch a regression", or after an agent writes tests.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Review tests

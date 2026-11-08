@@ -1,7 +1,7 @@
 ---
 name: dispatch
 description: Hand an issue to another factory, such as another team's delivery system or another copy of this factory, and review what comes back, through scripts/factories.py. Shows the factory and what goes to it, submits on a yes, checks where each run is, has the loop's reviewer read the returned pull request, sends changes back on a yes, and reports the required checks apart from any verdict. Never merges. Use when someone says "dispatch #12", "send #12 to the factory", "hand this to the build team", "what did the factory send back", "factory status", or "send it back to the factory".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Dispatch

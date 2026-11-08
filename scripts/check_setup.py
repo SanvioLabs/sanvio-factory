@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import names  # noqa: E402 (beside this file: the old names, and the new ones)
 
 ROOT = Path(__file__).resolve().parent.parent
-STARTER = re.compile(r"[/:]SanvioLabs/sanvio-harness-starter(\.git)?/?$", re.I)
+# The public repo, by its name since the GitHub rename or the old one a clone taken before it keeps.
+STARTER = re.compile(r"[/:]SanvioLabs/sanvio-(factory|harness-starter)(\.git)?/?$", re.I)
 
 
 def git(root, *args):
@@ -110,7 +111,7 @@ def check_remote(root):
         return ("PASS", "remote: no origin, so nothing gets pushed anywhere yet", None)
     shown = marked(safe_url(url))
     if STARTER.search(url):
-        return ("WARN", "remote: origin is the public starter ({})".format(shown),
+        return ("WARN", "remote: origin is the public Sanvio Factory ({})".format(shown),
                 "company/ stays on your machine either way. Make your own private copy "
                 "before you push your own work: anything pushed to a public repo is public.")
     return ("WARN", "remote: origin is {}".format(shown),

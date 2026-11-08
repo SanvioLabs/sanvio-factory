@@ -278,8 +278,8 @@ warning the harness's session-start hook prints (an unset `core.hooksPath`, for
 instance) is the first thing every agent session says, and it ends up at the top of
 `plan.md` and the review.
 
-**Try it** on a private copy first. On a clone of the public starter, the
-first real run opens a public pull request. Label one small issue
+**Try it** on a private copy first. On a clone of the public Sanvio Factory,
+the first real run opens a public pull request. Label one small issue
 `loop-ready`, then:
 
     python3 scripts/loop.py run --dry-run    # which issue it would take, then stop

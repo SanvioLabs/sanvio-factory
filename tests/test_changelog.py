@@ -50,7 +50,7 @@ Adds a thing.
 
 
 class Changelog(unittest.TestCase):
-    def test_the_log_the_starter_ships_is_readable(self):
+    def test_the_log_sanvio_factory_ships_is_readable(self):
         self.assertEqual(problems((ROOT / "CHANGELOG.md").read_text()), [])
 
     def test_a_good_log_passes(self):
@@ -149,7 +149,7 @@ class WhatsNewAgainstItsRemote(unittest.TestCase):
 
 class StarterUpdatesCommands(unittest.TestCase):
     """The commands in skills/starter-updates/SKILL.md, run as written against a scratch clone of a
-    starter and a copy that shares none of its history."""
+    stand-in upstream and a copy that shares none of its history."""
 
     run_in = WhatsNewCommands.run_in
     git = WhatsNewAgainstItsRemote.git
@@ -229,7 +229,7 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
         self.assertEqual(self.run_with(self.command(self.CAPABILITIES)), ["| Name |", "|---|", "| The loop |"])
 
-    def test_a_starter_without_the_capabilities_table_fails_the_command(self):
+    def test_an_upstream_without_the_capabilities_table_fails_the_command(self):
         cmd = self.command(self.CAPABILITIES) + " && echo found || echo missing"
         self.assertEqual(self.run_with(cmd), ["missing"])
 

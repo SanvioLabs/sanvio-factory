@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session retro: keeps the log of a session where the agent got corrected, for skills/retro/ to read.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
 Wired in .claude/settings.json on SessionEnd and PreCompact. Off unless SANVIO_RETRO=on, because it
 keeps a copy of a whole session log: everything said in it and every file it read. A session counts

@@ -5,7 +5,7 @@ GitHub, a browser tab away from the session. This mod draws one line above the
 prompt with the repo's running actions, open pull requests and open issues:
 
 ```
-◆ github  SanvioLabs/sanvio-harness-starter · 1 action running (2 queued) · 3 open pull requests · 5 open issues
+◆ github  SanvioLabs/sanvio-factory · 1 action running (2 queued) · 3 open pull requests · 5 open issues
 ```
 
 It's a Claude Code mod, so it works in Claude Code only: it was seen working in
@@ -69,7 +69,7 @@ that project's `origin` repo, with `<name>: ` at the start. Repos cloned under
 | `/project` | Prints the project in focus, or that there's none |
 
 ```
-harness: SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 5 open issues
+harness: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 5 open issues
 acme: acme/app · 1 action running · 4 open pull requests · 12 open issues
 1 folder under projects/ has no GitHub remote.
 ```

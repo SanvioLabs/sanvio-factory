@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code guard: runs before every tool call the agent makes.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
 Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
 

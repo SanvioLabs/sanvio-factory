@@ -1,7 +1,7 @@
 # CI examples
 
 Workflows to copy into a repo's [`.github/workflows/`](../../.github/workflows/). They live here, under
-[`examples/`](../../examples/), so none of them runs in the starter's own CI.
+[`examples/`](../../examples/), so none of them runs in Sanvio Factory's own CI.
 
 - [`examples/ci/loop.yml`](loop.yml) runs one pass of the loop on a runner: one ready issue, through to a pull request it doesn't merge.
 - [`examples/ci/project-checks.yml`](project-checks.yml) is CI for a code repo in [`projects/`](../../projects/): each job skips with a notice until the file it needs exists.
