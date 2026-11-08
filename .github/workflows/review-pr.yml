@@ -25,7 +25,7 @@
 # The secrets: ANTHROPIC_API_KEY, which has to be scoped to a workspace in the
 # Anthropic Console, or CLAUDE_CODE_OAUTH_TOKEN in its place, a token from
 # `claude setup-token` that bills a Claude subscription instead of the API;
-# and HARNESS_DEPLOY_KEY, the private half of a deploy key on this repo with
+# and FACTORY_DEPLOY_KEY, the private half of a deploy key on this repo with
 # write access left off. All three are optional below so that a missing one
 # gets this workflow's own message. With neither Claude credential the review
 # skips with a notice; with both, the CLI uses the API key. A missing deploy
@@ -37,7 +37,7 @@
 # Give the deploy key to repos whose writers you'd trust with this repo.
 # A commit on this repo's default branch runs in every calling repo with
 # that repo's secrets, so this repo's main needs the protection that
-# examples/ci/README.md describes under "Protecting the harness".
+# examples/ci/README.md describes under "Protecting the factory repo".
 #
 # Why the permissions are so small: the agent reads diff text that anyone who
 # can open a pull request can write, so treat it as untrusted input. The agent
@@ -54,8 +54,8 @@ name: Review pull request
 on:
   workflow_call:
     inputs:
-      harness-repo:
-        description: "This harness repo, as owner/name. A called workflow can't read its own repo's name."
+      factory-repo:
+        description: "This factory repo, as owner/name. A called workflow can't read its own repo's name."
         required: true
         type: string
     secrets:
@@ -65,8 +65,8 @@ on:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: "Instead of the API key: a Claude subscription token from claude setup-token."
         required: false
-      HARNESS_DEPLOY_KEY:
-        description: "The private half of a read-only deploy key on the harness repo."
+      FACTORY_DEPLOY_KEY:
+        description: "The private half of a read-only deploy key on the factory repo."
         required: false
 
 permissions:
@@ -116,10 +116,10 @@ jobs:
       - name: Fail when the harness has no credential
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
-          HARNESS_DEPLOY_KEY: ${{ secrets.HARNESS_DEPLOY_KEY }}
+          FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
         run: |
-          if [ -z "$HARNESS_DEPLOY_KEY" ]; then
-            echo "::error::HARNESS_DEPLOY_KEY is not set, so the harness can't be checked out and nothing is posted."
+          if [ -z "$FACTORY_DEPLOY_KEY" ]; then
+            echo "::error::FACTORY_DEPLOY_KEY is not set, so the harness can't be checked out and nothing is posted."
             exit 1
           fi
 
@@ -129,8 +129,8 @@ jobs:
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          repository: ${{ inputs.harness-repo }}
-          ssh-key: ${{ secrets.HARNESS_DEPLOY_KEY }}
+          repository: ${{ inputs.factory-repo }}
+          ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}
           path: harness
           persist-credentials: false
           sparse-checkout: |
@@ -145,15 +145,15 @@ jobs:
       - name: Say which harness commit reviews
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
-          HARNESS_REPO: ${{ inputs.harness-repo }}
+          FACTORY_REPO: ${{ inputs.factory-repo }}
         run: |
           echo "Harness commit: $(git -C harness rev-parse HEAD)"
           if [ ! -f harness/skills/review-pr/SKILL.md ]; then
-            echo "::error::$HARNESS_REPO has no skills/review-pr/SKILL.md. Check that inputs.harness-repo names the harness repo, and that HARNESS_DEPLOY_KEY is that repo's deploy key."
+            echo "::error::$FACTORY_REPO has no skills/review-pr/SKILL.md. Check that inputs.factory-repo names the factory repo, and that FACTORY_DEPLOY_KEY is that repo's deploy key."
             exit 1
           fi
           if [ ! -f harness/AGENTS.md ]; then
-            echo "::error::$HARNESS_REPO has no AGENTS.md, so harness/AGENTS.md is missing and the review has no rules to follow."
+            echo "::error::$FACTORY_REPO has no AGENTS.md, so harness/AGENTS.md is missing and the review has no rules to follow."
             exit 1
           fi
 

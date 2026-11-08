@@ -68,7 +68,7 @@ To run this skill on every pull request without anyone asking,
 [`.github/workflows/`](../../.github/workflows/). It runs the skill headlessly and posts the report as one
 comment. The workflow posts; the skill still doesn't. It runs on Claude, Codex
 or a local Ollama model, chosen with the `REVIEWER` repository variable. To
-review many product repos from one harness repo instead, with no copy of the
+review many product repos from one factory repo instead, with no copy of the
 skill in each, follow [`examples/ci/README.md`](../../examples/ci/README.md).
 
 ## Rules
