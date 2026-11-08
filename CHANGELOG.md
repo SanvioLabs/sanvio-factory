@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: Standup remembers what you already settled
+
+[`skills/standup/`](skills/standup/) now keeps its answers in a gitignored
+`reports/standup/answers.jsonl` on your machine: the item, the date and the pick,
+for GitHub and loop items only. An item you marked `Done already` or `Drop it`
+that is still open is listed with the command that closes it, not asked again.
+A day's pick, such as `Later today`, is still asked each morning, with what you
+picked last time in the question.
+
+Files: [`skills/standup/SKILL.md`](skills/standup/SKILL.md), [`reports/standup/README.md`](reports/standup/README.md), [`.gitignore`](.gitignore), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add these two lines to your [`.gitignore`](.gitignore), so your answers never get committed:
+`reports/standup/*` and `!reports/standup/README.md`.
+
 ## 2026-11-08: A headless search leaves out company/ and factories/
 
 A run [`bin/harness`](bin/harness) started (headless) could search `company/` and [`factories/`](factories/) with a `Grep` over the root: [`.ignore`](.ignore) lets `company/` back into a search so an ordinary session can read it, and ripgrep, run with Claude Code's flags, follows it. The guard now passes each headless `Grep` on with `company/`, `local-data/`, `.inbox/` and [`factories/`](factories/) excluded at the root, as it already did for bare repos. [`factories/README.md`](factories/README.md) also gains *What the factory must do*: the contract a factory meets on GitHub, and the `loop.json` that sets up a copy of this harness as one, `review_logins` included. It now says a run records the factory checkout's commit at submission, not exactly which version did the work.

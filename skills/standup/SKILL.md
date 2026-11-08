@@ -1,6 +1,6 @@
 ---
 name: standup
-description: One morning read of what's on this person, from the sources the harness can reach, then a multiple-choice question on each item with a recommended next step, and a suggested order for the day. Reads only, changes nothing. Use when someone says "standup", "morning check", "what's on me today", "what's on my plate", "what do I need to do first", or "start my day".
+description: One morning read of what's on this person, from the sources the harness can reach, then a multiple-choice question on each item with a recommended next step, and a suggested order for the day. Reads only, and changes nothing but its own local record of the answers, so an item already settled isn't asked again. Use when someone says "standup", "morning check", "what's on me today", "what's on my plate", "what do I need to do first", or "start my day".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 
@@ -10,9 +10,10 @@ Starting the day means checking the same places by hand. This skill checks them
 in one pass, says where to start, and asks about each item, with a
 recommendation, so the order for the day comes from the person, not a guess.
 
-It changes nothing. It sends nothing, comments nowhere, and edits no issue,
-label, pull request or calendar entry. Where an answer implies a change, it
-gives the command and the person runs it.
+It changes nothing outside its own record of the answers, a gitignored file in
+[`reports/standup/`](../../reports/standup/) on this machine. It sends nothing,
+comments nowhere, and edits no issue, label, pull request or calendar entry.
+Where an answer implies a change, it gives the command and the person runs it.
 
 ## Steps
 
@@ -121,14 +122,30 @@ gives the command and the person runs it.
      the call on every question; an unmarked list hands the judgement back.
      The window adds Other for anything else.
    - Take "all still on" or "skip the rest" as an answer for everything left.
+   - **An answer from an earlier run stands.** Read the record first (step 8).
+     An item whose latest recorded pick is `Done already` or `Drop it` and
+     which the sources still show open isn't asked again: list it as
+     `<item>: you said <pick> on <date>, still open`, with the command that
+     closes it, and move on. A day's pick (`Do it first today`, `Later today`,
+     `Not today`, `Leave it`, `Nudge <who>`) is asked again, because the order
+     is set fresh each day, and the question says what was picked last time
+     (`Later today on 11-04`).
 
-   The answers set the order in step 7 and change nothing else. A pick such as
+   The answers set the order in step 7, are kept in step 8, and change nothing else. A pick such as
    `Nudge <who>` or `Drop it` gets the command or the one line to do it, and
    they run it.
 7. **Suggest the order.** End with the day's order: what they kept, with
    `Do it first today` first, then by what blocks someone else. A review someone is
    waiting on goes ahead of work only they are waiting on. Drop the dropped and
    the done.
+8. **Keep the answers.** Append one JSON line per answered GitHub or loop item
+   to `reports/standup/answers.jsonl`, creating it if it's missing:
+   `{"item": "<owner/repo>#<number>", "date": "YYYY-MM-DD", "pick": "<the option's label>"}`.
+   Only those three fields, and only for GitHub and loop items: never write an
+   email's subject or sender, a meeting's title, or an Other answer's text to
+   disk. The latest line for an item is its answer. A line older than 30 days
+   is ignored. If the file can't be written, say so in one line and carry on;
+   the report doesn't depend on it.
 
 ## Rules
 
@@ -150,7 +167,7 @@ gives the command and the person runs it.
 ## Output
 
 The "Start here" line, "On you", "Waiting on someone" (each omitted if empty),
-the pulse line, the skipped-source lines, then a question on each item, and last the
-suggested order for the day. No confidence line at the end: each recommendation
+the pulse line, the skipped-source lines, then a question on each item not already
+settled, and last the suggested order for the day. No confidence line at the end: each recommendation
 is made in its own question, with its reason, and per
 [`steering/response-style.md`](../../steering/response-style.md) a skill's own output governs the reply.

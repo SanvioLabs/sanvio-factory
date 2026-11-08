@@ -18,6 +18,8 @@ reports/work/*
 !reports/work/README.md
 reports/pulse/*
 !reports/pulse/README.md
+reports/standup/*
+!reports/standup/README.md
 reports/trends/*
 !reports/trends/README.md
 .inbox/
