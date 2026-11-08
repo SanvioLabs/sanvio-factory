@@ -10,6 +10,7 @@ doesn't fail: it's something to decide, not something broken.
 """
 import argparse
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -73,8 +74,22 @@ def check_links(root):
 
 
 def safe_url(url):
-    """The remote URL with any user:token@ part removed, so a credential never gets printed."""
-    return re.sub(r"^([a-z+]+://)[^/@]+@", r"\1", url)
+    """The remote URL with any user:token@ part removed, up to the last @ before the host since a password can
+    hold one, whatever else it holds, so a credential never gets printed. loop.py's url_alone has the same
+    rule; this script runs before the harness is set up, so it keeps its own, and tests/test_check_setup.py
+    holds the two alike."""
+    return re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@", r"\1", url)
+
+
+# A remote as gh is asked about it and as a command to copy prints it: an https URL of plain characters, short
+# enough to print whole. Anything else, a shell character, a leading - gh would read as a flag, or a URL cut
+# short, never reaches gh or the command.
+PLAIN_REF = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?(?:/[A-Za-z0-9._~-]+)+")
+
+
+def marked(text):
+    """text with each character that doesn't print shown as ?, and cut, so a remote can't add a line."""
+    return "".join(c if c.isprintable() else "?" for c in text)[:200]
 
 
 def repo_ref(url):
@@ -90,7 +105,7 @@ def check_remote(root):
     url = git(root, "remote", "get-url", "origin")
     if not url:
         return ("PASS", "remote: no origin, so nothing gets pushed anywhere yet", None)
-    shown = safe_url(url)
+    shown = marked(safe_url(url))
     if STARTER.search(url):
         return ("WARN", "remote: origin is the public starter ({})".format(shown),
                 "company/ stays on your machine either way. Make your own private copy "
@@ -123,10 +138,15 @@ def check_company_repo(company):
         return ("WARN", "company: company/ is a git repo with no origin, so its visibility can't be checked",
                 "Push it to a private repo, then check: gh repo view <url> --json visibility")
     ref = repo_ref(origin)
-    command = "gh repo view {} --json visibility -q .visibility".format(ref)
+    shown = marked(ref)
+    if not PLAIN_REF.fullmatch(ref) or len(ref) > 200:
+        return ("WARN", "company: company/ is a clone of {}, which isn't a plain https URL, so its visibility "
+                "wasn't checked".format(shown),
+                "Check by hand: gh repo view <company/'s origin URL> --json visibility -q .visibility")
+    command = "gh repo view {} --json visibility -q .visibility".format(shlex.quote(ref))
     if not shutil.which("gh"):
         return ("WARN", "company: company/ is a clone of {}, and without gh its visibility can't be "
-                "checked".format(ref), "Install gh, or check by hand: " + command)
+                "checked".format(shown), "Install gh, or check by hand: " + command)
     try:
         result = subprocess.run(["gh", "repo", "view", ref, "--json", "visibility", "-q", ".visibility"],
                                 capture_output=True, text=True, timeout=15)
@@ -134,11 +154,11 @@ def check_company_repo(company):
     except (OSError, subprocess.TimeoutExpired):
         visibility = ""
     if visibility == "PUBLIC":
-        return ("FAIL", "company: company/ is a clone of {}, which is public".format(ref),
+        return ("FAIL", "company: company/ is a clone of {}, which is public".format(shown),
                 "Make that repo private now: anyone can read what's in it.")
     if visibility in ("PRIVATE", "INTERNAL"):
-        return ("PASS", "company: company/ is a clone of {}, which is {}".format(ref, visibility.lower()), None)
-    return ("WARN", "company: couldn't check whether {} is private".format(ref),
+        return ("PASS", "company: company/ is a clone of {}, which is {}".format(shown, visibility.lower()), None)
+    return ("WARN", "company: couldn't check whether {} is private".format(shown),
             "Check by hand: " + command)
 
 

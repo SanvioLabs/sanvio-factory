@@ -230,6 +230,7 @@ keeps its default:
 | `worktree_dir` | `~/.harness-loop/<repo>` | Where the build checkouts go. Keep it outside the clone: an agent started inside it loads this repo's [`CLAUDE.md`](CLAUDE.md) twice and stops to ask you to restart from the root |
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
+| `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the harness's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
 
@@ -364,6 +365,29 @@ A manifest edited on its own isn't caught, so a `uv` or `cargo` test command
 should pass `--locked` (`uv run --locked`, `cargo test --locked`), which fails
 when the lockfile disagrees with it.
 
+**An issue put back while its pull request is open** is a round on that pull
+request, which is how a review that asks for changes comes back. Only the
+loop's own pull request counts: one from this repo, into its base, whose head
+is where `origin`'s branch is. One from a fork on a branch of the same name
+doesn't. The loop fetches `loop/issue-N` from `origin` and resets the issue's
+branch to it, so it builds on what the pull request shows, and logs a line if
+that drops commits here that were never pushed. Changes in the worktree that
+were never committed block the issue instead, and nothing is reset. The
+planner gets the newest review of that head: the comment starting
+`<!-- loop-review-pr-report -->`, posted by a login in `review_logins` (by
+default the one the loop runs as), whose last line names the head's commit,
+newest by its last edit. Anyone who can read the repo can comment, so no one
+else's comment is read. The review
+comes after the ticket as evidence, never instructions, and the planner
+restates in its own words only the changes the ticket backs. The push isn't
+forced, so a branch that moved during the round still blocks. No second pull
+request opens: the log says `PR updated`, and the ready label comes off. If
+the pull request was closed or merged during the round, or its state can't
+be read, the round pushes nothing and blocks the issue: a close a person made
+stays made. So does a round that leaves the branch where the pull request
+already is. It asks GitHub only when `origin` has the branch, so a new issue
+runs as before.
+
 **What the review can see.** The reviewer gets the plan, the diff and the
 script's test output. With the default `reader_agent` it can't run commands,
 so it checks the rest by reading the code. If the proof is a command, put
@@ -452,17 +476,35 @@ as a user, or on a machine, with nothing you'd mind a test reading.
 **Reviewing pull requests.** The issues are half the queue; pull requests waiting
 on your review are the other half. Start it on the machine the loop runs on, in
 its own tmux session. It takes the same lock as `run`, so one process works a
-clone at a time: to run both at once, give each its own clone.
+clone at a time: to run both at once, give each its own clone. `review --pr N`
+is the exception: a person asked for that one pull request, so it runs while
+the loop runs and outside `hours`, holding a lock for that pull request alone,
+which the loop's own review of it waits on too. Each reads the commit the
+other reviewed, so the watcher never reviews a head `--pr` already did, and
+`--pr` reviews again a head whose review failed. A review names origin's repo
+to `gh` on every call, so a comment can't land on another repo's pull request,
+and refuses in one line, before any call, when origin as git fetches it isn't
+on github.com.
 
     python3 scripts/loop.py review --once    # review what is waiting, then stop
     python3 scripts/loop.py review           # then keep watching, every poll_seconds
+    python3 scripts/loop.py review --pr 31   # review pull request 31 alone, then stop
 
 It lists the open, non-draft pull requests that match `review_query`. For each
 new head commit it checks the pull request out detached, outside your clone, in
 `~/.harness-loop/`, and has a fresh `reader_agent` follow
 [`skills/review-pr/`](skills/review-pr/) for the change between the base and the
-head. The script, not the agent, posts the report: one comment per pull
-request, marked, and edited in place on the next commit. It's the same
+head. The agent ends its report with a verdict line, `VERDICT: ready`,
+`VERDICT: ready with nits` or `VERDICT: changes needed`. The script, not the
+agent, posts the report: one comment per pull request, marked, edited in place
+on the next commit (only its own: a marked comment with another header, such as
+a person's send-back, is left as it is), and ending in a trailer that names the whole commit and
+the verdict the report's last line gave, or `unreadable` when it isn't one of
+those or the report had to be cut to fit one comment, since its last line
+then isn't posted. Every `<` in the report is escaped, in code too, every
+footnote marker too, and a fence it leaves open is closed, so no tag, HTML
+block, footnote or fence can hide the trailer on the page, wherever a list or
+a quote puts it; code in a review shows `&lt;` for `<`. It's the same
 comment-edited-in-place pattern as [`examples/ci/review-pr.yml`](examples/ci/review-pr.yml), on the machine
 that already runs the loop and with no CI minutes. It writes one line per
 review to the same log:
@@ -471,8 +513,25 @@ review to the same log:
     2026-10-13T09:02:12 - REVIEW #32 7be03d8 skipped (draft)
     2026-10-13T09:11:40 - REVIEW #33 c19e5a2 failed: agent exit 1
 
-A commit is reviewed once. The result goes in `.loop/status.json` under
-`reviews`, so a poll that sees the same commit again starts no agent. A review
+A commit is reviewed once against each base. The result goes in
+`.loop/status.json` under `reviews` with the base its diff was read against,
+so a poll that sees the same commit on the same base again starts no agent; a
+pull request retargeted since, or a review recorded before reviews kept their
+base, is reviewed again. With
+`--pr N` the result goes in `.loop/review-pr-N.json` instead, since a loop
+running in that clone rewrites `status.json` whole; the log goes to stderr,
+and stdout is one JSON line for that pull request: its `number`, the `sha` and
+`state` of its newest review, a `note`, the `verdict`, and the `base` its
+diff was read against. While another
+review of it is running, the line's `state` is `not reviewed` and its `note`
+says so. Each pull request `--pr` or the watcher reviews keeps a
+`.loop/review-pr-N.lock` beside its result, one pair per pull request, never
+cleared; on a system with no file lock (Windows), `--pr` refuses and the
+watcher reviews without one. Each review fetches the pull request's head into
+`refs/loop/review-pr-N` and its base into `refs/loop/review-base-N`, refs of
+their own in the clone, kept like the lock and replaced on the next review.
+Before it reviews, each reads both `status.json` and the pull request's own
+file again, so a head the other just reviewed isn't paid for twice. A review
 whose agent exits non-zero or times out posts nothing, and it isn't tried again
 until the pull request has a new commit; neither is a diff that can't be made,
 such as a base with no history in common. A fetch, checkout or GitHub error is

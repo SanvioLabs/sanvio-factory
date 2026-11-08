@@ -89,6 +89,14 @@ class SetupCheck(unittest.TestCase):
         self.assertNotIn("ghp_notarealtoken", line)
         self.assertIn("https://github.com/acme/harness.git", line)
 
+    def test_a_remote_s_control_characters_print_marked(self):
+        # Before T076 a newline in origin printed a line of its own (review after Phase 13, security).
+        self.git("remote", "add", "origin", "https://gitlab.example/o/r\n- forged \x1b[2J")
+        _, line, _ = check_setup.check_remote(self.root)
+        self.assertNotIn("\n", line)
+        self.assertNotIn("\x1b", line)
+        self.assertIn("r?- forged ?[2J", line)
+
     def test_the_example_proposal_passes_the_gate_in_this_repo(self):
         self.assertEqual(check_setup.check_gate(ROOT)[0], "PASS")
 
@@ -137,6 +145,37 @@ class SetupCheck(unittest.TestCase):
         status, line, _ = check_setup.check_company(self.root)
         self.assertEqual(status, "FAIL")
         self.assertIn("https://github.com/acme/company", line)
+
+    def test_a_remote_that_isn_t_a_plain_url_prints_as_a_placeholder_in_the_command(self):
+        # Before T076 it printed the remote as it came, so a ; or $( in it ran as a command (review after
+        # Phase 13, security). Before T080 it was quoted, which fish reads otherwise, and cut after quoting
+        # (review after Phase 14, security).
+        self.fake_gh()
+        for origin in ("https://github.com/acme/co;touch x", "https://github.com/acme/co\\'\";touch pwned;#",
+                       "https://github.com/acme/" + "a" * 300):
+            with self.subTest(origin=origin[:40]):
+                shutil.rmtree(self.root / "company", ignore_errors=True)
+                self.company_repo(origin=origin)
+                _, _, fix = check_setup.check_company(self.root)
+                self.assertIn("gh repo view <company/'s origin URL> --json visibility", fix)
+                self.assertNotIn("touch", fix)
+
+    def test_a_plain_remote_prints_as_it_is_in_the_command(self):
+        self.company_repo(origin="https://github.com/acme/company.git")
+        self.fake_gh()
+        _, _, fix = check_setup.check_company(self.root)
+        self.assertIn("gh repo view https://github.com/acme/company --json visibility", fix)
+
+    def test_a_remote_starting_with_a_dash_never_reaches_gh(self):
+        # Before T080 it went to gh as a flag, --web opening a browser (review after Phase 14, security).
+        self.company_repo(origin=None)
+        with open(self.root / "company" / ".git" / "config", "a") as config:
+            config.write('[remote "origin"]\n\turl = --web\n')
+        self.fake_gh("echo PRIVATE")
+        status, _, fix = check_setup.check_company(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertFalse((self.root / "gh.args").exists())
+        self.assertIn("<company/'s origin URL>", fix)
 
     def test_a_private_company_repo_passes(self):
         self.company_repo()
@@ -248,6 +287,46 @@ def run_script(*args):
 def check_lines(result):
     return [line for line in (result.stdout + result.stderr).splitlines()
             if line.startswith(("PASS", "WARN", "FAIL"))]
+
+
+class SafeUrl(unittest.TestCase):
+    def test_a_password_holding_an_at_is_never_printed(self):
+        # Before T072 the cut stopped at the first @, and the password's tail printed (review after Phase 12).
+        token = "made" + "up" + "tok" + "en42"
+        self.assertEqual(check_setup.safe_url("https://u:p@" + token + "@github.com/o/r"), "https://github.com/o/r")
+        self.assertEqual(check_setup.safe_url("git@github.com:o/r.git"), "git@github.com:o/r.git")
+
+
+# Each scrub's cases, one table for both: check_setup.py keeps its own, since it runs before the harness is
+# set up, and the two mustn't drift (review after Phase 13).
+TOKEN = "made" + "up" + "tok" + "en42"
+SCRUBS = (("https://u:p@" + TOKEN + "@github.com/o/r", "https://github.com/o/r"),
+          ("https://someone:" + TOKEN + "@gitlab.example/o/r.git", "https://gitlab.example/o/r.git"),
+          ("HTTPS://x:" + TOKEN + "@github.com/o/r", "HTTPS://github.com/o/r"),
+          ("git@github.com:o/r.git", "git@github.com:o/r.git"),
+          ("https://github.com/o/r", "https://github.com/o/r"),
+          # Before T080 a quote in a password ended the user part, and the password printed (review after
+          # Phase 14, security).
+          ("https://u:pa'ss" + TOKEN + "@github.com/o/r", "https://github.com/o/r"))
+
+
+class Scrubs(unittest.TestCase):
+    def test_a_url_on_its_own_is_cut_whatever_its_password_holds(self):
+        # A URL alone has no JSON around it, so nothing in its password ends the user part (review after
+        # Phase 14, security).
+        import loop  # noqa: E402  scripts/ is on the path
+        for held in "'\"<>":
+            url = "https://u:a" + held + TOKEN + "@github.com/o/r"
+            with self.subTest(held=held):
+                self.assertEqual(check_setup.safe_url(url), "https://github.com/o/r")
+                self.assertEqual(loop.url_alone(url), "https://github.com/o/r")
+
+    def test_both_scripts_cut_a_url_alike(self):
+        import loop  # noqa: E402  scripts/ is on the path
+        for url, want in SCRUBS:
+            with self.subTest(url=url):
+                self.assertEqual(check_setup.safe_url(url), want)
+                self.assertEqual(loop.shown_url(url), want)
 
 
 class Arguments(unittest.TestCase):
