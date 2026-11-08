@@ -87,7 +87,7 @@ the last issue is done, a fresh clone outside the harness is scored with the
 key.
 
 [`examples/eval-suite/README.md`](../examples/eval-suite/README.md) has the `--start` command that drives this
-harness's loop, and how to run one on a local model for no token spend.
+factory's loop, and how to run one on a local model for no token spend.
 
 ### Reading the scorecard
 
@@ -113,8 +113,8 @@ That's a made-up run of the starter's own suite, in the real shape.
 | Key leak | Shown only when one of the key's hidden files, such as `score`, turned up in the run repo's history. The run then exits 1, whatever it scored |
 | Time | Wall-clock time for the whole run, merge waits included |
 | Stops | Every time the run couldn't carry on by itself: a start command that failed or timed out, CI that failed, a pull request closed without merging, each wait for a merge (shown as `N at merges`), and each `stop <run> "why"` a person recorded |
-| Rounds, Tokens | From this harness's loop. Another harness reads `not reported` |
-| Cost | From `--usage-command`, or else this harness's loop. `not reported` means nothing reported it, never that it was free |
+| Rounds, Tokens | From this factory's loop. Another harness reads `not reported` |
+| Cost | From `--usage-command`, or else this factory's loop. `not reported` means nothing reported it, never that it was free |
 
 ### Comparing two runs
 

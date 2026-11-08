@@ -1,7 +1,8 @@
 # How to work in this repo
 
-This is a harness: the rules, skills, gates and agents you work inside. You do
-the work. A human reviews it, and a human sends, merges or pays.
+This is Sanvio Factory. Its harness is what you work inside: the rules, skills,
+gates and agents. You do the work. A human reviews it, and a human sends,
+merges or pays.
 
 ## Steering
 
@@ -75,9 +76,9 @@ steps in order.
 | [`skills/learn/SKILL.md`](skills/learn/SKILL.md) | The agent got something wrong and the person wants it to stick: "learn from that", "don't do that again", "make that a rule" |
 | [`skills/retro/SKILL.md`](skills/retro/SKILL.md) | Asked for a retro, why something went wrong in a session, or which sessions the retro hook kept. The hook keeps nothing unless `SANVIO_RETRO=on` |
 | [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md) | Putting an issue on the loop, starting or stopping [`scripts/loop.py`](scripts/loop.py), or asked what the loop did or why an issue is blocked |
-| [`skills/dispatch/SKILL.md`](skills/dispatch/SKILL.md) | Handing an issue to another factory, such as another team's delivery system or a second harness, checking what it sent back, or sending it back for changes. It never merges |
+| [`skills/dispatch/SKILL.md`](skills/dispatch/SKILL.md) | Handing an issue to another factory, such as another team's delivery system or a second copy of this factory, checking what it sent back, or sending it back for changes. It never merges |
 | [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md) | Someone runs `/orientation`, is new here, asks how to use this, says "get me started", or wants it set up for their own job and their company's data |
-| [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md) | At the end of a sprint, or asked for a harness report, a sprint follow-up, or what to add to the harness, or how many tokens the harness or the loop used. Its daily run, for "how did yesterday go", recommends one change for the team to vote on in pulse |
+| [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md) | At the end of a sprint, or asked for a factory report (or a harness report), a sprint follow-up, or what to add to the factory, or how many tokens conversations here or the loop used. Its daily run, for "how did yesterday go", recommends one change for the team to vote on in pulse |
 | [`skills/work-report/SKILL.md`](skills/work-report/SKILL.md) | Asked for a work report, what got done or shipped over a period, which milestones were met, or a report on the team's work for a lead |
 | [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md) | Asked what's new, what changed, or whether this copy is up to date with its remote |
 | [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md) | Asked to "check the starter", "starter updates", "what's new in the starter", "what has the starter added", or "should we take the starter's changes". It asks what you want to bring over, one question at a time |
@@ -113,7 +114,7 @@ refuses credential files and asks the human before any connector changes
 something. If it refuses, don't look for another way to do the same thing. Say
 what you needed and ask.
 
-## Changing the harness
+## Changing the factory
 
 A noticeable change (something new, something that works differently,
 something that moved, or anything someone has to act on) adds an entry at the

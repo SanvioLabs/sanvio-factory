@@ -12,7 +12,7 @@ Usage:
     python3 scripts/factories.py list [--root PATH]
 
 A factory is any system that takes work in and puts checked work out: another team's delivery
-system, or another harness. factories.json at the harness root names one, as a single step:
+system, or another copy of this repo. factories.json at the harness root names one, as a single step:
 
     {"steps": [{"factory": "build-team", "where": "local", "commit": "<sha>",
                 "submit_label": "factory-ready", "stopped_label": "factory:blocked",
@@ -113,7 +113,7 @@ class StepError(Exception):
 def read_steps(root):
     """The configured steps, checked. [] when there's no factories.json or no step in it.
 
-    Reads one file and starts no process, so a harness with no factory pays nothing for this."""
+    Reads one file and starts no process, so a copy of this repo with no factory pays nothing for this."""
     path = Path(root) / "factories.json"
     if not path.exists():
         return []
@@ -201,7 +201,7 @@ def resolve_commit(step):
             step["factory"], done.stderr.strip() or "git exited {}".format(done.returncode)))
     top, head = lines
     if Path(top).resolve() != Path(step["folder"]).resolve():
-        # git walked up to a checkout around it, such as this harness's own: that commit isn't the factory's.
+        # git walked up to a checkout around it, such as this repo's own: that commit isn't the factory's.
         raise StepError("factories/{} isn't its own git checkout: clone the factory there".format(step["factory"]))
     if pin and not (len(pin) >= 7 and head.startswith(pin)):
         raise StepError("step {} is pinned to {}, and factories/{} is at {}: check out the pin, "
@@ -480,7 +480,7 @@ def slug(folder):
 
 
 def clone_here(root, repo):
-    """Where repo is cloned here: the harness itself (None), a folder under projects/, or False for nowhere."""
+    """Where repo is cloned here: this repo itself (None), a folder under projects/, or False for nowhere."""
     wanted = (repo or "").lower()
     if slug(root) == wanted:
         return None
@@ -498,11 +498,11 @@ def origin_why(folder):
 
 
 def unnamed_clones(root):
-    """(where, why) for this harness and each clone under projects/ whose origin names no repo on github.com, as
+    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
     loop.py reads it: one of them may be the clone a review was wanted from. Each origin is read once."""
     import loop  # noqa: E402  beside this file
     projects = Path(root) / "projects"
-    folders = [("this harness", root)] + [("projects/" + folder.name, folder) for folder in (
+    folders = [("this repo", root)] + [("projects/" + folder.name, folder) for folder in (
         sorted(projects.iterdir()) if projects.is_dir() else []) if (folder / ".git").exists()]
     found = []
     for where, folder in folders:
@@ -521,8 +521,8 @@ def review_target(root, repo):
 
 
 def ready_labels(root, repo):
-    """The ready labels of the loop that would build repo's issues: the harness's own, a projects/ clone's
-    as its loop resolves it, or with no clone here both the harness's and the default."""
+    """The ready labels of the loop that would build repo's issues: this repo's own, a projects/ clone's
+    as its loop resolves it, or with no clone here both this repo's and the default."""
     import loop  # noqa: E402
     folder = clone_here(root, repo)
     try:
@@ -844,8 +844,8 @@ def review_argv(pr, target):
 
 
 def this_harness(root):
-    """Whether root is the harness this script, and the loop.py it runs, are in. loop.py reviews from its own
-    harness, so a review run for another's would read that one's clones and post from this one."""
+    """Whether root is the repo this script, and the loop.py it runs, are in. loop.py reviews from its own
+    repo, so a review run for another's would read that one's clones and post from this one."""
     return Path(root).resolve() == LOOP.resolve().parent.parent
 
 
@@ -1009,7 +1009,7 @@ def cmd_status(args):
 def cmd_review(args):
     """Have the loop review the run's pull request, posting its comment on your login, then move it on."""
     if not this_harness(args.root):
-        print("{} isn't the harness this script is in, {}: run review from there.".format(
+        print("{} isn't the repo this script is in, {}: run review from there.".format(
             args.root, LOOP.resolve().parent.parent), file=sys.stderr)
         return 1
     return move_runs(args, run_review=True)
@@ -1332,7 +1332,7 @@ def cmd_steps(args):
         print(err, file=sys.stderr)
         return 1
     if slug(args.root) is None:
-        print("Warning: this harness's {}. Factories read pull requests and checks from github.com only: "
+        print("Warning: this repo's {}. Factories read pull requests and checks from github.com only: "
               "factories/README.md's *github.com only* says which origins count.".format(origin_why(args.root)))
     if not steps:
         print("No factory is configured: nothing to do.")

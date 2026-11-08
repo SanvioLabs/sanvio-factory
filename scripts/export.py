@@ -9,7 +9,7 @@ The bundle holds:
 - `v`, `exported`, `since`: the format version, today's date and the first day counted
 - `user`: the same cleaned name your usage log's filename uses, so no new identifier
 - `loop`: the lines of .loop/history.jsonl since that day, each rebuilt from the keys
-  scripts/loop.py writes and nothing else. Only the harness's own loop: nothing under
+  scripts/loop.py writes and nothing else. Only the factory's own loop: nothing under
   .loop/projects/ is read, and a line tagged with a project is dropped
 - `usage`: counts from your usage log, .sanvio/usage/<you>.jsonl: sessions, then
   skills, agents and slash commands by name, guard refusals by rule, and guard asks
@@ -36,7 +36,7 @@ LOOP_KEYS = ("v", "run", "issue", "project", "started", "ended", "outcome", "rou
 
 
 def loop_runs(root, since):
-    """The harness's own history lines that ended on or after `since`. Unreadable lines are skipped."""
+    """The factory's own history lines that ended on or after `since`. Unreadable lines are skipped."""
     runs = []
     try:
         text = (Path(root) / ".loop" / "history.jsonl").read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 ---
 name: whats-new
-description: Say what's changed in this harness, and what this copy's own remote has that it doesn't yet, from CHANGELOG.md and `origin`, with what to do to take each one. Reports only, never pulls, merges or checks out. Use when someone asks "what's new", "what changed", "am I up to date", "what did I miss", or "what's changed since <date>".
+description: Say what's changed in this factory, and what this copy's own remote has that it doesn't yet, from CHANGELOG.md and `origin`, with what to do to take each one. Reports only, never pulls, merges or checks out. Use when someone asks "what's new", "what changed", "am I up to date", "what did I miss", or "what's changed since <date>".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 

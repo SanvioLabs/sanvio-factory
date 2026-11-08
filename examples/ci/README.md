@@ -5,12 +5,12 @@ Workflows to copy into a repo's [`.github/workflows/`](../../.github/workflows/)
 
 - [`examples/ci/loop.yml`](loop.yml) runs one pass of the loop on a runner: one ready issue, through to a pull request it doesn't merge.
 - [`examples/ci/project-checks.yml`](project-checks.yml) is CI for a code repo in [`projects/`](../../projects/): each job skips with a notice until the file it needs exists.
-- [`examples/ci/review-pr.yml`](review-pr.yml) reviews every pull request with the review-pr skill, in a repo that carries this harness's [`skills/`](../../skills/) folder.
+- [`examples/ci/review-pr.yml`](review-pr.yml) reviews every pull request with the review-pr skill, in a repo that carries this factory's [`skills/`](../../skills/) folder.
 - [`examples/ci/evals/`](evals/) holds changes with planted problems, to check the review-pr skill still finds them. [Testing the review](#testing-the-review) says how to run them.
 
 The rest of this page is for the other way to review: many product repos, one
-harness. Each product repo calls [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml) from your
-harness repo, so every review follows the same skill and the same rules, and
+factory. Each product repo calls [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml) from your
+factory's repo, so every review follows the same skill and the same rules, and
 a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
@@ -26,14 +26,14 @@ log names the harness commit it reviewed with.
 ## The credential
 
 The product repo's own token can't read another repo, so the workflow checks
-out the harness with a deploy key: read-only, and good for the harness repo
+out the harness with a deploy key: read-only, and good for your factory's repo
 alone.
 
 1. Make a key pair on your machine, with no passphrase:
    `ssh-keygen -t ed25519 -N "" -C "review-pr" -f review-pr-deploy-key`.
    That writes `review-pr-deploy-key`, the private half, and
    `review-pr-deploy-key.pub`, the public half.
-2. In the harness repo, open Settings, Deploy keys, Add deploy key. Paste the
+2. In your factory's repo, open Settings, Deploy keys, Add deploy key. Paste the
    public half, and leave "Allow write access" off. The review only reads the
    harness, and a key that can't write can't change it.
 
@@ -46,7 +46,7 @@ so it's a decision for whoever set that policy.
 ## The caller
 
 Add this to each product repo as a workflow file, `.github/workflows/review.yml` say, with
-`your-org/harness` swapped for your harness repo in both places. This file is
+`your-org/harness` swapped for your factory's repo in both places. This file is
 all the product repo needs: no [`skills/`](../../skills/) folder, no copy of the rules.
 
 ```yaml
@@ -77,22 +77,22 @@ jobs:
 
 A draft pull request skips the review with a notice, and gets its review when it's marked ready for review.
 It passes the secrets by name rather than with `secrets: inherit`, so the
-harness's workflow gets those three and none of the product repo's others. The
+factory's workflow gets those three and none of the product repo's others. The
 permissions are the most it gets: a called workflow can't widen them.
-That holds for the harness's file, not the caller: the caller lives in the
+That holds for the factory's file, not the caller: the caller lives in the
 product repo, so anyone who can push a branch there can change it, in that
 branch's pull request, to print the secrets. Add `HARNESS_DEPLOY_KEY` only
 to repos whose writers you'd trust to read the harness.
 `harness-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
 
-`@main` follows the harness's default branch, which is the point: one copy of
+`@main` follows the factory's default branch, which is the point: one copy of
 the review that every repo picks up. Pinning to a commit
 (`review-pr.yml@<sha>`) is the stricter choice, since nothing in the
 workflow's steps changes until someone moves the pin. Either way, the skill
-and the rules come from the harness's default branch, because that's what
+and the rules come from the factory's default branch, because that's what
 the workflow checks out. [Protecting the harness](#protecting-the-harness)
-says what to set on the harness so that branch is safe to follow.
+says what to set on the factory's repo so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
@@ -125,30 +125,30 @@ whoever uses it interactively.
 
 ## A private harness repo
 
-A product repo can't call a workflow in a private repo until the harness
-allows it. In the harness repo, open Settings, Actions, General, and under
+A product repo can't call a workflow in a private repo until the factory's
+repo allows it. In that repo, open Settings, Actions, General, and under
 Access choose "Accessible from repositories in the organization". That lets
 the product repos use the workflow file;
-the deploy key can read the whole harness repo, and the workflow checks out only the paths it needs.
-A private harness's other files (scripts, docs, examples, reports) aren't
+the deploy key can read the whole of your factory's repo, and the workflow checks out only the paths it needs.
+A private factory's other files (scripts, docs, examples, reports) aren't
 checked out, so the review can't read them or quote them.
 
 ## Protecting the harness
 
-Every review runs what the harness's `main` holds at that moment: the
+Every review runs what the factory's `main` holds at that moment: the
 workflow's steps, the skills and the rules. Each product repo runs them with
 its own two secrets and its own pull-request token. So anyone who can push to
-the harness's `main`, or merge into it, can read every calling repo's secrets
+the factory's `main`, or merge into it, can read every calling repo's secrets
 and post on its pull requests.
 
-On the harness repo, set a branch ruleset (or branch protection) on `main`
+On your factory's repo, set a branch ruleset (or branch protection) on `main`
 that requires a pull request with at least one approval from someone other
-than its author, requires the harness's CI checks to pass, blocks force
+than its author, requires the factory's CI checks to pass, blocks force
 pushes and deletion, and applies to admins as well.
 
-A product repo holding secrets it can't afford to lose to a harness writer
-should pin the caller to a commit (`review-pr.yml@<sha>`) and move the pin
-after reading the harness's changes. The pin stops the workflow's steps
+A product repo holding secrets it can't afford to lose to anyone who can write to
+your factory should pin the caller to a commit (`review-pr.yml@<sha>`) and move the pin
+after reading the factory's changes. The pin stops the workflow's steps
 changing under it, while the skill and the rules still come from `main`.
 
 The deploy key, like the Anthropic key, belongs only in repos whose writers
@@ -201,12 +201,12 @@ code or data in it.
 ## Team standards
 
 To have the review hold changes to your team's code standards, put them in a
-folder at `standards/` in the harness repo's root. Every `.md` file in it, at
+folder at `standards/` in the root of your factory's repo. Every `.md` file in it, at
 any depth, except one named `README.md`, is given to the review, which reads
 each one and names the file and heading of the standard a finding breaks.
 
 A review that found no standards says so on its first line, so a missing or
-empty folder doesn't pass unnoticed. The folder belongs to the harness, not to
+empty folder doesn't pass unnoticed. The folder belongs to your factory, not to
 a product repo, so every product repo that calls the workflow is held to the
 same standards. A pull request can't add or change one: the standards are read
-from the harness's default branch, never from the pull request.
+from the factory's default branch, never from the pull request.

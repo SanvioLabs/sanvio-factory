@@ -1,6 +1,6 @@
 ---
 name: orientation
-description: Get someone ready to use this harness. Checks the clone, asks what job they want to hand to an agent, which tool they drive it with and where their company's data lives, maps how the agent can reach that data, interviews them for a short company record, then walks them through the five layers around their job, one drafted file at a time. Use when someone runs /orientation, says "get me started", "orient me", "how do I use this", "new here", "set this up for my job", or asks where to begin.
+description: Get someone ready to use this factory. Checks the clone, asks what job they want to hand to an agent, which tool they drive it with and where their company's data lives, maps how the agent can reach that data, interviews them for a short company record, then walks them through the five layers around their job, one drafted file at a time. Use when someone runs /orientation, says "get me started", "orient me", "how do I use this", "new here", "set this up for my job", or asks where to begin.
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 

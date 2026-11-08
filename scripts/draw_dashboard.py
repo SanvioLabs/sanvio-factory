@@ -146,7 +146,7 @@ def svg(pane):
         "<title>{}</title>".format(escape(TITLE)),
         '<rect x="0.5" y="0.5" width="{}" height="{}" rx="10" fill="#1b1d22" stroke="#3a3f4b"/>'.format(width - 1, height - 1),
         '<path d="M0.5 40 V10.5 a10 10 0 0 1 10 -10 H{} a10 10 0 0 1 10 10 V40 Z" fill="#23262d" stroke="#3a3f4b"/>'.format(width - 10),
-        '<text x="{}" y="25.0" fill="{}" font-weight="700">Harness</text>'.format(LEFT, PLAIN),
+        '<text x="{}" y="25.0" fill="{}" font-weight="700">Factory</text>'.format(LEFT, PLAIN),
         '<text x="{}" y="25.0" fill="{}">×</text>'.format(x(columns - 1), DIM),
     ]
     for r, segs in enumerate(pane["rows"][:count]):

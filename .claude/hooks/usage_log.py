@@ -2,7 +2,7 @@
 """Claude Code usage log: one line per harness event, kept on this machine.
 
 Wired in .claude/settings.json on SessionStart, SessionEnd, UserPromptSubmit,
-PreToolUse and PostToolUse. It records what the harness did, so whoever owns it
+PreToolUse and PostToolUse. It records what the harness did, so the factory's owner
 can see what people actually use: which skills and agents ran, which slash
 commands, when the guard refused or asked, and when a person said yes to an ask.
 

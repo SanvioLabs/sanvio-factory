@@ -1,13 +1,13 @@
 ---
 name: dispatch
-description: Hand an issue to another factory, such as another team's delivery system or a second harness, and review what comes back, through scripts/factories.py. Shows the factory and what goes to it, submits on a yes, checks where each run is, has the loop's reviewer read the returned pull request, sends changes back on a yes, and reports the required checks apart from any verdict. Never merges. Use when someone says "dispatch #12", "send #12 to the factory", "hand this to the build team", "what did the factory send back", "factory status", or "send it back to the factory".
+description: Hand an issue to another factory, such as another team's delivery system or another copy of this factory, and review what comes back, through scripts/factories.py. Shows the factory and what goes to it, submits on a yes, checks where each run is, has the loop's reviewer read the returned pull request, sends changes back on a yes, and reports the required checks apart from any verdict. Never merges. Use when someone says "dispatch #12", "send #12 to the factory", "hand this to the build team", "what did the factory send back", "factory status", or "send it back to the factory".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 
 # Dispatch
 
 A factory is any system that takes work in and puts checked work out. This
-harness is one. [`scripts/factories.py`](../../scripts/factories.py) hands one issue to the factory named in
+repo is one. [`scripts/factories.py`](../../scripts/factories.py) hands one issue to the factory named in
 `factories.json`, by adding the step's submit label and nothing else, then
 watches for the pull request that comes back and has the loop's own reviewer
 read it. [`factories/README.md`](../../factories/README.md) says how a factory is set up. This skill is the
@@ -179,7 +179,7 @@ From `status` or `list`, in this order:
   from here
 
 A run that reads `ready for a person` is for a person to merge. Suggest
-reading its diff first: ready is what the harness can read, not proof the
+reading its diff first: ready is what this repo can read, not proof the
 factory couldn't have produced its checks, as *Getting to ready* in
 [`factories/README.md`](../../factories/README.md) says. A ready verdict whose checks read
 otherwise, such as `checks pass, not independent`, is for a person to judge,

@@ -26,7 +26,7 @@ without leaving a review shows as nobody else reviewing it.
 
 ## Steps
 
-1. **Pick the repo and the period.** The harness itself by default, or a repo
+1. **Pick the repo and the period.** This repo by default, or a repo
    under [`projects/`](../../projects/) by its folder name. Ask for the period, and default to
    the last 14 days. One repo per report. Repos for different customers never
    go into one report for anyone but the person running it:

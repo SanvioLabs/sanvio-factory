@@ -1,18 +1,30 @@
-# Harness starter
+# Sanvio Factory
 
 Built and maintained by [Sanvio Labs](https://sanviolabs.com). Free under MIT.
 
-A harness is everything around the model: the rules it reads, the procedures it
-follows, the checks that stop it, and the other agents it hands work to. The
-model is the engine. The harness is what makes it safe to leave running.
+Sanvio Factory takes issues in and turns out reviewed work. You label an issue
+for the loop. An agent plans it, builds it in a checkout of its own and runs
+the tests, a second agent reviews the pull request, the checks run, and you
+decide whether it merges. The loop never merges a pull request. What it writes
+is branches, pull requests, comments and labels on GitHub, and it spends model
+tokens as it works. Nothing here sends email or makes a payment.
+
+Two layers do that. The harness is what one agent session works inside: the
+rules it reads, the procedures it follows, the checks that stop it, and the
+other agents it hands work to. The factory is everything between sessions: the
+queue of issues, the loop that works them, and the review and the gates between
+a pull request and a merge. The model is the engine. The harness holds one run
+to your rules and checks, and the factory turns many runs into pull requests you
+review. [Set up](#set-up) says where the guard stops, and
+[What makes it a factory](HOW-IT-WORKS.md#what-makes-it-a-factory) has the rest.
 
 ![You ask an AI agent to draft the bakery proposal. On its own it leaves a rate as TBD, and the blank goes out to the client. Then the harness appears around it: instructions it reads (rates.json, templates/), steps it follows (skills/draft-proposal), a second reader (proposal-reviewer.md), and checks that stop it (the proposal gate, CI). The same request and the same mistake: this time the gate blocks it, the agent fills the rate from the rate card, the reader and the gate agree, and only then does it go out.](docs/what-is-a-harness.gif)
 
 ![Anatomy of a harness. You hand a ticket or a prompt to your coding agent (Claude Code, Codex, Kiro or another), and an artifact comes out: a PR or a doc. Eight parts sit around the agent, each fed by documents your company already has. What it reads and reaches: steering, rules loaded into every session (AGENTS.md, steering/); skills, repeatable workflows (skills/); memory, kept in files (company/, docs/specs/); MCP servers, the systems you run (company/DATA.md). What keeps it honest: hooks that can block a tool call (.claude/hooks/, .githooks/); gates, checks before a change moves up (gates/, .github/workflows/); reviewers, a second reader that never edits (agents/); mods, what you see and can type (examples/mods/).](docs/harness-anatomy.png)
 
-This repo is the smallest harness that still does the job. The root is
-generic: rules, skills, a reviewer, the checks, and a place for your company
-and your code. One worked job sits in [`examples/proposal/`](examples/proposal/), drafting client
+This repo is the smallest factory that still does the job. The harness at its
+root is generic: rules, skills, a reviewer, the checks, and a place for your
+company and your code. One worked job sits in [`examples/proposal/`](examples/proposal/), drafting client
 proposals, because a proposal is where the cheap mistakes live: a placeholder
 left in, a rate somebody made up, a total that doesn't add up. None of those are
 hard. All of them ship anyway when the process lives in your head. You read
@@ -20,7 +32,8 @@ the example, then build your own job the same way at the root. For code,
 [`examples/typescript/`](examples/typescript/) is a TypeScript project the loop can test with Node
 alone.
 
-It works with Claude Code, Codex and Kiro. Nothing in it is tied to one tool.
+The rules, skills and gates work in Claude Code, Codex and Kiro. The guard, the
+mods and [`bin/factory`](bin/factory) need Claude Code.
 
 At the Humanbulb talk on 15 October 2026? [The slides are here](https://github.com/SanvioLabs/sanvio-harness-starter/releases/tag/talk-humanbulb-2026-10-15),
 as a PDF, a PowerPoint and an offline web page.
@@ -28,7 +41,7 @@ as a PDF, a PowerPoint and an offline web page.
 ## Set up
 
 ```bash
-git clone <this repo> my-harness && cd my-harness
+git clone <this repo> my-factory && cd my-factory
 git config core.hooksPath .githooks
 python3 scripts/check_setup.py
 ```
@@ -54,8 +67,8 @@ the version it was tested on (2.1.295), or the folder isn't trusted.
 session. Codex and Kiro don't show it: neither has mods.
 
 Trusting the folder also switches on [Stelliad](https://github.com/Stelliad/stelliad-skills), an MIT-licensed set of
-skills the starter uses for specs and tickets. There's no separate yes: the
-trust is the yes. It's the one set of someone else's skills the starter
+skills Sanvio Factory uses for specs and tickets. There's no separate yes: the
+trust is the yes. It's the one set of someone else's skills this repo
 installs rather than has you review first, and [Borrowing other people's
 skills](#borrowing-other-peoples-skills) says why, what that trusts, and how to keep it off. Each one runs as
 `stelliad:<name>`, so `/stelliad:create-spec` starts a spec and
@@ -70,8 +83,8 @@ around your own job.
 Others pushing to your copy? Ask your agent "what's new", or run `/whats-new`
 in Claude Code. It compares your [`CHANGELOG.md`](CHANGELOG.md) with the one on your copy's own
 remote and tells you what you don't have yet and what to do to take it.
-For what the public starter has shipped since you copied it, ask "check the
-starter": [`skills/starter-updates/`](skills/starter-updates/) asks what you want to bring over, then lists
+For what the public Sanvio Factory has shipped since you copied it, ask "check
+the starter": [`skills/starter-updates/`](skills/starter-updates/) asks what you want to bring over, then lists
 each commit and says which to take.
 
 `python3 scripts/check_setup.py` runs the setup check on its own: Python, the
@@ -89,7 +102,7 @@ extension in VS Code 1.143.0, and Claude Desktop 3.6556.2 on macOS:
 
 | Where | What works |
 |---|---|
-| Terminal | Everything: the setup message, the guard, the skills, Stelliad and the mods. It's where the harness was built |
+| Terminal | Everything: the setup message, the guard, the skills, Stelliad and the mods. It's where this factory was built |
 | VS Code extension | The setup message, the guard, the skills and the three mods: the lens and GitHub status lines above the prompt, and `/loop-pane`'s pane. Open the repo's root as the folder, as in the terminal |
 | Claude Desktop, Code tab | The same: the trust prompt, the setup message, the guard, `/whats-new`, the plugins in `/plugin`, both lines above the prompt and `/loop-pane`. Pick the repo's root under **Local**, then **Open folder…** |
 | Claude Desktop, chat | None of it. Chat opens no folder, so no hooks, guard, skills, mods or `company/` load. Asked, it can read this repo's [`AGENTS.md`](AGENTS.md) as text, but nothing enforces it. Use the Code tab |
@@ -99,7 +112,7 @@ seen in the terminal.
 
 [`/loop-crew`](examples/mods/loop-crew/) came after those tries too. It's on by default and has only been seen in Claude Code run in VS Code's integrated terminal, against a pretend loop.
 
-Two clones of the starter on one machine share one set of mods: the
+Two clones of this repo on one machine share one set of mods: the
 marketplace is registered under one name for the whole machine, so the mods
 load from whichever clone registered it first. `claude plugin list` says which
 folder they're read from.
@@ -174,7 +187,7 @@ lost.
 
 The harness holds the method. Everything else is reached where it lives.
 
-![Where things live. The harness holds the method; everything else stays where its owner keeps it. On the left, your harness on disk: my-harness/ holds AGENTS.md, steering/, skills/, gates/ and agents/, the method, tracked in the harness and shared with everyone who uses it. company/ is a clone of your-org/company, holding COMPANY.md (who you are) and DATA.md (where your systems are). projects/ holds billing/ and website/, each a clone of a repo your org owns, keeping its own access and history. DATA.md points to systems you run, such as Confluence, Google Drive, Jira and your CRM, reached through a connector (MCP). A cloned repo and a connector are the same idea: read where it lives, under its owner's access, never copied in.](docs/where-things-live.png)
+![Where things live. The harness holds the method; everything else stays where its owner keeps it. On the left, your factory on disk: my-factory/ holds AGENTS.md, steering/, skills/, gates/ and agents/, the method, tracked in the harness and shared with everyone who uses it. company/ is a clone of your-org/company, holding COMPANY.md (who you are) and DATA.md (where your systems are). projects/ holds billing/ and website/, each a clone of a repo your org owns, keeping its own access and history. DATA.md points to systems you run, such as Confluence, Google Drive, Jira and your CRM, reached through a connector (MCP). A cloned repo and a connector are the same idea: read where it lives, under its owner's access, never copied in.](docs/where-things-live.png)
 
 | Where | What | How the agent reaches it |
 |---|---|---|
@@ -193,8 +206,8 @@ Every session reads `company/COMPANY.md` (who the company is) and
 | Form | Fits when |
 |---|---|
 | Local files, written by `/orientation` (the default) | You work alone, or haven't decided yet |
-| Committed in a private copy of the harness | Your whole team shares one private harness |
-| A private repo cloned in with `git clone <url> company` | Several harnesses or people share one record, or the harness is public and the record can't be |
+| Committed in a private copy of this factory | Your whole team shares one private factory |
+| A private repo cloned in with `git clone <url> company` | Several factories or people share one record, or the factory is public and the record can't be |
 | A short `COMPANY.md` whose sections name wiki pages, with the wiki's connector in `DATA.md` | The answers already live in a wiki |
 
 `company/` is gitignored, so by default the record stays on your machine. To
@@ -306,14 +319,14 @@ every day.
 | A morning read | [`skills/standup/`](skills/standup/) | Say "standup" or "what's on me today": one pass over the pull requests waiting on your review, your own with their checks, issues assigned to you, what the loop opened or blocked in the last day, and your calendar, email and tracker where a connector exists. It names any source it skipped, asks about each item, and ends with an order for the day. It reads only and changes nothing |
 | A mail read | [`skills/inbox/`](skills/inbox/) | Say "inbox" or "check my email": one pass over your mail, Gmail by default, where `company/DATA.md` clears it. It says what needs a reply from you, what's waiting on someone, and what matters today, one line per thread, and counts the bulk mail. Standup reads your email the same way. It only searches and reads, and never sends, labels or marks a message |
 | A daily question | [`skills/pulse/`](skills/pulse/), [`scripts/pulse.py`](scripts/pulse.py), [`reports/pulse/`](reports/pulse/) | Say "pulse": one multiple-choice question a day from a shared synced folder, with each person's answers in a file named after their login and counts for everyone to read. Standup mentions the day's question where `company/DATA.md` clears the folder. Ask it to summarise for leadership and it writes a period's counts and Other answers, never a login, to a gitignored report you read and send |
-| A release log | [`CHANGELOG.md`](CHANGELOG.md), [`skills/whats-new/`](skills/whats-new/) | Ask "what's new" and the agent reads the log, compares it with your copy's own remote, and says what you don't have yet and what to do to take it. Changes to your own harness go in the same file |
+| A release log | [`CHANGELOG.md`](CHANGELOG.md), [`skills/whats-new/`](skills/whats-new/) | Ask "what's new" and the agent reads the log, compares it with your copy's own remote, and says what you don't have yet and what to do to take it. Changes to your own factory go in the same file |
 | A usage log and sprint report | [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`skills/factory-trends/`](skills/factory-trends/) | Each person's sessions log which skills, agents and commands ran and when the guard refused or asked: names and counts, never content, kept on their own machine. At sprint end `factory-trends` turns it into a short report with their proposals, shared as a PR, so whoever owns the harness sees what the team actually uses and what to add. `SANVIO_USAGE_LOG=off` turns it off for you |
 | A session retro | [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`skills/retro/`](skills/retro/) | Off unless you set `SANVIO_RETRO=on`, the same way `SANVIO_USAGE_LOG` is set. When a session ends or compacts, it keeps a copy of its log in `local-data/retro/` if you corrected the agent or one file was edited three or more times. Say "retro" and a fresh agent that can only read goes through it, says why the agent didn't know, and the findings that hold up against the log go in `.loop/lessons.md` for `learn`. The copies hold everything said in the session, stay on your machine readable by you alone, and are deleted once read or after 30 days. The loop's own sessions are never kept |
 | A work report | [`scripts/work_report.py`](scripts/work_report.py), [`skills/work-report/`](skills/work-report/) | Say "work report" or "what did we ship": one page on a repo over a period, from what GitHub recorded. What merged, by type, and who made, reviewed and approved it, what the loop built, releases and closed GitHub milestones, the specs closed issues name, a chart of merges by day (by week past a month), and what to watch, such as work nobody but its author approved. It names people by GitHub login, stays gitignored in [`reports/work/`](reports/work/), and changes nothing |
 | An optional extra: a loop that runs without you | [`scripts/loop.py`](scripts/loop.py) | Not one of the five layers, and the harness works without it. Takes the next open issue labelled `loop-ready`, has a fresh agent plan it, build it in a worktree, runs your tests itself, has a second fresh agent review the diff, and opens a pull request when both pass. It follows the flywheel (Discover, Shape, Build, Validate, Scale), writes one plain log you read with `tail -f .loop/loop.log`, and never merges. `max_workers` in `loop.json` lets it work several issues at once, each issue's agents writing to `.loop/issue-N/agent.log`, with an `issue-N` window per issue when it runs in tmux. Each worker runs its own agent sessions, so usage grows with the number of workers. It records each issue's tokens and estimated cost on its pull request, and `max_issue_tokens` can stop an issue at a budget. It blocks a round that adds nothing or changes a lockfile, and its build agent installs no packages. Label only issues you wrote or have read, since a ticket is an instruction to an agent. One standard-library file, so it's yours to change. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has the shape |
-| Another factory to hand work to | [`scripts/factories.py`](scripts/factories.py), [`scripts/factory_checks.py`](scripts/factory_checks.py), [`skills/dispatch/`](skills/dispatch/), [`factories/`](factories/) | Name a second factory in `factories.json`, such as another team's delivery system or a second harness, and say "dispatch #12". The agent shows what goes to it and adds that factory's label to the issue on your yes, nothing else. When a pull request comes back, the loop's own reviewer reads it. Changes go back on your yes, up to a set number of rounds, and the pull request's required checks are reported apart from any verdict. It never merges. [`factories/README.md`](factories/README.md) has the setup |
+| Another factory to hand work to | [`scripts/factories.py`](scripts/factories.py), [`scripts/factory_checks.py`](scripts/factory_checks.py), [`skills/dispatch/`](skills/dispatch/), [`factories/`](factories/) | Name a second factory in `factories.json`, such as another team's delivery system or another copy of this factory, and say "dispatch #12". The agent shows what goes to it and adds that factory's label to the issue on your yes, nothing else. When a pull request comes back, the loop's own reviewer reads it. Changes go back on your yes, up to a set number of rounds, and the pull request's required checks are reported apart from any verdict. It never merges. [`factories/README.md`](factories/README.md) has the setup |
 | Evals for the whole harness | [`scripts/eval_harness.py`](scripts/eval_harness.py), [`examples/eval-suite/`](examples/eval-suite/) | One command runs a harness through a suite of jobs in a new private repo, then scores the result with tests and traps its agents can't see: tests passed, traps avoided, time, stops for a person, build rounds, tokens and cost. `compare` shows what a harness change did. A run spends model tokens, so a person starts it, and only a person deletes its repo. Works on any harness that takes GitHub issues. [`docs/harness-evals.md`](docs/harness-evals.md) walks through it |
-| CI | [`.github/workflows/`](.github/workflows/) | The tests, the gate, the setup check, the link check (`python3 scripts/link_files.py --check`) and a secret scan of the whole history run on every push, so a check someone skipped locally still runs before anything merges. Make it a required check in your branch protection, or it only reports. To put your harness in a product repo's CI, with a review on every pull request, follow [`docs/harness-in-ci.md`](docs/harness-in-ci.md) |
+| CI | [`.github/workflows/`](.github/workflows/) | The tests, the gate, the setup check, the link check (`python3 scripts/link_files.py --check`) and a secret scan of the whole history run on every push, so a check someone skipped locally still runs before anything merges. Make it a required check in your branch protection, or it only reports. To put your factory in a product repo's CI, with a review on every pull request, follow [`docs/harness-in-ci.md`](docs/harness-in-ci.md) |
 
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) explains what's running underneath: where the loops are, how
 context is kept separate, and how little of it is code.
@@ -380,11 +393,11 @@ The fourth loop is the one that makes the others better. Every other file in
 this repo exists because of it.
 
 **Where it goes: factories.** A harness with its flywheel turning inside is a
-factory: work goes in, checked work comes out. This starter is one. A company
+factory: work goes in, checked work comes out. Sanvio Factory is one. A company
 can run several that feed each other, each taking only what the next one
 needs, and work crosses from one to the next only through a gate.
 
-![Three factories in one company, each with its own flywheel. Sales takes a lead in and puts a signed proposal out, which passes Sales' gate. Delivery takes it because it needs a signed scope, and puts shipped work out. Support takes shipped work in and routes by need: a bug back to Delivery, more scope to Sales.](docs/factories-chain.gif)
+![Three factories in one company, each with its own flywheel. Sales takes a lead in and puts a signed proposal out, which passes Sales' gate. Delivery takes it because it needs a signed scope, and puts shipped work out. Support takes shipped work in and routes by need: a bug back to Delivery, more scope to Sales. Today, one factory hands an issue to the next: a label goes in, a pull request comes back.](docs/factories-chain.gif)
 
 To hand an issue to another factory, name it in `factories.json` and say
 "dispatch #12". [`scripts/factories.py`](scripts/factories.py) adds that factory's label to the issue,
@@ -416,9 +429,9 @@ in your own conventions, with the source and licence noted. Your harness stays
 yours, and it gets better every time you read someone else's.
 
 [Stelliad](https://github.com/Stelliad/stelliad-skills) is the one exception: trusting the folder switches it
-on, with no separate prompt. The starter's spec and ticket steps run on it, so it's
+on, with no separate prompt. Sanvio Factory's spec and ticket steps run on it, so it's
 installed rather than copied. Its skills are built the same way as this
-starter's: each one ends in a verdict backed by evidence, and ships a
+repo's: each one ends in a verdict backed by evidence, and ships a
 `CUSTOMIZE.md` for adapting it. Trusting the folder trusts its authors too, which is the
 trade step 3 of [`STARTER-SKILLS.md`](STARTER-SKILLS.md) warns about. It's pinned to one commit: the
 `sha` on its entry in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) is what everyone
@@ -453,7 +466,7 @@ Each one walks through a single job from start to finish, with an animation of h
 
 | Guide | For when you want to |
 |---|---|
-| [`docs/harness-in-ci.md`](docs/harness-in-ci.md) | Run your harness in a product repo's CI: checks on every push, a review on every pull request from one harness repo, and the loop on a runner |
+| [`docs/harness-in-ci.md`](docs/harness-in-ci.md) | Run your factory in a product repo's CI: checks on every push, a review on every pull request from one factory repo, and the loop on a runner |
 | [`docs/harness-evals.md`](docs/harness-evals.md) | Measure a harness change: check a reviewer still catches what it should, run the whole harness through a suite of jobs, and compare two runs |
 
 ## Your turn

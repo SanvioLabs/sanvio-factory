@@ -3,7 +3,7 @@
   "owner": {
     "name": "Sanvio Labs"
   },
-  "description": "Mods that ship with the harness starter, and the Stelliad plugin pinned to a commit",
+  "description": "Mods that ship with Sanvio Factory, and the Stelliad plugin pinned to a commit",
   "plugins": [
     {
       "name": "harness-lens",

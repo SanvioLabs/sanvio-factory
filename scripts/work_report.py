@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What got done in a repo over a period, from GitHub and its CHANGELOG, for a work report.
 
-    python3 scripts/work_report.py                       # the harness, since 14 days ago, as Markdown
+    python3 scripts/work_report.py                       # this repo, since 14 days ago, as Markdown
     python3 scripts/work_report.py --since 2026-10-01
     python3 scripts/work_report.py --project app         # a repo under projects/ instead
     python3 scripts/work_report.py --json
@@ -461,7 +461,7 @@ def main(argv=None, root=ROOT):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--since", type=since_date, default=(today - datetime.timedelta(days=14)).isoformat(),
                         help="the first day to count, as YYYY-MM-DD (default: 14 days ago)")
-    parser.add_argument("--project", help="a repo under projects/ to report on instead of the harness")
+    parser.add_argument("--project", help="a repo under projects/ to report on instead of this repo")
     parser.add_argument("--json", action="store_true", help="print the numbers as JSON instead of Markdown")
     args = parser.parse_args(argv)
     if args.since > today.isoformat():

@@ -1092,7 +1092,7 @@ class Review(Running):
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertEqual(self.loop_calls(), [])
-        self.assertIn("this harness: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
+        self.assertIn("this repo: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
 
     def test_a_review_of_an_older_head_says_github_may_be_behind(self):
         # Before T074 it said "see the loop's log", which says only skipped (review after Phase 12, live).
@@ -3185,7 +3185,7 @@ class Boundaries(FakeGh):
         with mock.patch.object(factories, "LOOP", other / "scripts" / "loop.py"):
             code, _, err = self.run_cli("review", "run-12-x")
         self.assertEqual(code, 1)
-        self.assertIn("isn't the harness", err)
+        self.assertIn("isn't the repo", err)
         self.assertEqual((self.calls(), self.loop_calls()), ([], []))
 
 
@@ -3377,7 +3377,7 @@ class OnePass(unittest.TestCase):
                                check=True)
             with mock.patch.object(loop, "origin", wraps=loop.origin) as read:
                 found = factories.unnamed_clones(root)
-            self.assertEqual([where for where, _ in found], ["this harness", "projects/elsewhere"])
+            self.assertEqual([where for where, _ in found], ["this repo", "projects/elsewhere"])
             self.assertEqual(read.call_count, 2)
 
 

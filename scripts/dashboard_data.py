@@ -63,7 +63,7 @@
                      ids, UTC day, side, model, session id, local day and counts, under the
                      transcript's path, and nothing else
     waiting          what's waiting on you, in two halves that each fail on their own: pull_requests,
-                     the harness repo's open pull requests from gh, each with its title, when it
+                     this repo's open pull requests from gh, each with its title, when it
                      opened, hours waited, its loop issue if its branch is loop/issue-N, whether it's
                      a draft, its checks (pass, fail, pending, or null with none) and whether it
                      conflicts (null while GitHub doesn't know); and blocked, the issues in
@@ -79,7 +79,7 @@
                      A run counts when the date of its `ended`, its first 10 characters, is on or after `--since`.
                      runs is sorted by the whole of ended, and each holds only its own fields.
                      Run fields: `issue`, `started`, `ended`, `outcome`, `rounds`, `tests`, `verdicts`, `tokens` and `cost_usd`. Nothing else goes in.
-                     Issue names: `issue-N` for the harness and `<name>/issue-N` for a project.
+                     Issue names: `issue-N` for this repo and `<name>/issue-N` for a project.
                      The name is the project's folder, and issue is null when the line's isn't a whole
                      number. rounds, tokens and cost_usd are null when they aren't numbers, started
                      and outcome when they aren't text, tests and verdicts when they aren't lists of
@@ -183,7 +183,7 @@ def readable(path):
 def status_rows(root):
     """({issue: row}, None) from .loop/status.json and each project's, or (None, why) when none can be read.
 
-    Issues are named as loop_runs() names them: issue-N for the harness, <name>/issue-N for a project.
+    Issues are named as loop_runs() names them: issue-N for this repo, <name>/issue-N for a project.
     """
     state = Path(root) / ".loop"
     paths = [("", state / "status.json")]
@@ -331,7 +331,7 @@ def freshness(root, result):
         try:
             name = path.resolve().relative_to(root).as_posix()
         except ValueError:
-            continue  # outside the harness: git here can't date it, and its path isn't printed
+            continue  # outside this repo: git here can't date it, and its path isn't printed
         if name not in paths:
             paths.append(name)
     prefix = git(root, "rev-parse", "--show-prefix")
@@ -370,7 +370,7 @@ def freshness(root, result):
 def evals(root):
     """The newest saved result for each reviewer. The same loop as eval_agents.latest(): names start with
     the time they were saved, so name order newest first, matched on the "reviewer" field, not the name.
-    It's repeated here because latest() reads the harness's own folder and finds one reviewer's file."""
+    It's repeated here because latest() reads this repo's own folder and finds one reviewer's file."""
     paths = sorted((names.state_dir(root) / "evals").glob("*.json"), reverse=True)
     if not paths:
         return missing("no saved evals")
@@ -469,7 +469,7 @@ def text_or_none(value):
 
 
 def replies(entries, root, loop):
-    """One record per reply in a transcript's entries, for the cache, leaving out replies outside the harness:
+    """One record per reply in a transcript's entries, for the cache, leaving out replies outside this repo:
     [message id, request id, UTC day, side, model, session id, local day, input, output, cache writes,
     cache reads]. The UTC day is the transcript's own, which --since and dedup go by; the local day is
     the one by_day counts under, and is the UTC day when the timestamp can't be read.

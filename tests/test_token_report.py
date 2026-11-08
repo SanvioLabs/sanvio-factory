@@ -169,7 +169,7 @@ class Output(Harness):
             self.assertIn(heading, out)
         self.assertIn("| Repo | Input | Output | Cache writes | Cache reads | Total |", out)
         self.assertIn("| app | 10 | 20 | 30 | 40 | 100 |", out)
-        self.assertIn("| This harness | 10 | 20 | 30 | 40 | 100 |", out)
+        self.assertIn("| This repo | 10 | 20 | 30 | 40 | 100 |", out)
         self.assertLess(out.index("| issue-7 |"), out.index("| issue-12 |"))
         self.assertIn("| claude-other | 100 |", out)
         self.assertIn("100 of 400 tokens (25%) were spent by subagents.", out)
@@ -180,7 +180,7 @@ class Output(Harness):
 
     def test_nothing_under_the_harness_says_so(self):
         out = token_report.report([entry(self.root.parent / "elsewhere")], SINCE, "2026-10-22", self.root, self.loop)
-        self.assertEqual(out, "No Claude Code usage under this harness since 2026-10-01.")
+        self.assertEqual(out, "No Claude Code usage under this repo since 2026-10-01.")
 
 
 class LoopCost(Harness):
@@ -515,7 +515,7 @@ class BadInput(Harness):
     def test_an_empty_run_exits_0(self):
         result = run("--projects", str(self.transcripts / "missing"), "--since", SINCE)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "No Claude Code usage under this harness since 2026-10-01.")
+        self.assertEqual(result.stdout.strip(), "No Claude Code usage under this repo since 2026-10-01.")
 
 
 if __name__ == "__main__":

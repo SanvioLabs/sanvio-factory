@@ -1,6 +1,6 @@
 # Factory dashboard
 
-The harness's numbers are spread across the loop's records, your usage log,
+The factory's numbers are spread across the loop's records, your usage log,
 saved evals, Claude Code's transcripts and GitHub. This mod opens a pane
 beside the conversation that brings them together, with what needs you first.
 In a terminal pane 66 columns wide, with made-up numbers:
@@ -168,7 +168,7 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 
 | Section | Shows |
 |---|---|
-| The header | The harness's folder, and when the numbers were read. **7 days**, **14 days** and **30 days** pick how many days it counts, today among them: 14 until you pick another, and the pick is kept across reloads. Picking one reads straight away, and works out what each skill, agent and command spent again, because only the last range's is kept. **Reading…** on the Refresh button during any read, and the numbers shown stay the last range's until it ends. The first read can take a minute or more, because it goes through every Claude Code transcript and keeps what it found in `.sanvio/cache/`; later reads use that again. What each skill, agent and command spent is kept for 15 minutes, then worked out from the transcripts again. Measured on one machine on 2026-10-30, a read took about 2 seconds with that kept, and 23 to 29 seconds when it was worked out again. Expect that to grow with how many transcripts you have. **Refresh failed** in red when the last refresh didn't work, with the time of the numbers still shown and why under it |
+| The header | The factory's folder, and when the numbers were read. **7 days**, **14 days** and **30 days** pick how many days it counts, today among them: 14 until you pick another, and the pick is kept across reloads. Picking one reads straight away, and works out what each skill, agent and command spent again, because only the last range's is kept. **Reading…** on the Refresh button during any read, and the numbers shown stay the last range's until it ends. The first read can take a minute or more, because it goes through every Claude Code transcript and keeps what it found in `.sanvio/cache/`; later reads use that again. What each skill, agent and command spent is kept for 15 minutes, then worked out from the transcripts again. Measured on one machine on 2026-10-30, a read took about 2 seconds with that kept, and 23 to 29 seconds when it was worked out again. Expect that to grow with how many transcripts you have. **Refresh failed** in red when the last refresh didn't work, with the time of the numbers still shown and why under it |
 | **Waiting on you** | Each open pull request, how long it has waited, whether it's a draft, its checks and whether it conflicts with its base, then each issue the loop blocked, with why. Red when checks fail or it conflicts, yellow while they run. **conflicts unknown** while GitHub hasn't worked it out. Without `gh`, signed out, or a list in a shape it doesn't know, it says in red that it couldn't read them: never that nothing is waiting |
 | **Loop spend** | Three tables: the loop's estimated dollars and tokens today, over the last 7 days, since the date the numbers start and per pull request it opened; the five issues that cost most; and each model, costliest first. Runs that recorded no model show as **model not recorded**. When the loop's records start later than that date, it says when, and the chart starts there |
 | **Throughput and rework** | How the loop's recent issues ended and how many took more than one round, then how many of its merged pull requests needed someone else's commit before merging, split into fixes and merges from main |
@@ -181,7 +181,7 @@ A section whose source is missing or can't be read says why, dimmed, and the
 rest still show. The range sets every section but **Throughput and rework**'s
 issues, which are always the loop's 20 most recent. The loop's spend only goes
 back as far as the loop's own records: a run before the loop recorded its usage
-isn't in it, so **Since** can match **7 days** in a young harness.
+isn't in it, so **Since** can match **7 days** in a young factory.
 
 ## What it costs and touches
 
@@ -204,7 +204,7 @@ can differ for a few minutes.
 It runs the script in the nearest folder at or above the one the session
 started in that has [`scripts/dashboard_data.py`](../../../scripts/dashboard_data.py). Installed beyond this repo,
 `/factory-dashboard` in another repo would run that repo's copy, so open it
-only in a harness you trust.
+only in a repo you trust.
 
 ## Changing it
 
