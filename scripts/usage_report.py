@@ -9,7 +9,7 @@ Reads your own log, .sanvio/usage/<you>.jsonl, written by
 .claude/hooks/usage_log.py, and prints counts only: sessions, skills, agents,
 slash commands, guard refusals and asks. Nothing it prints names a file, a
 prompt or a line of code, because the log never holds them. The
-skills/harness-trends/ skill runs this and turns it into the report you share.
+skills/factory-trends/ skill runs this and turns it into the report you share.
 """
 import argparse
 import datetime

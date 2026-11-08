@@ -368,76 +368,81 @@ class StarterUpdatesRename(unittest.TestCase):
             self.assertEqual(found, self.ALLOWED.get(name, 0), name)
 
 
-class HarnessTrendsRename(unittest.TestCase):
-    """harness-report is now harness-trends: the skill moved, and the report and its scripts didn't."""
+class FactoryTrendsRename(unittest.TestCase):
+    """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report,
+    its scripts and the phrases people already say didn't."""
 
-    SKILL = ROOT / "skills" / "harness-trends" / "SKILL.md"
+    SKILL = ROOT / "skills" / "factory-trends" / "SKILL.md"
     PHRASES = [
+        '"factory trends"',
+        '"my factory report"',
+        '"harness trends"',
         '"my harness report"',
         '"what did I use this sprint"',
         '"sprint follow-up"',
-        '"what should we add to the harness"',
         '"token burn"',
         '"how many tokens"',
         '"what did the loop cost"',
     ]
+    OLD = ("harness-report", "harness-trends")
 
     def description(self):
         return frontmatter(self.SKILL.read_text()).get("description", "")
 
     def test_the_skill_has_its_new_name(self):
         self.assertTrue(self.SKILL.exists())
-        self.assertEqual(frontmatter(self.SKILL.read_text())["name"], "harness-trends")
+        self.assertEqual(frontmatter(self.SKILL.read_text())["name"], "factory-trends")
 
     def test_the_heading_has_its_new_name(self):
         headings = [line for line in self.SKILL.read_text().splitlines() if line.startswith("# ")]
-        self.assertEqual(headings[:1], ["# Harness trends"])
+        self.assertEqual(headings[:1], ["# Factory trends"])
 
-    def test_the_old_folder_is_gone(self):
-        self.assertFalse((ROOT / "skills" / "harness-report").exists())
+    def test_the_old_folders_are_gone(self):
+        for old in self.OLD:
+            self.assertFalse((ROOT / "skills" / old).exists(), old)
 
     def test_the_trigger_phrases_still_reach_it(self):
         description = self.description()
         for phrase in self.PHRASES:
             self.assertIn(phrase, description)
 
-    def test_the_report_keeps_its_name(self):
-        self.assertIn("harness report", self.description())
+    def test_the_report_scripts_keep_their_names(self):
         for script in ("usage_report.py", "token_report.py", "plugin_report.py"):
             self.assertTrue((ROOT / "scripts" / script).exists(), script)
 
-    def test_no_tracked_file_keeps_the_old_name(self):
+    def test_no_tracked_file_keeps_the_old_names(self):
         if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
             self.skipTest("origin isn't the public starter, so this copy can mention the old name")
         files = [name for name in (check_setup.git(ROOT, "ls-files", "-z") or "").split("\0") if name]
         self.assertTrue(files, "git ls-files listed nothing")
         for name in files:
-            self.assertNotIn("harness-report", name)
             path = ROOT / name
-            if name in ("CHANGELOG.md", "tests/test_skills.py") or not path.is_file():
-                continue
-            self.assertEqual(path.read_text(errors="replace").count("harness-report"), 0, name)
+            for old in self.OLD:
+                self.assertNotIn(old, name)
+                if name in ("CHANGELOG.md", "tests/test_skills.py") or not path.is_file():
+                    continue
+                self.assertEqual(path.read_text(errors="replace").count(old), 0, (name, old))
 
 
-class HarnessTrendsDaily(unittest.TestCase):
-    """harness-trends has a daily run that recommends one change and, with a yes, proposes it to pulse."""
+class FactoryTrendsDaily(unittest.TestCase):
+    """factory-trends has a daily run that recommends one change and, with a yes, proposes it to pulse."""
 
-    SKILL = ROOT / "skills" / "harness-trends" / "SKILL.md"
+    SKILL = ROOT / "skills" / "factory-trends" / "SKILL.md"
 
     def text(self):
         return " ".join(self.SKILL.read_text().split())
 
     def test_the_new_phrases_reach_it(self):
         description = frontmatter(self.SKILL.read_text()).get("description", "")
-        for phrase in ('"harness trends"', '"how did yesterday go"', '"what should we change in the harness"'):
+        for phrase in ('"factory trends"', '"how did yesterday go"', '"what should we change in the factory"'):
             self.assertIn(phrase, description)
-        self.assertIn("harness report", description)
+        self.assertIn("factory report", description)
 
     def test_it_says_which_run_to_take(self):
         text = self.text()
         self.assertIn("### Sprint run", text)
         self.assertIn("### Daily run", text)
-        self.assertIn("The sprint run is for a harness report, a sprint follow-up, tokens or the loop's cost, "
+        self.assertIn("The sprint run is for a factory report, a sprint follow-up, tokens or the loop's cost, "
                       "or any period longer than a day. Anything else is the daily run.", text)
         self.assertLess(text.index("Anything else is the daily run."), text.index("### Sprint run"))
 
@@ -447,8 +452,8 @@ class HarnessTrendsDaily(unittest.TestCase):
         for words in ("git check-ignore -q reports/trends/<today>.md",
                       "python3 scripts/dashboard_data.py --json --since",
                       "No trend yesterday.", "Proposed: no, no trend",
-                      "## trend-<tomorrow>", "Chip: Harness", "Question:",
-                      "- Yes: Make this change", "- Not yet: Ask again later", "- No: Leave the harness as it is",
+                      "## trend-<tomorrow>", "Chip: Factory", "Question:",
+                      "- Yes: Make this change", "- Not yet: Ask again later", "- No: Leave the factory as it is",
                       "python3 scripts/pulse.py propose --file local-data/pulse-proposal.md --date <tomorrow>",
                       "whether or not `propose` succeeded", "Proposed: yes"):
             self.assertIn(words, daily)
@@ -465,7 +470,8 @@ class HarnessTrendsDaily(unittest.TestCase):
         step = text[text.index("**Write the report** to `reports/usage/"):text.index("**Have them read it.**")]
         self.assertLess(step.index("## Daily recommendations"), step.index("## Proposals"))
         for words in ("python3 scripts/pulse.py summary --since", "Fewer than three answered.", "No answers.",
-                      "Pulse folder not cleared.", "never copies an Other answer"):
+                      "Pulse folder not cleared.", "never copies an Other answer",
+                      "`## <the file's date plus one day>: Factory`", "`## <that date>: Harness`"):
             self.assertIn(words, step)
 
     def test_the_sprint_run_keeps_its_report(self):

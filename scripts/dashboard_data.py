@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The numbers a harness dashboard shows, as JSON.
+"""The numbers the factory dashboard shows, as JSON.
 
     python3 scripts/dashboard_data.py --json                    # the last 14 days
     python3 scripts/dashboard_data.py --json --since 2026-10-01

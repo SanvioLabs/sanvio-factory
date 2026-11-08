@@ -1,19 +1,19 @@
 ---
-name: harness-trends
-description: Turn your harness usage for a sprint into a short report you share with the harness owner, with what you'd add, change or drop. A daily run reads the day before's numbers, names at most three trends, recommends one change and, with your yes, puts it to the team as tomorrow's pulse question. Reads your own local usage log, Claude Code's token counts, the loop's own records and the dashboard's numbers, and the sprint run reads the team's pulse counts. You read every report before it goes anywhere, and nothing goes to the pulse folder without your yes. Use at the end of a sprint, or when someone asks for "harness trends", "how did yesterday go", "what should we change in the harness", "my harness report", "what did I use this sprint", "sprint follow-up", "what should we add to the harness", "token burn", "how many tokens", or "what did the loop cost".
+name: factory-trends
+description: Turn your factory usage for a sprint into a short report you share with the factory's owner, with what you'd add, change or drop. A daily run reads the day before's numbers, names at most three trends, recommends one change and, with your yes, puts it to the team as tomorrow's pulse question. Reads your own local usage log, Claude Code's token counts, the loop's own records and the dashboard's numbers, and the sprint run reads the team's pulse counts. You read every report before it goes anywhere, and nothing goes to the pulse folder without your yes. Use at the end of a sprint, or when someone asks for "factory trends", "how did yesterday go", "what should we change in the factory", "my factory report", "what did I use this sprint", "sprint follow-up", "what should we add to the factory", "token burn", "how many tokens", or "what did the loop cost", or by its old name, "harness trends", "my harness report" or "what should we add to the harness".
 license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
 ---
 
-# Harness trends
+# Factory trends
 
 Each person's usage log stays on their own machine. This turns it into the one
 thing that's shared: a short report, with the person's own proposals, that they
-send to the harness owner themselves. The report is gitignored and never
+send to the factory's owner themselves. The report is gitignored and never
 committed. The owner reads the sprint's reports together and decides what goes
-into the harness.
+into the factory.
 
 The daily run is smaller. It compares yesterday with the six days before it,
-recommends one change to the harness, and with the person's yes asks the team
+recommends one change to the factory, and with the person's yes asks the team
 about it in tomorrow's pulse. Its note stays in [`reports/trends/`](../../reports/trends/) on the
 machine that wrote it, and the sprint report collects the notes and the team's
 votes.
@@ -29,7 +29,7 @@ version and scope and no path.
 
 ## Steps
 
-1. **Choose the run.** The sprint run is for a harness report, a sprint
+1. **Choose the run.** The sprint run is for a factory report, a sprint
    follow-up, tokens or the loop's cost, or any period longer than a day.
    Anything else is the daily run.
 
@@ -81,14 +81,14 @@ version and scope and no path.
    If they skip, the line stays in the summary and nothing is recorded. Then
    ask, one at a time:
    - What worked well enough that the team should use it?
-   - Where did you work around the harness: a skill you skipped, a guard you
+   - Where did you work around the factory: a skill you skipped, a guard you
      kept saying yes to, a step you did by hand?
    - One or two proposals. For each: add, change or drop what, and why.
    Use their words. Point at the numbers where they back a proposal up ("asked
    12 times, said yes 12 times" argues for loosening that ask). Don't invent a
    proposal they didn't make.
-4. **Review what changed, if they own this harness.** Ask once: "Do you own
-   this harness?" On a no, or if the plugin output has no `Changed since` line,
+4. **Review what changed, if they own this factory.** Ask once: "Do you own
+   this factory?" On a no, or if the plugin output has no `Changed since` line,
    skip this step. On a yes, run `stelliad:review-skill` on the installed folder
    of each changed or new plugin, or [`skills/review-skill/`](../review-skill/SKILL.md) where Stelliad isn't
    installed. Read each folder from `claude plugin list --json` yourself, and
@@ -113,7 +113,8 @@ version and scope and no path.
    ```
 
    For each file, find the summary entry headed
-   `## <the file's date plus one day>: Harness`, or
+   `## <the file's date plus one day>: Factory`, or, for a question asked
+   before the chip's rename, `## <that date>: Harness`, or
    `## <that date>: trend-<that date>` for a question since removed from the
    bank. Copy that entry's option counts. Write
    `Fewer than three answered.` where the summary says that, and `No answers.`
@@ -121,7 +122,7 @@ version and scope and no path.
    isn't cleared, list the recommendations and write
    `Pulse folder not cleared.` once, under them.
 6. **Have them read it.** It's going to the owner. They can cut anything.
-7. **Say how to share it:** they send the file to the harness owner
+7. **Say how to share it:** they send the file to the factory's owner
    themselves, the way the team passes documents around. It stays in
    [`reports/usage/`](../../reports/usage/) on their machine, gitignored, where step 1 finds it next
    sprint.
@@ -156,7 +157,7 @@ question would be asked.
    the report (step 7) with that line and `Proposed: no, no trend`, and stop:
    - every compared section is `null`
    - every compared field is 0 or `null` both yesterday and across the six days
-4. **Recommend one change.** Add, change or drop one thing in the harness,
+4. **Recommend one change.** Add, change or drop one thing in the factory,
    named as people say it (for example "the pulse skill"), never by its path,
    and say which trend it answers. Never more than one.
 5. **Draft the question** in the bank's format, and show it exactly as it will
@@ -164,11 +165,11 @@ question would be asked.
 
    ```text
    ## trend-<tomorrow>
-   Chip: Harness
+   Chip: Factory
    Question: <Should we make the change, in one line?>
    - Yes: Make this change
    - Not yet: Ask again later
-   - No: Leave the harness as it is
+   - No: Leave the factory as it is
    ```
 
    The `Question:` line is one line naming only the change, with no figure,

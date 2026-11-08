@@ -1,11 +1,11 @@
-# Harness dashboard
+# Factory dashboard
 
 The harness's numbers are spread across the loop's records, your usage log,
 saved evals, Claude Code's transcripts and GitHub. This mod opens a pane
 beside the conversation that brings them together, with what needs you first.
 In a terminal pane 66 columns wide, with made-up numbers:
 
-<img src="../../../docs/harness-dashboard.svg" width="480" alt="The Harness pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
+<img src="../../../docs/factory-dashboard.svg" width="480" alt="The Harness pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
 
 <details>
 <summary>The same pane as text</summary>
@@ -145,21 +145,21 @@ Kiro don't have mods.
 
 ## Open it
 
-Type `/harness-dashboard`. In fullscreen, from 110 columns, the pane docks
+Type `/factory-dashboard`. In fullscreen, from 110 columns, the pane docks
 beside the conversation. Narrower, it sits above the prompt. Close it with the
 `×` in its corner.
 
 It isn't on by default. Load it for one session, from the root:
 
 ```
-claude --plugin-dir examples/mods/harness-dashboard
+claude --plugin-dir examples/mods/factory-dashboard
 ```
 
 Or install it from inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install harness-dashboard@sanvio-harness-starter
+/plugin install factory-dashboard@sanvio-factory
 ```
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), because `/plugin update` keeps an installed copy whose version hasn't changed, and CI checks this on every pull request with [`scripts/check_mod_versions.py`](../../../scripts/check_mod_versions.py).
@@ -203,7 +203,7 @@ can differ for a few minutes.
 
 It runs the script in the nearest folder at or above the one the session
 started in that has [`scripts/dashboard_data.py`](../../../scripts/dashboard_data.py). Installed beyond this repo,
-`/harness-dashboard` in another repo would run that repo's copy, so open it
+`/factory-dashboard` in another repo would run that repo's copy, so open it
 only in a harness you trust.
 
 ## Changing it
@@ -213,8 +213,8 @@ functions, so they can be tested, and [`hooks/charts.ts`](hooks/charts.ts) draws
 charts. [`hooks/register.tsx`](hooks/register.tsx) runs the script and draws the pane. From [`examples/mods/`](../):
 
 ```bash
-claude plugin validate harness-dashboard
-claude plugin test harness-dashboard
+claude plugin validate factory-dashboard
+claude plugin test factory-dashboard
 ```
 
 `python3 -m unittest discover -s tests`, and so the loop, runs these wherever Claude Code is installed. CI doesn't install Claude Code, so it skips them.

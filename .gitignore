@@ -24,4 +24,4 @@ reports/trends/*
 .inbox/
 *.git/
 # scripts/draw_dashboard.py writes this for one run and deletes it; a killed run can leave it
-examples/mods/harness-dashboard/hooks/draw-picture.test.ts
+examples/mods/factory-dashboard/hooks/draw-picture.test.ts

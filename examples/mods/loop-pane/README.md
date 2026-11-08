@@ -96,7 +96,7 @@ inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install loop-pane@sanvio-harness-starter
+/plugin install loop-pane@sanvio-factory
 ```
 
 Or load it for one session with `claude --plugin-dir examples/mods/loop-pane`.

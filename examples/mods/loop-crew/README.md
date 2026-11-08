@@ -60,7 +60,7 @@ isn't there, install it from inside a session, at the root, or run `/reload-plug
 
 ```
 /plugin marketplace add ./
-/plugin install loop-crew@sanvio-harness-starter
+/plugin install loop-crew@sanvio-factory
 ```
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json).
@@ -68,7 +68,7 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 To turn it off just for you:
 
 ```bash
-claude plugin disable loop-crew@sanvio-harness-starter --scope local
+claude plugin disable loop-crew@sanvio-factory --scope local
 ```
 
 ## Using it
