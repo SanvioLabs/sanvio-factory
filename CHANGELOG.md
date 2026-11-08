@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: A review that posts no verdict waits for a new commit
+
+A review of a pull request that posted with no verdict told a person to run `factories.py review` again, but [`scripts/loop.py`](scripts/loop.py) skips a head it has already reviewed against the same base, so the rerun answered the same way and the run was refused over and over. The run's line now says a new commit from the factory clears it, and the run waits on the factory until one comes, instead of on a review that cannot change.
+
+Files: [`scripts/factories.py`](scripts/factories.py), [`tests/test_factories.py`](tests/test_factories.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-08: A headless search leaves out company/ and factories/
 
 A run [`bin/harness`](bin/harness) started (headless) could search `company/` and [`factories/`](factories/) with a `Grep` over the root: [`.ignore`](.ignore) lets `company/` back into a search so an ordinary session can read it, and ripgrep, run with Claude Code's flags, follows it. The guard now passes each headless `Grep` on with `company/`, `local-data/`, `.inbox/` and [`factories/`](factories/) excluded at the root, as it already did for bare repos. [`factories/README.md`](factories/README.md) also gains *What the factory must do*: the contract a factory meets on GitHub, and the `loop.json` that sets up a copy of this harness as one, `review_logins` included. It now says a run records the factory checkout's commit at submission, not exactly which version did the work.
