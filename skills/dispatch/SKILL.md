@@ -203,7 +203,7 @@ merge isn't caught, and that the step's `merge_method` says how it merges.
   nothing else does.
 - Never edit `factories.json`'s labels, limits or rounds to make a run go. The
   person does.
-- Never edit anything under `.harness/factories/` or `.loop/`. The scripts
+- Never edit anything under `.sanvio/factories/` or `.loop/`. The scripts
   write them; you read them.
 
 ## Output

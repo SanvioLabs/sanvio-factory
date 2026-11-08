@@ -68,7 +68,7 @@ class Base(unittest.TestCase):
         return {"hook_event_name": hook, "session_id": session, "transcript_path": str(path)}
 
     def run_hook(self, stdin, **env):
-        full = {k: v for k, v in os.environ.items() if k not in ("HARNESS_RETRO", "HARNESS_HEADLESS")}
+        full = {k: v for k, v in os.environ.items() if not k.endswith(("_RETRO", "_HEADLESS"))}
         full.update(env, CLAUDE_PROJECT_DIR=str(self.root))
         return subprocess.run([sys.executable, str(HOOK)], input=stdin, capture_output=True, text=True,
                               env=full, timeout=30)
@@ -84,7 +84,7 @@ class Capture(Base):
         self.assertFalse(self.folder.exists())
 
     def test_a_correction_from_the_person_is_copied_and_listed(self):
-        result = self.run_hook(json.dumps(self.event(self.log(CORRECTED))), HARNESS_RETRO="on")
+        result = self.run_hook(json.dumps(self.event(self.log(CORRECTED))), SANVIO_RETRO="on")
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
         self.assertEqual(self.kept(), [SESSION + ".jsonl"])
         self.assertEqual(session_retro.listed(self.folder), [SESSION])
@@ -99,11 +99,18 @@ class Capture(Base):
         path = self.log([edit("e1", "/w/a.py"), edit("e2", "/w/a.py"), edit("e3", "/w/a.py")])
         found = session_retro.signals(path)
         self.assertEqual(found, [{"kind": "edited", "uuid": "e3", "file": "/w/a.py", "count": 3}])
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             self.assertEqual(session_retro.capture(self.root, self.event(path)), SESSION)
 
-    def test_no_signal_is_not_copied(self):
+    def test_the_old_switch_still_works_and_the_new_one_wins(self):
         with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+            os.environ.pop("SANVIO_RETRO", None)
+            self.assertTrue(session_retro.switched_on())
+        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on", "SANVIO_RETRO": "off"}):
+            self.assertFalse(session_retro.switched_on())
+
+    def test_no_signal_is_not_copied(self):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             self.assertIsNone(session_retro.capture(self.root, self.event(self.log(QUIET))))
         self.assertEqual(self.kept(), [])
 
@@ -119,7 +126,7 @@ class Capture(Base):
 
     def test_precompact_then_session_end_lists_it_once_and_keeps_the_longer_log(self):
         path = self.log(CORRECTED)
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             session_retro.capture(self.root, self.event(path, "PreCompact"))
             self.log(CORRECTED + [said("r4", "Done now")])
             session_retro.capture(self.root, self.event(path, "SessionEnd"))
@@ -127,35 +134,35 @@ class Capture(Base):
         self.assertIn('"r4"', (self.folder / (SESSION + ".jsonl")).read_text())
 
     def test_the_copy_and_its_folder_are_readable_by_their_owner_alone(self):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             session_retro.capture(self.root, self.event(self.log(CORRECTED)))
         self.assertEqual(stat.S_IMODE(self.folder.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((self.folder / (SESSION + ".jsonl")).stat().st_mode), 0o600)
 
     def test_nothing_is_copied_where_git_does_not_ignore_the_folder(self):
         (self.root / ".gitignore").write_text("")  # as a ticket that dropped the line would leave it
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             self.assertIsNone(session_retro.capture(self.root, self.event(self.log(CORRECTED))))
         outside = Path(self.tmp.name) / "not-a-checkout"
         outside.mkdir()
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             self.assertIsNone(session_retro.capture(outside, self.event(self.log(CORRECTED))))
         self.assertEqual(self.kept(), [])
         self.assertFalse((outside / "local-data").exists())
 
     def test_a_run_bin_harness_started_is_not_copied(self):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on", "HARNESS_HEADLESS": "1"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on", "SANVIO_HEADLESS": "1"}):
             self.assertIsNone(session_retro.capture(self.root, self.event(self.log(CORRECTED))))
 
     def test_a_hook_run_that_fails_leaves_the_session_alone(self):
         for stdin in ("not json", json.dumps({"hook_event_name": "SessionEnd", "session_id": "../x",
                                               "transcript_path": "/nowhere"})):
-            result = self.run_hook(stdin, HARNESS_RETRO="on")
+            result = self.run_hook(stdin, SANVIO_RETRO="on")
             self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
         self.assertFalse(self.folder.exists())
 
     def test_a_copy_older_than_30_days_is_deleted_on_the_next_run_even_when_off(self):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             session_retro.capture(self.root, self.event(self.log(CORRECTED)))
         old = time.time() - 31 * 86400
         os.utime(self.folder / (SESSION + ".jsonl"), (old, old))
@@ -188,7 +195,7 @@ class Kept(Base):
         (self.folder / (session + ".reply.txt")).write_text(text)
 
     def keep(self, records=CORRECTED):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             return session_retro.capture(self.root, self.event(self.log(records)))
 
 
@@ -205,7 +212,7 @@ class PromptAndRecord(Kept):
 
     def test_prompt_takes_the_first_kept_of_two(self):
         self.keep()
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             session_retro.capture(self.root, self.event(self.log(CORRECTED, name="second"), session="second"))
         self.assertEqual(session_retro.listed(self.folder), [SESSION, "second"])
         out = io.StringIO()
@@ -311,6 +318,8 @@ class Classify(Kept):
         cmd, kwargs = calls[0]
         self.assertEqual(cmd, ["claude", "-p"] + loop.UNTRUSTED_CLAUDE)
         self.assertEqual(kwargs["input"], (self.folder / (SESSION + ".prompt.md")).read_text())
+        self.assertEqual((kwargs["env"]["SANVIO_RETRO"], kwargs["env"]["SANVIO_HEADLESS"]), ("off", "1"))
+        # And the old names, so a hook from before the rename reads the same (security review).
         self.assertEqual((kwargs["env"]["HARNESS_RETRO"], kwargs["env"]["HARNESS_HEADLESS"]), ("off", "1"))
         self.assertNotIn("CLAUDE_CODE_SESSION_ID", kwargs["env"])
         reply = self.folder / (SESSION + ".reply.txt")

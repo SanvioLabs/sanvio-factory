@@ -185,7 +185,7 @@ python3 scripts/eval_agents.py examples/ci/evals
 Each case runs twice, and each run starts a real session that reads the skill
 and the diff, so a run spends model tokens. A person runs it by hand. It isn't
 part of the gate, and it never runs in CI. Add `--save` to keep the result in
-`.harness/evals/`, and `--baseline latest` to see which cases changed since the
+`.sanvio/evals/`, and `--baseline latest` to see which cases changed since the
 last saved run. [`scripts/eval_agents.py`](../../scripts/eval_agents.py)'s header lists every option.
 
 To add your own case, make a folder beside these, such as

@@ -81,7 +81,7 @@ the next. Nothing runs until you start it, and it never merges.
 |---|---|---|
 | Discover | The next open issue labelled `loop-ready` that isn't assigned to someone else, skipping one still waiting on an open dependency until it closes. A dependency counts as met when a merged change closes it; one closed by hand blocks the issue, with a comment saying why. On a `base` that isn't the default branch, a merged pull request into `base` whose body closes the dependency counts. Only the 200 most recently opened pull requests merged into `base` are read, so an older dependency is refused until someone takes the `Depends on` line out | `ticket.md` |
 | Shape | A fresh agent writes the smallest plan that would count, plus the check that proves it | `plan.md` |
-| Build | A fresh agent makes the change in a git worktree, outside your clone (`~/.harness-loop/`). Once the pull request is merged or closed, the loop removes the worktree and its branch while it's idle, unless the worktree has changes or the branch has commits the pull request doesn't. A pull request someone rebased or amended is still tidied, as long as the branch is still the commit the loop pushed. While it's idle the loop also merges the base into an open pull request whose only conflict is in [`CHANGELOG.md`](CHANGELOG.md). An `UPDATE` line says how that went: `merged <base>, kept both CHANGELOG.md entries` means it pushed the merge, and `kept: <why>` means it pushed nothing, with the reason, such as a conflict in another file or failing tests. It tries each commit of the base once per issue, and the tests' output goes to `.loop/issue-<N>/update-output.txt` | the commit |
+| Build | A fresh agent makes the change in a git worktree, outside your clone (`~/.sanvio-loop/`). Once the pull request is merged or closed, the loop removes the worktree and its branch while it's idle, unless the worktree has changes or the branch has commits the pull request doesn't. A pull request someone rebased or amended is still tidied, as long as the branch is still the commit the loop pushed. While it's idle the loop also merges the base into an open pull request whose only conflict is in [`CHANGELOG.md`](CHANGELOG.md). An `UPDATE` line says how that went: `merged <base>, kept both CHANGELOG.md entries` means it pushed the merge, and `kept: <why>` means it pushed nothing, with the reason, such as a conflict in another file or failing tests. It tries each commit of the base once per issue, and the tests' output goes to `.loop/issue-<N>/update-output.txt` | the commit |
 | Validate | The script runs your test command. A second fresh agent reads the diff and the output and says PASS or FIX | `test-output.txt`, `diff.patch`, `review.md` |
 | Scale | On PASS, and if the issue is still open, it opens a pull request that says `Closes #N`, the files changed, the last test lines, the review in full and the plan (collapsed), and comments the link on the issue. A blocked issue gets a comment saying why. It writes what went wrong into `.loop/lessons.md`, in the shape [`skills/learn/`](skills/learn/) reads, then takes the next issue | the pull request |
 
@@ -227,7 +227,7 @@ keeps its default:
 | `max_issue_tokens` | `0` | Tokens one run of an issue may use before it's blocked. `0` means no budget. *A token budget* above has the detail |
 | `retro` | `false` | Only `true` turns it on. Each entry in `.loop/lessons.md` then gets findings on why the lesson reached the agent late, from one more `reader_agent` run over the run's session logs in `~/.claude/projects`, with the digest in `.loop/issue-N/evidence.md`. A finding that cites a record not in the logs is dropped, and one the logs don't bear out says `(unverified)`. A file [`CLAUDE.md`](CLAUDE.md) loaded may not appear in the logs, so a finding about one can say that wrongly. A session with no log, such as a Codex run, says `no session log`. It runs after the pull request opens or before the block, and if it fails, times out or is over budget, the entry says unclassified and the run ends the same. On a pass its tokens are in `usage.json` but not in that run's `history.jsonl` line |
 | `hours` | empty | When `run` and `review` may start something, in local time, such as `Mon-Fri 09:00-17:00`. Empty means any time; `--hours` replaces it for one run. *In working hours* below has the format |
-| `worktree_dir` | `~/.harness-loop/<repo>` | Where the build checkouts go. Keep it outside the clone: an agent started inside it loads this repo's [`CLAUDE.md`](CLAUDE.md) twice and stops to ask you to restart from the root |
+| `worktree_dir` | `~/.sanvio-loop/<repo>` | Where the build checkouts go. Keep it outside the clone: an agent started inside it loads this repo's [`CLAUDE.md`](CLAUDE.md) twice and stops to ask you to restart from the root |
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the harness's `loop.json` or its `projects` entry sets it, never a project's own |
@@ -435,7 +435,7 @@ the harness, in `.loop/projects/<name>/` (`status.json`, `loop.log`,
 `issue-N/` and a lock of its own, so it runs beside the harness's loop). None of
 it goes in the project's folder, which gets only the `loop/issue-N` branches
 and their checkouts, as any clone the loop works does. Its checkouts go in
-`~/.harness-loop/<harness>/<name>/`. A checkout of the project holds none of
+`~/.sanvio-loop/<harness>/<name>/`. A checkout of the project holds none of
 the harness's rules, so every prompt starts with [`AGENTS.md`](AGENTS.md) and the three
 steering files it loads every session, and says
 the project's own `AGENTS.md` or `CLAUDE.md` adds to them and never loosens them. A `claude` build agent also
@@ -492,7 +492,7 @@ on github.com.
 
 It lists the open, non-draft pull requests that match `review_query`. For each
 new head commit it checks the pull request out detached, outside your clone, in
-`~/.harness-loop/`, and has a fresh `reader_agent` follow
+`~/.sanvio-loop/`, and has a fresh `reader_agent` follow
 [`skills/review-pr/`](skills/review-pr/) for the change between the base and the
 head. The agent ends its report with a verdict line, `VERDICT: ready`,
 `VERDICT: ready with nits` or `VERDICT: changes needed`. The script, not the
@@ -686,7 +686,7 @@ nothing here runs. A chain of factories waits until one is proved.
 | `factories.py doctor --repo o/r --pr 31` | Builds the record dispatch would make, takes the head as reviewed, reading it as ready where you haven't reviewed it, and never gives a merge, and moves it on through the run's own code with `gh` held to an allowlist of reads, so it stops where a run would: the stopped label, a pull request that isn't the factory's, a draft, another base or changes needed read no checks, and it exits 1. Lists every call with what it came to, a reply it couldn't use or a row it skipped noted on the call that gave it, then what `status` would say, short of the merge, with every control character GitHub sent printed as `?` | Nothing |
 | `factories.py list` | Every run from its record alone | Nothing |
 
-Each run writes one record to `.harness/factories/`, gitignored: the issue,
+Each run writes one record to `.sanvio/factories/`, gitignored: the issue,
 the factory, its commit and whether it was read from a checkout or only
 declared, the state, the pull request, the rounds, and when it started and
 ended. A factory's tokens and cost read `not reported`, since its usage isn't

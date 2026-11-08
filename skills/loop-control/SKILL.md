@@ -155,7 +155,7 @@ the harness root as above. Name the tmux session after the project,
 4. Its state is in the harness, in `.loop/projects/<name>/`: `status.json`,
    `loop.log` and `issue-<N>/`, with a lock of its own, so it runs beside the
    harness's loop. Read those in place of `.loop/` under *Say what it did*.
-   Its checkouts are in `~/.harness-loop/<harness>/<name>/`.
+   Its checkouts are in `~/.sanvio-loop/<harness>/<name>/`.
 5. The agents get the harness's [`AGENTS.md`](../../AGENTS.md) and its three steering files at
    the top of each prompt. A `claude` build agent also runs the harness's
    `guard.py` before each tool call. Another build agent, such as `codex`, has

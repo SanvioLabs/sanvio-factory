@@ -11,7 +11,8 @@ projects/*
 factories/*
 !factories/README.md
 /factories.json
-.harness/
+/.sanvio
+/.harness
 reports/usage/*
 !reports/usage/README.md
 reports/work/*

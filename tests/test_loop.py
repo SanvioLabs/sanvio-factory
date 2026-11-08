@@ -18,7 +18,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import loop  # noqa: E402
+import loop  # noqa: E402 (needs scripts/ on the path first)
+import names  # noqa: E402 (same reason)
 
 REAL_ORIGIN = loop.origin if hasattr(loop, "origin") else None  # the fixture names its bare origin o/r
 # A made-up credential, built from parts so no scanner reads it as one (#413).
@@ -653,7 +654,7 @@ with open(os.path.join(state, "agents-started"), "a") as f:
 # Each step's last prompt, and its words whole, as plan-prompt and plan-argv.
 open(os.path.join(state, step + "-prompt"), "w").write(prompt)
 open(os.path.join(state, step + "-argv"), "w").write(json.dumps(sys.argv[1:]))
-open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("HARNESS_RETRO", "unset"))
+open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset") + os.environ.get("HARNESS_RETRO", "unset"))
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -964,10 +965,10 @@ class TestAPass(unittest.TestCase):
             return loop.Loop(self.work, self.cfg).run(once=True, **kwargs)
 
     def test_no_agent_keeps_its_session_for_a_session_retro_even_with_it_switched_on(self):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on", "HARNESS_RETRO": "on"}):
             self.go()
         for step in ("plan", "build", "review"):
-            self.assertEqual((self.state / (step + "-retro-switch")).read_text(), "off", step)
+            self.assertEqual((self.state / (step + "-retro-switch")).read_text(), "offoff", step)
 
     # -- the retro ---------------------------------------------------------
 
@@ -2221,7 +2222,7 @@ class TestAPass(unittest.TestCase):
         self.assertTrue((Path(self.cfg["worktree_dir"]) / "issue-12" / "feature.txt").exists())
         self.assertFalse((self.work / ".loop" / "worktrees").exists())
         default = loop.Loop(self.work, dict(loop.DEFAULTS)).worktrees()
-        self.assertEqual(default, Path.home() / ".harness-loop" / "work")
+        self.assertEqual(default, names.loop_home() / "work")
 
     def test_without_a_project_the_loop_works_in_its_own_clone_as_before(self):
         self.assertEqual(self.go(), 0)
@@ -5421,7 +5422,7 @@ import os, sys
 prompt = sys.stdin.read()
 state = os.environ["LOOP_TEST_STATE"]
 open(os.path.join(state, "argv"), "w").write(" ".join(sys.argv[1:]))
-open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("HARNESS_RETRO", "unset"))
+open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset"))
 with open(os.path.join(state, "prompts"), "a") as f:
     f.write(prompt + "\\n=====\\n")
 with open(os.path.join(state, "cwds"), "a") as f:
@@ -5969,7 +5970,7 @@ class TestReview(ReviewFixture, unittest.TestCase):
 
     def test_the_review_agent_is_never_kept_for_a_session_retro(self):
         self.list_prs(self.pr(7, self.push(7, "thing.txt")))
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on", "HARNESS_RETRO": "on"}):
             self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertEqual((self.state / "retro-switch").read_text(), "off")

@@ -76,7 +76,7 @@ says otherwise, is where branches start and pull requests go. The clone has to
 sit directly in this folder and have its `origin` on GitHub, or the loop
 refuses it before it starts. Its state goes in the harness, in
 `.loop/projects/billing/`, never in the project's folder. Its checkouts go in
-`~/.harness-loop/<harness>/billing/`. Its agents get the harness's rules in
+`~/.sanvio-loop/<harness>/billing/`. Its agents get the harness's rules in
 their prompts, and a `claude` build agent runs the harness's credential guard.
 A `codex` build agent builds without that guard.
 [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) has the rest.

@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import names  # noqa: E402 (beside this file: the old names, and the new ones)
+
 ROOT = Path(__file__).resolve().parent.parent
 STARTER = re.compile(r"[/:]SanvioLabs/sanvio-harness-starter(\.git)?/?$", re.I)
 
@@ -258,10 +261,28 @@ def check_security_levels(root):
     return ("PASS", "security: " + ", ".join(levels), None)
 
 
+def check_old_names(root, environ=None):
+    """The names this repo had before Sanvio Factory, still in use. They work for one more release."""
+    said, fixes = [], []
+    if (Path(root) / names.OLD_STATE).exists():
+        said.append("both .harness/ and .sanvio/ are here, and only .sanvio/ is read"
+                    if (Path(root) / names.STATE).exists() else ".harness/ is still read, because .sanvio/ isn't here")
+        fixes.append("move what you need from .harness/ into .sanvio/, then delete .harness/")
+    found = names.old_variables(environ)
+    if found:
+        said.append("{} still set under the old name, which goes in a later release".format(", ".join(found)))
+        fixes.append("rename it in your shell profile: " + ", ".join(
+            names.PREFIX + name[len(names.OLD_PREFIX):] for name in found))
+    if said:
+        fix = "; ".join(fixes)
+        return ("WARN", "names: " + "; ".join(said), fix[0].upper() + fix[1:])
+    return ("PASS", "names: nothing uses the harness starter's old names", None)
+
+
 def run(root, home=None):
     return [check_python(), check_hooks(root), check_links(root), check_gate(root),
             check_company(root), check_shadowed_skills(root, home), check_security_levels(root),
-            check_remote(root)]
+            check_remote(root), check_old_names(root)]
 
 
 def main(argv):

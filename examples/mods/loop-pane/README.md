@@ -166,7 +166,7 @@ rewrites at every step, and checks `.loop/STOP` and `.loop/lock`, with
 same in each project's folder, so a project's `.loop/projects/<name>/` stands in
 for `.loop/` in every path above.
 
-The one file it writes is the session's focus, `.harness/project/<id>`, and only
+The one file it writes is the session's focus, `.sanvio/project/<id>`, and only
 when you pick a loop in the pane: the project's name, or nothing for the
 harness. At every read it reads that file back and checks that the project it
 names is a folder directly under [`projects/`](../../../projects/).

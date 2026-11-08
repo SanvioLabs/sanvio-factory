@@ -36,7 +36,7 @@ status name the session, so `tmux attach -t <name>` opens it. On macOS the run a
 .loop/watch.command, which opens a read-only Terminal window on it (the loop pane's Watch it),
 and .loop/issue-N/watch.command for each issue's window (the pane's Watch on that issue).
 Everything a round produced is in .loop/issue-N/, and agent.log there is what its agents said, as
-they said it. Checkouts live outside the clone, in ~/.harness-loop/. It never merges.
+they said it. Checkouts live outside the clone, in ~/.sanvio-loop/. It never merges.
 
 max_workers in loop.json (default 1) is how many issues it works at once, each on its own thread
 and each agent its own session, so usage grows with it. Inside tmux each issue gets a window,
@@ -45,7 +45,7 @@ path a running issue's Scope names waits for it, with a HELD line in the log.
 
 --project projects/<name> works a clone under projects/ instead of the harness: its GitHub repo's
 issues and pull requests, its loop.json, which has to set test_command, and its checkouts under
-~/.harness-loop/<harness>/<name>/. Its state stays in the harness, in .loop/projects/<name>/. The
+~/.sanvio-loop/<harness>/<name>/. Its state stays in the harness, in .loop/projects/<name>/. The
 agents get the harness's rules in their prompts, and a claude build agent the harness's guard.
 Standard library only; needs git and the gh CLI, signed in.
 """
@@ -64,6 +64,9 @@ import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import names  # noqa: E402 (beside this file: the home folder, and the old one for a release)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
@@ -118,7 +121,7 @@ DEFAULTS = {
     # to this loop as a factory. Empty means the login the loop runs as. A machine key: a clone anyone can
     # push to mustn't choose whose words reach the planner.
     "review_logins": [],
-    # Where the build checkouts go. Empty means ~/.harness-loop/<this folder's name>. Keep it outside the
+    # Where the build checkouts go. Empty means ~/.sanvio-loop/<this folder's name>. Keep it outside the
     # clone: an agent started in a nested folder loads this repo's CLAUDE.md too, which tells it to stop.
     "worktree_dir": "",
 }
@@ -1865,7 +1868,7 @@ class Loop:
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=dict(os.environ, HARNESS_RETRO="off"))
+                           env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
@@ -1934,12 +1937,12 @@ class Loop:
         try:
             # A session of its own: a timeout kills whatever it started too, which would otherwise hold
             # its output open, and a Ctrl-C meant for the loop's terminal doesn't reach it. Its session
-            # log is never kept by .claude/hooks/session_retro.py, whatever HARNESS_RETRO says here:
+            # log is never kept by .claude/hooks/session_retro.py, whatever SANVIO_RETRO says here:
             # nobody corrected it, and a copy in a worktree is one commit from being pushed.
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
                                     text=True, errors="replace", start_new_session=True,
-                                    env=dict(os.environ, HARNESS_RETRO="off"))
+                                    env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])
@@ -2276,7 +2279,7 @@ class Loop:
         if self.cfg["worktree_dir"]:
             where = Path(self.cfg["worktree_dir"]).expanduser()
         else:
-            where = Path.home() / ".harness-loop" / self.root.name
+            where = names.loop_home() / self.root.name
         return where / self.project.name if self.project else where
 
     def worktree(self, number):

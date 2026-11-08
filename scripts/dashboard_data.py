@@ -23,23 +23,23 @@
                      started, or null
     loop_throughput  the issues in .loop/status.json and each project's: how many are in each
                      state, each one's round, and how many took more than one
-    activity         your usage log, .harness/usage/<you>.jsonl, since --since: skills, agents and
+    activity         your usage log, .sanvio/usage/<you>.jsonl, since --since: skills, agents and
                      slash commands by name, guard refusals by rule, and how many times it asked.
                      skill_spend, agent_spend and command_spend hold each name's tokens and estimated
                      cost_usd, from token_report.py's split of the transcripts in ~/.claude/projects for
                      sessions started at the harness's root, including after they move into projects/. A
                      session started under projects/ isn't counted. A name there needn't match the counts: a
                      subagent's are measured, a skill's or command's attributed from where it started to
-                     the next prompt. cost_usd prices each model's tokens at .harness/prices.json's
+                     the next prompt. cost_usd prices each model's tokens at .sanvio/prices.json's
                      dollars per million tokens (scripts/prices.example.json has the shape), and is
                      null when a model with tokens has no price. unpriced names those models, each with
                      why: "no prices.json", "unreadable" or "not in prices.json". prices_checked is
                      that file's "checked" date, or null when it isn't a date, and spend_at when the
-                     transcripts were read. The split is kept in .harness/cache/activity.json, only
+                     transcripts were read. The split is kept in .sanvio/cache/activity.json, only
                      names, models and counts, and read again when it's over 15 minutes old or --since
                      changes; prices are read every run. With no transcripts folder, or a loop.json or
                      transcript that stops the read, these fields are left out and the counts stay
-    evals            the newest file in .harness/evals/ for each reviewer: when it was saved, how
+    evals            the newest file in .sanvio/evals/ for each reviewer: when it was saved, how
                      many cases were stable, flaky and failing, and the failing cases' names. stale
                      is true when a file the result rests on changed after it was saved: the agent's
                      file in agents/, scripts/eval_agents.py, or a case's case.json, work file or
@@ -58,7 +58,7 @@
                      loop run's is, so the evening stays on its own day; --since and by_model go by
                      the transcript's UTC date, as token_report.py does, so west of UTC a reply on
                      the evening before --since counts in by_model but has no day. What each
-                     transcript held is kept in .harness/cache/conversations.json and read again
+                     transcript held is kept in .sanvio/cache/conversations.json and read again
                      only when the file's size or time changes: per reply, its message and request
                      ids, UTC day, side, model, session id, local day and counts, under the
                      transcript's path, and nothing else
@@ -71,7 +71,7 @@
     loop_rework      the loop's pull requests (branch loop/issue-N) merged since --since, read through
                      gh: how many, how many gained a commit without the loop's "Loop: issue #" line,
                      and each of those with its number, title, merges from main and other commits.
-                     A pull request's commits are cached in .harness/cache/loop_rework.json, so
+                     A pull request's commits are cached in .sanvio/cache/loop_rework.json, so
                      each is asked for once
     loop_history     every loop run that ended since --since, from .loop/history.jsonl and each
                      .loop/projects/*/history.jsonl, as runs, by_day, by_outcome and skipped_lines.
@@ -107,7 +107,7 @@ so they hold whatever was typed into them. Nowhere else does it print a title or
 does it add a pull request's address, a prompt, a commit's message or author, an eval's reasons or a
 file path other than those in changed, which are from the harness root: counts, dollars, dates, issue
 names, step, model, skill, agent, rule and case names, and a run's outcome, tests and verdicts. The dollars are the loop's estimate at API
-prices, or under activity an estimate at the prices in .harness/prices.json, not what was billed.
+prices, or under activity an estimate at the prices in .sanvio/prices.json, not what was billed.
 """
 import argparse
 import contextlib
@@ -127,13 +127,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import token_report  # noqa: E402 (needs scripts/ on the path first)
 from eval_agents import load_cases  # noqa: E402 (same reason)
 from loop import USAGE_TOKENS, usage_totals  # noqa: E402 (same reason)
-from token_report import group, loop_dir, loop_runs, natural, read_file, tokens, usage_files  # noqa: E402 (same reason)
+from token_report import group, loop_dirs, loop_runs, natural, read_file, tokens, usage_files  # noqa: E402 (same reason)
 from usage_report import count, log_path, read, since_date  # noqa: E402 (same reason)
+import names  # noqa: E402 (same reason)
 
 SCHEMA = 1  # the document's shape; see "schema" above
 WEEK = 7  # days in the last-7-days window, today included
 TRANSCRIPTS = Path.home() / ".claude" / "projects"
-CACHE = Path(".harness") / "cache" / "conversations.json"
+CACHE = Path("cache") / "conversations.json"  # each of these under names.state_dir()
 SAVE_EVERY = 50  # transcripts read between saves of the conversations cache
 SIDES = {"Conversations": "harness", "projects/": "harness", "Loop": "loop"}  # token_report's groups, two sides
 COUNTS = ("input", "output", "cache_writes", "cache_reads")  # token_report's FIELDS, in order
@@ -141,11 +142,11 @@ GH_TIMEOUT = 30  # seconds before a gh call counts as unavailable
 PR_FIELDS = "number,title,createdAt,headRefName,isDraft,statusCheckRollup,mergeable"
 FAILED = {"FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"}
 LOOP_BRANCH = re.compile(r"^loop/issue-(\d+)$")
-REWORK_CACHE = Path(".harness") / "cache" / "loop_rework.json"
+REWORK_CACHE = Path("cache") / "loop_rework.json"
 BASE_MERGES = ("Merge branch 'main'", "Merge remote-tracking branch 'origin/main'")
-ACTIVITY_CACHE = Path(".harness") / "cache" / "activity.json"
+ACTIVITY_CACHE = Path("cache") / "activity.json"
 ACTIVITY_KEEP = datetime.timedelta(minutes=15)  # how long a read of the transcripts is used again
-PRICES = Path(".harness") / "prices.json"
+PRICES = Path("prices.json")
 PRICED_TOKENS = 1_000_000  # prices.json's figures are dollars for this many tokens
 SPEND_FIELDS = {"skills": "skill_spend", "agents": "agent_spend", "commands": "command_spend"}
 OUTCOMES = ("pr", "blocked", "stopped", "skipped")  # the states a run ends in; see record_run in loop.py
@@ -370,7 +371,7 @@ def evals(root):
     """The newest saved result for each reviewer. The same loop as eval_agents.latest(): names start with
     the time they were saved, so name order newest first, matched on the "reviewer" field, not the name.
     It's repeated here because latest() reads the harness's own folder and finds one reviewer's file."""
-    paths = sorted((Path(root) / ".harness" / "evals").glob("*.json"), reverse=True)
+    paths = sorted((names.state_dir(root) / "evals").glob("*.json"), reverse=True)
     if not paths:
         return missing("no saved evals")
     out = {}
@@ -543,7 +544,7 @@ def conversations(root, since, today, projects_dir, cache_path):
     if not projects_dir.is_dir():
         return missing("no transcripts")
     try:
-        loop = loop_dir(root)
+        loop = loop_dirs(root)
     except (OSError, ValueError):
         return missing("unreadable")
     try:
@@ -610,7 +611,7 @@ def kept_activity(root, since, now, projects_dir):
 
     The read goes through every transcript, so its result is kept and used again for ACTIVITY_KEEP at the
     same since. A kept result that can't be read or isn't the right shape counts as none."""
-    path = Path(root) / ACTIVITY_CACHE
+    path = names.state_dir(root) / ACTIVITY_CACHE
     try:
         kept = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -620,7 +621,7 @@ def kept_activity(root, since, now, projects_dir):
         if at and now - at <= ACTIVITY_KEEP:
             return kept["result"], at
     try:
-        result = token_report.activity(projects_dir, since, root, loop_dir(root))
+        result = token_report.activity(projects_dir, since, root, loop_dirs(root))
     except (OSError, ValueError, TypeError):
         return None, None
     save(path, {"at": now.isoformat(timespec="seconds"), "since": since, "result": result})
@@ -648,7 +649,7 @@ def rate(entry):
 def prices(root):
     """({model: its rate(), None when that can't be read}, why a model not listed has no price, the date checked)."""
     try:
-        found = json.loads((Path(root) / PRICES).read_text(encoding="utf-8"))
+        found = json.loads((names.state_dir(root) / PRICES).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}, "no prices.json", None
     except (OSError, ValueError):
@@ -752,7 +753,7 @@ def loop_rework(root, since):
            if isinstance(pr, dict) and isinstance(number(pr.get("number")), int)
            and isinstance(pr.get("headRefName"), str) and LOOP_BRANCH.match(pr["headRefName"])
            and isinstance(pr.get("mergedAt"), str) and pr["mergedAt"][:10] >= since]
-    path = Path(root) / REWORK_CACHE
+    path = names.state_dir(root) / REWORK_CACHE
     try:
         cache = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -860,7 +861,7 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "loop_throughput": loop_throughput(root),
             "activity": spend(activity(root, since), root, since, now, projects_dir),
             "evals": evals(root),
-            "conversations": conversations(root, since, today, projects_dir, Path(root) / CACHE),
+            "conversations": conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE),
             "waiting": waiting(root, now),
             "loop_rework": loop_rework(root, since),
             "loop_history": loop_history(root, since, today)}

@@ -1153,11 +1153,11 @@ group('project loops', () => {
     await tall.unmount()
   })
 
-  // The session's project focus, the file /project and the GitHub line keep at .harness/project/<id>.
+  // The session's project focus, the file /project and the GitHub line keep at .sanvio/project/<id>.
   const A = 'aaaaaaaa-1111'
   const B = 'bbbbbbbb-2222'
-  const FOCUS = (id: string) => `${ROOT}/.harness/project/${id}`
-  const underFocus = (path: string) => path.includes('/.harness/project/')
+  const FOCUS = (id: string) => `${ROOT}/.sanvio/project/${id}`
+  const underFocus = (path: string) => path.includes('/.sanvio/project/')
   // A pick switches, then writes and reads the focus back: several engine calls, so wait out more turns.
   const settle = async () => {
     for (let i = 0; i < 10; i++) await drain()
@@ -1184,6 +1184,16 @@ group('project loops', () => {
     expect(await titles(ui)).toEqual(['#30 alpha job'])
     expect(files.get(FOCUS(A))).toBe('alpha\n')
     expect(writes).toEqual([])
+    await ui.unmount()
+    await close()
+  })
+  test('a focus a mod from before the rename wrote under .harness/ still counts', async ($, on) => {
+    const files = betaRunning()
+    files.set(`${ROOT}/.harness/project/${A}`, 'alpha\n')
+    const { close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await pickValue(ui)).toBe('alpha')
     await ui.unmount()
     await close()
   })

@@ -60,7 +60,7 @@ declare module 'claude-code' {
   interface PluginState {
     // seen: the loop on screen. loops: every loop's last look, the harness first. picked: the loop to
     // show, a project's name or '' for the harness, null until the pane has opened on one. focus: the
-    // project last read from this session's .harness/project/<id>, or null, so a read can see it change.
+    // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
     'loop-pane': { launch: string | null; seen: Seen | null; view: View | null; loops: Seen[] | null; picked: string | null; focus: string | null }
   }
 }

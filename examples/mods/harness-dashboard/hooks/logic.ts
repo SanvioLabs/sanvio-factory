@@ -337,10 +337,10 @@ function stamp(text: string | null): string {
 function estimate(a: Obj): Line[] {
   const whys = Object.values(obj(a.unpriced) ?? {})
   return [
-    line('quiet', `Est. cost: an estimate from .harness/prices.json, checked ${day(str(a.prices_checked))},`),
+    line('quiet', `Est. cost: an estimate from .sanvio/prices.json, checked ${day(str(a.prices_checked))},`),
     line('quiet', `worked out ${stamp(str(a.spend_at))}. Skills' and commands' tokens are`),
     line('quiet', 'attributed from where each started to the next prompt.'),
-    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .harness/prices.json to see dollars')] : []),
+    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .sanvio/prices.json to see dollars')] : []),
   ]
 }
 

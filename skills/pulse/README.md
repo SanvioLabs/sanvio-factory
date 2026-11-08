@@ -30,7 +30,7 @@ synced on that machine.
 3. Point this harness at the folder in your shell profile, then open a new shell:
 
    ```bash
-   export HARNESS_PULSE_FOLDER="/path/to/the/shared/folder"
+   export SANVIO_PULSE_FOLDER="/path/to/the/shared/folder"
    ```
 
 4. Add a `Pulse folder` row to `company/DATA.md`, with its `Cleared for this tool`
@@ -39,7 +39,7 @@ synced on that machine.
    the harness never does.
 
    ```
-   | Pulse folder | The team's daily question and everyone's answers | The synced folder HARNESS_PULSE_FOLDER names | yes |
+   | Pulse folder | The team's daily question and everyone's answers | The synced folder SANVIO_PULSE_FOLDER names | yes |
    ```
 
 5. Run `python3 scripts/pulse.py check`. It prints how many questions the bank has,

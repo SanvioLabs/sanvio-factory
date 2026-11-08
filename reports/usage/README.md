@@ -11,7 +11,7 @@ Each report also lists the plugins and mods enabled for that person, by id,
 version and scope, and says which changed since their last report. The owner
 reviews the ones that changed before the next sprint.
 
-Counts and proposals only. The raw logs stay in `.harness/usage/` on each
+Counts and proposals only. The raw logs stay in `.sanvio/usage/` on each
 person's machine, and that folder is gitignored.
 
 ## The export
@@ -49,5 +49,5 @@ written to paste into Slack or your team's working-practices doc as it is:
 > never goes into the repo. I read the sprint's reports together and we decide
 > what goes into the harness.
 >
-> To turn the log off for yourself, set `HARNESS_USAGE_LOG=off` in your shell
+> To turn the log off for yourself, set `SANVIO_USAGE_LOG=off` in your shell
 > profile.

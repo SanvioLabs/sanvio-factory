@@ -1062,7 +1062,7 @@ group('the loop picker', () => {
     expect(titles.length).toBe(opened + 1)
     expect(flip.closes).toBe(0)
     expect(panes.length).toBe(1)
-    expect(reads.filter(path => path.includes('/.harness/project/'))).toEqual([])
+    expect(reads.filter(path => path.includes('/.sanvio/project/'))).toEqual([])
     await ui.unmount()
     await close()
   })
@@ -1573,7 +1573,7 @@ group('the project in focus', () => {
   const OTHER = `${ROOT}/.loop/projects/other`
   const LOST = `${ROOT}/.loop/projects/lost`
   const ID = '0123abcd-4567'
-  const FOCUS = `${ROOT}/.harness/project/${ID}`
+  const FOCUS = `${ROOT}/.sanvio/project/${ID}`
   // What fs.stat finds under projects/: app, other and lost are folders, though lost has no loop yet.
   const PROJECTS: Kinds = { app: 'dir', other: 'dir', lost: 'dir', linked: 'link', plain: 'file' }
   // The harness, app and other, each running with its own job, so the lanes say which loop is on screen.
