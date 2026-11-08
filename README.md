@@ -18,9 +18,15 @@ to your rules and checks, and the factory turns many runs into pull requests you
 review. [Set up](#set-up) says where the guard stops, and
 [What makes it a factory](HOW-IT-WORKS.md#what-makes-it-a-factory) has the rest.
 
+The first two pictures are the harness: what one session inside the factory
+works in. The third is the factory: one issue through the loop to a pull
+request you review.
+
 ![You ask an AI agent to draft the bakery proposal. On its own it leaves a rate as TBD, and the blank goes out to the client. Then the harness appears around it: instructions it reads (rates.json, templates/), steps it follows (skills/draft-proposal), a second reader (proposal-reviewer.md), and checks that stop it (the proposal gate, CI). The same request and the same mistake: this time the gate blocks it, the agent fills the rate from the rate card, the reader and the gate agree, and only then does it go out.](docs/what-is-a-harness.gif)
 
 ![Anatomy of a harness. You hand a ticket or a prompt to your coding agent (Claude Code, Codex, Kiro or another), and an artifact comes out: a PR or a doc. Eight parts sit around the agent, each fed by documents your company already has. What it reads and reaches: steering, rules loaded into every session (AGENTS.md, steering/); skills, repeatable workflows (skills/); memory, kept in files (company/, docs/specs/); MCP servers, the systems you run (company/DATA.md). What keeps it honest: hooks that can block a tool call (.claude/hooks/, .githooks/); gates, checks before a change moves up (gates/, .github/workflows/); reviewers, a second reader that never edits (agents/); mods, what you see and can type (examples/mods/).](docs/harness-anatomy.png)
+
+![scripts/loop.py takes issue #12 through five steps. Discover picks the loop-ready issue and writes ticket.md. Shape: a fresh agent writes plan.md. Build: another fresh agent makes the change in a worktree outside the clone. Validate: the script runs the tests and a second agent reads the diff; round 1 fails with review FIX, so it goes back to Build. Round 2 passes the tests and the review says PASS. Scale opens a pull request that closes #12 and doesn't merge it, and what went wrong goes to lessons.md. Each step writes one line to .loop/loop.log as it happens.](docs/one-issue-through-the-loop.gif)
 
 This repo is the smallest factory that still does the job. The harness at its
 root is generic: rules, skills, a reviewer, the checks, and a place for your
