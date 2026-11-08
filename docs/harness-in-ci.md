@@ -43,17 +43,17 @@ Set it up in this order. Each step links to its detail in
    them. Require a pull request with one approval from someone other than its
    author, require the factory repo's own CI to pass, block force pushes and
    deletion, and apply it to admins too.
-   [Protecting the harness](../examples/ci/README.md#protecting-the-harness)
+   [Protecting the factory repo](../examples/ci/README.md#protecting-the-factory-repo)
 2. **Let the product repos call it**, if the factory repo is private: Settings,
    Actions, General, and under Access, "Accessible from repositories in the
    organization".
-   [A private harness repo](../examples/ci/README.md#a-private-harness-repo)
+   [A private factory repo](../examples/ci/README.md#a-private-factory-repo)
 3. **Make a deploy key** on your machine, and add its public half to the
    factory repo with write access off. If GitHub refuses it,
    [When the first review fails](#when-the-first-review-fails) has why.
    [The credential](../examples/ci/README.md#the-credential)
 4. **Add two secrets**, before the caller, so its first pull request doesn't
-   skip: `HARNESS_DEPLOY_KEY`, the deploy key's private half, and
+   skip: `FACTORY_DEPLOY_KEY`, the deploy key's private half, and
    `ANTHROPIC_API_KEY`, made inside a workspace in the Anthropic Console.
    Setting them once for the organisation is easier: each later product repo
    is then added to the secrets' repository access in the organisation's
@@ -87,8 +87,8 @@ Claude", after `claude exited 1. What it said:`.
 | The message | What it means | The fix |
 |---|---|---|
 | `Deploy keys are disabled for this repository`, when you add the key | The organisation has deploy keys switched off for every repo | An organisation owner allows them in the organisation's settings. Then add the key again |
-| `HARNESS_DEPLOY_KEY is not set` | The product repo has no deploy-key secret | Step 4 |
-| `has no skills/review-pr/SKILL.md` | `harness-repo` names the wrong repo, or the key belongs to another one | Check both places the caller names the factory repo, and the deploy key's repo |
+| `FACTORY_DEPLOY_KEY is not set` | The product repo has no deploy-key secret | Step 4 |
+| `has no skills/review-pr/SKILL.md` | `factory-repo` names the wrong repo, or the key belongs to another one | Check both places the caller names the factory repo, and the deploy key's repo |
 | `Credit balance is too low` | The Anthropic account the key bills to has no credit | Add credit in the Anthropic Console, then rerun the job: no new push needed |
 | `This API key is not scoped to a workspace` | The key was made for the organisation, not inside a workspace | Make a new key inside a workspace, set `ANTHROPIC_API_KEY` again, and rerun |
 | `This pull request has no ANTHROPIC_API_KEY`, as a notice | The secret isn't set in this repo, or it's a Dependabot pull request | Step 4, or nothing for Dependabot |

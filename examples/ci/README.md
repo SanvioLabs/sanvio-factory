@@ -46,7 +46,7 @@ so it's a decision for whoever set that policy.
 ## The caller
 
 Add this to each product repo as a workflow file, `.github/workflows/review.yml` say, with
-`your-org/harness` swapped for your factory's repo in both places. This file is
+`your-org/factory` swapped for your factory's repo in both places. This file is
 all the product repo needs: no [`skills/`](../../skills/) folder, no copy of the rules.
 
 ```yaml
@@ -66,13 +66,13 @@ concurrency:
 
 jobs:
   review:
-    uses: your-org/harness/.github/workflows/review-pr.yml@main
+    uses: your-org/factory/.github/workflows/review-pr.yml@main
     with:
-      harness-repo: your-org/harness
+      factory-repo: your-org/factory
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      HARNESS_DEPLOY_KEY: ${{ secrets.HARNESS_DEPLOY_KEY }}
+      FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
 ```
 
 A draft pull request skips the review with a notice, and gets its review when it's marked ready for review.
@@ -81,9 +81,9 @@ factory's workflow gets those three and none of the product repo's others. The
 permissions are the most it gets: a called workflow can't widen them.
 That holds for the factory's file, not the caller: the caller lives in the
 product repo, so anyone who can push a branch there can change it, in that
-branch's pull request, to print the secrets. Add `HARNESS_DEPLOY_KEY` only
+branch's pull request, to print the secrets. Add `FACTORY_DEPLOY_KEY` only
 to repos whose writers you'd trust to read the harness.
-`harness-repo` has to be given because a called workflow can't read its own
+`factory-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
 
 `@main` follows the factory's default branch, which is the point: one copy of
@@ -91,23 +91,23 @@ the review that every repo picks up. Pinning to a commit
 (`review-pr.yml@<sha>`) is the stricter choice, since nothing in the
 workflow's steps changes until someone moves the pin. Either way, the skill
 and the rules come from the factory's default branch, because that's what
-the workflow checks out. [Protecting the harness](#protecting-the-harness)
+the workflow checks out. [Protecting the factory repo](#protecting-the-factory-repo)
 says what to set on the factory's repo so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's. One with no
-`HARNESS_DEPLOY_KEY` fails and says so.
+`FACTORY_DEPLOY_KEY` fails and says so.
 
 ## The secret
 
 In the product repo, or once for the organisation, add the private half as an
-Actions secret named `HARNESS_DEPLOY_KEY` (Settings, Secrets and variables,
+Actions secret named `FACTORY_DEPLOY_KEY` (Settings, Secrets and variables,
 Actions), next to `ANTHROPIC_API_KEY`. With the GitHub CLI, from the folder
 holding the key:
 
-- one repo: `gh secret set HARNESS_DEPLOY_KEY --repo your-org/product < review-pr-deploy-key`
-- the organisation, for the repos you name: `gh secret set HARNESS_DEPLOY_KEY --org your-org --repos product-a,product-b < review-pr-deploy-key`
+- one repo: `gh secret set FACTORY_DEPLOY_KEY --repo your-org/product < review-pr-deploy-key`
+- the organisation, for the repos you name: `gh secret set FACTORY_DEPLOY_KEY --org your-org --repos product-a,product-b < review-pr-deploy-key`
 
 Then delete both key files. GitHub holds the only copies it needs.
 
@@ -123,7 +123,7 @@ for the value. Set one or the other: with both, the review uses the API key.
 The reviews then count against that subscription's usage limits, shared with
 whoever uses it interactively.
 
-## A private harness repo
+## A private factory repo
 
 A product repo can't call a workflow in a private repo until the factory's
 repo allows it. In that repo, open Settings, Actions, General, and under
@@ -133,7 +133,7 @@ the deploy key can read the whole of your factory's repo, and the workflow check
 A private factory's other files (scripts, docs, examples, reports) aren't
 checked out, so the review can't read them or quote them.
 
-## Protecting the harness
+## Protecting the factory repo
 
 Every review runs what the factory's `main` holds at that moment: the
 workflow's steps, the skills and the rules. Each product repo runs them with
