@@ -8,6 +8,9 @@ local-data/
 company/
 projects/*
 !projects/README.md
+factories/*
+!factories/README.md
+/factories.json
 .harness/
 reports/usage/*
 !reports/usage/README.md

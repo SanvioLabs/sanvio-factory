@@ -140,8 +140,11 @@ A headless `Grep` whose glob could match a credential file at all, however broad
 is refused too.
 Inside the root, a headless run also doesn't reach the files that hold tokens or
 company data: `.claude/settings.local.json`, any `.git` folder or bare repo
-(`*.git`), `company/`, `local-data/` and a leftover `.inbox/`. A `Grep` over the root leaves those out: [`.gitignore`](.gitignore) lists them,
-and Claude Code's `Grep` skips `.git`. A glob that matches one of them would bring
+(`*.git`), `company/`, `local-data/`, a leftover `.inbox/` and [`factories/`](factories/). A `Grep` over the root leaves those out:
+[`.ignore`](.ignore) lets `company/` back into a search so an ordinary session
+can read it, so each headless `Grep` is passed on with
+`!/{company,local-data,.inbox,factories}` added to its glob, and Claude Code's
+`Grep` skips `.git`. A glob that matches one of them would bring
 it back in (`{company,*.md}` does), so a headless `Grep` with such a glob is
 refused. `Glob` lists names and reads nothing; a pattern that names one of them
 outright is refused, but a wildcard such as `c*/**` can still list the names under
@@ -151,7 +154,8 @@ with `!*.[gG][iI][tT]` (`!*.git` in any case) added to its glob, which ripgrep l
 win over any glob before it, so a search leaves out a bare repo at any depth
 (`vendor/lib.git/` included). That was
 measured on Claude Code 2.1.310; if a later version stops applying a hook's
-`updatedInput`, a bare repo deeper than a project's top folder is searched again.
+`updatedInput`, a bare repo deeper than a project's top folder is searched again,
+and so is `company/` by a `Grep` over the root.
 In every session, a `Grep` that names a credential file in its path or glob, or
 whose glob can only match one, is refused as a `Read` of it is, and so is a link
 that lands on one. What the guard can't see is which files a search
@@ -306,6 +310,7 @@ every day.
 | A session retro | [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`skills/retro/`](skills/retro/) | Off unless you set `HARNESS_RETRO=on`, the same way `HARNESS_USAGE_LOG` is set. When a session ends or compacts, it keeps a copy of its log in `local-data/retro/` if you corrected the agent or one file was edited three or more times. Say "retro" and a fresh agent that can only read goes through it, says why the agent didn't know, and the findings that hold up against the log go in `.loop/lessons.md` for `learn`. The copies hold everything said in the session, stay on your machine readable by you alone, and are deleted once read or after 30 days. The loop's own sessions are never kept |
 | A work report | [`scripts/work_report.py`](scripts/work_report.py), [`skills/work-report/`](skills/work-report/) | Say "work report" or "what did we ship": one page on a repo over a period, from what GitHub recorded. What merged, by type, and who made, reviewed and approved it, what the loop built, releases and closed GitHub milestones, the specs closed issues name, a chart of merges by day (by week past a month), and what to watch, such as work nobody but its author approved. It names people by GitHub login, stays gitignored in [`reports/work/`](reports/work/), and changes nothing |
 | An optional extra: a loop that runs without you | [`scripts/loop.py`](scripts/loop.py) | Not one of the five layers, and the harness works without it. Takes the next open issue labelled `loop-ready`, has a fresh agent plan it, build it in a worktree, runs your tests itself, has a second fresh agent review the diff, and opens a pull request when both pass. It follows the flywheel (Discover, Shape, Build, Validate, Scale), writes one plain log you read with `tail -f .loop/loop.log`, and never merges. `max_workers` in `loop.json` lets it work several issues at once, each issue's agents writing to `.loop/issue-N/agent.log`, with an `issue-N` window per issue when it runs in tmux. Each worker runs its own agent sessions, so usage grows with the number of workers. It records each issue's tokens and estimated cost on its pull request, and `max_issue_tokens` can stop an issue at a budget. It blocks a round that adds nothing or changes a lockfile, and its build agent installs no packages. Label only issues you wrote or have read, since a ticket is an instruction to an agent. One standard-library file, so it's yours to change. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has the shape |
+| Another factory to hand work to | [`scripts/factories.py`](scripts/factories.py), [`scripts/factory_checks.py`](scripts/factory_checks.py), [`skills/dispatch/`](skills/dispatch/), [`factories/`](factories/) | Name a second factory in `factories.json`, such as another team's delivery system or a second harness, and say "dispatch #12". The agent shows what goes to it and adds that factory's label to the issue on your yes, nothing else. When a pull request comes back, the loop's own reviewer reads it. Changes go back on your yes, up to a set number of rounds, and the pull request's required checks are reported apart from any verdict. It never merges. [`factories/README.md`](factories/README.md) has the setup |
 | Evals for the whole harness | [`scripts/eval_harness.py`](scripts/eval_harness.py), [`examples/eval-suite/`](examples/eval-suite/) | One command runs a harness through a suite of jobs in a new private repo, then scores the result with tests and traps its agents can't see: tests passed, traps avoided, time, stops for a person, build rounds, tokens and cost. `compare` shows what a harness change did. A run spends model tokens, so a person starts it, and only a person deletes its repo. Works on any harness that takes GitHub issues. [`docs/harness-evals.md`](docs/harness-evals.md) walks through it |
 | CI | [`.github/workflows/`](.github/workflows/) | The tests, the gate, the setup check, the link check (`python3 scripts/link_files.py --check`) and a secret scan of the whole history run on every push, so a check someone skipped locally still runs before anything merges. Make it a required check in your branch protection, or it only reports. To put your harness in a product repo's CI, with a review on every pull request, follow [`docs/harness-in-ci.md`](docs/harness-in-ci.md) |
 
@@ -379,6 +384,12 @@ can run several that feed each other, each taking only what the next one
 needs, and work crosses from one to the next only through a gate.
 
 ![Three factories in one company, each with its own flywheel. Sales takes a lead in and puts a signed proposal out, which passes Sales' gate. Delivery takes it because it needs a signed scope, and puts shipped work out. Support takes shipped work in and routes by need: a bug back to Delivery, more scope to Sales.](docs/factories-chain.gif)
+
+To hand an issue to another factory, name it in `factories.json` and say
+"dispatch #12". [`scripts/factories.py`](scripts/factories.py) adds that factory's label to the issue,
+on your yes, and watches for the pull request it sends back. The loop's own
+reviewer reads it, changes go back on your yes, and a person merges.
+[HOW-IT-WORKS.md](HOW-IT-WORKS.md#handing-work-to-another-factory) has the shape.
 
 ## Borrowing other people's skills
 

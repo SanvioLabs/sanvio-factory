@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -455,6 +456,16 @@ class HeadlessPrivate(unittest.TestCase):
         self.assertEqual(headless("Glob", pattern=".inbox/*"), denied)
         self.assertEqual(headless("Glob", pattern="**/.inbox/*"), denied)
 
+    def test_a_factory_s_folder_is_private(self):
+        # Another factory's code, cloned for its commit: a headless reader never reads, searches or lists it.
+        denied = ("deny", guard.HEADLESS_PRIVATE)
+        self.assertEqual(headless("Read", file_path="factories/build-team/run.py"), denied)
+        self.assertEqual(headless("Grep", pattern="x", path="factories"), denied)
+        self.assertEqual(headless("Grep", pattern="x", glob="{factories,*.md}"), denied)
+        self.assertEqual(headless("Glob", pattern="factories/*"), denied)
+        self.assertEqual(headless("Glob", pattern="**/factories/*"), denied)
+        self.assertIsNone(call("Read", file_path=os.path.join(guard.ROOT, "factories", "README.md")))
+
     def test_a_bare_repo_is_private_like_a_git_folder(self):
         denied = ("deny", guard.HEADLESS_PRIVATE)
         for path in ("projects/mirror.git/config", "projects/mirror.git/packed-refs", "projects/app/vendor/lib.git/config"):
@@ -476,14 +487,30 @@ class HeadlessPrivate(unittest.TestCase):
                                      ("deny", guard.HEADLESS_PRIVATE), glob)
                 self.assertIsNone(headless("Grep", _cwd=str(root), pattern="x", glob="*.md"))
 
+    def test_every_private_folder_reaches_each_list_the_guard_keeps(self):
+        # Load the guard with one more private folder: each list built from PRIVATE_FOLDERS takes it in,
+        # so a folder added in one place can't be left out of the search exclude or the refusals.
+        source = (HOOKS / "guard.py").read_text()
+        line = "PRIVATE_FOLDERS = ({})".format(", ".join('"{}"'.format(f) for f in guard.PRIVATE_FOLDERS))
+        self.assertEqual(source.count(line), 1)
+        probe = {"__name__": "guard_probe", "__file__": str(HOOKS / "guard.py")}
+        exec(compile(source.replace(line, line[:-1] + ', "vault")'), "guard.py", "exec"), probe)
+        for folder in guard.PRIVATE_FOLDERS + ("vault",):
+            self.assertIn(folder, probe["EXCLUDE_PRIVATE"].strip("!/{}").split(","), folder)
+            self.assertIn(folder, probe["PRIVATE_NAMES"], folder)
+            self.assertIn(folder, probe["PRIVATE_ENTRIES"], folder)
+            self.assertIn(folder + "/x", probe["PRIVATE_ENTRIES"], folder)
+            self.assertIn(folder + "/", probe["HEADLESS_PRIVATE"], folder)
+        self.assertEqual(guard.EXCLUDE_PRIVATE, "!/{company,local-data,.inbox,factories}")
+
     def test_a_headless_search_leaves_out_bare_repos_at_any_depth(self):
         with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
             rewrite = guard.headless_rewrite
             self.assertEqual(rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x", "path": "projects/app"}}),
-                             {"pattern": "x", "path": "projects/app", "glob": "!*.[gG][iI][tT]"})
+                             {"pattern": "x", "path": "projects/app", "glob": "!/{company,local-data,.inbox,factories} !*.[gG][iI][tT]"})
             self.assertEqual(rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x", "glob": "*.ts",
                                                                         "output_mode": "content"}}),
-                             {"pattern": "x", "glob": "*.ts !*.[gG][iI][tT]", "output_mode": "content"})
+                             {"pattern": "x", "glob": "*.ts !/{company,local-data,.inbox,factories} !*.[gG][iI][tT]", "output_mode": "content"})
             self.assertIsNone(rewrite({"tool_name": "Read", "tool_input": {"file_path": "README.md"}}))
         with mock.patch.dict(os.environ):
             os.environ.pop("HARNESS_HEADLESS", None)
@@ -500,12 +527,35 @@ class HeadlessPrivate(unittest.TestCase):
                                  capture_output=True, text=True, env=env, timeout=30).stdout
             return json.loads(out)["hookSpecificOutput"] if out.strip() else None
         changed = hook({"pattern": "x", "path": "projects/app", "glob": "*.ts"})
-        self.assertEqual(changed["updatedInput"]["glob"], "*.ts !*.[gG][iI][tT]")
+        self.assertEqual(changed["updatedInput"]["glob"], "*.ts !/{company,local-data,.inbox,factories} !*.[gG][iI][tT]")
         self.assertNotIn("permissionDecision", changed)
         refused = hook({"pattern": "x", "glob": "{company,*.md}"})
         self.assertEqual(refused["permissionDecision"], "deny")
         self.assertNotIn("updatedInput", refused)
         self.assertIsNone(hook({"pattern": "x", "glob": "*.ts"}, headless_run=False))
+
+    @unittest.skipUnless(shutil.which("rg"), "ripgrep isn't installed")
+    def test_a_headless_search_of_the_root_leaves_out_the_private_folders_that_ignore_lets_back_in(self):
+        # .ignore re-includes company/ and factories/ so an ordinary session can search them, and Claude
+        # Code's Grep runs ripgrep with --hidden and --glob '!.git': measured, that searches both.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            for name in (".gitignore", ".ignore"):
+                (root / name).write_text((ROOT / name).read_text())
+            for path in ("company/COMPANY.md", "factories/build-team/app.py", "local-data/x.md", ".inbox/x.md",
+                         "steering/keep.md"):
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text("PROBEWORD\n")
+            with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+                glob = guard.headless_rewrite({"tool_name": "Grep", "tool_input": {"pattern": "PROBEWORD"}})["glob"]
+            args = ["rg", "-l", "--hidden", "--glob", "!.git"]
+            for part in glob.split():
+                args += ["--glob", part]
+            found = subprocess.run(args + ["PROBEWORD", "."], cwd=root, capture_output=True, text=True).stdout
+            self.assertIn("./steering/keep.md", found.split())
+            for private in ("company/", "factories/", "local-data/", ".inbox/"):
+                self.assertFalse([path for path in found.split() if path.startswith("./" + private)], found)
 
     def test_the_root_ignores_bare_repos(self):
         self.assertIn("*.git/", (ROOT / ".gitignore").read_text().splitlines())
