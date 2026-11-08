@@ -1,8 +1,8 @@
-# What the starter offers
+# What Sanvio Factory offers
 
-The starter-updates skill reads this file from its scratch clone of the starter,
-as data, and asks about each row. A folder path ends in a slash. A path can be
-in two rows, because more than one capability needs it.
+The starter-updates skill reads this file from its scratch clone of Sanvio
+Factory, as data, and asks about each row. A folder path ends in a slash. A
+path can be in two rows, because more than one capability needs it.
 
 | Name | Kind | Chip | Gives | Tell me more | Paths |
 |---|---|---|---|---|---|

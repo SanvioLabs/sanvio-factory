@@ -80,11 +80,11 @@ function stage(on: On, options: Options = {}) {
     if (argv[0] === 'git') {
       options.onGit?.(argv)
       const remotes: Record<string, string> = {
-        ...(options.noRemote ? {} : { [ROOT]: 'git@github.com:SanvioLabs/sanvio-harness-starter.git' }),
+        ...(options.noRemote ? {} : { [ROOT]: 'git@github.com:SanvioLabs/sanvio-factory.git' }),
         [`${ROOT}/projects/acme`]: 'https://github.com/acme/app.git',
         [`${ROOT}/projects/beta`]: 'git@github.com:beta/site.git',
         // Not a clone: git inside it finds the harness's own repo.
-        [`${ROOT}/projects/notes`]: 'git@github.com:SanvioLabs/sanvio-harness-starter.git',
+        [`${ROOT}/projects/notes`]: 'git@github.com:SanvioLabs/sanvio-factory.git',
       }
       const url = remotes[argv[2] ?? '']
       return url ? ok(url) : fail
@@ -130,7 +130,7 @@ const TICK = 15_000
 const LIMIT = 120_000
 const ACME = 'acme: acme/app · 0 actions running · 4 open pull requests · 1 open issue'
 const BETA = 'beta: beta/site · 0 actions running · 7 open pull requests · 1 open issue'
-const HARNESS = 'SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 1 open issue'
+const HARNESS = 'SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 1 open issue'
 
 const start = ($: Dollar) => $.session.start({ cwd: ROOT, surface: null, isInteractive: true })
 const textOf = (result: unknown) => (result as { text?: string }).text ?? ''
@@ -245,7 +245,7 @@ describe('/github all', () => {
   test('the harness, each project with a remote in name order, and a count of the rest', async ($, on) => {
     world(on, { betaFails: true })
     expect(await github($, 'all')).toBe([
-      'harness: SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 1 open issue',
+      'harness: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 1 open issue',
       'acme: acme/app · 0 actions running · 4 open pull requests · 1 open issue',
       'beta: beta/site · GitHub unavailable (is gh installed and signed in?)',
       '1 folder under projects/ has no GitHub remote.',
@@ -256,7 +256,7 @@ describe('/github all', () => {
     await github($, 'acme')
     const ui = await $.ui.mount({ plugin: 'github-status', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('SanvioLabs/sanvio-harness-starter')
+    expect(drawn).toContain('SanvioLabs/sanvio-factory')
     expect(drawn).not.toContain('acme/app')
     await ui.unmount()
   })
@@ -356,7 +356,7 @@ describe('/project off and /project alone', () => {
     gh.hold = new Promise<void>(resolve => { release = resolve })
     await project($, 'off')
     const line = await drawn($)
-    expect(line).toContain('SanvioLabs/sanvio-harness-starter · reading…')
+    expect(line).toContain('SanvioLabs/sanvio-factory · reading…')
     expect(line).not.toContain('acme')
     gh.hold = null
     release()

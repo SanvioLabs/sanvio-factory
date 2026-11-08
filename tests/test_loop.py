@@ -4851,7 +4851,7 @@ class TestOriginSlug(unittest.TestCase):
 
 
 class TestPortBoundary(unittest.TestCase):
-    """loop.py ships to the starter before factories.py, in a pull request of its own."""
+    """loop.py ships to Sanvio Factory before factories.py, in a pull request of its own."""
 
     def test_loop_and_its_tests_name_no_factories_module(self):
         import ast

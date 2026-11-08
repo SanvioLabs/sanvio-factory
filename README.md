@@ -35,7 +35,7 @@ alone.
 The rules, skills and gates work in Claude Code, Codex and Kiro. The guard, the
 mods and [`bin/factory`](bin/factory) need Claude Code.
 
-At the Humanbulb talk on 15 October 2026? [The slides are here](https://github.com/SanvioLabs/sanvio-harness-starter/releases/tag/talk-humanbulb-2026-10-15),
+At the Humanbulb talk on 15 October 2026? [The slides are here](https://github.com/SanvioLabs/sanvio-factory/releases/tag/talk-humanbulb-2026-10-15),
 as a PDF, a PowerPoint and an offline web page.
 
 ## Set up

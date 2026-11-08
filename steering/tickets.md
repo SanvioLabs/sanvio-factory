@@ -60,7 +60,7 @@ first three with a new repo; `gh label create chore --description
 "Maintenance: dependencies, tooling, tidying"` adds the fourth.
 
 `stelliad:create-ticket` also suggests priority and risk labels. Beyond the
-type and the loop's labels the starter ships none, so it says when one is
+type and the loop's labels Sanvio Factory ships none, so it says when one is
 missing, and that's fine to leave.
 
 ## Ready for the loop

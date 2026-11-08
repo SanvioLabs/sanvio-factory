@@ -21,8 +21,8 @@ person starts each one.
 A case is a piece of made-up work, usually with a problem planted in it, and
 a `case.json` that says what a good review of it must find, which lines it must
 cover, and what it must leave alone. Each set also has a clean case, so a
-reviewer that flags everything fails too. Keep one in any set you write. The
-starter has three sets:
+reviewer that flags everything fails too. Keep one in any set you write. This
+repo has three sets:
 
 | Folder | Reviews it |
 |---|---|
@@ -104,7 +104,7 @@ Tokens    412,306
 Cost      $0.94
 ```
 
-That's a made-up run of the starter's own suite, in the real shape.
+That's a made-up run of this repo's own suite, in the real shape.
 
 | Line | Means |
 |---|---|
@@ -153,5 +153,5 @@ total cost as one number, or the cost reads `not reported`.
 - **Run repos stay until you delete them.** Nothing in the script deletes one.
   `list` shows each run and its repo.
 
-Start by running the starter's own suite once to see the shape, then write a
+Start by running this repo's own suite once to see the shape, then write a
 small private suite around one job your team does every week.

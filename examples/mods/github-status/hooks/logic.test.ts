@@ -3,23 +3,23 @@ import { describe, expect, test } from 'claude-code/testing'
 import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, oldFocusFile, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
 import type { Counts } from '../types'
 
-const REPO = 'SanvioLabs/sanvio-harness-starter'
+const REPO = 'SanvioLabs/sanvio-factory'
 const NOW = 1_800_000_000_000
 const COUNTS: Counts = { running: 2, queued: 0, pulls: 3, issues: 5 }
 
 describe('the remote', () => {
   test('SSH remotes, with and without .git', () => {
-    expect(parseRemote('git@github.com:SanvioLabs/sanvio-harness-starter.git\n')).toBe(REPO)
-    expect(parseRemote('git@github.com:SanvioLabs/sanvio-harness-starter')).toBe(REPO)
-    expect(parseRemote('ssh://git@github.com/SanvioLabs/sanvio-harness-starter.git')).toBe(REPO)
+    expect(parseRemote('git@github.com:SanvioLabs/sanvio-factory.git\n')).toBe(REPO)
+    expect(parseRemote('git@github.com:SanvioLabs/sanvio-factory')).toBe(REPO)
+    expect(parseRemote('ssh://git@github.com/SanvioLabs/sanvio-factory.git')).toBe(REPO)
   })
   test('HTTPS remotes, with and without .git', () => {
-    expect(parseRemote('https://github.com/SanvioLabs/sanvio-harness-starter')).toBe(REPO)
-    expect(parseRemote('https://github.com/SanvioLabs/sanvio-harness-starter.git')).toBe(REPO)
+    expect(parseRemote('https://github.com/SanvioLabs/sanvio-factory')).toBe(REPO)
+    expect(parseRemote('https://github.com/SanvioLabs/sanvio-factory.git')).toBe(REPO)
   })
   test('a remote that is not GitHub is none, so gh is never called', () => {
-    expect(parseRemote('git@gitlab.com:SanvioLabs/sanvio-harness-starter.git')).toBeNull()
-    expect(parseRemote('https://github.com.evil.example/SanvioLabs/sanvio-harness-starter')).toBeNull()
+    expect(parseRemote('git@gitlab.com:SanvioLabs/sanvio-factory.git')).toBeNull()
+    expect(parseRemote('https://github.com.evil.example/SanvioLabs/sanvio-factory')).toBeNull()
     expect(parseRemote('/Users/someone/repos/starter')).toBeNull()
     expect(parseRemote('')).toBeNull()
   })

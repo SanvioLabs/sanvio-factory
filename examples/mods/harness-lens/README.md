@@ -130,18 +130,18 @@ It only looks. It never blocks a call or changes one: the guard in
 [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py) and the gates do that, and they work without it.
 
 It shows only this harness's own skills and agents. A skill from a plugin on
-your machine never appears unless `skillPrefixes` names that plugin (the
-starter names Stelliad), so the band is safe to put on a projector. A
+your machine never appears unless `skillPrefixes` names that plugin (this
+repo names Stelliad), so the band is safe to put on a projector. A
 subagent's own file reads don't count either. The band is about the session
 you're driving.
 
 ## Another layout
 
-It looks for the starter's shape: [`AGENTS.md`](../../../AGENTS.md) beside [`steering/`](../../../steering/), skills in
+It looks for this repo's shape: [`AGENTS.md`](../../../AGENTS.md) beside [`steering/`](../../../steering/), skills in
 [`skills/`](../../../skills/) and `examples/*/skills/`, agents in [`agents/`](../../../agents/), gates named
 `*_gate.py`. A harness laid out differently says where its layers live in
 [`.claude/harness-lens.json`](../../../.claude/harness-lens.json) at its root. Every key is optional, and a key left
-out keeps the starter's value:
+out keeps the default:
 
 ```json
 {
@@ -156,7 +156,7 @@ out keeps the starter's value:
 }
 ```
 
-The starter's own [`.claude/harness-lens.json`](../../../.claude/harness-lens.json) sets only `skillPrefixes` to
+This repo's own [`.claude/harness-lens.json`](../../../.claude/harness-lens.json) sets only `skillPrefixes` to
 `["stelliad:"]`, so a skill from the Stelliad plugin it switches on shows as
 the harness's.
 
@@ -167,13 +167,13 @@ in the pattern is the gate's name.
 one. `{session}` stands for the session id. The lens reads them in order and
 shows the first that names a scope: `{"client": "acme"}`, or `{"kind":
 "partner", "name": "fabrikam"}`. Put the file a guard enforces first, so a
-looser one never shows over it. The starter has no scope, so its band has no
+looser one never shows over it. This repo has no scope, so its band has no
 `scope` segment.
 
 `running` maps each label to a pattern for the command of a process that
 starts headless sessions. A `claude` process counts under the first label
 whose pattern matches a process above it. A map you give replaces the
-starter's `{"loop": "scripts/loop\\.py", "eval": "scripts/eval_agents\\.py"}`
+default `{"loop": "scripts/loop\\.py", "eval": "scripts/eval_agents\\.py"}`
 whole, and a pattern that's empty or doesn't compile is dropped.
 
 ## Changing it

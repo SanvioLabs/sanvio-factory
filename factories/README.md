@@ -117,8 +117,8 @@ your review never reaches its planner.
   its issue never sees that comment, so it rebuilds nothing. This factory's
   loop reads it, so a factory that is a copy of this repo takes a round
   once it has the loop that does.
-- **Keep a factory copy's `loop.json` local.** A copy of this starter that
-  commits its `loop.json` fails the starter's own link check on every round,
+- **Keep a factory copy's `loop.json` local.** A copy of this repo that
+  commits its `loop.json` fails its own link check on every round,
   whatever the change.
 - **Clone the repo, if it isn't this one.** `review` reads a pull request
   from the repo's clone under [`projects/`](../projects/), and that clone's `loop.json` has to set
@@ -306,5 +306,5 @@ origin to `git@github.com:OWNER/NAME` and pick the key with
 `git config core.sshCommand "ssh -i <key>"` in that clone, or an
 `IdentityFile` under `Host github.com` in your SSH config.
 
-The starter's maintainers check factories against GitHub itself before each
+Sanvio Factory's maintainers check factories against GitHub itself before each
 release: [`docs/maintaining.md`](../docs/maintaining.md).

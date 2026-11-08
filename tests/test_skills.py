@@ -261,7 +261,7 @@ class Skills(unittest.TestCase):
 
 
 def skips_the_capabilities(url):
-    """A copy adapts its own skills and mods, so the table only has to fit the starter itself."""
+    """A copy adapts its own skills and mods, so the table only has to fit Sanvio Factory itself."""
     return not url or not check_setup.STARTER.search(url)
 
 
@@ -271,12 +271,12 @@ def backticked(text):
 
 
 class StarterUpdatesCapabilities(unittest.TestCase):
-    """skills/starter-updates/capabilities.md, checked only in the starter's own repo."""
+    """skills/starter-updates/capabilities.md, checked only in Sanvio Factory's own repo."""
 
     def read(self):
         origin = check_setup.git(ROOT, "remote", "get-url", "origin")
         if skips_the_capabilities(origin):
-            self.skipTest("origin isn't the public starter, so this copy's table can differ")
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy's table can differ")
         return (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text()
 
     def rows(self):
@@ -291,12 +291,15 @@ class StarterUpdatesCapabilities(unittest.TestCase):
         self.assertTrue(names, "the never-asked list is empty")
         return names
 
-    def test_only_the_starter_itself_runs_the_table_checks(self):
+    def test_only_sanvio_factory_itself_runs_the_table_checks(self):
         self.assertTrue(skips_the_capabilities(None))
         self.assertTrue(skips_the_capabilities(""))
         self.assertTrue(skips_the_capabilities("https://github.com/acme/our-harness"))
         self.assertFalse(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-harness-starter"))
         self.assertFalse(skips_the_capabilities("git@github.com:SanvioLabs/sanvio-harness-starter.git"))
+        self.assertFalse(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-factory"))
+        self.assertFalse(skips_the_capabilities("git@github.com:SanvioLabs/sanvio-factory.git"))
+        self.assertTrue(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-factory-fork"))
 
     def test_every_path_exists(self):
         named = [path for row in self.rows() for path in backticked(row["Paths"])] + self.never_asked()
@@ -355,7 +358,7 @@ class StarterUpdatesRename(unittest.TestCase):
 
     def test_no_tracked_file_keeps_the_old_name(self):
         if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
-            self.skipTest("origin isn't the public starter, so this copy can mention the old name")
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy can mention the old name")
         files = [name for name in (check_setup.git(ROOT, "ls-files", "-z") or "").split("\0") if name]
         self.assertTrue(files, "git ls-files listed nothing")
         old_name = re.compile(r"check.?starter", re.I)
@@ -412,7 +415,7 @@ class FactoryTrendsRename(unittest.TestCase):
 
     def test_no_tracked_file_keeps_the_old_names(self):
         if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
-            self.skipTest("origin isn't the public starter, so this copy can mention the old name")
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy can mention the old name")
         files = [name for name in (check_setup.git(ROOT, "ls-files", "-z") or "").split("\0") if name]
         self.assertTrue(files, "git ls-files listed nothing")
         for name in files:

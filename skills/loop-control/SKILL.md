@@ -1,7 +1,7 @@
 ---
 name: loop-control
 description: Drive the loop in scripts/loop.py from a conversation. Put an issue on it after checking it's ready, start it, say what it did, or stop it in the right order, or start the pull-request reviewer. Use when someone says "put #12 on the loop", "is this ready for the loop", "start the loop", "run the loop on #12", "what did the loop do", "why is #12 blocked", "stop the loop", or "review the pull requests waiting on me".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Loop control
@@ -59,7 +59,7 @@ it gets read before it's labelled.
    acceptance criteria) in the shape of [`.github/ISSUE_TEMPLATE/loop-task.md`](../../.github/ISSUE_TEMPLATE/loop-task.md), and show it. The person adds it to the issue, or tells you to.
 4. **Check where the pull request would go:** `gh repo view --json visibility
    -q .visibility`. If it's `PUBLIC`, say the pull request will be public and
-   ask whether that's meant. A copy of the public starter is public until
+   ask whether that's meant. A copy of the public Sanvio Factory is public until
    someone makes it otherwise.
 5. **Ask, then label:** "Label #N with the ready label?" On a yes,
    `gh issue edit <N> --add-label <ready label>` (with `--repo` for a project),

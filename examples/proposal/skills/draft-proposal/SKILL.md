@@ -1,7 +1,7 @@
 ---
 name: draft-proposal
 description: Draft a client proposal from the template and price it from the rate card. Use when asked to write, draft or price a proposal.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Draft a proposal

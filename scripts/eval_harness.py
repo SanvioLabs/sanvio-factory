@@ -55,7 +55,7 @@ sealed copy in ~/.sanvio-evals, or SANVIO_EVALS_HOME, and resume takes it from t
 the harness's copy can't redirect it. Ctrl-C ends the start command too; resume --end then scores what the
 interrupted run got to. Needs a POSIX system.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import argparse
 import filecmp

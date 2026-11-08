@@ -6,7 +6,7 @@
 # bin/factory-tools. The session starts at the harness root, so the rules,
 # skills and guards load as they do in a normal session. It's `headless-tools`, not Claude Code's
 # own `allowed-tools`, because Claude Code applies allowed-tools in every session the skill runs in.
-# From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+# From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 2
 cd "$root" || exit 2

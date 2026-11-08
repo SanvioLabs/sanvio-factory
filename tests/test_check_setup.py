@@ -103,12 +103,19 @@ class SetupCheck(unittest.TestCase):
     def test_no_remote_passes(self):
         self.assertEqual(check_setup.check_remote(self.root)[0], "PASS")
 
-    def test_the_public_starter_as_origin_warns(self):
-        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-harness-starter.git")
+    def test_the_public_factory_as_origin_warns(self):
+        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-factory.git")
         status, line, fix = check_setup.check_remote(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("public starter", line)
+        self.assertIn("public Sanvio Factory", line)
         self.assertIn("private copy", fix)
+
+    def test_its_old_address_warns_the_same(self):
+        # A clone taken before the GitHub rename keeps the old address, which redirects.
+        self.git("remote", "add", "origin", "https://github.com/SanvioLabs/sanvio-harness-starter")
+        status, line, _ = check_setup.check_remote(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertIn("public Sanvio Factory", line)
 
     def test_a_token_in_the_remote_url_is_never_printed(self):
         self.git("remote", "add", "origin", "https://someone:ghp_notarealtoken@github.com/acme/harness.git")

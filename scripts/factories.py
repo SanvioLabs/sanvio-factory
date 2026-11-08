@@ -78,7 +78,7 @@ status prints, which checks the base first: nothing here does.
 
 Python 3.9 or newer, standard library only.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import argparse
 import contextlib

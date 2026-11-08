@@ -1,4 +1,4 @@
-"""The names harness-health and the starter's setup check load from api_security_levels.py."""
+"""The names harness-health and this repo's setup check load from api_security_levels.py."""
 import importlib.util
 import re
 import unittest

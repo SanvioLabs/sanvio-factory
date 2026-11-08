@@ -1,7 +1,7 @@
 ---
 name: work-report
 description: Write a one-page report of what got done in a repo over a period, for a lead or a team: what merged by type (bug, enhancement, documentation, chore) and who made and approved it, what the loop built, the milestones GitHub recorded, the specs it touched, a chart of merges, and what to watch. Reads GitHub through gh and the repo's CHANGELOG.md and changes nothing. Use when someone asks for a "work report", "what got done", "what did we ship", "which milestones did we hit", "a report for my lead", "showcase the work", or "what did the team do this sprint".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Work report
