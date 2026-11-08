@@ -25,7 +25,7 @@ Don't see it? Install it from inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install harness-lens@sanvio-harness-starter
+/plugin install harness-lens@sanvio-factory
 ```
 
 It's active as soon as the install says so, no restart. Or load it for one
@@ -36,7 +36,7 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 To turn it off just for you, without changing the file everyone shares:
 
 ```bash
-claude plugin disable harness-lens@sanvio-harness-starter --scope local
+claude plugin disable harness-lens@sanvio-factory --scope local
 ```
 
 ## Reading the band

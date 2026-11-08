@@ -21,7 +21,7 @@ inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install github-status@sanvio-harness-starter
+/plugin install github-status@sanvio-factory
 ```
 
 It's active as soon as the install says so, no restart. Or load it for one
@@ -35,7 +35,7 @@ It reads GitHub through the [`gh`](https://cli.github.com/) command line, so
 To turn it off just for you:
 
 ```bash
-claude plugin disable github-status@sanvio-harness-starter --scope local
+claude plugin disable github-status@sanvio-factory --scope local
 ```
 
 ## Reading the line

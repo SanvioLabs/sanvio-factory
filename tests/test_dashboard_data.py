@@ -26,7 +26,7 @@ LEAK = "sentinel-zq7"  # put in every field the output must never carry
 NOW = datetime.datetime(2026, 10, 27, 12, 0, tzinfo=datetime.timezone.utc)
 SYSTEM_PATH = "/usr/bin:/bin"  # for the fake gh's own commands; the real gh isn't on it
 # A real run of build(), kept in the dashboard mod for its tests to draw. Sample checks it and rewrites it.
-SAMPLE = ROOT / "examples" / "mods" / "harness-dashboard" / "hooks" / "sample.ts"
+SAMPLE = ROOT / "examples" / "mods" / "factory-dashboard" / "hooks" / "sample.ts"
 UPDATE_SAMPLE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample"
 SAMPLE_HEAD = ("// What scripts/dashboard_data.py's build() printed in tests/test_dashboard_data.py's Sample. Don't edit it:\n"
                "// " + UPDATE_SAMPLE + " writes it again.\n"
@@ -206,7 +206,7 @@ class Layout(Harness):
         self.assertIn("It goes up when a section's shape changes", doc)
 
     def test_the_activity_docs_say_which_sessions_count(self):
-        readme = (ROOT / "examples/mods/harness-dashboard/README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "examples/mods/factory-dashboard/README.md").read_text(encoding="utf-8")
         doc = dashboard_data.__doc__
         self.assertNotIn("conversations at the harness's root", doc)
         self.assertNotIn("conversations at the harness's root", readme)

@@ -246,7 +246,7 @@ person decides and runs every command that changes a file here.
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      the starter: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
-     [`.claude/settings.json`](../../.claude/settings.json) if it has one (`harness-dashboard` has none and
+     [`.claude/settings.json`](../../.claude/settings.json) if it has one (`factory-dashboard` has none and
      installs with `/plugin install`), and for [`.claude/hooks/usage_log.py`](../../.claude/hooks/usage_log.py),
      [`.claude/settings.json`](../../.claude/settings.json)'s hooks for it and a current
      [`.claude/hooks/guard.py`](../../.claude/hooks/guard.py), which it imports.

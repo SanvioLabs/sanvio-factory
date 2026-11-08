@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Draw the harness dashboard's README picture from the pane itself.
+"""Draw the factory dashboard's README picture from the pane itself.
 
     python3 scripts/draw_dashboard.py
 
@@ -7,7 +7,7 @@ Runs the dashboard mod's tests with one more test of its own, which takes the
 rows picture() in hooks/picture.test.ts lays out (the pane on the terminal, 66
 columns wide, drawing hooks/sample.ts) and fails with them as one line,
 PANE-ROWS <json>: a test has no console. This writes those rows as
-docs/harness-dashboard.svg and as the text inside the README's <details>. Run it after changing how the
+docs/factory-dashboard.svg and as the text inside the README's <details>. Run it after changing how the
 pane draws, or after sample.ts is written again: tests/test_draw_dashboard.py
 fails while either is out of date.
 
@@ -28,8 +28,8 @@ from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parent.parent
 MODS = ROOT / "examples" / "mods"
-MOD = "harness-dashboard"
-SVG = ROOT / "docs" / "harness-dashboard.svg"
+MOD = "factory-dashboard"
+SVG = ROOT / "docs" / "factory-dashboard.svg"
 README = MODS / MOD / "README.md"
 MARK = "PANE-ROWS "
 TIMEOUT = 120
@@ -48,7 +48,7 @@ test('{name}', async ($, on) => {{
 # The text version: the code block inside the README's <details>.
 DETAILS = re.compile(r"(<details>\s*<summary>[^<]*</summary>\s*```\n)(.*?)(\n```)", re.DOTALL)
 
-TITLE = ("The harness dashboard pane in a terminal, with made-up numbers: what is waiting on you, the loop's "
+TITLE = ("The factory dashboard pane in a terminal, with made-up numbers: what is waiting on you, the loop's "
          "spend with a bar a day, throughput and rework, evals, Claude Code's tokens with a bar a day, and activity")
 FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
 LEFT = 18  # the pane's left edge, in pixels

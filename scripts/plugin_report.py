@@ -11,7 +11,7 @@ its id, version and scope, and nothing else: no install folder and no path. With
 changed version, arrived or went since that report's date, read from the
 report's own table. Claude Code only. If claude isn't installed or its answer
 isn't JSON, it prints one line saying so and still exits 0, so a report can be
-written without it. The skills/harness-trends/ skill runs this next to
+written without it. The skills/factory-trends/ skill runs this next to
 token_report.py.
 """
 import argparse

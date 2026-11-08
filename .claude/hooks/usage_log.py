@@ -8,7 +8,7 @@ commands, when the guard refused or asked, and when a person said yes to an ask.
 
 It records names, never content. No prompts, no command arguments, no file
 paths, no code. Each person's log is .sanvio/usage/<user>.jsonl, which is
-gitignored. What reaches the team is the summary skills/harness-trends/ writes,
+gitignored. What reaches the team is the summary skills/factory-trends/ writes,
 and the person reads that before it goes anywhere.
 
 Turn it off for yourself with SANVIO_USAGE_LOG=off. It never blocks a tool

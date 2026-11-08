@@ -20,6 +20,6 @@ export type Seen = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'harness-dashboard': { launch: string | null; seen: Seen | null; range: Range | null }
+    'factory-dashboard': { launch: string | null; seen: Seen | null; range: Range | null }
   }
 }

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 590 2088" width="590" height="2088" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5">
-<title>The harness dashboard pane in a terminal, with made-up numbers: what is waiting on you, the loop's spend with a bar a day, throughput and rework, evals, Claude Code's tokens with a bar a day, and activity</title>
+<title>The factory dashboard pane in a terminal, with made-up numbers: what is waiting on you, the loop's spend with a bar a day, throughput and rework, evals, Claude Code's tokens with a bar a day, and activity</title>
 <rect x="0.5" y="0.5" width="589" height="2087" rx="10" fill="#1b1d22" stroke="#3a3f4b"/>
 <path d="M0.5 40 V10.5 a10 10 0 0 1 10 -10 H580 a10 10 0 0 1 10 10 V40 Z" fill="#23262d" stroke="#3a3f4b"/>
 <text x="18" y="25.0" fill="#d6d6d6" font-weight="700">Harness</text>

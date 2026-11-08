@@ -59,7 +59,7 @@ decides what the agent knows, what it's allowed to do, and what counts as done.
 - **Mistake to rule**, across sessions: when the agent gets something wrong,
   [`skills/learn/`](skills/learn/) writes the rule into the file that governs it.
 - **Sprint report**, across people: each person's usage log records which
-  skills, agents and guards fired. At sprint end, `harness-trends` turns it into
+  skills, agents and guards fired. At sprint end, `factory-trends` turns it into
   a short report with their proposals, shared as a pull request. The owner reads
   the sprint's reports together and takes what earns a place.
 
@@ -129,8 +129,8 @@ Terminal window attached to the session, read-only.
 
 What the loop cost, day by day and by issue, and how many of its pull requests
 needed someone's commit before merging, come from `python3 scripts/dashboard_data.py --json`.
-In Claude Code, `/harness-dashboard` draws them in a pane, off by default
-([`examples/mods/harness-dashboard/`](examples/mods/harness-dashboard/)).
+In Claude Code, `/factory-dashboard` draws them in a pane, off by default
+([`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/)).
 
 **What an issue used.** When the agent is `claude`, each run's tokens and cost
 go in `.loop/issue-N/usage.json`: one entry per run (plan, each build round,
