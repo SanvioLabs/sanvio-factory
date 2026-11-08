@@ -56,16 +56,16 @@ project's repo and starts with its name: `acme: acme/app · reading…`, or
 
 ## Your projects
 
-The line is the harness's repo, unless you put a project in focus. Then it's
+The line is the factory's repo, unless you put a project in focus. Then it's
 that project's `origin` repo, with `<name>: ` at the start. Repos cloned under
 [`projects/`](../../../projects/) are read with these commands, from a session at the harness root:
 
 | Type | Does |
 |---|---|
 | `/github acme` (or `/github projects/acme`) | Prints the line for the repo cloned in `projects/acme`, read now |
-| `/github all` | Prints the harness's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
+| `/github all` | Prints the factory's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
 | `/project <name>` (or `/project projects/<name>`) | Puts that project in focus and prints its line, read now |
-| `/project off` | Clears the focus, and the line shows the harness again |
+| `/project off` | Clears the focus, and the line shows the factory's repo again |
 | `/project` | Prints the project in focus, or that there's none |
 
 ```
@@ -79,7 +79,7 @@ outside it, such as `../x`, `a/b` or a leading `.`, is refused before anything
 runs. A folder with no GitHub `origin` says so and `gh` isn't called. A repo
 whose read fails says GitHub is unavailable on its own line, and the others
 still print. `/github <name>` and `/github all` never change the line above
-the prompt, and `/github all`'s `harness:` line is the harness's own repo
+the prompt, and `/github all`'s `harness:` line is the factory's own repo
 whatever is in focus. `/github` alone reads the repo in focus.
 
 The focus is the session's own, so another session's line doesn't move, and a

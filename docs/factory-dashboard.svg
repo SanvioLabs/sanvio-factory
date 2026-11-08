@@ -2,7 +2,7 @@
 <title>The factory dashboard pane in a terminal, with made-up numbers: what is waiting on you, the loop's spend with a bar a day, throughput and rework, evals, Claude Code's tokens with a bar a day, and activity</title>
 <rect x="0.5" y="0.5" width="589" height="2087" rx="10" fill="#1b1d22" stroke="#3a3f4b"/>
 <path d="M0.5 40 V10.5 a10 10 0 0 1 10 -10 H580 a10 10 0 0 1 10 10 V40 Z" fill="#23262d" stroke="#3a3f4b"/>
-<text x="18" y="25.0" fill="#d6d6d6" font-weight="700">Harness</text>
+<text x="18" y="25.0" fill="#d6d6d6" font-weight="700">Factory</text>
 <text x="564.0" y="25.0" fill="#8b909a">×</text>
 <text x="18.0" y="71.0" fill="#ffffff" font-weight="700">starter</text><text x="463.2" y="71.0" fill="#8b909a">Updated</text><text x="530.4" y="71.0" fill="#8b909a">12:00</text>
 <text x="18.0" y="89.0" fill="#d6d6d6">[</text><text x="34.8" y="89.0" fill="#d6d6d6">Refresh</text><text x="102.0" y="89.0" fill="#d6d6d6">]</text><text x="118.8" y="89.0" fill="#8b909a">[</text><text x="135.6" y="89.0" fill="#8b909a">7</text><text x="152.4" y="89.0" fill="#8b909a">days</text><text x="194.4" y="89.0" fill="#8b909a">]</text><text x="211.2" y="89.0" fill="#e8865a" font-weight="700">[</text><text x="228.0" y="89.0" fill="#e8865a" font-weight="700">14</text><text x="253.2" y="89.0" fill="#e8865a" font-weight="700">days</text><text x="295.2" y="89.0" fill="#e8865a" font-weight="700">]</text><text x="312.0" y="89.0" fill="#8b909a">[</text><text x="328.8" y="89.0" fill="#8b909a">30</text><text x="354.0" y="89.0" fill="#8b909a">days</text><text x="396.0" y="89.0" fill="#8b909a">]</text>

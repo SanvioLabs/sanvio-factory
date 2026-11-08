@@ -43,9 +43,9 @@ and each agent its own session, so usage grows with it. Inside tmux each issue g
 issue-N, that follows its agent.log and closes when the issue ends. An issue whose Scope names a
 path a running issue's Scope names waits for it, with a HELD line in the log.
 
---project projects/<name> works a clone under projects/ instead of the harness: its GitHub repo's
+--project projects/<name> works a clone under projects/ instead of this repo: its GitHub repo's
 issues and pull requests, its loop.json, which has to set test_command, and its checkouts under
-~/.sanvio-loop/<harness>/<name>/. Its state stays in the harness, in .loop/projects/<name>/. The
+~/.sanvio-loop/<factory>/<name>/. Its state stays in this repo, in .loop/projects/<name>/. The
 agents get the harness's rules in their prompts, and a claude build agent the harness's guard.
 Standard library only; needs git and the gh CLI, signed in.
 """
@@ -329,13 +329,13 @@ def next_start(hours, ts):
     return None  # not reached: every set of hours has a day
 
 
-# The harness's own generated files: the dashboard's sample, then the picture drawn from it. A project doesn't get this.
+# This repo's own generated files: the dashboard's sample, then the picture drawn from it. A project doesn't get this.
 # Joined with ; because the sample's first test reads the old sample, so it can exit 1 on a run that rewrites it.
 HARNESS_GENERATE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py"
 
 
 def load_config(root):
-    """The defaults and the harness's generate command, overlaid with loop.json at the repo root if there is one."""
+    """The defaults and this repo's generate command, overlaid with loop.json at the repo root if there is one."""
     cfg = dict(DEFAULTS, generate_command=HARNESS_GENERATE)
     path = Path(root) / "loop.json"
     if path.exists():
@@ -344,16 +344,16 @@ def load_config(root):
 
 
 # What a project's own loop.json may set. Everything else is the machine's: it decides what the loop may
-# run and spend, so it comes from the harness's loop.json, never from a clone anyone can push to.
+# run and spend, so it comes from the factory's loop.json, never from a clone anyone can push to.
 PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_label", "generate_command",
                 "setup_command")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 
 
 def load_project_config(root, project):
-    """The defaults, then the harness's loop.json without "projects" or the PROJECT_KEYS, then its
+    """The defaults, then the factory's loop.json without "projects" or the PROJECT_KEYS, then its
     projects[<folder name>] entry, then the PROJECT_KEYS of the project's own loop.json. A project key the
-    project leaves out is the default, not the harness's: the harness's base or labels describe the harness."""
+    project leaves out is the default, not the factory's: the factory's base or labels describe this repo."""
     cfg = dict(DEFAULTS)
     path = Path(root) / "loop.json"
     harness = json.loads(path.read_text()) if path.exists() else {}
@@ -441,8 +441,8 @@ def project_root(path, root=None):
     """The clone at path, resolved, when the loop may work it as a project; else None, after one ERROR
     line on stderr saying why.
 
-    It has to be a folder directly under the harness's projects/, a git clone of its own with a GitHub
-    origin, and its loop.json has to set test_command: the default tests the harness, not the project.
+    It has to be a folder directly under this repo's projects/, a git clone of its own with a GitHub
+    origin, and its loop.json has to set test_command: the default tests this repo, not the project.
     """
     projects = Path(root or ROOT).resolve() / "projects"
     folder = Path(path).expanduser().resolve()
@@ -477,23 +477,23 @@ def project_root(path, root=None):
         return refuse("its loop.json doesn't set test_command, the command that tests the project")
     machine = sorted(set(cfg) & MACHINE_KEYS)
     if machine:
-        return refuse('its loop.json sets {}, which only the harness\'s loop.json may set; move it there under '
+        return refuse('its loop.json sets {}, which only the factory\'s loop.json may set; move it there under '
                       '"projects": {{"{}": {{...}}}}'.format(", ".join(machine), folder.name))
     try:
         harness = json.loads((projects.parent / "loop.json").read_text())
     except OSError:
         harness = {}
     except ValueError as err:
-        return refuse("the harness's loop.json isn't JSON: {}".format(err))
+        return refuse("the factory's loop.json isn't JSON: {}".format(err))
     if not isinstance(harness, dict):
-        return refuse("the harness's loop.json isn't a JSON object")
+        return refuse("the factory's loop.json isn't a JSON object")
     entries = harness.get("projects", {})
     if not isinstance(entries, dict) or not all(isinstance(e, dict) for e in entries.values()):
-        return refuse('"projects" in the harness\'s loop.json isn\'t an object of objects, one per project folder')
+        return refuse('"projects" in the factory\'s loop.json isn\'t an object of objects, one per project folder')
     for name, entry in entries.items():
         other = sorted(set(entry) - MACHINE_KEYS)
         if other:
-            return refuse('"projects" in the harness\'s loop.json sets {} for {}; a project\'s own loop.json '
+            return refuse('"projects" in the factory\'s loop.json sets {} for {}; a project\'s own loop.json '
                           'sets those'.format(", ".join(other), name))
     return folder
 
@@ -1479,7 +1479,7 @@ def changelog_with(base, added):
 
 
 def state_dir(root, project):
-    """The loop's state folder under the harness at root. project is a name, or None for the harness's own.
+    """The loop's state folder under the factory at root. project is a name, or None for the factory's own.
 
     Only works out the path: nothing is created."""
     state = Path(root) / ".loop"
@@ -1489,7 +1489,7 @@ def state_dir(root, project):
 def issue_usage(root, project, number):
     """The usage entries the loop recorded for an issue: none when it can't read any. Creates nothing.
 
-    project is the project's name, or None for the harness's own loop."""
+    project is the project's name, or None for the factory's own loop."""
     try:
         found = json.loads((state_dir(root, project) / "issue-{}".format(number) / "usage.json").read_text())
     except (OSError, ValueError):
@@ -1532,10 +1532,10 @@ class FileLock:
 
 class Loop:
     def __init__(self, root=ROOT, cfg=None, project=None):
-        """root is the harness. project, from project_root(), is a clone under projects/ to work instead.
+        """root is the factory. project, from project_root(), is a clone under projects/ to work instead.
 
-        self.repo is the clone gh and git run in: the project, or the harness without one. The state
-        stays in the harness either way, a project's in .loop/projects/<name>/, out of its repo.
+        self.repo is the clone gh and git run in: the project, or this repo without one. The state
+        stays in this repo either way, a project's in .loop/projects/<name>/, out of its repo.
         """
         self.root = Path(root)
         self.project = Path(project) if project else None
@@ -3598,7 +3598,7 @@ def build_parser():
     stop = sub.add_parser("stop", help="ask a running loop to stop after its current step")
     for each in (run, review, stop):
         each.add_argument("--project", metavar="PATH",
-                          help="a clone under projects/ to work instead of the harness; its loop.json sets test_command")
+                          help="a clone under projects/ to work instead of this repo; its loop.json sets test_command")
     return parser
 
 

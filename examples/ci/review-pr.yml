@@ -1,7 +1,7 @@
 # Review every pull request with the review-pr skill and post the report as
 # one comment. It lives under examples/ci/, so it never runs in the starter's
 # own CI. To use it, copy it into .github/workflows/ of a repo that carries
-# this harness's skills/ folder, and add the secret it names.
+# this factory's skills/ folder, and add the secret it names.
 #
 # What it does: on each pull request it runs the skill headlessly, then posts
 # what the skill reported as a comment, and edits that same comment on the

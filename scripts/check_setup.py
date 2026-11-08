@@ -169,8 +169,8 @@ def check_company(root):
     if (root / "company" / ".git").exists():
         return check_company_repo(root / "company")
     if git(root, "ls-files", "company/"):
-        return ("WARN", "company: the company record is committed in this harness, so it goes wherever "
-                "the harness is pushed", "Keep this repo private. Check: gh repo view --json visibility")
+        return ("WARN", "company: the company record is committed in this repo, so it goes wherever "
+                "the repo is pushed", "Keep this repo private. Check: gh repo view --json visibility")
     record = root / "company" / "COMPANY.md"
     if record.is_file():
         return ("PASS", "company: company/COMPANY.md is written", None)
@@ -198,7 +198,7 @@ def check_shadowed_skills(root, home=None):
     return ("WARN", "skills: your personal ~/.claude/skills has {} too, and in Claude Code the personal "
             "copy wins, so this repo's never runs".format(", ".join(clashes)),
             "Keep one copy. Move what you want into skills/ here, then rename or remove the personal "
-            "one, so everyone using this harness runs the same skill.")
+            "one, so everyone using this factory runs the same skill.")
 
 
 API_SECURITY_TOOL = Path(__file__).resolve().parent.parent / "tools" / "api-security" / "api_security_levels.py"
@@ -222,7 +222,7 @@ def check_security_levels(root):
         tool = _api_security_tool()
     except Exception as exc:  # report it; the setup check never stops on one line
         return ("WARN", "security: tools/api-security/api_security_levels.py could not be loaded ({})".format(exc),
-                "Restore tools/api-security/ from the harness.")
+                "Restore tools/api-security/ from Sanvio Factory.")
     levels, warnings = [], []
     for folder in sorted(p for p in (root / "projects").glob("*") if p.is_dir()):
         identity = folder / ".studio-project.yaml"
@@ -250,7 +250,7 @@ def check_security_levels(root):
         elif digest:
             ours = (tool.TOOL / "VERSION").read_text().strip()
             if stamp.read_text().strip() != ours:
-                warnings.append("{}'s security/VERSION {} is not this harness's {}".format(
+                warnings.append("{}'s security/VERSION {} is not this factory's {}".format(
                     folder.name, stamp.read_text().strip(), ours))
     if warnings:
         return ("WARN", "security: " + "; ".join(warnings),
@@ -276,7 +276,7 @@ def check_old_names(root, environ=None):
     if said:
         fix = "; ".join(fixes)
         return ("WARN", "names: " + "; ".join(said), fix[0].upper() + fix[1:])
-    return ("PASS", "names: nothing uses the harness starter's old names", None)
+    return ("PASS", "names: nothing here uses a name from before Sanvio Factory", None)
 
 
 def run(root, home=None):

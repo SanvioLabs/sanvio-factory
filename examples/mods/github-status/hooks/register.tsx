@@ -271,7 +271,7 @@ async function focusOff($: EngineInterface): Promise<string> {
       void finishRead($, target).catch(() => {})
     }
   }
-  return 'No project in focus. The GitHub line shows the harness again.'
+  return "No project in focus. The GitHub line shows the factory's repo again."
 }
 
 export const register: Register = on => {

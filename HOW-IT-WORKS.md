@@ -1,7 +1,7 @@
 # How it works
 
-Two pages on what's actually running when you use this harness: what it's made
-of, where the loops are, how context is handled, and how much of it is code.
+Two pages on what's actually running when you use this factory: what makes it a
+factory, what it's made of, where the loops are, how context is handled, and how much of it is code.
 
 ## What it's made of
 
@@ -28,6 +28,29 @@ has the three places and how the agent reaches each.
 The tool (Claude Code, Codex or Kiro) does the model calls, the tool calls, the
 MCP connections and the context handling. The harness writes none of that. It
 decides what the agent knows, what it's allowed to do, and what counts as done.
+
+## What makes it a factory
+
+The harness is one session's guides and guards: [`AGENTS.md`](AGENTS.md), [`steering/`](steering/),
+[`skills/`](skills/), the hooks and the gates that a single agent works inside.
+It decides what that agent knows, what it may do, and what counts as done.
+
+The factory is the part that keeps going after the session ends. Issues
+labelled for the loop are its queue. [The loop](#the-loop) plans each one, builds
+it in a checkout of its own, runs the tests and opens a pull request. A second
+agent reviews that pull request, and the gates and required checks stand
+between it and a merge. You decide what goes on the queue and what merges, and
+handing an issue to another factory waits for your yes too. The loop never
+merges a pull request.
+
+Another factory can take an issue through the same contract: a label on an
+issue goes in, and a pull request that closes it comes back to be reviewed.
+[Handing work to another factory](#handing-work-to-another-factory) shows how this repo hands an issue to
+another team's delivery system, or to a second copy of itself, on github.com,
+and treats what comes back the way it treats its own loop's work. It's new:
+[Getting to ready](factories/README.md#getting-to-ready) says what a run can show today and what it
+can't yet. For developers, it's one interface with many implementations, and
+the loop is the implementation that ships here.
 
 ## A request, start to finish
 
@@ -68,7 +91,7 @@ is the small version of it. It picks up an issue labelled `loop-ready`, starts
 a fresh agent session to build it, runs your tests and a review, and repeats
 until both pass or it gives up and asks a person. Each round starts clean and
 reads its state from files (the ticket, the diff, the test output), not from a
-growing transcript. That's the same shape as this starter, run headless with
+growing transcript. That's the same shape as this repo, run headless with
 `claude -p` instead of you at the keyboard. [The loop](#the-loop) below has
 the rest.
 
@@ -159,7 +182,7 @@ column. Entries written before this read as `unknown`.
 `stopped` or `skipped`) adds one line to `.loop/history.jsonl`, under
 `--project` `.loop/projects/<name>/history.jsonl`. The line is JSON with
 numbers and labels only: `v` (1), `run` (the issue and when the run started),
-`issue`, `project` (`null` for the harness), `started`, `ended`, `outcome`,
+`issue`, `project` (`null` for this repo), `started`, `ended`, `outcome`,
 `rounds`, `tests` and `verdicts` (one per round that reached its review), the
 run's `tokens` and `cost_usd` (`null` when not reported), and the `agent` and
 `reviewer` command names, never a path. No title, note, link or review text
@@ -217,11 +240,11 @@ keeps its default:
 | `reader_agent` | `claude -p` | The command that plans and reviews, or a name: `claude`, `codex` or `ollama:<model>`. It's told not to edit, and anything it edits is thrown away. Held to read tools in the checkout when it's `claude`; for `review`, it has to be `claude` or `ollama:<model>` |
 | `review_agent` | empty | The command that reviews, when it's set, or a name: `claude`, `codex` or `ollama:<model>`. Empty means `reader_agent` reviews. Held to read tools the same way, and for `review` it has to be `claude` or `ollama:<model>` |
 | `test_command` | `python3 -m unittest discover -s tests` | Run by the script, in the worktree |
-| `generate_command` | For the harness, `UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py`. For a project, empty | Run by the script after each build, before the commit, in the worktree, with the same environment and timeout as `test_command`. What it writes goes in that round's commit, for files the build agent can't make itself. Empty runs nothing. One that fails logs a `GENERATE` line with its exit code, and the round goes on |
+| `generate_command` | For this repo, `UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py`. For a project, empty | Run by the script after each build, before the commit, in the worktree, with the same environment and timeout as `test_command`. What it writes goes in that round's commit, for files the build agent can't make itself. Empty runs nothing. One that fails logs a `GENERATE` line with its exit code, and the round goes on |
 | `setup_command` | empty | Run by the script once per worktree, before the planner, with the same environment and timeout as `test_command`, such as `npm ci`. Empty runs nothing. It logs `SETUP done` when it passes. One that fails or times out blocks the issue, with its output kept in `.loop/issue-N/setup-output.txt` and off the public comment. On a branch that already has the loop's commits and no record of setup, it doesn't run and the issue blocks, since it would run what an agent wrote; remove the worktree and the branch to start over. One that passes but leaves anything git would commit blocks too, naming the paths, so it may write only what git ignores. A blocked setup runs again when the issue is put back; a passed one doesn't, even if the command changes, until the worktree is removed |
 | `test_first` | `false` | Only `true` turns it on. A separate agent writes failing tests, in new files only, after the planner and before round 1, and the build has to make them pass without changing them. The issue blocks if the tester changes nothing, changes or deletes a file that already existed, changes a path outside `test_paths` or a lockfile, or its tests already pass. A build that changes or deletes one of its files blocks too. A branch with a `round 0 (tests)` commit skips the tester and keeps that commit's files fixed |
 | `tester_agent` | empty | The command that writes the tests, named the same way as `agent`. Empty means `agent` |
-| `test_paths` | `["tests/**"]` | Globs for the files the tester may write. `*` stays within a folder and `**` crosses folders. For a project, set it in the harness's `projects` entry |
+| `test_paths` | `["tests/**"]` | Globs for the files the tester may write. `*` stays within a folder and `**` crosses folders. For a project, set it in the factory's `projects` entry |
 | `base`, `max_rounds` | `main`, `5` | Where branches start, and rounds before giving up |
 | `max_workers` | `1` | How many issues it works at once. Each runs its own agent sessions, so usage grows with it |
 | `max_issue_tokens` | `0` | Tokens one run of an issue may use before it's blocked. `0` means no budget. *A token budget* above has the detail |
@@ -230,7 +253,7 @@ keeps its default:
 | `worktree_dir` | `~/.sanvio-loop/<repo>` | Where the build checkouts go. Keep it outside the clone: an agent started inside it loads this repo's [`CLAUDE.md`](CLAUDE.md) twice and stops to ask you to restart from the root |
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
-| `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the harness's `loop.json` or its `projects` entry sets it, never a project's own |
+| `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
 
@@ -326,7 +349,7 @@ To give a ticket a new dependency, add it yourself first:
   `git worktree remove <worktree_dir>/issue-N` then `git branch -D
   loop/issue-N`, then take `loop:blocked` off and put `loop-ready` back.
 
-A team that wants its loop to install can allow it, in the harness's
+A team that wants its loop to install can allow it, in the factory's
 `loop.json`; with `--project`, under `"projects"` there, as described below. Name
 the commands the build agent may run:
 
@@ -334,18 +357,18 @@ the commands the build agent may run:
 
 That works for a `claude` agent only. `codex` ignores `--allowedTools`, and a
 full command line replaces `claude:<model>`, so add `--model` if you had one.
-It's the team's decision, not the harness's default, and it lets an agent
+It's the team's decision, not the factory's default, and it lets an agent
 nobody is watching pull any package the registry has. Without
 `--ignore-scripts`, that package's install scripts also run on the machine
 with your full environment, including the tokens the test command is denied.
 Allow the narrowest command that does the job. With `--project`, the agent
-setting is read from the harness's `loop.json`, never from the project's, so
+setting is read from the factory's `loop.json`, never from the project's, so
 whoever can merge to the project's repo can't widen it. A private
 registry's token won't reach `test_command`, which runs with every variable
 named like a token removed.
 
 Allowing installs also means setting `"allow_lockfile_changes": true` in the
-same harness `loop.json` (with `--project`, in the project's `"projects"`
+same factory `loop.json` (with `--project`, in the project's `"projects"`
 entry there; the project's own file can't set it), because an install rewrites
 the lockfile. Until it is set, a round whose commit adds, edits, deletes or
 renames a lockfile, at any depth
@@ -409,7 +432,7 @@ a change to them; [`skills/review-tests/`](skills/review-tests/) checks that.
 
 It then works that clone's GitHub repo: its issues, its pull requests and the
 `base` in its own `loop.json`. That `loop.json` has to set `test_command`,
-because the default tests the harness. For a TypeScript project,
+because the default tests this repo. For a TypeScript project,
 `{"test_command": "npm test"}`, or `node --test` with no `package.json`
 script; [`examples/typescript/`](examples/typescript/) has a fuller one. The loop refuses, with one
 `ERROR` line and before it takes anything, a folder that isn't directly under
@@ -419,29 +442,29 @@ isn't on github.com, or a `loop.json` without `test_command`.
 Which `loop.json` sets what: the project's own sets only `test_command`,
 `test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command` and `setup_command`. Every other key,
 `agent`, `max_workers` and `allow_lockfile_changes` among them, comes from the
-harness's `loop.json`, and can be set for one project under `"projects"` there,
+factory's `loop.json`, and can be set for one project under `"projects"` there,
 keyed by the folder name:
 
     {"max_rounds": 3, "projects": {"app": {"agent": "claude", "max_workers": 2}}}
 
-The order is the defaults, the harness's other keys, its `"projects"` entry for
+The order is the defaults, the factory's other keys, its `"projects"` entry for
 the folder, then the project's own seven. One of the seven the project leaves out
-is the default, not the harness's value: the harness's `base` describes the
-harness. A project's `loop.json` that sets one of
+is the default, not the factory's value: the factory's `base` describes the
+factory. A project's `loop.json` that sets one of
 the others is refused with an `ERROR` line naming the key, because a clone
 anyone can merge to mustn't choose what the loop runs or spends. Without
 `--project`, `"projects"` is ignored. Its state stays in
-the harness, in `.loop/projects/<name>/` (`status.json`, `loop.log`,
-`issue-N/` and a lock of its own, so it runs beside the harness's loop). None of
+the factory, in `.loop/projects/<name>/` (`status.json`, `loop.log`,
+`issue-N/` and a lock of its own, so it runs beside the factory's own loop). None of
 it goes in the project's folder, which gets only the `loop/issue-N` branches
 and their checkouts, as any clone the loop works does. Its checkouts go in
-`~/.sanvio-loop/<harness>/<name>/`. A checkout of the project holds none of
+`~/.sanvio-loop/<factory>/<name>/`. A checkout of the project holds none of
 the harness's rules, so every prompt starts with [`AGENTS.md`](AGENTS.md) and the three
 steering files it loads every session, and says
 the project's own `AGENTS.md` or `CLAUDE.md` adds to them and never loosens them. A `claude` build agent also
 gets the harness's [`.claude/hooks/guard.py`](.claude/hooks/guard.py) through `--settings`. Another
 build agent, such as `codex`, has no hook to put it in, so it builds without
-the guard. The loop pane shows the harness's own loop only.
+the guard. The loop pane shows the factory's own loop only.
 
 **From a conversation,** the [`skills/loop-control/`](skills/loop-control/) skill does the same jobs:
 it checks an issue is ready before labelling it, starts the loop, says what
@@ -578,7 +601,7 @@ agent's CLI do. There are three places, and the script is the same in each:
 | GitHub Actions | The workflow in [`examples/ci/loop.yml`](examples/ci/loop.yml), an API key as a repository secret, and the agent CLI installed on the runner each run | Runner minutes for as long as a pass iterates, and the agent's usage on the key |
 
 Setting up the VM is yours: nothing here goes beyond naming it. Actions is the
-one the starter ships an example for: it runs `python3 scripts/loop.py run --once`
+one this repo ships an example for: it runs `python3 scripts/loop.py run --once`
 on a schedule and on manual dispatch, and uploads `.loop/` as a build artifact so
 the plan, the test output and the review outlive the runner.
 
@@ -621,15 +644,15 @@ that has to be on for a workflow to open a pull request at all.
 ## Handing work to another factory
 
 A factory is any system that takes work in and puts checked work out. This
-harness is one. So is another team's delivery system, or a second harness on
-the same machine. [`scripts/factories.py`](scripts/factories.py) hands an issue to one, and GitHub is
+repo is one. So is another team's delivery system, or a second copy of this
+repo on the same machine. [`scripts/factories.py`](scripts/factories.py) hands an issue to one, and GitHub is
 the only thing between them: a label goes on the issue, a pull request comes
 back.
 
 ```mermaid
 sequenceDiagram
     participant You
-    participant Harness as This harness
+    participant Harness as This factory
     participant GitHub
     participant Factory
     You->>Harness: dispatch #12, then yes
@@ -672,7 +695,7 @@ pull request is merged, or closed with nothing in its place. Only the
 factory's own pull request counts as what it returned: one in the issue's
 repo, into the default branch, by the step's `factory_login` when it names
 one, and from a branch in the repo or a fork that `factory_login` owns. [`factories.example.json`](factories.example.json) has every key, and [`factories/README.md`](factories/README.md) says what a
-factory has to do, and how a copy of this harness is set up as one. With no `factories.json`,
+factory has to do, and how a copy of this factory is set up as one. With no `factories.json`,
 nothing here runs. A chain of factories waits until one is proved.
 
 | Command | What it does | Writes to GitHub |
@@ -680,7 +703,7 @@ nothing here runs. A chain of factories waits until one is proved.
 | `factories.py steps` | Reads `factories.json` and the factory's commit | Nothing |
 | `factories.py dispatch 12 --repo o/r` | Shows the factory, the repo, the issue and the label; warns when the branch requires no status check; says what goes to the factory the first time; then submits on `--yes` or a typed yes | The submit label on #12 |
 | `factories.py status` | Reads each run's issue and pull request, then the verdict and the required checks of a reviewed head, and names `review RUN` for a head not yet reviewed | Nothing |
-| `factories.py review RUN` | Has `loop.py review --pr N` review the run's pull request, spending model tokens, then moves the run on as `status` does. It runs while the loop runs and outside its hours, on a lock for that pull request alone, and only from the harness `factories.py` is in | The review's one comment, on your login |
+| `factories.py review RUN` | Has `loop.py review --pr N` review the run's pull request, spending model tokens, then moves the run on as `status` does. It runs while the loop runs and outside its hours, on a lock for that pull request alone, and only from the clone `factories.py` is in | The review's one comment, on your login |
 | `factories.py resend RUN` | Sends a run back for one more round, once per reviewed commit, on `--yes` or a typed yes: after changes needed, or after a ready verdict whose checks fail or that changes CI, or with `--because "why"` when a person disagrees. After a ready verdict it first posts why, ending `VERDICT: changes needed`, for the factory to read | The submit label on #12 again, and that comment |
 | `factories.py cancel RUN` | Shows what cancelling does and changes nothing; on `--yes` or a typed yes, takes the submit label off the issue and ends the run as `cancelled`. It doesn't withdraw what the factory already took: a pull request it opens afterwards is closed, and the factory told, by hand | The label off #12, on the yes |
 | `factories.py doctor --repo o/r --pr 31` | Builds the record dispatch would make, takes the head as reviewed, reading it as ready where you haven't reviewed it, and never gives a merge, and moves it on through the run's own code with `gh` held to an allowlist of reads, so it stops where a run would: the stopped label, a pull request that isn't the factory's, a draft, another base or changes needed read no checks, and it exits 1. Lists every call with what it came to, a reply it couldn't use or a row it skipped noted on the call that gave it, then what `status` would say, short of the merge, with every control character GitHub sent printed as `?` | Nothing |
@@ -710,7 +733,7 @@ steer: that's why the checks have to hold on their own. If the comment's
 verdict changed after the loop posted it, the run needs a person.
 
 Ready means the required checks passed on the commit the review read, read
-from the base repo, and none of the ways the harness knows for a factory to
+from the base repo, and none of the ways this factory knows for another to
 produce its own checks was found: a claim about what it can read, not proof,
 so read the diff. *Getting to ready* in [`factories/README.md`](factories/README.md) is the one place
 that says what it requires and what it can't show. Short of it, a run reads
@@ -754,7 +777,7 @@ schedule, or across many tickets at once. Even then, the harness files stay
 the same. The runner reads [`AGENTS.md`](AGENTS.md), the skills and the gates exactly as you
 do.
 
-## One harness, many teams
+## One factory, many teams
 
 One harness carries the rules every team shares. Each project under
 [`projects/`](projects/) adds its own `AGENTS.md` for what's specific to it, and can only
@@ -762,7 +785,7 @@ add rules, never loosen them. A risky project (one that writes to a
 production system) tightens its own rules and gates. A read-only one needs
 fewer. Same harness, same skills, different strictness per project.
 
-One person owns the harness and merges changes to it. Everyone else pulls.
+One person owns the factory and merges changes to it. Everyone else pulls.
 That's what keeps ten developers' agents behaving like one team instead of ten
 people's personal setups.
 
@@ -827,7 +850,7 @@ and this repo's [`CLAUDE.md`](CLAUDE.md) both load, so a rule in yours applies t
 
 ### Who owns what
 
-- **The harness owner**: steering, skills, gates, hooks and the release log.
+- **The factory's owner**: steering, skills, gates, hooks and the release log.
   Merges every change to them.
 - **Each project's lead**: that project's `AGENTS.md`, its gates and its CI.
 - **Whoever runs production**: the release step, meaning

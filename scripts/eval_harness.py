@@ -35,7 +35,7 @@ When the run ends, a fresh clone outside the harness is scored: the default bran
 request if it never merged. Its history is checked for the key's files, and key/score runs with anything
 named like a secret out of its environment. The run's folder in .sanvio/harness-evals/ gets one
 result.json: the suite, the harness commit, tests, traps, key leaks, time, stops, rounds, tokens and cost.
-Cost comes from --usage-command, a command that prints one number. Failing that, it's this harness's own loop
+Cost comes from --usage-command, a command that prints one number. Failing that, it's this factory's own loop
 usage when --start runs its scripts/loop.py. Failing that it reads "not reported", never zero. Rounds and
 tokens come only from that loop usage, so another harness's read "not reported". Exits 0 when every test
 and trap is clean with no leak, 1 otherwise. compare takes two run names or result files.

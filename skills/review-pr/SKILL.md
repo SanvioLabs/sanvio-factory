@@ -47,7 +47,7 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
    - Tests: is the new behaviour tested, and would the test fail if it broke?
      [`skills/review-tests/`](../review-tests/) goes deeper
    - Standards: where it departs from a written standard, quote the standard
-   - The harness itself: a noticeable change with no new entry in
+   - This factory itself: a noticeable change with no new entry in
      [`CHANGELOG.md`](../../CHANGELOG.md). Its header says what counts
 5. **Decide.** **Ready**, **ready with nits**, or **changes needed**. Changes
    needed means at least one finding that would cost something real if it

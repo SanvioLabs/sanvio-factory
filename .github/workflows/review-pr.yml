@@ -34,7 +34,7 @@
 # see the Claude credentials. That
 # boundary holds inside this file only: the caller lives in the product repo,
 # so anyone who can push a branch there can change it to print both keys.
-# Give the deploy key to repos whose writers you'd trust with the harness.
+# Give the deploy key to repos whose writers you'd trust with this repo.
 # A commit on this repo's default branch runs in every calling repo with
 # that repo's secrets, so this repo's main needs the protection that
 # examples/ci/README.md describes under "Protecting the harness".

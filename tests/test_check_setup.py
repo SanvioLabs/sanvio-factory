@@ -253,7 +253,7 @@ class SetupCheck(unittest.TestCase):
         self.git("add", "company/COMPANY.md")
         status, line, fix = check_setup.check_company(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("committed in this harness", line)
+        self.assertIn("committed in this repo", line)
         self.assertIn("gh repo view --json visibility", fix)
 
     def test_the_company_record_never_gets_committed(self):

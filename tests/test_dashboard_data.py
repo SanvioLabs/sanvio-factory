@@ -1463,7 +1463,7 @@ class LoopHistory(Harness):
                          "`by_outcome` has `pr`, `blocked`, `stopped` and `skipped`, every key always present.",
                          "Run fields: `issue`, `started`, `ended`, `outcome`, `rounds`, `tests`, `verdicts`, `tokens` "
                          "and `cost_usd`. Nothing else goes in.",
-                         "Issue names: `issue-N` for the harness and `<name>/issue-N` for a project.",
+                         "Issue names: `issue-N` for this repo and `<name>/issue-N` for a project.",
                          'Why values: `{"value": null, "why": "no run history"}` and `"unreadable"`.'):
             self.assertIn(sentence, doc)
 

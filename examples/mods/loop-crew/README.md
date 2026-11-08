@@ -75,7 +75,7 @@ claude plugin disable loop-crew@sanvio-factory --scope local
 
 | Type | Does |
 |---|---|
-| `/loop-crew` | Opens the pane on the project in focus when the picker lists that project's loop, titled `Loop crew: <name>`, and otherwise on the harness's loop, titled `Loop crew` |
+| `/loop-crew` | Opens the pane on the project in focus when the picker lists that project's loop, titled `Loop crew: <name>`, and otherwise on the factory's loop, titled `Loop crew` |
 | `/loop-crew <name>` | Opens it on the project's loop in `.loop/projects/<name>/`, titled `Loop crew: <name>` |
 | The same again | Closes the pane |
 | Another loop's name, or no name while another loop is shown | Switches the open pane to that loop |
@@ -86,7 +86,7 @@ A name must be exactly a folder under `.loop/projects/`. Anything else, `../x` i
 The focus is the one `/project` sets, read from `.sanvio/project/<session id>` the way the loop
 pane reads it: a real folder directly under [`projects/`](../../../projects/), not a link. While the pane is open it
 follows `/project` changes on each poll: a new focus whose loop the picker lists switches the pane
-to it, and a cleared focus switches it to the harness. A focus whose loop isn't listed switches
+to it, and a cleared focus switches it to the factory's loop. A focus whose loop isn't listed switches
 nothing. A pick, or `/loop-crew <name>`, holds until the focus changes. Loop crew never sets the
 focus.
 
@@ -104,7 +104,7 @@ Checked in this order:
 ## The board
 
 When there's more than one loop, a picker sits above the header, and above the pane's message when
-there's no board. It lists each loop whose `status.json` parses, the harness by its folder's name
+there's no board. It lists each loop whose `status.json` parses, the factory's own by its folder's name
 and each folder under `.loop/projects/` by its own, the loops on a job first, each marked `●` with
 its count past one. Picking a loop switches the pane to it and retitles it, as `/loop-crew <name>`
 does. Picking the loop already shown changes nothing, and a pick never closes the pane. The mobile
@@ -167,7 +167,7 @@ An issue walking out keeps its times, with nothing counting.
 
 Under the times, each station shows what its step has cost in the issue's current run and how many
 tokens it used. The figures come from `<loop dir>/issue-<N>/usage.json`, which the loop adds an
-entry to after each agent run: `.loop/issue-<N>/usage.json` for the harness's loop, and
+entry to after each agent run: `.loop/issue-<N>/usage.json` for the factory's loop, and
 `.loop/projects/<name>/issue-<N>/usage.json` for a project's. They are the current run's only: an
 entry counts when its `run_started` is the row's `started` in `status.json`, as the loop counts its
 own token budget, so a relabelled issue starts again from nothing. The cost is Claude Code's own

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize the Claude Code tokens spent under this harness, as Markdown.
+"""Summarize the Claude Code tokens spent under this repo, as Markdown.
 
     python3 scripts/token_report.py                    # the last 14 days
     python3 scripts/token_report.py --since 2026-10-01
@@ -7,7 +7,7 @@
 
 Reads Claude Code's own transcripts, ~/.claude/projects/**/*.jsonl, subagents
 included, and counts the tokens on each reply whose working folder is this
-harness: conversations at its root, each repo under projects/, and each issue
+repo: conversations at its root, each repo under projects/, and each issue
 the loop built in its worktrees. Nothing it prints holds a prompt, a reply, a
 file path or a line of code: counts, model names, session ids, issue names,
 and for the loop, estimated dollars. Claude Code only: Codex, Kiro and other
@@ -61,7 +61,7 @@ def loop_dirs(root):
 
 
 def usage_files(root):
-    """(issue, path) for every usage.json the loop wrote: issue-N for the harness, <name>/issue-N for a project."""
+    """(issue, path) for every usage.json the loop wrote: issue-N for this repo, <name>/issue-N for a project."""
     state = Path(root) / ".loop"
     paths = [(p.parent.name, p) for p in state.glob("issue-*/usage.json")]
     paths += [("{}/{}".format(p.parent.parent.name, p.parent.name), p) for p in state.glob("projects/*/issue-*/usage.json")]
@@ -175,7 +175,7 @@ def read_file(path, nested):
 
 
 def group(entry, root, loop_dir):
-    """(group, row) for the folder this reply ran in, or None when it ran outside the harness.
+    """(group, row) for the folder this reply ran in, or None when it ran outside this repo.
 
     loop_dir is one folder or a list of them. The loop's folders are checked first, because a
     worktree_dir set in loop.json can sit inside the root.
@@ -485,7 +485,7 @@ def report(entries, since, until, root, loop_dir, costs=None, activity=None):
         n = sum(values)
         name, row = found
         rows = groups[name]
-        row = row or "This harness"
+        row = row or "This repo"
         rows[row] = [a + b for a, b in zip(rows.get(row, [0] * len(FIELDS)), values)]
         total += n
         model = entry["message"].get("model")
@@ -501,7 +501,7 @@ def report(entries, since, until, root, loop_dir, costs=None, activity=None):
             issues[row] += n
 
     if not any(groups.values()) and not costs:
-        return "No Claude Code usage under this harness since {}.".format(since)
+        return "No Claude Code usage under this repo since {}.".format(since)
 
     out = ["# Claude Code tokens, {} to {}".format(since, until), "",
            "Total: {:,} tokens across {} sessions.".format(total, len(sessions)), ""]
