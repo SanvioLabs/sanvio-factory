@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: A hand-edited record that hides what it merges no longer reads
+
+`checked()` in [`scripts/factories.py`](scripts/factories.py) now reads only a record whose `repo` is `OWNER/NAME` and whose reviewed commit is 40 hex characters, the shapes GitHub itself writes, so a record edited by hand can't put a control character into the merge command a ready run prints or hide which repo it merges: `list` names such a record unreadable with the reason, as every other reader already does. `list` also prints each run's base now, and marks what it prints of a record — its run, repo, factory and base — through `one_line`, so nothing a record holds can start a line of its own in what it says.
+
+Files: [`scripts/factories.py`](scripts/factories.py), [`tests/test_factories.py`](tests/test_factories.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-08: A headless search leaves out company/ and factories/
 
 A run [`bin/harness`](bin/harness) started (headless) could search `company/` and [`factories/`](factories/) with a `Grep` over the root: [`.ignore`](.ignore) lets `company/` back into a search so an ordinary session can read it, and ripgrep, run with Claude Code's flags, follows it. The guard now passes each headless `Grep` on with `company/`, `local-data/`, `.inbox/` and [`factories/`](factories/) excluded at the root, as it already did for bare repos. [`factories/README.md`](factories/README.md) also gains *What the factory must do*: the contract a factory meets on GitHub, and the `loop.json` that sets up a copy of this harness as one, `review_logins` included. It now says a run records the factory checkout's commit at submission, not exactly which version did the work.
