@@ -106,27 +106,28 @@ folder they're read from.
 
 ### Run a skill from anywhere
 
-[`bin/harness`](bin/harness) runs a skill without opening a session, from any folder. It starts
+[`bin/factory`](bin/factory) runs a skill without opening a session, from any folder. It starts
 `claude -p` at the harness root, so the rules, skills and guards load as they
 would in the terminal. Add an alias to your shell's startup file:
 
 ```bash
-alias harness=~/path/to/my-harness/bin/harness
-harness review-pr 42
-harness --json review-pr 42    # Claude Code's JSON output, for a script to read
+alias factory=~/path/to/my-factory/bin/factory
+factory review-pr 42
+factory --json review-pr 42    # Claude Code's JSON output, for a script to read
 ```
 
 It runs only a skill whose frontmatter says `headless: true`, and passes the
 tools its `headless-tools` line names to `--allowedTools`, so those run without
 asking. That's a key of the harness's own: Claude Code's `allowed-tools` would
 grant the same tools in every session the skill runs in, where the guard below
-doesn't apply. Every entry on that list has to be in [`bin/harness-tools`](bin/harness-tools), or the
+doesn't apply. Every entry on that list has to be in [`bin/factory-tools`](bin/factory-tools), or the
 skill doesn't start, and the wrapper sets the permission mode and the tools
-itself. Any other name stops with exit code 2 before Claude starts.
+itself. Any other name stops with exit code 2 before Claude starts. Its old name,
+[`bin/harness`](bin/harness), still works until a later release, and says so.
 
 One skill is marked: `review-pr`. No Bash allow rule is safe on its own, since
 `gh pr view -R <host>/...` reaches any host and your own Bash allow rules apply
-to a headless run too, so [`.claude/hooks/guard.py`](.claude/hooks/guard.py) holds a run [`bin/harness`](bin/harness)
+to a headless run too, so [`.claude/hooks/guard.py`](.claude/hooks/guard.py) holds a run [`bin/factory`](bin/factory)
 started to `gh pr view <n>`, `gh pr diff <n>` and `gh issue view <n>`, with
 `--comments` on a view. Every other command and every connector is refused, so
 is a call the guard fails on while checking it, and the wrapper loads no MCP
@@ -306,8 +307,8 @@ every day.
 | A mail read | [`skills/inbox/`](skills/inbox/) | Say "inbox" or "check my email": one pass over your mail, Gmail by default, where `company/DATA.md` clears it. It says what needs a reply from you, what's waiting on someone, and what matters today, one line per thread, and counts the bulk mail. Standup reads your email the same way. It only searches and reads, and never sends, labels or marks a message |
 | A daily question | [`skills/pulse/`](skills/pulse/), [`scripts/pulse.py`](scripts/pulse.py), [`reports/pulse/`](reports/pulse/) | Say "pulse": one multiple-choice question a day from a shared synced folder, with each person's answers in a file named after their login and counts for everyone to read. Standup mentions the day's question where `company/DATA.md` clears the folder. Ask it to summarise for leadership and it writes a period's counts and Other answers, never a login, to a gitignored report you read and send |
 | A release log | [`CHANGELOG.md`](CHANGELOG.md), [`skills/whats-new/`](skills/whats-new/) | Ask "what's new" and the agent reads the log, compares it with your copy's own remote, and says what you don't have yet and what to do to take it. Changes to your own harness go in the same file |
-| A usage log and sprint report | [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`skills/harness-trends/`](skills/harness-trends/) | Each person's sessions log which skills, agents and commands ran and when the guard refused or asked: names and counts, never content, kept on their own machine. At sprint end `harness-trends` turns it into a short report with their proposals, shared as a PR, so whoever owns the harness sees what the team actually uses and what to add. `HARNESS_USAGE_LOG=off` turns it off for you |
-| A session retro | [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`skills/retro/`](skills/retro/) | Off unless you set `HARNESS_RETRO=on`, the same way `HARNESS_USAGE_LOG` is set. When a session ends or compacts, it keeps a copy of its log in `local-data/retro/` if you corrected the agent or one file was edited three or more times. Say "retro" and a fresh agent that can only read goes through it, says why the agent didn't know, and the findings that hold up against the log go in `.loop/lessons.md` for `learn`. The copies hold everything said in the session, stay on your machine readable by you alone, and are deleted once read or after 30 days. The loop's own sessions are never kept |
+| A usage log and sprint report | [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`skills/harness-trends/`](skills/harness-trends/) | Each person's sessions log which skills, agents and commands ran and when the guard refused or asked: names and counts, never content, kept on their own machine. At sprint end `harness-trends` turns it into a short report with their proposals, shared as a PR, so whoever owns the harness sees what the team actually uses and what to add. `SANVIO_USAGE_LOG=off` turns it off for you |
+| A session retro | [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`skills/retro/`](skills/retro/) | Off unless you set `SANVIO_RETRO=on`, the same way `SANVIO_USAGE_LOG` is set. When a session ends or compacts, it keeps a copy of its log in `local-data/retro/` if you corrected the agent or one file was edited three or more times. Say "retro" and a fresh agent that can only read goes through it, says why the agent didn't know, and the findings that hold up against the log go in `.loop/lessons.md` for `learn`. The copies hold everything said in the session, stay on your machine readable by you alone, and are deleted once read or after 30 days. The loop's own sessions are never kept |
 | A work report | [`scripts/work_report.py`](scripts/work_report.py), [`skills/work-report/`](skills/work-report/) | Say "work report" or "what did we ship": one page on a repo over a period, from what GitHub recorded. What merged, by type, and who made, reviewed and approved it, what the loop built, releases and closed GitHub milestones, the specs closed issues name, a chart of merges by day (by week past a month), and what to watch, such as work nobody but its author approved. It names people by GitHub login, stays gitignored in [`reports/work/`](reports/work/), and changes nothing |
 | An optional extra: a loop that runs without you | [`scripts/loop.py`](scripts/loop.py) | Not one of the five layers, and the harness works without it. Takes the next open issue labelled `loop-ready`, has a fresh agent plan it, build it in a worktree, runs your tests itself, has a second fresh agent review the diff, and opens a pull request when both pass. It follows the flywheel (Discover, Shape, Build, Validate, Scale), writes one plain log you read with `tail -f .loop/loop.log`, and never merges. `max_workers` in `loop.json` lets it work several issues at once, each issue's agents writing to `.loop/issue-N/agent.log`, with an `issue-N` window per issue when it runs in tmux. Each worker runs its own agent sessions, so usage grows with the number of workers. It records each issue's tokens and estimated cost on its pull request, and `max_issue_tokens` can stop an issue at a budget. It blocks a round that adds nothing or changes a lockfile, and its build agent installs no packages. Label only issues you wrote or have read, since a ticket is an instruction to an agent. One standard-library file, so it's yours to change. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has the shape |
 | Another factory to hand work to | [`scripts/factories.py`](scripts/factories.py), [`scripts/factory_checks.py`](scripts/factory_checks.py), [`skills/dispatch/`](skills/dispatch/), [`factories/`](factories/) | Name a second factory in `factories.json`, such as another team's delivery system or a second harness, and say "dispatch #12". The agent shows what goes to it and adds that factory's label to the issue on your yes, nothing else. When a pull request comes back, the loop's own reviewer reads it. Changes go back on your yes, up to a set number of rounds, and the pull request's required checks are reported apart from any verdict. It never merges. [`factories/README.md`](factories/README.md) has the setup |

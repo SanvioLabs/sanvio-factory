@@ -38,7 +38,7 @@ python3 scripts/eval_agents.py examples/ci/evals --save --baseline latest
 ```
 
 Each case runs twice. Both runs passing is stable, one is flaky, and neither is
-failing. Results go to `.harness/evals/`, which stays on your machine.
+failing. Results go to `.sanvio/evals/`, which stays on your machine.
 [Testing the review](../examples/ci/README.md#testing-the-review) says how to add a case of your own.
 
 ## Did the change make the harness better?

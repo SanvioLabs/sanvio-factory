@@ -11,7 +11,7 @@ The bundle holds:
 - `loop`: the lines of .loop/history.jsonl since that day, each rebuilt from the keys
   scripts/loop.py writes and nothing else. Only the harness's own loop: nothing under
   .loop/projects/ is read, and a line tagged with a project is dropped
-- `usage`: counts from your usage log, .harness/usage/<you>.jsonl: sessions, then
+- `usage`: counts from your usage log, .sanvio/usage/<you>.jsonl: sessions, then
   skills, agents and slash commands by name, guard refusals by rule, and guard asks
   and the asks you said yes to by tool (or by rule when there's no tool)
 

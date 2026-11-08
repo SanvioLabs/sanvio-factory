@@ -7,11 +7,11 @@ can see what people actually use: which skills and agents ran, which slash
 commands, when the guard refused or asked, and when a person said yes to an ask.
 
 It records names, never content. No prompts, no command arguments, no file
-paths, no code. Each person's log is .harness/usage/<user>.jsonl, which is
+paths, no code. Each person's log is .sanvio/usage/<user>.jsonl, which is
 gitignored. What reaches the team is the summary skills/harness-trends/ writes,
 and the person reads that before it goes anywhere.
 
-Turn it off for yourself with HARNESS_USAGE_LOG=off. It never blocks a tool
+Turn it off for yourself with SANVIO_USAGE_LOG=off. It never blocks a tool
 call, never prints, and never stops a session if it fails.
 """
 import datetime
@@ -25,6 +25,8 @@ from pathlib import Path
 HOOKS = Path(__file__).resolve().parent
 sys.path.insert(0, str(HOOKS))
 import guard  # noqa: E402 (the guard's own verdict, so there's one copy of the rules)
+sys.path.insert(0, str(HOOKS.parent.parent / "scripts"))
+import names  # noqa: E402 (the state folder and the variables, old names included for a release)
 
 FILE_TOOLS = guard.FILE_TOOLS + ("Grep", "Glob")
 COMMAND = re.compile(r"^/([A-Za-z0-9][A-Za-z0-9:_-]*)(\s|$)")
@@ -49,8 +51,8 @@ def entry(hook, event):
 
     if hook == "SessionStart":
         line = {"event": "session_start", "source": event.get("source", "")}
-        if os.environ.get("HARNESS_HEADLESS") == "1":
-            line["headless"] = True  # started by bin/harness, so a report can tell a script from a person
+        if names.headless():
+            line["headless"] = True  # started by bin/factory, so a report can tell a script from a person
         return line
     if hook == "SessionEnd":
         return {"event": "session_end", "reason": event.get("reason", "")}
@@ -81,7 +83,7 @@ def entry(hook, event):
 
 def log_path(root, user=None):
     name = SAFE_NAME.sub("_", user or getpass.getuser()) or "unknown"
-    return Path(root) / ".harness" / "usage" / (name + ".jsonl")
+    return names.state_dir(root) / "usage" / (name + ".jsonl")
 
 
 def record(root, line, session_id="", now=None):
@@ -95,7 +97,7 @@ def record(root, line, session_id="", now=None):
 
 
 def main():
-    if os.environ.get("HARNESS_USAGE_LOG", "").strip().lower() in ("off", "0", "false", "no"):
+    if names.env("USAGE_LOG").strip().lower() in ("off", "0", "false", "no"):
         return 0
     try:
         event = json.load(sys.stdin)

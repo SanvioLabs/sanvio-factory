@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { QUERY, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
+import { QUERY, allText, due, failed, focusFile, focusName, oldFocusFile, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
 import type { Tone } from './logic'
 import type { Counts, GitHubState } from '../types'
 
@@ -134,7 +134,7 @@ async function readFocus($: EngineInterface): Promise<string | null> {
     const root = await rootOf($)
     const file = await sessionFile($, root)
     if (!file) return null
-    const name = focusName(await $.fs.read(file))
+    const name = focusName(await $.fs.read(file).catch(() => $.fs.read(oldFocusFile(file))))
     return name && (await isProject($, root, name)) ? name : null
   } catch {
     return null

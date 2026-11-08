@@ -209,7 +209,7 @@ class Skills(unittest.TestCase):
         self.assertIn("unread threads capped at 50", texts["inbox"])
 
     def test_headless_skills_list_only_approved_tools(self):
-        approved = [l for l in (ROOT / "bin" / "harness-tools").read_text().splitlines() if l and not l.startswith("#")]
+        approved = [l for l in (ROOT / "bin" / "factory-tools").read_text().splitlines() if l and not l.startswith("#")]
         headless = set()
         for skill in sorted((ROOT / "skills").glob("*/SKILL.md")):
             fields = frontmatter(skill.read_text())
@@ -236,7 +236,7 @@ class Skills(unittest.TestCase):
         # An allowlist, not a denylist: a new entry has to be one of these shapes, or this test changes too.
         # The Bash forms are the three guard.py holds a headless run to; anything else changes both.
         read_only = re.compile(r"Read|Grep|Glob|Bash\(gh (pr view|pr diff|issue view):\*\)")
-        for line in (ROOT / "bin" / "harness-tools").read_text().splitlines():
+        for line in (ROOT / "bin" / "factory-tools").read_text().splitlines():
             if line and not line.startswith("#"):
                 self.assertTrue(read_only.fullmatch(line), line)
 

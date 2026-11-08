@@ -72,11 +72,12 @@ class PulseCase(unittest.TestCase):
         self.today = datetime.date.today()
         self.yesterday = (self.today - datetime.timedelta(days=1)).isoformat()
 
-    def pulse(self, *args, folder=None, unset=False, login="pat"):
+    def pulse(self, *args, folder=None, unset=False, login="pat", old_name=False):
         env = dict(os.environ)
+        env.pop("SANVIO_PULSE_FOLDER", None)
         env.pop("HARNESS_PULSE_FOLDER", None)
         if not unset:
-            env["HARNESS_PULSE_FOLDER"] = str(folder or self.folder)
+            env[old_name and "HARNESS_PULSE_FOLDER" or "SANVIO_PULSE_FOLDER"] = str(folder or self.folder)
         env["LOGNAME"] = login
         env["USER"] = login
         return subprocess.run([sys.executable, str(SCRIPT)] + list(args), env=env, capture_output=True,
@@ -130,7 +131,7 @@ class Folder(PulseCase):
         for command in self.COMMANDS:
             with self.subTest(command=command):
                 result = self.pulse(*command, unset=True)
-                self.assert_refused(result, before, "HARNESS_PULSE_FOLDER", "isn't set", "export")
+                self.assert_refused(result, before, "SANVIO_PULSE_FOLDER", "isn't set", "export")
                 self.assertEqual(len(result.stderr.strip().splitlines()), 1)
 
     def test_a_folder_that_does_not_exist_says_so_and_is_not_created(self):
@@ -144,9 +145,14 @@ class Folder(PulseCase):
                 self.assertEqual(len(result.stderr.strip().splitlines()), 1)
                 self.assertFalse(missing.exists())
 
+    def test_the_old_variable_still_names_the_folder_for_a_release(self):
+        self.bank()
+        result = self.pulse("question", "--json", old_name=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_the_folder_is_checked_before_the_command(self):
         result = self.pulse("question", "--date", "not-a-date", unset=True)
-        self.assertIn("HARNESS_PULSE_FOLDER", self.said(result))
+        self.assertIn("SANVIO_PULSE_FOLDER", self.said(result))
         self.assertNotIn("--date", self.said(result))
 
 
@@ -595,7 +601,7 @@ class Wording(unittest.TestCase):
     def test_the_readme_covers_each_section_the_team_needs(self):
         text = flat(GUIDE.read_text(encoding="utf-8"))
         for words in ("## Setting it up", "## Finding the day's question", "## Submitting an answer",
-                      "## Changing the questions", "## What others can see", "HARNESS_PULSE_FOLDER", "Pulse folder",
+                      "## Changing the questions", "## What others can see", "SANVIO_PULSE_FOLDER", "Pulse folder",
                       "--other-file", "--date", "never a name or an Other text", "asks to run its commands"):
             self.assertIn(words, text)
 

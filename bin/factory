@@ -1,0 +1,85 @@
+#!/bin/sh
+# Runs one of this harness's skills headless, from any folder:
+#   factory [--json] <skill> [arguments...]
+# Only a skill marked `headless: true` in its frontmatter runs, with only the
+# tools its `headless-tools` line names, and every one of those has to be in
+# bin/factory-tools. The session starts at the harness root, so the rules,
+# skills and guards load as they do in a normal session. It's `headless-tools`, not Claude Code's
+# own `allowed-tools`, because Claude Code applies allowed-tools in every session the skill runs in.
+# From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+
+root=$(cd "$(dirname "$0")/.." && pwd) || exit 2
+cd "$root" || exit 2
+
+refuse() {
+  echo "factory: $*" >&2
+  exit 2
+}
+
+json=
+if [ "$1" = "--json" ]; then
+  json=1
+  shift
+fi
+
+name=$1
+case $name in
+  '') refuse "usage: factory [--json] <skill> [arguments...]" ;;
+  -* | *[!a-z0-9-]*) refuse "'$name' isn't a skill name: lowercase letters, digits and dashes only" ;;
+esac
+skill="skills/$name/SKILL.md"
+[ -f "$skill" ] || refuse "no skill called '$name' in $root/skills"
+shift
+
+# The frontmatter: the lines between a first line that is exactly --- and the next one.
+front=$(awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } { print }' "$skill")
+count() { printf '%s\n' "$front" | grep -c "^[[:space:]]*$1[[:space:]]*:"; }
+[ "$(count headless)" -le 1 ] && [ "$(count headless-tools)" -le 1 ] \
+  || refuse "$name sets headless or headless-tools more than once"
+if printf '%s\n' "$front" | grep -q '^[[:space:]]'; then
+  refuse "$name's frontmatter has an indented line, which could carry a value this can't check"
+fi
+printf '%s\n' "$front" | grep -Eqx 'headless:[[:space:]]*true[[:space:]]*' \
+  || refuse "$name isn't marked headless: true, so it only runs in a session"
+tools=$(printf '%s\n' "$front" | sed -n 's/^headless-tools[[:space:]]*:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+case $tools in
+  '') refuse "$name is headless but names no headless-tools" ;;
+  '>'* | '|'* | '['*) refuse "$name's headless-tools has to be one comma-separated line" ;;
+esac
+
+# Every entry has to be one of bin/factory-tools' lines, and the tools themselves go to --tools too.
+approved=$(grep -v '^#' bin/factory-tools)
+names=
+checked=
+set -f  # an entry such as Bash(gh pr view:*) must never match a file name
+old_ifs=$IFS
+IFS=,
+for entry in $tools; do
+  entry=$(printf '%s' "$entry" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  printf '%s\n' "$approved" | grep -Fqx -- "$entry" || refuse "$name lists '$entry', which bin/factory-tools doesn't approve"
+  checked=${checked:+$checked,}$entry
+  tool=${entry%%(*}
+  case ",$names," in *",$tool,"*) ;; *) names=${names:+$names,}$tool ;; esac
+done
+IFS=$old_ifs
+set +f
+
+prompt="/$name"
+if [ $# -gt 0 ]; then
+  prompt="$prompt $*"
+fi
+
+# The mode, the tools and no MCP servers are set here, so a person's own settings add no tool to a run
+# nobody watches. Their Bash allow rules still apply, which is why guard.py holds a headless shell to
+# exact gh reads.
+# --allowedTools takes a list, so it goes last, where nothing after it can be read as one of its tools.
+if [ -n "$json" ]; then
+  set -- -p "$prompt" --output-format json --permission-mode default --strict-mcp-config --tools "$names" \
+    --allowedTools "$checked"
+else
+  set -- -p "$prompt" --permission-mode default --strict-mcp-config --tools "$names" --allowedTools "$checked"
+fi
+# The old name too, until the release that drops it, so a hook from before the rename sees a headless run.
+SANVIO_HEADLESS=1 HARNESS_HEADLESS=1
+export SANVIO_HEADLESS HARNESS_HEADLESS
+exec claude "$@"

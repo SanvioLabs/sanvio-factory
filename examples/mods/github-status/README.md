@@ -84,7 +84,7 @@ whatever is in focus. `/github` alone reads the repo in focus.
 
 The focus is the session's own, so another session's line doesn't move, and a
 `/clear` drops it, because the new session has a new id. It lives in the file
-`.harness/project/<id>`, under the harness root, where `<id>` is the session's
+`.sanvio/project/<id>`, under the harness root, where `<id>` is the session's
 id. An id that doesn't match `^[0-9a-fA-F-]{8,64}$` means no focus, and nothing
 is read or written.
 
@@ -103,7 +103,7 @@ issues or its loop means that project unless another is named.
 
 ## What it doesn't do
 
-It writes `.harness/project/<id>` and nothing else, and it never changes
+It writes `.sanvio/project/<id>` and nothing else, and it never changes
 anything on GitHub. One file is left behind for each session that used
 `/project`, because the mod doesn't delete them. When the session starts it
 runs `git remote get-url origin` in the folder the session started in (and,

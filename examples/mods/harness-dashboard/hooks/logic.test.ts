@@ -316,7 +316,7 @@ group('activity', () => {
   })
   test('says what the estimate rests on, ahead of the asks, with the time as the document wrote it', () => {
     expect(activity(spending()).lines).toEqual([
-      { tone: 'quiet', text: 'Est. cost: an estimate from .harness/prices.json, checked Oct 1,' },
+      { tone: 'quiet', text: 'Est. cost: an estimate from .sanvio/prices.json, checked Oct 1,' },
       { tone: 'quiet', text: "worked out Oct 27 12:00. Skills' and commands' tokens are" },
       { tone: 'quiet', text: 'attributed from where each started to the next prompt.' },
       { tone: 'quiet', text: 'Guard asked 2 times, since Oct 13' },
@@ -334,7 +334,7 @@ group('activity', () => {
   })
   test('says to fill the price file only when that is why every unpriced model has no price', () => {
     const lines = (unpriced: object) => text(activity(spending({ unpriced })).lines)
-    const fill = 'Fill .harness/prices.json to see dollars'
+    const fill = 'Fill .sanvio/prices.json to see dollars'
     expect(lines({ a: 'no prices.json', b: 'no prices.json' })).toContain(`next prompt.\n${fill}\nGuard asked`)
     expect(lines({})).not.toContain(fill)
     expect(lines({ a: 'not in prices.json' })).not.toContain(fill)

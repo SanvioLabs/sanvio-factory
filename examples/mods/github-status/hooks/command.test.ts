@@ -125,7 +125,7 @@ async function github($: Dollar, args: string): Promise<string> {
 
 const A = 'aaaaaaaa-1111'
 const B = 'bbbbbbbb-2222'
-const fileOf = (id: string) => `${ROOT}/.harness/project/${id}`
+const fileOf = (id: string) => `${ROOT}/.sanvio/project/${id}`
 const TICK = 15_000
 const LIMIT = 120_000
 const ACME = 'acme: acme/app · 0 actions running · 4 open pull requests · 1 open issue'

@@ -41,6 +41,33 @@ class SetupCheck(unittest.TestCase):
         (self.root / ".kiro" / "steering").mkdir(parents=True)
         (self.root / ".kiro" / "steering" / "project.md").symlink_to("../../AGENTS.md")
 
+    def test_no_old_name_passes(self):
+        self.assertEqual(check_setup.check_old_names(self.root, environ={})[0], "PASS")
+
+    def test_an_old_variable_still_set_warns_with_its_new_name_and_never_its_value(self):
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "secret-ish"})
+        self.assertEqual(status, "WARN")
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+        self.assertNotIn("secret-ish", line + fix)
+
+    def test_an_old_state_folder_still_here_warns(self):
+        (self.root / ".harness").mkdir()
+        status, line, _ = check_setup.check_old_names(self.root, environ={})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+
+    def test_an_old_folder_and_an_old_variable_are_both_named(self):
+        (self.root / ".harness").mkdir()
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "on"})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+
+    def test_the_check_runs_with_the_others(self):
+        self.assertIn("names:", " ".join(line for _, line, _ in check_setup.run(self.root)))
+
     def test_python_39_passes_and_38_fails(self):
         self.assertEqual(check_setup.check_python((3, 9, 0))[0], "PASS")
         self.assertEqual(check_setup.check_python((3, 8, 18))[0], "FAIL")

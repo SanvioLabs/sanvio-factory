@@ -319,7 +319,7 @@ class WithFakeGh(unittest.TestCase):
         os.chmod(str(bin_dir / "gh"), 0o755)
         self.sealed = self.tmp / "sealed"
         env = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "FAKE_GH_HOME": str(self.gh_home),
-               "HARNESS_EVALS_HOME": str(self.sealed)}
+               "SANVIO_EVALS_HOME": str(self.sealed)}
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -369,7 +369,7 @@ class Confirmation(WithFakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn("--yes", out)
         self.assertEqual(self.gh_calls(), [])
-        self.assertFalse((self.harness / ".harness").exists())
+        self.assertFalse((self.harness / ".sanvio").exists())
 
     def test_the_question_says_a_run_spends_model_tokens(self):
         with mock.patch("eval_harness.interactive", return_value=True), \
@@ -467,7 +467,7 @@ class CreateRun(WithFakeGh):
 class RunRecord(WithFakeGh):
     def test_the_record_holds_the_repos_id_and_the_harness_commit(self):
         record = self.create()
-        saved = json.loads((self.harness / ".harness" / "harness-evals" / record["id"] / "run.json").read_text())
+        saved = json.loads((self.harness / ".sanvio" / "harness-evals" / record["id"] / "run.json").read_text())
         self.assertEqual(saved["repo_id"], "R_" + record["repo"])
         self.assertEqual(saved["harness_commit"], subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(self.harness), capture_output=True, text=True).stdout.strip())
@@ -520,7 +520,7 @@ class WithStub(WithFakeGh):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
     def only_run(self):
-        records = sorted((self.harness / ".harness" / "harness-evals").glob("*/run.json"))
+        records = sorted((self.harness / ".sanvio" / "harness-evals").glob("*/run.json"))
         self.assertEqual(len(records), 1)
         return json.loads(records[0].read_text())
 
@@ -737,7 +737,7 @@ class Stops(WithStub):
         self.run_suite("--merge-in-run-repo")
         run_id = self.only_run()["id"]
         self.run_cli("stop", run_id, "had to fix it afterwards")
-        result = json.loads((self.harness / ".harness" / "harness-evals" / run_id / "result.json").read_text())
+        result = json.loads((self.harness / ".sanvio" / "harness-evals" / run_id / "result.json").read_text())
         self.assertEqual(result["stops"][-1]["why"], "had to fix it afterwards")
 
     def test_stop_on_an_unknown_run_says_so(self):
@@ -756,7 +756,7 @@ class Boundaries(unittest.TestCase):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module.split(".")[0])
-        allowed = {"argparse", "datetime", "filecmp", "json", "loop", "os", "pathlib", "re", "shlex", "shutil",
+        allowed = {"argparse", "datetime", "filecmp", "json", "loop", "names", "os", "pathlib", "re", "shlex", "shutil",
                    "signal", "subprocess", "sys", "tempfile", "time"}
         self.assertEqual(imported - allowed, set())
 
@@ -785,7 +785,7 @@ class ScoredRun(WithStub):
         (self.suite / "key" / "score").write_text(SCORE_RUN)
 
     def result(self):
-        return json.loads((self.harness / ".harness" / "harness-evals" / self.only_run()["id"] / "result.json").read_text())
+        return json.loads((self.harness / ".sanvio" / "harness-evals" / self.only_run()["id"] / "result.json").read_text())
 
 
 class Scoring(ScoredRun):
@@ -996,7 +996,7 @@ def result_file(folder, name, tests, traps, cost=1.0, seconds=60, stops=0, round
 class Compare(WithFakeGh):
     def setUp(self):
         super().setUp()
-        self.runs = self.harness / ".harness" / "harness-evals"
+        self.runs = self.harness / ".sanvio" / "harness-evals"
 
     def compare(self, a_tests, a_traps, b_tests, b_traps, **b_fields):
         result_file(self.runs, "a", a_tests, a_traps)
@@ -1123,7 +1123,7 @@ class SealedRecord(WithStub):
     """What a run trusts is kept outside the harness folder, where the agents under test work."""
 
     def edit_record(self, **fields):
-        path = next((self.harness / ".harness" / "harness-evals").glob("*/run.json"))
+        path = next((self.harness / ".sanvio" / "harness-evals").glob("*/run.json"))
         record = json.loads(path.read_text())
         record.update(fields)
         path.write_text(json.dumps(record))
@@ -1134,7 +1134,7 @@ class SealedRecord(WithStub):
 
     def test_the_keys_location_isnt_written_in_the_harness(self):
         self.run_suite()
-        for path in (self.harness / ".harness").rglob("*"):
+        for path in (self.harness / ".sanvio").rglob("*"):
             if path.is_file():
                 self.assertNotIn(str(self.suite), path.read_text())
 

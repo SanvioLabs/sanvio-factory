@@ -123,7 +123,7 @@ description, not the comments.
 - **Blocked:** stays open with `loop:blocked`. Fix the ticket (usually the
   acceptance criteria), take `loop:blocked` off, put `loop-ready` back. The loop picks
   up where it left off, on its old `loop/issue-N` branch. For a clean start,
-  delete that branch and its checkout under `~/.harness-loop/` first.
+  delete that branch and its checkout under `~/.sanvio-loop/` first.
 - **Not doing it:** close it as not planned, with one line saying why.
 
 Never close an issue whose acceptance criteria haven't been checked.

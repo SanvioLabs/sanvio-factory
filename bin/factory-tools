@@ -1,6 +1,6 @@
 # The only tools a skill marked headless: true may list in headless-tools, one per line.
-# bin/harness refuses a skill whose list names anything else, and tests/test_skills.py
-# checks every entry here only reads. Only bin/harness reads headless-tools: Claude Code's
+# bin/factory refuses a skill whose list names anything else, and tests/test_skills.py
+# checks every entry here only reads. Only bin/factory reads headless-tools: Claude Code's
 # own allowed-tools would apply in every session the skill runs in, so a skill never puts a
 # Bash rule there. An entry belongs here only if it can't run a program, write a file or
 # reach a host of its own choosing, whatever flags follow it, in a run the guard holds.

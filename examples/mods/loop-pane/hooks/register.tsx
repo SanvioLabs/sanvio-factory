@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
+import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, oldFocusFile, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
 import type { Lists, Tone } from './logic'
 import type { Row, Seen, Tab, View } from '../types'
 
@@ -128,7 +128,7 @@ async function readFocus($: EngineInterface, root: string): Promise<string | nul
   try {
     const file = await sessionFile($, root)
     if (!file) return null
-    const name = focusName(await $.fs.read(file))
+    const name = focusName(await $.fs.read(file).catch(() => $.fs.read(oldFocusFile(file))))
     if (!name) return null
     const stat = await $.fs.stat(`${root}/projects/${name}`).catch(() => null)
     return stat !== null && stat.kind === 'dir' && !stat.isLink ? name : null

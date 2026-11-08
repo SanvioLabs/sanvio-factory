@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "token_report.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 import token_report  # noqa: E402 (needs scripts/ on the path first)
+import names  # noqa: E402 (same reason)
 
 SINCE = "2026-10-01"
 USAGE = {"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 30, "cache_read_input_tokens": 40}
@@ -100,11 +101,21 @@ class Grouping(Harness):
                           ("projects/", "app"), ("Loop", "issue-7")])
 
     def test_without_worktree_dir_the_loop_folder_is_beside_home(self):
-        self.assertEqual(token_report.loop_dir(self.root), Path.home() / ".harness-loop" / "harness")
+        self.assertEqual(token_report.loop_dir(self.root), names.loop_home() / "harness")
+
+    def test_without_worktree_dir_both_home_folders_count_for_a_release(self):
+        self.assertEqual(token_report.loop_dirs(self.root),
+                         [home / "harness" for home in names.loop_homes()])
+        new, old = self.root.parent / "new-loop", self.root.parent / "old-loop"
+        both = [new, old]
+        self.assertEqual(token_report.group(entry(old / "issue-7"), self.root, both), ("Loop", "issue-7"))
+        self.assertEqual(token_report.group(entry(new / "app" / "issue-2"), self.root, both), ("Loop", "app/issue-2"))
+        self.assertEqual(token_report.group(entry(self.root), self.root, both), ("Conversations", ""))
 
     def test_worktree_dir_from_loop_json_is_used(self):
         (self.root / "loop.json").write_text(json.dumps({"worktree_dir": str(self.loop)}))
         self.assertEqual(token_report.loop_dir(self.root), self.loop)
+        self.assertEqual(token_report.loop_dirs(self.root), [self.loop])
 
     def test_a_worktree_dir_inside_the_root_counts_as_the_loop(self):
         inside = self.root / "checkouts"

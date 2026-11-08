@@ -33,7 +33,7 @@ Run repos are private, stay until a person deletes them, and nothing here delete
 
 When the run ends, a fresh clone outside the harness is scored: the default branch, or the last pull
 request if it never merged. Its history is checked for the key's files, and key/score runs with anything
-named like a secret out of its environment. The run's folder in .harness/harness-evals/ gets one
+named like a secret out of its environment. The run's folder in .sanvio/harness-evals/ gets one
 result.json: the suite, the harness commit, tests, traps, key leaks, time, stops, rounds, tokens and cost.
 Cost comes from --usage-command, a command that prints one number. Failing that, it's this harness's own loop
 usage when --start runs its scripts/loop.py. Failing that it reads "not reported", never zero. Rounds and
@@ -51,7 +51,7 @@ somewhere its agents aren't allowed to read: this tool refuses a key inside the 
 and finds a key committed to a run repo, but can't see what an agent read.
 
 What a run acts on (its repo, the merge flag, the start and usage commands, the suite's path) is kept in a
-sealed copy in ~/.harness-evals, or HARNESS_EVALS_HOME, and resume takes it from there, so an agent editing
+sealed copy in ~/.sanvio-evals, or SANVIO_EVALS_HOME, and resume takes it from there, so an agent editing
 the harness's copy can't redirect it. Ctrl-C ends the start command too; resume --end then scores what the
 interrupted run got to. Needs a POSIX system.
 
@@ -73,6 +73,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import names  # noqa: E402  beside this file: the state and home folders, old names included for a release
 import loop  # noqa: E402  beside this file: the loop's own usage arithmetic and secret-stripped environment
 
 REQUIRED_FIELDS = ("name", "seed", "key", "issues", "required_checks")
@@ -282,12 +283,12 @@ def gh_ok(why, *args, stdin=None):
 
 def runs_dir():
     """Each run's state, logs and result, in the harness. Its agents can write here."""
-    return Path.cwd() / ".harness" / "harness-evals"
+    return names.state_dir(Path.cwd()) / "harness-evals"
 
 
 def sealed_dir():
     """Where each run's sealed copy lives: outside the harness, so an agent working there doesn't edit it."""
-    return Path(os.environ.get("HARNESS_EVALS_HOME") or Path.home() / ".harness-evals")
+    return names.evals_home()
 
 
 def write_json(path, data):

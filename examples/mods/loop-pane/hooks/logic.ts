@@ -27,7 +27,7 @@ export function openingLoop(loops: Seen[], focus?: string | null): Seen | undefi
 }
 
 // The session's project focus, by github-status's rules. One installed mod can't import from another,
-// so these are copies of its projectName, SESSION, focusFile and focusName, with the same bodies.
+// so these are copies of its projectName, SESSION, focusFile, oldFocusFile and focusName, with the same bodies.
 
 // The folder under projects/ that a /github argument names: `acme` or `projects/acme`, one folder deep.
 // Anything that could reach outside projects/ is refused before anything runs.
@@ -42,7 +42,13 @@ export const SESSION = /^[0-9a-fA-F-]{8,64}$/
 
 // This session's focus file under the harness root, or null for an id that can't name one.
 export function focusFile(root: string, id: string | null): string | null {
-  return id !== null && SESSION.test(id) ? `${root}/.harness/project/${id}` : null
+  return id !== null && SESSION.test(id) ? `${root}/.sanvio/project/${id}` : null
+}
+
+// The same file under .harness/, the state folder's name before Sanvio Factory. It's read when the new one
+// can't be, so a focus a mod from before the rename wrote still counts. It goes with that old name.
+export function oldFocusFile(file: string): string {
+  return file.replace(/\/\.sanvio\/project\//, '/.harness/project/')
 }
 
 // The project a focus file's text names, before the folder is checked, or null.

@@ -252,7 +252,7 @@ limit back in range, see
 ## One person runs each run
 
 A run lives in the clone that dispatched it. Its record is in
-`.harness/factories/` on that machine, `review` posts under the login of
+`.sanvio/factories/` on that machine, `review` posts under the login of
 whoever runs it, and the verdict is read from that login's comment. So one
 person dispatches, reviews, sends back and cancels a given run, from one
 clone, and a teammate's `status` in their own clone doesn't see it. A factory
@@ -272,7 +272,7 @@ record of what was reviewed.
 
 ## When a record can't be read
 
-`status` names a run whose record in `.harness/factories/` it can't read, says
+`status` names a run whose record in `.sanvio/factories/` it can't read, says
 why, and goes on with the others; dispatch refuses the issue while one for it
 can't be read. A record goes bad when it's edited by hand or by a local
 factory, or when a newer `factories.py` wrote it. If a newer `factories.py` wrote

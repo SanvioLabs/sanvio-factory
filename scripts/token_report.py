@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from loop import load_config, usage_totals  # noqa: E402 (needs scripts/ on the path first)
 from usage_report import since_date  # noqa: E402 (same reason)
+import names  # noqa: E402 (same reason)
 
 # The four counts on a reply's message.usage, with the names the tables give them.
 FIELDS = (("input_tokens", "Input"), ("output_tokens", "Output"),
@@ -43,11 +44,20 @@ ATTRIBUTED = ("Attributed from where each started to the next prompt, not measur
 
 
 def loop_dir(root):
-    """Where the loop puts its worktrees: worktree_dir from loop.json, or ~/.harness-loop/<root's name>."""
+    """Where the loop puts its worktrees: worktree_dir from loop.json, or ~/.sanvio-loop/<root's name>."""
     configured = load_config(root).get("worktree_dir")
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".harness-loop" / Path(root).name
+    return names.loop_home() / Path(root).name
+
+
+def loop_dirs(root):
+    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or both home folders while
+    the old name still counts, so a period that spans the move keeps its earlier loop tokens."""
+    configured = load_config(root).get("worktree_dir")
+    if configured:
+        return [Path(configured).expanduser()]
+    return [home / Path(root).name for home in names.loop_homes()]
 
 
 def usage_files(root):
@@ -167,23 +177,25 @@ def read_file(path, nested):
 def group(entry, root, loop_dir):
     """(group, row) for the folder this reply ran in, or None when it ran outside the harness.
 
-    The loop's folder is checked first, because a worktree_dir set in loop.json can sit inside
-    the root.
+    loop_dir is one folder or a list of them. The loop's folders are checked first, because a
+    worktree_dir set in loop.json can sit inside the root.
     """
     cwd = entry.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         return None
     try:
         here = Path(cwd).resolve()
-        root, loop_dir = Path(root).resolve(), Path(loop_dir).resolve()
+        root = Path(root).resolve()
+        loops = [Path(one).resolve() for one in (loop_dir if isinstance(loop_dir, (list, tuple)) else [loop_dir])]
     except (OSError, RuntimeError, ValueError):
         return None
-    if here != loop_dir and here.is_relative_to(loop_dir):
-        parts = here.relative_to(loop_dir).parts
-        # A project's worktrees sit one folder down, in <project>/issue-N.
-        if not parts[0].startswith("issue-") and len(parts) > 1:
-            return ("Loop", "{}/{}".format(parts[0], parts[1]))
-        return ("Loop", parts[0])
+    for loop in loops:
+        if here != loop and here.is_relative_to(loop):
+            parts = here.relative_to(loop).parts
+            # A project's worktrees sit one folder down, in <project>/issue-N.
+            if not parts[0].startswith("issue-") and len(parts) > 1:
+                return ("Loop", "{}/{}".format(parts[0], parts[1]))
+            return ("Loop", parts[0])
     projects = root / "projects"
     if here != projects and here.is_relative_to(projects):
         return ("projects/", here.relative_to(projects).parts[0])
@@ -518,7 +530,7 @@ def main(argv=None):
     parser.add_argument("--projects", default=str(Path.home() / ".claude" / "projects"),
                         help="Claude Code's transcripts folder, if not ~/.claude/projects")
     args = parser.parse_args(argv)
-    projects, loops = Path(args.projects).expanduser(), loop_dir(ROOT)
+    projects, loops = Path(args.projects).expanduser(), loop_dirs(ROOT)
     entries = read(projects, args.since)
     print(report(entries, args.since, today.isoformat(), ROOT, loops, loop_costs(ROOT, args.since),
                  activity(projects, args.since, ROOT, loops)))

@@ -25,9 +25,10 @@ Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
    code someone else may have written, and that code can carry text meant to
    steer it. A command on the audit list runs without a prompt; any other is
    refused.
-4. A run bin/harness started (HARNESS_HEADLESS=1) reads a pull request or an
-   issue by number and nothing else. Nobody is watching it, and what it reads
-   was written by someone else. Its shell runs only `gh pr view <n>`,
+4. A run bin/factory started (SANVIO_HEADLESS=1, or HARNESS_HEADLESS=1 for a
+   release) reads a pull request or an issue by number and nothing else.
+   Nobody is watching it, and what it reads was written by someone else. Its
+   shell runs only `gh pr view <n>`,
    `gh pr diff <n>` and `gh issue view <n>`, with `--comments` on a view, no
    connector runs at all, and its file tools (Read, Grep and Glob among them)
    reach only paths inside the harness root, after `..` and links resolve.
@@ -510,11 +511,17 @@ def headless_private(tool, data, cwd):
     return private_path(resolved(data.get("file_path") or data.get("notebook_path") or "", cwd))
 
 
+def is_headless():
+    """A run bin/factory started. Either name counts, so the stricter reading always wins: the old name
+    stays honoured until the release that drops it. Kept here, not imported, so the guard stands alone."""
+    return os.environ.get("SANVIO_HEADLESS") == "1" or os.environ.get("HARNESS_HEADLESS") == "1"
+
+
 def decide(event):
     """(decision, reason) for one tool call, or None to let it through untouched."""
     tool = event.get("tool_name", "")
     data = event.get("tool_input") or {}
-    headless = os.environ.get("HARNESS_HEADLESS") == "1"
+    headless = is_headless()
     cwd = event.get("cwd") or os.getcwd()
 
     if tool in FILE_TOOLS or tool == "Grep":
@@ -587,7 +594,7 @@ def headless_rewrite(event):
     2026-10-26), so every headless search gets one. decide() still refuses a glob that names a bare
     repo, in case the rewrite ever stops applying.
     """
-    if os.environ.get("HARNESS_HEADLESS") != "1" or event.get("tool_name") != "Grep":
+    if not is_headless() or event.get("tool_name") != "Grep":
         return None
     data = event.get("tool_input") or {}
     return dict(data, glob=" ".join(part for part in (data.get("glob") or "", EXCLUDE_PRIVATE, EXCLUDE_BARE_REPOS)
@@ -595,7 +602,7 @@ def headless_rewrite(event):
 
 
 def main():
-    headless = os.environ.get("HARNESS_HEADLESS") == "1"
+    headless = is_headless()
     try:
         event = json.load(sys.stdin)
         verdict = decide(event)

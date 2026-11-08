@@ -49,7 +49,7 @@ version and scope and no path.
    report's `Never used here:` line and this one's.
 
    If it says there's no log, tell them why it might be missing (the hook isn't
-   wired, or `HARNESS_USAGE_LOG` is off) and stop. Don't guess at their usage.
+   wired, or `SANVIO_USAGE_LOG` is off) and stop. Don't guess at their usage.
 
    Then the tokens, from the same date:
 
@@ -206,7 +206,7 @@ one you don't, tell its author why.
   author's own machine.
 - Never add a prompt, a file path, a command or code to the report, even if
   they mention one. Describe it instead ("a deploy script", not the script).
-- Never commit anything under `.harness/`. The raw log stays local.
+- Never commit anything under `.sanvio/`. The raw log stays local.
 - Never commit a report, force-add it, or send it anywhere. It's gitignored,
   and the author sends it.
 - A drafted question never holds a figure, a title, a project or issue name, a

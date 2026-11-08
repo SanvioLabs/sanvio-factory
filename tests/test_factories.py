@@ -633,8 +633,8 @@ class Guards(FakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn(says, err)
         self.assertEqual(self.writes(), [])
-        self.assertEqual(list((self.root / ".harness" / "factories").glob("run-*.json"))
-                         if (self.root / ".harness" / "factories").exists() else [], [])
+        self.assertEqual(list((self.root / ".sanvio" / "factories").glob("run-*.json"))
+                         if (self.root / ".sanvio" / "factories").exists() else [], [])
 
     def test_a_project_s_own_ready_label_is_refused(self):
         app = self.root / "projects" / "app"
@@ -661,7 +661,7 @@ class Guards(FakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn("already", err)
         self.assertEqual(self.writes(), before)
-        self.assertEqual(len(list((self.root / ".harness" / "factories").glob("run-*.json"))), 1)
+        self.assertEqual(len(list((self.root / ".sanvio" / "factories").glob("run-*.json"))), 1)
 
     def test_an_issue_the_factory_stopped_on_is_refused(self):
         self.issue(labels=["factory:blocked"])
@@ -677,7 +677,7 @@ class Guards(FakeGh):
         code, out, _ = self.run_cli("dispatch", "12", "--yes")
         self.assertEqual(code, 0)
         self.assertIn("Repo:    o/r", out)
-        record, = [json.loads(p.read_text()) for p in (self.root / ".harness" / "factories").glob("run-*.json")]
+        record, = [json.loads(p.read_text()) for p in (self.root / ".sanvio" / "factories").glob("run-*.json")]
         self.assertEqual(record["repo"], "o/r")
 
     def test_a_local_checkout_with_uncommitted_changes_is_flagged_before_the_yes(self):
@@ -691,7 +691,7 @@ class Guards(FakeGh):
         self.assertEqual(code, 0)
         self.assertIn("uncommitted changes", out)
         self.assertLess(out.index("uncommitted changes"), out.index("Submitted"))
-        record, = [json.loads(p.read_text()) for p in (self.root / ".harness" / "factories").glob("run-*.json")]
+        record, = [json.loads(p.read_text()) for p in (self.root / ".sanvio" / "factories").glob("run-*.json")]
         self.assertTrue(record["dirty"])
 
 
@@ -795,7 +795,7 @@ class Notice(FakeGh):
 
 class Record(FakeGh):
     def records(self):
-        folder = self.root / ".harness" / "factories"
+        folder = self.root / ".sanvio" / "factories"
         return [json.loads(path.read_text()) for path in sorted(folder.glob("run-*.json"))] if folder.exists() else []
 
     def test_a_factory_login_s_account_id_is_recorded_and_one_unreadable_is_refused(self):
@@ -869,7 +869,7 @@ class Record(FakeGh):
     def test_the_record_is_never_half_written(self):
         self.issue()
         self.run_cli("dispatch", "12", "--repo", "o/r", "--yes")
-        folder = self.root / ".harness" / "factories"
+        folder = self.root / ".sanvio" / "factories"
         self.assertEqual(list(folder.glob("*.part")), [])
 
 
@@ -881,7 +881,7 @@ class Running(FakeGh):
         self.issue()
         code, _, err = self.run_cli("dispatch", "12", "--repo", "o/r", "--yes")
         self.assertEqual(code, 0, err)
-        self.run_path, = (self.root / ".harness" / "factories").glob("run-*.json")
+        self.run_path, = (self.root / ".sanvio" / "factories").glob("run-*.json")
         record = self.record()
         record["factory_login"] = "factory-bot"  # its pull requests come from factory-bot's fork
         record["factory_id"] = "ID_factory-bot"
@@ -2805,6 +2805,18 @@ class List(Running):
         for part in (record["run"], "#12", "build-team", "returned", "pull request #31", "round 1 of 3",
                      record["started"]):
             self.assertIn(part, line)
+
+    def test_a_live_run_still_under_the_old_folder_is_listed(self):
+        # A copy that hasn't started a session since the rename still has .harness/ (review the rename).
+        old = self.root / ".harness"
+        (self.root / ".sanvio").rename(old)
+        code, out, _ = self.run_cli("list")
+        self.assertEqual(code, 0)
+        self.assertIn(self.record_at(old)["run"], out)
+
+    def record_at(self, folder):
+        path, = (folder / "factories").glob("run-*.json")
+        return json.loads(path.read_text())
 
     def test_an_ended_run_says_why(self):
         record = self.record()

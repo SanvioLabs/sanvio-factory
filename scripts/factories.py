@@ -39,7 +39,7 @@ branch requires no status check, branch protection or ruleset, dispatch says so 
 nothing independent would check what the factory returns.
 
 The first time anything goes to a factory, dispatch says what submitting sends, before the yes.
-Each submission writes one run record to .harness/factories/run-<issue>-<time>.json, which git
+Each submission writes one run record to .sanvio/factories/run-<issue>-<time>.json, which git
 ignores. A factory's tokens and cost aren't visible from here, so they read "not reported".
 
 status reads GitHub and moves each run on, and writes nothing to GitHub. A pull request linked to
@@ -92,7 +92,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # factory_checks and loop, beside this file
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # factory_checks, forge and names, beside this file
+import names  # noqa: E402 (the state folder, and the old one for a release)
 from factory_checks import (CI_PATHS, check_report, checks_line, default_branch, not_factory_fork,  # noqa: E402
                             required_checks)
 from forge import LOGIN, cant_use, gh, gh_json, one_line, printable, read_only, repo_args, said, shown, skipped  # noqa: E402
@@ -227,7 +228,7 @@ def uncommitted(folder):
 
 def runs_dir(root):
     """Each run's record, and which factories have been told what submitting sends."""
-    return Path(root) / ".harness" / "factories"
+    return names.state_dir(root) / "factories"
 
 
 def write_json(path, data):
@@ -971,7 +972,7 @@ def move_runs(args, run_review):
 
 
 def cmd_list(args):
-    """Each run as its record has it. Reads .harness/factories/ alone: no gh call, no review."""
+    """Each run as its record has it. Reads .sanvio/factories/ alone: no gh call, no review."""
     unreadable = []
     runs = load_runs(args.root, unreadable=unreadable)
     for line in unreadable:

@@ -9,7 +9,8 @@
     python3 scripts/pulse.py summary [--since YYYY-MM-DD] [--until YYYY-MM-DD]  # Markdown for a period, 14 days by default
     python3 scripts/pulse.py propose --file <path> --date YYYY-MM-DD  # add a question for one date
 
-The folder comes from HARNESS_PULSE_FOLDER. It holds questions.md, the bank, and
+The folder comes from SANVIO_PULSE_FOLDER, or HARNESS_PULSE_FOLDER until the release that drops the old
+name. It holds questions.md, the bank, and
 answers/<login>.jsonl, one file per person.
 `answer` and `propose` write: `answer` only to that person's file, and `propose`
 only to the end of questions.md. skills/pulse/ is the procedure and says who may
@@ -37,7 +38,7 @@ QUESTION_ID = re.compile(r"[a-z0-9-]+")
 NUMBER = re.compile(r"[0-9]+")
 PERSON_FILE = re.compile(r"[A-Za-z0-9._-]+\.jsonl")
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")  # the same pattern as .claude/hooks/usage_log.py, copied
-HOW_TO_SET = 'Set it in your shell profile: export HARNESS_PULSE_FOLDER="/path/to/the/shared/folder"'
+HOW_TO_SET = 'Set it in your shell profile: export SANVIO_PULSE_FOLDER="/path/to/the/shared/folder"'
 
 
 class Refused(Exception):
@@ -51,11 +52,14 @@ class Parser(argparse.ArgumentParser):
 
 
 def pulse_folder():
-    folder = os.environ.get("HARNESS_PULSE_FOLDER", "")
+    # scripts/names.py's rule, copied so this file stays standard library only: the new name if it's set,
+    # else the old one for a release.
+    name = "SANVIO_PULSE_FOLDER" if "SANVIO_PULSE_FOLDER" in os.environ else "HARNESS_PULSE_FOLDER"
+    folder = os.environ.get(name, "")
     if not folder:
-        raise Refused("HARNESS_PULSE_FOLDER isn't set. " + HOW_TO_SET)
+        raise Refused("SANVIO_PULSE_FOLDER isn't set. " + HOW_TO_SET)
     if not os.path.isdir(folder):
-        raise Refused("HARNESS_PULSE_FOLDER names a folder that doesn't exist: {}. {}".format(folder, HOW_TO_SET))
+        raise Refused(name + " names a folder that doesn't exist: {}. {}".format(folder, HOW_TO_SET))
     return folder
 
 
