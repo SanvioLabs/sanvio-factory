@@ -30,9 +30,10 @@ fine).
 ## 2026-11-09: Every posted review carries a grade
 
 `loop.py review` now ends each review comment's trailer with a grade out of
-10, after the verdict on the same line, such as `Grade 8/10: ready with nits,
-checks passing.` The grade comes from the new `review-rubric.json` at the root,
-using the verdict and the reviewed commit's check runs. A failing check or an
+10, after the verdict on the same line, such as
+`Grade 8/10: ready with nits, checks passing.` The grade comes from the new
+[`review-rubric.json`](review-rubric.json) at the root, using the verdict and the reviewed commit's
+check runs. A failing check or an
 unreadable verdict gives that key's grade, 0 in the shipped file. While checks
 are still running, the grade reads `pending`, and a later poll edits it into
 the same comment with no agent. A missing or invalid rubric grades 0 and names
@@ -40,9 +41,9 @@ the file. A project sets its own with `review_rubric` in the factory
 `loop.json`'s `projects` entry. Comments written without a grade, and the
 verdict `factories.py` reads, are unchanged.
 
-Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_factories.py`](tests/test_factories.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
-**Do:** nothing. To grade differently, edit `review-rubric.json`.
+**Do:** nothing. To grade differently, edit [`review-rubric.json`](review-rubric.json).
 
 ## 2026-11-08: Standup remembers what you already settled
 

@@ -254,7 +254,7 @@ keeps its default:
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
-| `review_rubric` | `review-rubric.json` | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
 
@@ -576,7 +576,9 @@ checks still running.` and the status row's `grade` is `pending`; the next poll
 reads the checks again, with no agent, and once they've finished edits the
 grade into your own comment's trailer and nothing else, logging `REVIEW #31
 4f2a9c1 graded 10/10`. A comment someone else posted, or a send-back with
-another header, is never edited. A rubric that's missing, isn't valid JSON, or
+another header, is never edited, and a newer send-back under your login doesn't
+hide the comment that's waiting. If that comment is gone, the row stops waiting
+and no later poll asks again. A rubric that's missing, isn't valid JSON, or
 lacks a key, has another key or a value outside 0 to 10 grades every review 0,
 with the file named in the trailer. Edit the file to change the grades. A
 project under [`projects/`](projects/) gets its own with `review_rubric` in the

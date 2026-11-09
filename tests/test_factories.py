@@ -1333,6 +1333,19 @@ class Rounds(Reviewing):
         self.review()
         self.assertEqual(self.record()["review"]["verdict"], "changes needed")
 
+    def test_a_graded_trailer_reads_the_verdict_it_read_before_grades(self):
+        # Since #443 the trailer carries a grade after its verdict: what this script reads is the same.
+        for grade in ((8, "ready with nits, checks passing"), (None, loop.PENDING), (0, "ready with nits, a check failed")):
+            with self.subTest(grade=grade):
+                body = loop.review_comment("The report.\n\nVERDICT: ready with nits", self.head, grade=grade)
+                self.assertEqual(loop.review_verdict(body), loop.review_verdict(
+                    loop.review_comment("The report.\n\nVERDICT: ready with nits", self.head)))
+        self.comment_rows(("pat", loop.review_comment("The report.\n\nVERDICT: changes needed", self.head,
+                                                      grade=(3, "changes needed, checks passing"))))
+        self.linked(prs=[31])
+        self.review()
+        self.assertEqual(self.record()["review"]["verdict"], "changes needed")
+
     def test_a_comment_from_before_the_trailer_carried_a_verdict_goes_to_a_person(self):
         body = loop.review_comment("Ready", self.head)
         body = body.replace(" Verdict: unreadable.", "")

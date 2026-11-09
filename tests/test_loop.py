@@ -5298,6 +5298,32 @@ class TestProject(unittest.TestCase):
                 self.assertIn('"projects"', err)
                 built.assert_not_called()
 
+    def test_a_project_s_rubric_is_set_in_the_factory_s_projects_entry_never_the_clone(self):
+        rubric = {"ready": 6, "ready with nits": 4, "changes needed": 2, "failing": 0, "unreadable": 0}
+        (self.harness / "rubrics").mkdir()
+        (self.harness / "rubrics" / "app.json").write_text(json.dumps(rubric))
+        (self.harness / "review-rubric.json").write_text(json.dumps(RUBRIC))
+        # The clone's own files, which anyone who can push to it could write: never read.
+        (self.project / "review-rubric.json").write_text(json.dumps(dict(RUBRIC, **{"changes needed": 10})))
+        (self.project / "rubrics").mkdir()
+        (self.project / "rubrics" / "app.json").write_text(json.dumps(dict(RUBRIC, **{"changes needed": 10})))
+        cfg = json.loads((self.harness / "loop.json").read_text())
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (RUBRIC, None))
+        self.harness_config(dict(cfg, projects={"app": {"review_rubric": "rubrics/app.json"}}))
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (rubric, None))
+        self.harness_config(dict(cfg, projects={"other": {"review_rubric": "rubrics/app.json"}}))
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (RUBRIC, None))
+
+    def test_a_project_whose_loop_json_sets_its_own_rubric_is_refused(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "review_rubric": "mine.json"}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("review_rubric", err)
+        self.assertIn('"projects"', err)
+        built.assert_not_called()
+
     def test_a_harness_projects_entry_that_is_malformed_or_sets_a_project_key_is_refused(self):
         site = self.on_github("site")
         (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
@@ -5565,6 +5591,13 @@ class ReviewFixture:
     def view_pr(self, number, sha, state="OPEN"):
         (self.state / "pr-{}.json".format(number)).write_text(json.dumps(dict(self.pr(number, sha), state=state)))
 
+    def alone(self, number):
+        """review --pr number, and the one JSON line it prints."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            loop.Loop(self.work, self.cfg).review(pr=number)
+        return json.loads(out.getvalue())
+
 
 class TestReview(ReviewFixture, unittest.TestCase):
     def test_a_new_head_commit_gets_one_comment_and_one_log_line(self):
@@ -5692,12 +5725,6 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertTrue(left.exists())  # never deleted: a lock is the OS's hold on the file, not the file
-
-    def alone(self, number):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            loop.Loop(self.work, self.cfg).review(pr=number)
-        return json.loads(out.getvalue())
 
     def test_the_watcher_skips_a_head_review_pr_already_reviewed(self):
         # Before 2026-11-07 the watcher read status.json alone and paid for a second review (Phase 6 review).
@@ -6571,13 +6598,20 @@ class TestReviewGrading(ReviewFixture, unittest.TestCase):
         self.checks(("in_progress", ""))
         sha = self.push(7, "seven.txt")
         self.view_pr(7, sha)
+        (self.state / "review-tail").write_text("VERDICT: ready")  # an unreadable verdict wouldn't wait
         self.assertEqual(self.alone(7)["state"], "posted")
+        first = self.comments()
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        row = self.work / ".loop" / "review-pr-7.json"
+        self.assertEqual(json.loads(row.read_text())["grade"], "pending")
         self.checks(("completed", "failure"))
         found = self.alone(7)
         self.assertEqual(set(found), set(loop.REVIEW_RESULT))
+        self.assertEqual((found["sha"], found["state"], found["verdict"]), (sha, "posted", "ready"))
         self.assertEqual(self.agents_started(), 1)
-        self.assertIn("Grade 0/10:", self.comments()[0]["body"])
-        self.assertEqual(json.loads((self.work / ".loop" / "review-pr-7.json").read_text())["grade"], 0)
+        self.assertEqual([c["id"] for c in self.comments()], [first[0]["id"]])
+        self.assertIn("Grade 0/10: ready, a check failed.", self.comments()[0]["body"])
+        self.assertEqual(json.loads(row.read_text())["grade"], 0)
 
     def test_regrade_never_edits_a_send_back_or_another_login_s_comment(self):
         self.checks(("in_progress", ""))
@@ -6592,7 +6626,32 @@ class TestReviewGrading(ReviewFixture, unittest.TestCase):
         self.checks(("completed", "success"))
         self.go()
         self.assertEqual(self.comments(), left)
-        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.assertIsNone(self.status()["reviews"]["7"]["grade"])  # nothing of its own waits, so the row doesn't
+        reads = len(self.reads())
+        self.go()
+        self.assertEqual(len(self.reads()), reads)  # and the next pass doesn't ask GitHub again
+        self.assertEqual(self.comments(), left)
+        self.assertEqual(self.agents_started(), 1)
+
+    def reads(self):
+        """The calls that read pull request #7's comments back for regrade()."""
+        return [c for c in self.calls() if "issues/7/comments" in c and c.endswith("@json")]
+
+    def test_a_newer_send_back_under_the_same_login_doesn_t_hide_the_loop_s_own_pending_comment(self):
+        self.checks(("in_progress", ""))
+        sha = self.posted()
+        mine = self.comments()[0]
+        resent = loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sha,
+                                     header="A person sent this back to the factory, after reading the review.")
+        send_back = {"id": 50, "user": "pat", "updated": "9", "body": resent}  # newer than the loop's own
+        (self.state / "comments.json").write_text(json.dumps([dict(mine, updated="1"), send_back]))
+        self.checks(("completed", "success"))
+        self.go()
+        after = self.comments()
+        self.assertEqual(after[1], send_back)
+        self.assertEqual(after[0]["id"], mine["id"])
+        self.assertIn("Grade 10/10: ready, checks passing.", after[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
         self.assertEqual(self.agents_started(), 1)
 
 

@@ -1440,6 +1440,11 @@ def review_comment(report, sha, header=AGENT_HEADER, grade=None):
         verdict=report_verdict(whole) if part == whole else "unreadable", grade=grade_text(grade) if grade else "")
 
 
+def comment_verdict(report, sha):
+    """The verdict review_comment() gives report's trailer: its last line's, or unreadable when it's cut."""
+    return review_verdict(review_comment(report, sha))[1]
+
+
 def review_verdict(body):
     """(the short sha, the verdict) from a review comment's trailer: ('', None) when it doesn't end with
     one, and a verdict of None for a comment written before the trailer carried one."""
@@ -1482,6 +1487,21 @@ def newest_review(out, logins, head, skipped=None):
         return None
     body = max(found)[1]
     return body, review_verdict(body)[1]
+
+
+def agent_rows(out):
+    """gh api's comment rows, as newest_review() reads them, with only the loop's own agent comments kept: a
+    marked comment with another header, such as a person's send-back, is left out."""
+    ours = REVIEW_MARKER + "\n> " + AGENT_HEADER + "\n"
+    kept = []
+    for line in out.split("\n"):  # as newest_review() splits them
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, list) and len(row) == 3 and isinstance(row[2], str) and row[2].startswith(ours):
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def pr_comment(url, rounds, updated=False):
@@ -3619,8 +3639,7 @@ class Loop:
                 return True, sha, "agent exit {}".format(code), True
             if not report.strip():
                 return True, sha, "the agent said nothing", True
-            # The verdict the trailer will carry, which a cut report makes unreadable, then the grade for it.
-            body = review_comment(report, sha, grade=self.grade(review_verdict(review_comment(report, sha))[1], sha))
+            body = review_comment(report, sha, grade=self.grade(comment_verdict(report, sha), sha))
             self.posted[number] = body
             why = self.post_review(number, body)
             if why is not None:
@@ -3694,10 +3713,17 @@ class Loop:
         if code != 0:
             self.skip(number, sha, "could not read its comment to grade it (will retry)")
             return
-        found = newest_review(out, [self.whoami()], sha)
+        # Only the loop's own comment: never a person's send-back, even under this login, and a newer one
+        # mustn't hide the loop's from newest_review.
+        found = newest_review(agent_rows(out), [self.whoami()], sha)
         body = found[0] if found else ""
-        # Only the loop's own comment, still waiting: never a person's send-back, even under this login.
-        if not body.startswith(REVIEW_MARKER + "\n> " + AGENT_HEADER + "\n") or review_grade(body) != "pending":
+        if review_grade(body) != "pending":
+            # Nothing of its own waits any more: the row takes what its comment says, or no grade when it's
+            # gone, so the next pass doesn't ask GitHub again.
+            with self.write_lock:
+                self.status["reviews"][str(number)] = dict(
+                    before, grade=review_grade(body), updated=datetime.now().isoformat(timespec="seconds"))
+            self.save_status()
             self.skip(number, sha, "no review of its own waiting for a grade")
             return
         grade = review_grade_for(review_verdict(body)[1], checks, rubric, why)
