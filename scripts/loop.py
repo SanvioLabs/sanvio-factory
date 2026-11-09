@@ -120,6 +120,12 @@ DEFAULTS = {
     "hours": "",
     # Which open pull requests `review` takes: a GitHub search qualifier string.
     "review_query": "review-requested:@me",
+    # A label whose open pull requests `review` also takes, as well as the ones review_query finds. Empty means
+    # off. A machine key: a clone anyone can push to mustn't choose which pull requests get reviewed.
+    "review_label": "",
+    # Whether run puts review_label on each pull request it opens or pushes to, so `review` picks it up. Only
+    # true turns it on, and only with review_label set. A machine key.
+    "label_own_prs": False,
     # The GitHub logins whose marked review comment a round reads, such as the person who dispatched an issue
     # to this loop as a factory. Empty means the login the loop runs as. A machine key: a clone anyone can
     # push to mustn't choose whose words reach the planner.
@@ -2946,6 +2952,7 @@ class Loop:
             # The push updated the pull request that's open: no second one.
             self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
             self.log("SCALE", "PR updated " + reopened["url"], number)
+            self.label_pr(reopened["url"], number)
             self.mark(number, state="pr", pr=reopened["url"])
             self.comment(number, pr_comment(reopened["url"], rounds, updated=True))
             if problems:
@@ -2965,10 +2972,22 @@ class Loop:
         self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
         url = out.strip().splitlines()[-1]
         self.log("SCALE", "PR opened " + url, number)
+        self.label_pr(url, number)
         self.mark(number, state="pr", pr=url)
         self.comment(number, pr_comment(url, rounds))
         if problems:
             self.lesson(number, rounds, problems, passed=True)
+
+    def label_pr(self, url, number):
+        """With label_own_prs true and review_label set, put review_label on the pull request at url, so
+        `review` takes it. A label that isn't added is logged and nothing else: the pull request is open
+        and the work is done; only the reviewer's pick-up is lost."""
+        label = self.cfg.get("review_label")
+        if self.cfg.get("label_own_prs") is not True or not label:
+            return
+        code, out = self.gh("pr", "edit", url, "--add-label", label)
+        if code != 0:
+            self.log("ERROR", "label {} was not added to {}: {}".format(label, url, out.strip()[:200]), number)
 
     def tidy(self):
         """Remove the worktree and branch of each issue whose pull request is merged or closed.
@@ -3484,16 +3503,25 @@ class Loop:
             time.sleep(self.cfg["poll_seconds"])
 
     def pulls(self):
-        """Open pull requests matching review_query, lowest number first, or None if GitHub couldn't be asked."""
-        code, out = self.gh("pr", "list", "--state", "open", "--search", self.cfg["review_query"],
-                            "--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft")
+        """Open pull requests matching review_query, and, with review_label set, those carrying that label,
+        once each, lowest number first, or None if GitHub couldn't be asked for either list. GitHub's search
+        can't OR a query with a label, so the label is a second list, and review_query stays as written."""
+        fields = ("--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft")
+        asks = [("--search", self.cfg["review_query"])]
+        if self.cfg.get("review_label"):
+            asks.append(("--label", self.cfg["review_label"]))
+        found = {}
         try:
-            if code != 0:
-                raise ValueError(out.strip()[:200])
-            return sorted(json.loads(out or "[]"), key=lambda p: p["number"])
+            for ask in asks:
+                code, out = self.gh("pr", "list", "--state", "open", *ask, *fields)
+                if code != 0:
+                    raise ValueError(out.strip()[:200])
+                for pr in json.loads(out or "[]"):
+                    found.setdefault(pr["number"], pr)
         except (ValueError, KeyError, TypeError) as err:
             self.log("ERROR", "could not list pull requests: {}".format(err))
             return None
+        return [found[n] for n in sorted(found)]
 
     def one_pull(self, number):
         """review --pr: that pull request alone if it's open, [] if it isn't, None if GitHub couldn't be asked."""

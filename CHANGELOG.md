@@ -27,6 +27,23 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Review pull requests that carry a label
+
+Two new keys in the factory's `loop.json`, both off by default. With
+`review_label` set, `loop.py review` also takes every open pull request that
+has that label, as well as the ones `review_query` finds, and reviews each
+one once per head commit. `review --pr` doesn't change. With `label_own_prs`
+true as well, `run` adds the label to each pull request it opens or pushes to.
+If the label can't be added, the log gets an `ERROR` line and the issue isn't
+blocked. Only the factory's `loop.json` or its `projects` entry can set these
+keys. A project's own `loop.json` that sets one is refused.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To use it, set `review_label` in the factory's `loop.json`,
+plus `label_own_prs: true` if you want the loop's own pull requests labelled,
+and create the label on GitHub.
+
 ## 2026-11-09: Every posted review carries a grade
 
 `loop.py review` now ends each review comment's trailer with a grade out of
