@@ -27,14 +27,6 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-07: The loop's reviewer checks every reader of a new state
-
-The loop's reviewer is now told that when a change adds a state, status or kind, it should search the whole worktree for everything that reads or filters on that field, code the diff doesn't touch included, and say FIX for any place that doesn't handle the new value. A new status that slips past an old filter passes every visible test, so only a search finds it. On a local model it took the starter from missing these to catching all of them in most runs, with no extra rounds on work that adds no state.
-
-Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
-
-**Do:** nothing.
-
 ## 2026-11-08: The old names stop working
 
 The names from before Sanvio Factory no longer work, a release earlier than the first rename entry said. Nothing reads `.harness/`, `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_EVALS_HOME`, or `HARNESS_USAGE_LOG` set to anything but off, or looks in `~/.harness-loop/` or `~/.harness-evals/`. `bin/harness` is gone. The three mods that read a `/project` focus no longer look under `.harness/project/`. The factory-trends skill no longer answers to "harness trends" or "my harness report", and its sprint report no longer looks for the pulse's old `Harness` heading. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo only by `SanvioLabs/sanvio-factory`. Two things stay, because they move you across rather than read the old names: the next session still moves a leftover `.harness/` to `.sanvio/`, and the setup check still names any old variable that's set, since it now does nothing. Two old switches still count, because each only ever makes things stricter: `HARNESS_HEADLESS=1` still makes a run headless, and `HARNESS_USAGE_LOG=off` still keeps the usage log off. The loop also still sets `HARNESS_RETRO=off` for its agents, so a project's hook from before the rename never keeps their sessions. [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) is rewritten for this.
@@ -126,6 +118,14 @@ An issue put back on the loop while its pull request is still open is now a roun
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** push or save any commits you made by hand on a `loop/issue-N` branch whose pull request is still open, before the loop runs again: a round starts from `origin`'s branch and drops local commits that aren't there, and the loop's log names how many. `git reflog loop/issue-N` still has them. And if this harness takes issues from someone else's as a factory, set `review_logins` in its `loop.json` to the login that reviews your pull requests, so a round reads that review. If the loop or its review watcher is running, restart it so it runs this version: `python3 scripts/loop.py stop`, with the same `--project projects/<name>` for one started on a project, since each one watches for its own stop, then start it as you did. One started before this keeps the old `post_review`, which can edit a person's send-back.
+
+## 2026-11-07: The loop's reviewer checks every reader of a new state
+
+The loop's reviewer is now told that when a change adds a state, status or kind, it should search the whole worktree for everything that reads or filters on that field, code the diff doesn't touch included, and say FIX for any place that doesn't handle the new value. A new status that slips past an old filter passes every visible test, so only a search finds it. On a local model it took the starter from missing these to catching all of them in most runs, with no extra rounds on work that adds no state.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
 
 ## 2026-11-07: Review on a Claude subscription
 The reusable pull request review, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), takes
