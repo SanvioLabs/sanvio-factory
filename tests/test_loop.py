@@ -832,6 +832,9 @@ elif args[:2] == ["issue", "view"]:
     print(open(path).read().strip() if os.path.exists(path) else "OPEN")
 elif args[:2] == ["pr", "create"]:
     print("https://example.test/pull/1")
+elif args[:2] == ["pr", "edit"] and os.path.exists(os.path.join(state, "pr-edit-fails")):
+    print("could not add label: 'needs-review' not found")  # on stdout, as gh prints its errors
+    sys.exit(1)
 elif args[:2] == ["pr", "list"] and "--head" in args:
     # The open pull requests from a branch name, any repo's: open-prs.json, {"branch": [{...}]}, none by default.
     import json
@@ -5442,7 +5445,17 @@ def save():
     json.dump(comments, open(path, "w"))
 if args[:2] == ["api", "user"]:
     print("pat")
+elif args[:2] == ["pr", "list"] and "--label" in args:
+    # The open pull requests carrying the label: labeled.json, none by default. label-list-fails fails it.
+    if os.path.exists(os.path.join(state, "label-list-fails")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    labeled = os.path.join(state, "labeled.json")
+    print(open(labeled).read() if os.path.exists(labeled) else "[]")
 elif args[:2] == ["pr", "list"]:
+    if os.path.exists(os.path.join(state, "search-list-fails")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
     print(open(os.path.join(state, "prs.json")).read())
 elif args[:2] == ["pr", "view"]:
     one = os.path.join(state, "pr-%s.json" % args[2])
@@ -6436,6 +6449,178 @@ class TestReview(ReviewFixture, unittest.TestCase):
 
 
 RUBRIC = {"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 0, "unreadable": 0}
+
+
+class TestReviewLabel(ReviewFixture, unittest.TestCase):
+    """review_label: review takes the open pull requests carrying it as well as the ones review_query finds."""
+
+    LIST = "--limit 50 --json number,title,headRefOid,baseRefName,isDraft"
+
+    def label(self, *rows):
+        """The open pull requests GitHub lists as carrying the label."""
+        (self.state / "labeled.json").write_text(json.dumps(list(rows)))
+
+    def lists(self):
+        return [c for c in self.calls() if c.startswith("pr list")]
+
+    def posted(self):
+        return [r.split(" - ", 1)[1] for r in self.reviews() if r.endswith(" posted")]
+
+    def errors(self):
+        return [l.split(" - ", 1)[1] for l in self.lines() if l.split()[2] == "ERROR"]
+
+    def test_with_the_label_unset_only_the_query_is_listed_and_reviewed(self):
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(8, self.push(8, "eight.txt")))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.lists(), ["pr list --state open --search review-requested:@me " + self.LIST])
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+
+    def test_a_pull_request_only_the_label_finds_is_reviewed_on_that_pass(self):
+        self.cfg["review_label"] = "needs-review"
+        eight = self.push(8, "eight.txt")
+        self.list_prs()
+        self.label(self.pr(8, eight))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.lists(), ["pr list --state open --search review-requested:@me " + self.LIST,
+                                        "pr list --state open --label needs-review " + self.LIST])
+        self.assertEqual(self.posted(), ["REVIEW #8 {} posted".format(eight[:7])])
+
+    def test_both_lists_are_reviewed_lowest_number_first(self):
+        self.cfg["review_label"] = "needs-review"
+        seven, eight = self.push(7, "seven.txt"), self.push(8, "eight.txt")
+        self.list_prs(self.pr(8, eight))
+        self.label(self.pr(7, seven))
+        self.go()
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7]),
+                                         "REVIEW #8 {} posted".format(eight[:7])])
+
+    def test_a_pull_request_in_both_lists_is_reviewed_once_per_head(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(7, seven))
+        self.go()
+        self.go()  # the same head on a second pass
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+        self.assertEqual(len(self.comments()), 1)
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_once_the_label_is_taken_off_a_pull_request_the_query_misses_is_not_reviewed(self):
+        self.cfg["review_label"] = "needs-review"
+        first = self.push(8, "eight.txt")
+        self.list_prs()
+        self.label(self.pr(8, first))
+        self.go()
+        second = self.push(8, "eight.txt", "a new head")
+        self.label()
+        self.go()
+        self.assertEqual(self.posted(), ["REVIEW #8 {} posted".format(first[:7])])
+        self.assertFalse(any(second[:7] in r for r in self.reviews()), self.reviews())
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_either_list_failing_logs_an_error_and_reviews_nothing(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(7, seven))
+        for marker in ("search-list-fails", "label-list-fails"):
+            with self.subTest(failing=marker):
+                (self.state / marker).write_text("")
+                self.go()
+                (self.state / marker).unlink()
+                self.assertEqual(self.agents_started(), 0)
+                self.assertEqual(self.comments(), [])
+                self.assertEqual(self.errors()[-1], "ERROR could not list pull requests: HTTP 502")
+        self.assertEqual(len(self.errors()), 2, self.errors())
+
+    def test_review_pr_lists_nothing_with_the_label_set(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.view_pr(7, seven)
+        self.label(self.pr(7, seven))
+        self.alone(7)
+        self.assertFalse(any(c.startswith("pr list") for c in self.calls()), self.calls())
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+
+
+class TestLabelOwnPrs(unittest.TestCase):
+    """label_own_prs: run puts review_label on each pull request it opens or pushes to, and a label that isn't
+    added never blocks the issue."""
+
+    setUp, tearDown, lines, raw_lines, status, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.status,
+        TestAPass.calls, TestAPass.go)
+    other, push_from_other, pr, open_pr, origin_head = (
+        TestRoundOnOpenPullRequest.other, TestRoundOnOpenPullRequest.push_from_other, TestRoundOnOpenPullRequest.pr,
+        TestRoundOnOpenPullRequest.open_pr, TestRoundOnOpenPullRequest.origin_head)
+    URL = TestRoundOnOpenPullRequest.URL
+    OPENED = "https://example.test/pull/1"
+
+    def adds(self):
+        return [c for c in self.calls() if "--add-label" in c]
+
+    def opened_then_pushed_to(self):
+        """A pull request opened, then the issue put back while it's open and pushed to."""
+        self.assertEqual(self.go(), 0)
+        self.push_from_other(start="origin/loop/issue-12")
+        self.open_pr()
+        self.assertEqual(self.go(), 0)
+        self.assertTrue(any("PR updated " + self.URL in l for l in self.lines()), self.lines())
+
+    def test_a_pull_request_it_opens_and_one_it_pushes_to_get_the_label(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        self.opened_then_pushed_to()
+        self.assertEqual(self.adds(), ["pr edit {} --add-label needs-review".format(self.OPENED),
+                                       "pr edit {} --add-label needs-review".format(self.URL)])
+
+    def test_no_label_is_added_with_label_own_prs_off_or_review_label_empty(self):
+        for i, changes in enumerate(({"review_label": "needs-review", "label_own_prs": False},
+                                     {"review_label": "", "label_own_prs": True})):
+            if i:  # a fresh clone and state for each case, even when the one before failed
+                self.tearDown()
+                self.setUp()
+            with self.subTest(**changes):
+                self.cfg.update(changes)
+                self.opened_then_pushed_to()
+                self.assertEqual(self.adds(), [])
+
+    def test_a_label_that_isn_t_added_is_logged_and_the_issue_isn_t_blocked(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        (self.state / "pr-edit-fails").write_text("")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.status()["issues"][0]["state"], "pr")
+        failed = [l for l in self.lines() if l.split()[2] == "ERROR"]
+        self.assertEqual(len(failed), 1, self.lines())
+        self.assertIn("label needs-review was not added to {}: could not add label".format(self.OPENED), failed[0])
+        self.assertFalse(any("BLOCKED" in l for l in self.lines()), self.lines())
+        self.assertFalse(any(c.startswith("issue edit 12 --add-label") for c in self.calls()), self.calls())
+
+    def test_the_label_is_never_put_on_the_issue(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        self.opened_then_pushed_to()
+        self.assertFalse(any(c.startswith("issue edit") and "--add-label needs-review" in c for c in self.calls()),
+                         self.calls())
+
+
+class TestReviewLabelIsAMachineKey(unittest.TestCase):
+    """A project's own loop.json can't set review_label or label_own_prs: only the factory's may."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_a_project_whose_loop_json_sets_either_key_is_refused_naming_it(self):
+        site = self.on_github("site")
+        for key, value in (("review_label", "needs-review"), ("label_own_prs", True)):
+            with self.subTest(key=key):
+                (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, key: value}))
+                code, err, built = self.main("run", "--project", str(site))
+                self.assertEqual(code, 1)
+                self.assertTrue(err.startswith("ERROR "), err)
+                self.assertIn(key, err)
+                built.assert_not_called()
 
 
 class TestGrade(unittest.TestCase):

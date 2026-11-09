@@ -254,6 +254,8 @@ keeps its default:
 | `worktree_dir` | `~/.sanvio-loop/<repo>` | Where the build checkouts go. Keep it outside the clone: an agent started inside it loads this repo's [`CLAUDE.md`](CLAUDE.md) twice and stops to ask you to restart from the root |
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
+| `review_label` | empty | A label whose open pull requests `loop.py review` also takes, as well as the ones `review_query` finds, each once per head commit. Empty means off. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `label_own_prs` | `false` | Whether `run` puts `review_label` on each pull request it opens or pushes to, so `review` takes it. Needs `review_label` set. A label that isn't added is an `ERROR` line in the log, and the issue isn't blocked. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
@@ -515,7 +517,8 @@ on github.com.
     python3 scripts/loop.py review           # then keep watching, every poll_seconds
     python3 scripts/loop.py review --pr 31   # review pull request 31 alone, then stop
 
-It lists the open, non-draft pull requests that match `review_query`. For each
+It lists the open, non-draft pull requests that match `review_query` or carry
+`review_label`. For each
 new head commit it checks the pull request out detached, outside your clone, in
 `~/.sanvio-loop/`, and has a fresh `reader_agent` follow
 [`skills/review-pr/`](skills/review-pr/) for the change between the base and the
