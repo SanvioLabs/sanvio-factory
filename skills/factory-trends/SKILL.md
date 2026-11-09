@@ -146,7 +146,7 @@ question would be asked.
    ```
 
    Compare only the `by_day` entries in `loop_history`, `loop_spend` and
-   `conversations` (its `harness` and `loop` sides each have one). Yesterday's
+   `conversations` (its `factory` and `loop` sides each have one). Yesterday's
    entry is compared against the sum of the six entries before it, never
    today's: today isn't over. A day in `loop_spend` whose `cost_usd` is `null`
    is named, not summed. `activity` and `loop_rework` are cited only as totals

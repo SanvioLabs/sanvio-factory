@@ -55,7 +55,7 @@ is built so a figure stands at its station without SMIL.
 
 ## Turn it on
 
-It loads by itself: the harness's [`.claude/settings.json`](../../../.claude/settings.json) turns it on. If `/loop-crew`
+It loads by itself: the factory's [`.claude/settings.json`](../../../.claude/settings.json) turns it on. If `/loop-crew`
 isn't there, install it from inside a session, at the root, or run `/reload-plugins`:
 
 ```

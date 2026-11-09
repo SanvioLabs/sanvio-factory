@@ -55,7 +55,7 @@ const svgs = async (ui: unknown): Promise<Found[]> => (ui as Finds).findAll({ ty
 const laneSvgs = async (ui: unknown): Promise<Found[]> => (await svgs(ui)).filter(s => String(s.props.alt).startsWith('Issue'))
 const lastBlit = (blits: { key: string; cells: string }[], key: string): string | undefined => blits.filter(b => b.key === key).pop()?.cells
 
-// The engine beneath the mod: a harness whose loop files are `files`, by path, and a pane. The test
+// The engine beneath the mod: a factory whose loop files are `files`, by path, and a pane. The test
 // changes `files` between polls, `panes` to stand a pane behind another, and `flip` to refuse a close,
 // take the root away, leave the lock's holder gone or fail the listing of .loop/projects/. `focus`
 // gives the session's id, which the test can change and null refuses, the default, and what fs.stat
@@ -743,7 +743,7 @@ group('the command', () => {
     files.set(`${ALPHA}/lock`, '4242')
     return files
   }
-  test('no argument shows the harness, titled Loop crew', async ($, on) => {
+  test('no argument shows the factory, titled Loop crew', async ($, on) => {
     const { titles, close } = world(on, both())
     expect(await say($)).toBe('Loop crew opened.')
     expect(titles).toEqual(['Loop crew'])
@@ -816,7 +816,7 @@ group('the command', () => {
     const ui = await $.ui.mount(WIDE())
     expect(JSON.stringify(await ui.drawn())).toContain('Job 30')
     await ui.unmount()
-    // And no argument, while a project is shown, goes back to the harness.
+    // And no argument, while a project is shown, goes back to the factory.
     await say($)
     expect(titles).toEqual(['Loop crew', 'Loop crew: alpha', 'Loop crew'])
     expect(flip.closes).toBe(0)
@@ -841,7 +841,7 @@ group('the command', () => {
 
 group('the loop picker', () => {
   const BETA = `${ROOT}/.loop/projects/beta`
-  // The harness idle under a live lock. alpha live with two at working, beta with no lock and one at
+  // The factory idle under a live lock. alpha live with two at working, beta with no lock and one at
   // working, and gamma a folder with no status file.
   const four = () => new Map([
     [STATUS, statusText(job(12, 'BUILD', { state: 'pr' }))],
@@ -851,7 +851,7 @@ group('the loop picker', () => {
     [`${BETA}/status.json`, statusText(job(40, 'TEST'))],
     [`${ROOT}/.loop/projects/gamma/notes.txt`, ''],
   ])
-  // The harness with two at working, and alpha beside it with one.
+  // The factory with two at working, and alpha beside it with one.
   const two = () => {
     const files = twoWorking()
     files.set(`${ALPHA}/status.json`, statusText(job(30, 'BUILD')))
@@ -879,7 +879,7 @@ group('the loop picker', () => {
     await ui.redraw()
   }
 
-  test('it lists the loops on a job first, the harness by its folder, and leaves out a folder with no status file', async ($, on) => {
+  test('it lists the loops on a job first, the factory by its folder, and leaves out a folder with no status file', async ($, on) => {
     const { close } = world(on, four())
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
@@ -913,7 +913,7 @@ group('the loop picker', () => {
     await ui.unmount()
     await close()
   })
-  test('with only the harness there is no picker', async ($, on) => {
+  test('with only the factory there is no picker', async ($, on) => {
     const { close } = world(on, twoWorking())
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
@@ -958,7 +958,7 @@ group('the loop picker', () => {
     await close()
   })
   for (const [what, text] of [['missing', undefined], ["one that won't parse", '{not json']] as const) {
-    test(`the harness is left out of the picker when its status file is ${what}`, async ($, on) => {
+    test(`the factory is left out of the picker when its status file is ${what}`, async ($, on) => {
       const files = new Map([
         [`${HARNESS}/lock`, '4242'],
         [`${ALPHA}/status.json`, statusText(job(30, 'BUILD'))],
@@ -991,7 +991,7 @@ group('the loop picker', () => {
     await ui.unmount()
     await close()
   })
-  test("a projects folder that can't be listed gives the harness alone, so the picker goes", async ($, on) => {
+  test("a projects folder that can't be listed gives the factory alone, so the picker goes", async ($, on) => {
     const { clock, flip, reads, close } = world(on, two())
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
@@ -1013,7 +1013,7 @@ group('the loop picker', () => {
     const { clock, flip, close } = world(on, files)
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
-    // The switch doesn't wait for its read of every loop, which holds at the harness's status file.
+    // The switch doesn't wait for its read of every loop, which holds at the factory's status file.
     let release = () => {}
     flip.hold = new Promise<void>(resolve => { release = resolve })
     await say($, 'alpha')
@@ -1034,7 +1034,7 @@ group('the loop picker', () => {
     await ui.unmount()
     await close()
   })
-  test("picking alpha retitles the pane and draws alpha's lanes, and picking the harness goes back", async ($, on) => {
+  test("picking alpha retitles the pane and draws alpha's lanes, and picking the factory goes back", async ($, on) => {
     const { titles, close } = world(on, two())
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
@@ -1576,7 +1576,7 @@ group('the project in focus', () => {
   const FOCUS = `${ROOT}/.sanvio/project/${ID}`
   // What fs.stat finds under projects/: app, other and lost are folders, though lost has no loop yet.
   const PROJECTS: Kinds = { app: 'dir', other: 'dir', lost: 'dir', linked: 'link', plain: 'file' }
-  // The harness, app and other, each running with its own job, so the lanes say which loop is on screen.
+  // The factory, app and other, each running with its own job, so the lanes say which loop is on screen.
   const loops = () => new Map([
     [STATUS, statusText(job(12, 'BUILD'))],
     [`${HARNESS}/lock`, '4242'],
@@ -1602,8 +1602,8 @@ group('the project in focus', () => {
   for (const [what, text, title] of [
     ['on a listed project opens on it', 'app', 'Loop crew: app'],
     ['given as projects/app opens on it', 'projects/app\n', 'Loop crew: app'],
-    ['on a project with no loop opens on the harness', 'lost', 'Loop crew'],
-    ['missing opens on the harness', null, 'Loop crew'],
+    ['on a project with no loop opens on the factory', 'lost', 'Loop crew'],
+    ['missing opens on the factory', null, 'Loop crew'],
   ] as const) {
     test(`the focus ${what}`, async ($, on) => {
       const { titles, writes, close } = focused(on, text)
@@ -1621,7 +1621,7 @@ group('the project in focus', () => {
     ['is named by an id the engine refuses', 'app', null],
     ['is named by an id SESSION refuses', 'app', 'not an id'],
   ] as const) {
-    test(`a focus that ${what} opens on the harness, and polls don't move it`, async ($, on) => {
+    test(`a focus that ${what} opens on the factory, and polls don't move it`, async ($, on) => {
       const { clock, titles, writes, close } = focused(on, text, id)
       expect(await say($)).toBe('Loop crew opened.')
       expect(titles).toEqual(['Loop crew'])
@@ -1650,7 +1650,7 @@ group('the project in focus', () => {
     expect(writes).toEqual([])
     await close()
   })
-  test('a focus changed between polls switches the pane, and a cleared one goes back to the harness', async ($, on) => {
+  test('a focus changed between polls switches the pane, and a cleared one goes back to the factory', async ($, on) => {
     const { clock, files, titles, flip, writes, close } = focused(on, 'app')
     await say($)
     files.set(FOCUS, 'other')

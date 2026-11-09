@@ -143,7 +143,7 @@ instructions.
 catches. Run it after changing an agent's file, a job's brief or the model. It starts real
 sessions, so it isn't part of the gate; [`examples/proposal/evals/`](examples/proposal/evals/) has the reviewer's cases, [`examples/typescript/evals/`](examples/typescript/evals/) the security reviewer's, and [`examples/ci/evals/`](examples/ci/evals/) the review-pr skill's.
 
-[`scripts/eval_harness.py`](scripts/eval_harness.py) runs a whole harness through a suite of jobs and prints a scorecard, and `compare` shows what a harness change did. It creates a private repo and spends model tokens, so only start a run when a person asks. [`examples/eval-suite/`](examples/eval-suite/) shows a suite's format. A private suite's `key/` never goes in this repo, or anywhere an agent working on the run can read.
+[`scripts/eval_factory.py`](scripts/eval_factory.py) runs a whole factory through a suite of jobs and prints a scorecard, and `compare` shows what a factory change did. It creates a private repo and spends model tokens, so only start a run when a person asks. [`examples/eval-suite/`](examples/eval-suite/) shows a suite's format. A private suite's `key/` never goes in this repo, or anywhere an agent working on the run can read.
 
 ## Examples
 

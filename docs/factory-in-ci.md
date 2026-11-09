@@ -12,7 +12,7 @@ factory itself.
 
 Start with checks, then add the review. The loop is optional.
 
-![Three product repos each hold one short caller, review.yml. A pull request, #42, opens in the first. Its caller asks the factory repo, your-org/factory, for .github/workflows/review-pr.yml. The review job checks the harness out with a read-only deploy key, holding only AGENTS.md, steering, skills, agents and standards, beside the product repo at the pull request's base and the pull request itself. The pull request's own AGENTS.md, CLAUDE.md, .claude folders and symlinks are struck out, so its copies of those can't change the review's rules. Claude reads with Read, Grep and Glob only, and one comment is posted: changes needed, two findings. A second push edits the same comment to ready with nits, one finding, marked edited. Last, the factory repo's main is shown as protected, and a change to it marks all three product repos: their next review uses the new rules.](harness-in-ci.gif)
+![Three product repos each hold one short caller, review.yml. A pull request, #42, opens in the first. Its caller asks the factory repo, your-org/factory, for .github/workflows/review-pr.yml. The review job checks the harness out with a read-only deploy key, holding only AGENTS.md, steering, skills, agents and standards, beside the product repo at the pull request's base and the pull request itself. The pull request's own AGENTS.md, CLAUDE.md, .claude folders and symlinks are struck out, so its copies of those can't change the review's rules. Claude reads with Read, Grep and Glob only, and one comment is posted: changes needed, two findings. A second push edits the same comment to ready with nits, one finding, marked edited. Last, the factory repo's main is shown as protected, and a change to it marks all three product repos: their next review uses the new rules.](factory-in-ci.gif)
 
 You make each key yourself and paste it into GitHub. Nobody else, including
 anyone helping you set this up, needs to see one.
@@ -112,7 +112,7 @@ skill says to, so anything planted beside it goes unread.
 [`examples/ci/evals/`](../examples/ci/evals/) holds six changes like these, each with what a good
 review of it finds. `python3 scripts/eval_agents.py examples/ci/evals` runs
 them against the skill on your machine, which spends model tokens.
-[Measuring a harness](harness-evals.md) has the rest.
+[Measuring a factory](factory-evals.md) has the rest.
 
 ### What the review can and can't be changed by
 

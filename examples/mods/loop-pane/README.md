@@ -90,7 +90,7 @@ In fullscreen, from 110 columns, the pane docks beside the conversation.
 Narrower, it sits above the prompt. While it's showing, the `×` in its corner
 or `/loop-pane` closes it.
 
-It loads by itself, the same way as the [harness lens](../harness-lens/): the harness's
+It loads by itself, the same way as the [harness lens](../harness-lens/): the factory's
 [`.claude/settings.json`](../../../.claude/settings.json) turns it on. Don't see `/loop-pane`? Install it from
 inside a session, at the root:
 
@@ -143,7 +143,7 @@ folder goes while you're on it, the pane falls back to the factory's loop.
 
 A pick in the pane sets the focus too: picking a project puts it in focus,
 picking the factory's loop clears it. Opening the pane never changes the focus. The
-focus is shared with the GitHub line only in a session started at the harness
+focus is shared with the GitHub line only in a session started at the factory
 root: the pane keeps it under the folder holding [`scripts/loop.py`](../../../scripts/loop.py), the GitHub
 line under the folder the session started in.
 

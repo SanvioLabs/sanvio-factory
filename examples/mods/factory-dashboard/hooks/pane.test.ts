@@ -327,14 +327,14 @@ group('the Refresh button', () => {
 
 group('/factory-dashboard', () => {
   // A /clear starts a new session with no session.start, so a folder saved there is gone or the last session's.
-  test('after a /clear, with no session.start, finds the harness from the session root', async ($, on) => {
+  test('after a /clear, with no session.start, finds the factory from the session root', async ($, on) => {
     mock.clock(on, { now: 1_800_000_000_000 })
     session(on, { now: false })
     on('ui.open', async () => ({ value: { isPlaced: true } }))
     const typed = { command: 'factory-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
     expect(((await $.command.run(typed)) as { text?: string }).text).toBe('Dashboard opened.')
   })
-  test('outside any harness, names the folder it looked from', async ($, on) => {
+  test('outside any factory, names the folder it looked from', async ($, on) => {
     mock.clock(on, { now: 1_800_000_000_000 })
     session(on, { now: false }, '/h/elsewhere')
     await $.session.start({ ...START, cwd: '/h/elsewhere' })

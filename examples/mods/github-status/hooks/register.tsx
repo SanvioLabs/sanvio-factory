@@ -11,7 +11,7 @@ const PROJECT_COMMAND = 'project'
 const OFF = 'off'
 const NOT_SAVED = "The focus couldn't be saved, so nothing changed."
 // A project's name can't start with `:`, so this is never one.
-const HARNESS_KEY = ':harness'
+const FACTORY_KEY = ':factory'
 // How often the timer reads this session's file and asks whether a read is due. due() holds reads to one per two minutes.
 const TICK_MS = 15_000
 const GIT_TIMEOUT_MS = 5_000
@@ -32,7 +32,7 @@ const COLORS: Record<Tone, { color?: string; dimColor?: boolean }> = {
 let repo: string | null = null
 // Whether repo has been looked up: a /clear fires no session.start, so /project looks it up once.
 let isRepoKnown = false
-// The focus a read is under way for, HARNESS_KEY for the harness's own. A read for a new focus can start during one for the old.
+// The focus a read is under way for, FACTORY_KEY for the factory's own. A read for a new focus can start during one for the old.
 let reading: string | null = null
 let timer: ReturnType<EngineInterface['clock']['every']> | null = null
 
@@ -84,7 +84,7 @@ async function projectFolders($: EngineInterface, root: string): Promise<string[
 }
 
 // A project folder's GitHub repo, only when the folder is a clone of its own. A plain folder has no .git,
-// and git there would answer with the harness's remote instead.
+// and git there would answer with the factory's remote instead.
 async function projectRepo($: EngineInterface, root: string, name: string): Promise<string | null> {
   const folder = `${root}/projects/${name}`
   return (await $.fs.exists(`${folder}/.git`).catch(() => false)) ? originRepo($, folder) : null
@@ -100,16 +100,16 @@ async function oneProject($: EngineInterface, root: string, name: string): Promi
   return `${name}: ${await projectLine($, found)}`
 }
 
-// /github all: the harness, then every project with a GitHub origin.
+// /github all: the factory, then every project with a GitHub origin.
 async function allProjects($: EngineInterface, root: string): Promise<string> {
   // Read now, like the projects, rather than through the line's state: a read already under way
   // would leave that empty.
-  const harness = repo ? await projectLine($, repo) : lineFor({ kind: 'no-remote' }, Date.now()).text
+  const factory = repo ? await projectLine($, repo) : lineFor({ kind: 'no-remote' }, Date.now()).text
   const folders = (await projectFolders($, root)) ?? []
   const remotes = await Promise.all(folders.map(async name => ({ name, found: await projectRepo($, root, name) })))
   const withRemote = remotes.filter((r): r is { name: string; found: string } => r.found !== null)
   const projects = await Promise.all(withRemote.map(async r => ({ name: r.name, text: await projectLine($, r.found) })))
-  return allText(harness, projects, folders.length - withRemote.length, folders.length)
+  return allText(factory, projects, folders.length - withRemote.length, folders.length)
 }
 
 // The folder saved at session.start, else the session's root: a /clear starts a new session without one.
@@ -149,7 +149,7 @@ async function saveFocus($: EngineInterface, root: string, text: string): Promis
 }
 
 const tagged = (focus: string | null) => (focus ? { project: focus } : {})
-const keyOf = (focus: string | null) => focus ?? HARNESS_KEY
+const keyOf = (focus: string | null) => focus ?? FACTORY_KEY
 
 const showNoRemote = ($: EngineInterface, focus: string | null) =>
   update($, statusAtom, (prev): GitHubState | null =>
@@ -198,7 +198,7 @@ async function beginSync($: EngineInterface, isAsked = false): Promise<Target | 
   const now = await $.clock.now()
   if (!due(await read($, attemptAtom), now, isAsked || isChanged)) return null
   // Only when a read is due, so a tick doesn't run git every 15 seconds. Never bare originRepo for a
-  // focus: a plain folder would answer with the harness's remote.
+  // focus: a plain folder would answer with the factory's remote.
   const name = focus ? await projectRepo($, await rootOf($), focus) : repo
   if ((await readFocus($)) !== focus) return null
   if (!name) {
@@ -223,7 +223,7 @@ function startTimer($: EngineInterface): void {
   })
 }
 
-// What every saved /project needs after a /clear, which fires no session.start: the harness's repo, for
+// What every saved /project needs after a /clear, which fires no session.start: the factory's repo, for
 // a later /project off and /github all, and the timer.
 async function afterClear($: EngineInterface, root: string): Promise<void> {
   if (!isRepoKnown) {
@@ -255,7 +255,7 @@ async function focusOn($: EngineInterface, arg: string): Promise<string> {
   return lineFor(await finishRead($, target), Date.now()).text
 }
 
-// /project off: the file is left empty, and the line stops showing the project at once. The harness's
+// /project off: the file is left empty, and the line stops showing the project at once. The factory's
 // read isn't waited for.
 async function focusOff($: EngineInterface): Promise<string> {
   const root = await rootOf($)
@@ -292,7 +292,7 @@ export const register: Register = on => {
     timer?.cancel()
     reading = null
     startTimer($)
-    // The focus settles before the session goes on, so a reload never flashes the harness's line. GitHub isn't waited for.
+    // The focus settles before the session goes on, so a reload never flashes the factory's line. GitHub isn't waited for.
     const target = await beginSync($).catch(() => null)
     if (target) void finishRead($, target).catch(() => {})
     return next(e)

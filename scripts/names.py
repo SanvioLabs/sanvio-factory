@@ -41,7 +41,7 @@ def loop_home(home=None):
 
 
 def evals_home(home=None, environ=None):
-    """Where eval_harness.py keeps each run's sealed copy: SANVIO_EVALS_HOME, else the home folder."""
+    """Where eval_factory.py keeps each run's sealed copy: SANVIO_EVALS_HOME, else the home folder."""
     named = env("EVALS_HOME", environ=environ)
     if named:
         return Path(named)

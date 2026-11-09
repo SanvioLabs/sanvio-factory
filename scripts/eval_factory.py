@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Run a harness through a suite of jobs and score the result.
+"""Run a factory through a suite of jobs and score the result.
 
 Usage:
-    python3 scripts/eval_harness.py run SUITE --start "COMMAND" --owner ORG [--harness PATH] [--clone-into DIR]
+    python3 scripts/eval_factory.py run SUITE --start "COMMAND" --owner ORG [--factory PATH] [--clone-into DIR]
                                         [--merge-in-run-repo] [--usage-command "COMMAND"]
                                         [--timeout MINUTES] [--yes]
-    python3 scripts/eval_harness.py resume RUN [--end]
-    python3 scripts/eval_harness.py stop RUN "WHY"
-    python3 scripts/eval_harness.py compare A B
-    python3 scripts/eval_harness.py list
-    python3 scripts/eval_harness.py validate SUITE
+    python3 scripts/eval_factory.py resume RUN [--end]
+    python3 scripts/eval_factory.py stop RUN "WHY"
+    python3 scripts/eval_factory.py compare A B
+    python3 scripts/eval_factory.py list
+    python3 scripts/eval_factory.py validate SUITE
 
 A suite is a folder:
 
@@ -23,21 +23,21 @@ A suite is a folder:
       reference/    files that overlay the seed to make the right answer
       wrong/<name>/ files that overlay the seed to make a known wrong answer
 
---start runs in the harness's folder, once per issue. It may use {issue}, {repo}, {clone} and {project}
-(the clone's path from the harness), which only ever hold values this tool made, shell-quoted. A start
+--start runs in the factory's folder, once per issue. It may use {issue}, {repo}, {clone} and {project}
+(the clone's path from the factory), which only ever hold values this tool made, shell-quoted. A start
 command that fails or times out ends the run, recorded as a stop, and what exists still gets scored.
 
 With --merge-in-run-repo the tool merges each issue's pull request once its required checks pass, and only
 in the repo this run created. Without it, the run stops at each merge and exits 3: merge it, then resume.
 Run repos are private, stay until a person deletes them, and nothing here deletes one.
 
-When the run ends, a fresh clone outside the harness is scored: the default branch, or the last pull
+When the run ends, a fresh clone outside the factory is scored: the default branch, or the last pull
 request if it never merged. Its history is checked for the key's files, and key/score runs with anything
-named like a secret out of its environment. The run's folder in .sanvio/harness-evals/ gets one
-result.json: the suite, the harness commit, tests, traps, key leaks, time, stops, rounds, tokens and cost.
+named like a secret out of its environment. The run's folder in .sanvio/factory-evals/ gets one
+result.json: the suite, the factory commit, tests, traps, key leaks, time, stops, rounds, tokens and cost.
 Cost comes from --usage-command, a command that prints one number. Failing that, it's this factory's own loop
 usage when --start runs its scripts/loop.py. Failing that it reads "not reported", never zero. Rounds and
-tokens come only from that loop usage, so another harness's read "not reported". Exits 0 when every test
+tokens come only from that loop usage, so another factory's read "not reported". Exits 0 when every test
 and trap is clean with no leak, 1 otherwise. compare takes two run names or result files.
 
 validate spends no model tokens and creates no repo. It passes only when the seed fails, every wrong
@@ -47,12 +47,12 @@ suite can't be read.
 Scoring runs key/score on the checkout, and that usually runs code an agent wrote, on this machine. It gets
 an empty HOME and no gh login, so it reads pull requests from PR_DATA, not GitHub. It still has the network
 and whatever this user can read outside HOME, the suite's key included. Keep a private suite's folder
-somewhere its agents aren't allowed to read: this tool refuses a key inside the harness or the clone folder,
+somewhere its agents aren't allowed to read: this tool refuses a key inside the factory or the clone folder,
 and finds a key committed to a run repo, but can't see what an agent read.
 
 What a run acts on (its repo, the merge flag, the start and usage commands, the suite's path) is kept in a
 sealed copy in ~/.sanvio-evals, or SANVIO_EVALS_HOME, and resume takes it from there, so an agent editing
-the harness's copy can't redirect it. Ctrl-C ends the start command too; resume --end then scores what the
+the factory's copy can't redirect it. Ctrl-C ends the start command too; resume --end then scores what the
 interrupted run got to. Needs a POSIX system.
 
 From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
@@ -83,12 +83,12 @@ CI_POLL_SECONDS = 30
 MERGE_TRIES = 3
 PULL_FIELDS = "number,state,headRefName,baseRefOid,headRefOid,body,comments"  # what key/score gets in PR_DATA
 WAITING = 3  # the exit code while a run waits for a person
-# What a run acts on: kept in a sealed copy outside the harness, and taken from there over the harness's copy.
-SEALED = ("repo", "repo_id", "merge", "start", "usage_command", "suite_path", "harness", "clone", "timeout_minutes",
-          "base_sha", "harness_commit", "harness_dirty")
+# What a run acts on: kept in a sealed copy outside the factory, and taken from there over the factory's copy.
+SEALED = ("repo", "repo_id", "merge", "start", "usage_command", "suite_path", "factory", "clone", "timeout_minutes",
+          "base_sha", "factory_commit", "factory_dirty")
 OUTSIDE_ONLY = ("suite_path",)
 # So a commit works on a machine with no git identity set.
-GIT_IDENTITY = ["-c", "user.name=eval-harness", "-c", "user.email=eval-harness@example.invalid"]
+GIT_IDENTITY = ["-c", "user.name=eval-factory", "-c", "user.email=eval-factory@example.invalid"]
 
 
 class SuiteError(Exception):
@@ -124,7 +124,7 @@ def check_seed_against_key(seed, key):
                     raise SuiteError("{} in the seed is a copy of {} in the key".format(name, answer.name))
 
 
-def load_suite(folder, harness, clone_into=None):
+def load_suite(folder, factory, clone_into=None):
     """Read folder/suite.json and return it with its paths resolved, or raise SuiteError.
 
     Runs before a run creates anything, so a suite that could leak its key never starts."""
@@ -160,8 +160,8 @@ def load_suite(folder, harness, clone_into=None):
 
     public = bool(config.get("public_example"))
     if not public:
-        if is_under(key, harness):
-            raise SuiteError("the key is inside the harness, where its agents could read it")
+        if is_under(key, factory):
+            raise SuiteError("the key is inside the factory, where its agents could read it")
         if clone_into and is_under(key, clone_into):
             raise SuiteError("the key is inside the clone folder, where its agents could read it")
     check_seed_against_key(seed, key)
@@ -229,7 +229,7 @@ def overlay_and_score(suite, overlay, workspace):
 
 
 def validate_suite(suite):
-    """Everything wrong with the suite as a test of a harness. Empty means it's sound."""
+    """Everything wrong with the suite as a test of a factory. Empty means it's sound."""
     problems = []
     key = suite["key"]
     reference = key / "reference"
@@ -282,12 +282,12 @@ def gh_ok(why, *args, stdin=None):
 
 
 def runs_dir():
-    """Each run's state, logs and result, in the harness. Its agents can write here."""
-    return names.state_dir(Path.cwd()) / "harness-evals"
+    """Each run's state, logs and result, in the factory. Its agents can write here."""
+    return names.state_dir(Path.cwd()) / "factory-evals"
 
 
 def sealed_dir():
-    """Where each run's sealed copy lives: outside the harness, so an agent working there doesn't edit it."""
+    """Where each run's sealed copy lives: outside the factory, so an agent working there doesn't edit it."""
     return names.evals_home()
 
 
@@ -299,7 +299,7 @@ def write_json(path, data):
 
 
 def save_run(record):
-    """The sealed fields go outside the harness, and the rest in it. The key's location only goes outside."""
+    """The sealed fields go outside the factory, and the rest in it. The key's location only goes outside."""
     folder = runs_dir() / record["id"]
     folder.mkdir(parents=True, exist_ok=True)
     sealed_dir().mkdir(parents=True, exist_ok=True)
@@ -308,7 +308,7 @@ def save_run(record):
 
 
 def load_run(run_id, sealed=True):
-    """The run's record, with its sealed copy over whatever the harness folder says. RunError when either is
+    """The run's record, with its sealed copy over whatever the factory folder says. RunError when either is
     missing, or a pull request isn't a number."""
     try:
         record = json.loads((runs_dir() / run_id / "run.json").read_text())
@@ -317,9 +317,15 @@ def load_run(run_id, sealed=True):
     if not sealed:
         return record
     try:
-        record.update(json.loads((sealed_dir() / "{}.json".format(run_id)).read_text()))
+        sealed_copy = json.loads((sealed_dir() / "{}.json".format(run_id)).read_text())
     except (OSError, ValueError):
         raise RunError("run {} has no sealed copy in {}, so it can't be carried on".format(run_id, sealed_dir()))
+    # Every sealed field or none: a field the copy lacks would come from run.json, which agents can write.
+    missing = [field for field in SEALED if field not in sealed_copy]
+    if missing:
+        raise RunError("run {}'s sealed copy is from before the rename (it has no {}), so it can't be carried on"
+                       .format(run_id, ", ".join(missing)))
+    record.update({field: sealed_copy[field] for field in SEALED})
     record["id"] = run_id
     for issue in record["issues"]:
         if issue.get("pr") is not None and type(issue["pr"]) is not int:
@@ -343,7 +349,7 @@ def create_run(suite, options):
 
     The key is never copied: only the seed goes into the clone. Once the repo exists a failure leaves it
     for a person to look at, and the error names it."""
-    harness = Path(options["harness"])
+    factory = Path(options["factory"])
     run_id = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
     name = "eval-{}".format(run_id)
     repo = "{}/{}".format(options["owner"], name)
@@ -353,7 +359,7 @@ def create_run(suite, options):
     gh_ok("couldn't create {}".format(repo), "repo", "create", repo, "--private")
     # Saved at once, so list names this repo however setup ends.
     record = {"id": run_id, "suite": suite["name"], "suite_path": str(suite["folder"]), "repo": repo,
-              "repo_id": None, "clone": str(clone), "harness": str(harness), "start": options["start"],
+              "repo_id": None, "clone": str(clone), "factory": str(factory), "start": options["start"],
               "merge": bool(options.get("merge")), "usage_command": options.get("usage_command"),
               "timeout_minutes": options.get("timeout_minutes", 60), "state": "setup stopped", "issues": [],
               "seen_prs": [], "stops": [], "seconds": 0, "started": datetime.now().isoformat(timespec="seconds")}
@@ -374,8 +380,8 @@ def create_run(suite, options):
             why = said(code, out, err)
             hint = " (a private repo's protection needs a paid plan)" if "upgrade" in why.lower() else ""
             raise RunError("couldn't protect its main branch{}: {}".format(hint, why))
-        record.update(repo_id=found["id"], harness_commit=git("rev-parse", "HEAD", cwd=harness),
-                      harness_dirty=bool(git("status", "--porcelain", cwd=harness)),
+        record.update(repo_id=found["id"], factory_commit=git("rev-parse", "HEAD", cwd=factory),
+                      factory_dirty=bool(git("status", "--porcelain", cwd=factory)),
                       base_sha=git("rev-parse", "HEAD", cwd=clone))
         for path in suite["issues"]:
             title, body = issue_title_and_body(path)
@@ -401,8 +407,8 @@ def add_stop(record, why, kind):
 
 def fill(command, record, number):
     """The start command with this tool's own values in, quoted. Text from an issue never gets here."""
-    clone, harness = Path(record["clone"]), Path(record["harness"])
-    project = clone.relative_to(harness) if harness in clone.parents else clone
+    clone, factory = Path(record["clone"]), Path(record["factory"])
+    project = clone.relative_to(factory) if factory in clone.parents else clone
     values = {"{issue}": str(number), "{repo}": record["repo"], "{clone}": str(clone), "{project}": str(project)}
     for name, value in values.items():
         command = command.replace(name, shlex.quote(value))
@@ -414,7 +420,7 @@ def start_issue(record, number):
     log_path = runs_dir() / record["id"] / "issue-{}.log".format(number)
     limit = record["timeout_minutes"] * 60
     with open(str(log_path), "w") as log:
-        process = subprocess.Popen(["sh", "-c", fill(record["start"], record, number)], cwd=record["harness"],
+        process = subprocess.Popen(["sh", "-c", fill(record["start"], record, number)], cwd=record["factory"],
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                    start_new_session=True)
         try:
@@ -538,7 +544,7 @@ def wait_for_person(record, issue):
     if not issue.get("merge_stop"):
         issue["merge_stop"] = True
         add_stop(record, "pull request {} is waiting to be merged".format(issue["pr"]), "merge")
-    print("Waiting for pull request {} in {}. Merge it, then: eval_harness.py resume {}".format(
+    print("Waiting for pull request {} in {}. Merge it, then: eval_factory.py resume {}".format(
         issue["pr"], record["repo"], record["id"]))
     return "waiting"
 
@@ -558,7 +564,7 @@ def check_out_for_scoring(record, clone):
 def key_leaks(key, clone):
     """The names of the key's hidden files whose exact contents are anywhere in the clone's history.
 
-    The reference and the wrong answers are left out: a good harness can write the same small fix."""
+    The reference and the wrong answers are left out: a good factory can write the same small fix."""
     history = {line.split()[0] for line in git("rev-list", "--objects", "--all", cwd=clone).splitlines()}
     answers = [Path(key) / "reference", Path(key) / "wrong"]
     hidden = [path for path in key_files(key) if not any(is_under(path, folder) for folder in answers)]
@@ -573,11 +579,11 @@ def number_from(text):
 
 
 def loop_usage(record):
-    """{issue number: the loop's usage entries for it} when --start runs this kind of harness's loop, else None."""
-    harness = Path(record["harness"])
-    if "scripts/loop.py" not in record["start"] or not (harness / "scripts" / "loop.py").exists():
+    """{issue number: the loop's usage entries for it} when --start runs this kind of factory's loop, else None."""
+    factory = Path(record["factory"])
+    if "scripts/loop.py" not in record["start"] or not (factory / "scripts" / "loop.py").exists():
         return None
-    return {issue["number"]: loop.issue_usage(harness, Path(record["clone"]).name, issue["number"])
+    return {issue["number"]: loop.issue_usage(factory, Path(record["clone"]).name, issue["number"])
             for issue in record["issues"]}
 
 
@@ -597,7 +603,7 @@ def read_usage(record):
     if command:
         cost = None
         try:
-            done = subprocess.run(["sh", "-c", fill(command, record, "")], cwd=record["harness"], text=True,
+            done = subprocess.run(["sh", "-c", fill(command, record, "")], cwd=record["factory"], text=True,
                                   capture_output=True, stdin=subprocess.DEVNULL, timeout=USAGE_TIMEOUT)
             cost = number_from(done.stdout) if not done.returncode else None
         except (OSError, subprocess.TimeoutExpired):
@@ -606,7 +612,7 @@ def read_usage(record):
 
 
 def score_run(record):
-    """Score a fresh clone outside the harness. Returns the fields the result takes from it."""
+    """Score a fresh clone outside the factory. Returns the fields the result takes from it."""
     suite_key = Path(record["suite_path"]) / json.loads(
         (Path(record["suite_path"]) / "suite.json").read_text())["key"]
     fields = {"tests": [], "traps": [], "key_leaks": []}
@@ -627,7 +633,7 @@ def score_run(record):
 
 def print_scorecard(result):
     print("\nSuite     {}".format(result["suite"]))
-    print("Harness   {}{}".format(result["harness_commit"][:12], " (with uncommitted changes)" if result.get("harness_dirty") else ""))
+    print("Factory   {}{}".format(result["factory_commit"][:12], " (with uncommitted changes)" if result.get("factory_dirty") else ""))
     if result.get("not_scored"):
         print("Not scored: {}".format(result["not_scored"]))
     else:
@@ -687,7 +693,7 @@ def count_stops(result):
 def finish(record):
     """Score the run, write its one result file, and print the scorecard. Returns the exit code."""
     result = {"run": record["id"], "suite": record["suite"], "repo": record["repo"],
-              "harness_commit": record["harness_commit"], "harness_dirty": record["harness_dirty"],
+              "factory_commit": record["factory_commit"], "factory_dirty": record["factory_dirty"],
               "seconds": record["seconds"], "stops": record["stops"]}
     result.update(score_run(record))
     result["cost"], result["tokens"], result["rounds"] = read_usage(record)
@@ -719,7 +725,7 @@ def confirmed(args, suite):
     if not interactive():
         print("A run spends model tokens. Pass --yes to start one with no terminal.", file=sys.stderr)
         return False
-    question = "Run {} through this harness? It creates a private repo in {} and spends model tokens. Type yes: "
+    question = "Run {} through this factory? It creates a private repo in {} and spends model tokens. Type yes: "
     try:
         return input(question.format(suite["name"], args.owner)).strip().lower() == "yes"
     except EOFError:
@@ -727,24 +733,24 @@ def confirmed(args, suite):
 
 
 def cmd_run(args):
-    harness = Path(args.harness).resolve()
-    clone_into = Path(args.clone_into).resolve() if args.clone_into else harness / "projects"
+    factory = Path(args.factory).resolve()
+    clone_into = Path(args.clone_into).resolve() if args.clone_into else factory / "projects"
     try:
-        suite = load_suite(args.suite, harness, clone_into=clone_into)
+        suite = load_suite(args.suite, factory, clone_into=clone_into)
     except SuiteError as err:
         print("Refused: {}".format(err), file=sys.stderr)
         return 2
     if not clone_into.is_dir():
         print("Refused: {} isn't a folder. Pass --clone-into.".format(clone_into), file=sys.stderr)
         return 2
-    if subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(harness), capture_output=True).returncode:
-        print("Refused: {} has no git commit to record the run against.".format(harness), file=sys.stderr)
+    if subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(factory), capture_output=True).returncode:
+        print("Refused: {} has no git commit to record the run against.".format(factory), file=sys.stderr)
         return 2
     if not confirmed(args, suite):
         print("Nothing was created.", file=sys.stderr)
         return 2
     try:
-        record = create_run(suite, {"owner": args.owner, "harness": harness, "start": args.start,
+        record = create_run(suite, {"owner": args.owner, "factory": factory, "start": args.start,
                                     "clone_into": clone_into, "merge": args.merge_in_run_repo,
                                     "timeout_minutes": args.timeout, "usage_command": args.usage_command})
     except RunError as err:
@@ -761,11 +767,11 @@ def cmd_resume(args):
             # working here means it was interrupted: what it got to still gets scored.
             return finish(record)
         if record["state"] == "working":
-            raise RunError("run {} was interrupted. Score what it got to with: eval_harness.py resume {} --end"
+            raise RunError("run {} was interrupted. Score what it got to with: eval_factory.py resume {} --end"
                            .format(args.run, args.run))
         if record["state"] != "waiting":
             raise RunError("run {} isn't waiting: it's {}".format(args.run, record["state"]))
-        suite = load_suite(record["suite_path"], record["harness"], clone_into=Path(record["clone"]).parent)
+        suite = load_suite(record["suite_path"], record["factory"], clone_into=Path(record["clone"]).parent)
     except (RunError, SuiteError) as err:
         print(err, file=sys.stderr)
         return 2
@@ -774,7 +780,7 @@ def cmd_resume(args):
 
 def cmd_stop(args):
     try:
-        # Only stops change, so the harness's copy is enough, and it's all an older run has.
+        # Only stops change, so the factory's copy is enough, and it's all an older run has.
         record = load_run(args.run, sealed=False)
     except RunError as err:
         print(err, file=sys.stderr)
@@ -822,7 +828,7 @@ def cmd_compare(args):
         print(err, file=sys.stderr)
         return 2
     rows = [("", a["run"], b["run"]),
-            ("Harness", a["harness_commit"][:12], b["harness_commit"][:12]),
+            ("Factory", a["factory_commit"][:12], b["factory_commit"][:12]),
             ("Tests", tally(a["tests"], "passed"), tally(b["tests"], "passed")),
             ("Traps", tally(a["traps"], "avoided"), tally(b["traps"], "avoided")),
             ("Key leaks", len(a["key_leaks"]), len(b["key_leaks"])),
@@ -867,17 +873,17 @@ def cmd_validate(args):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Run a harness through a suite of jobs and score the result.")
+    parser = argparse.ArgumentParser(description="Run a factory through a suite of jobs and score the result.")
     sub = parser.add_subparsers(dest="command", required=True)
-    run = sub.add_parser("run", help="run a harness through a suite: creates a repo and spends model tokens")
+    run = sub.add_parser("run", help="run a factory through a suite: creates a repo and spends model tokens")
     run.add_argument("suite")
-    run.add_argument("--start", required=True, help="what starts the harness on one issue")
+    run.add_argument("--start", required=True, help="what starts the factory on one issue")
     run.add_argument("--owner", required=True, help="the GitHub user or organisation to create the run repo in")
-    run.add_argument("--harness", default=".", help="the harness's folder, where --start runs")
-    run.add_argument("--clone-into", help="where to clone the run repo: the harness's projects/ by default")
+    run.add_argument("--factory", default=".", help="the factory's folder, where --start runs")
+    run.add_argument("--clone-into", help="where to clone the run repo: the factory's projects/ by default")
     run.add_argument("--merge-in-run-repo", action="store_true",
                      help="merge each passing pull request, only in the repo this run created")
-    run.add_argument("--usage-command", help="prints the run's total cost, for a harness that isn't this one")
+    run.add_argument("--usage-command", help="prints the run's total cost, for a factory that isn't this one")
     run.add_argument("--timeout", type=float, default=60, metavar="MINUTES",
                      help="for each issue's start command, and for its CI: 60 by default")
     run.add_argument("--yes", action="store_true", help="don't ask before spending model tokens")

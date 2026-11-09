@@ -29,7 +29,7 @@ const DOC: Doc = {
       stale: false, changed: [], newest_change: null },
   },
   conversations: {
-    harness: { by_model: { 'claude-opus-5-5': { total: 3_000_000 }, '<synthetic>': { total: 0 }, 'claude-haiku-5-5': { total: 450_000 } }, sessions: 30 },
+    factory: { by_model: { 'claude-opus-5-5': { total: 3_000_000 }, '<synthetic>': { total: 0 }, 'claude-haiku-5-5': { total: 450_000 } }, sessions: 30 },
     loop: { by_model: { 'claude-opus-5-5': { total: 20_000_000 } }, sessions: 40 },
   },
   waiting: {
@@ -256,14 +256,14 @@ group('evals', () => {
 group('conversations', () => {
   test('a table of each side with its tokens and sessions, then one of the biggest models, none that used nothing', () => {
     const [sides, models] = conversations(DOC).tables ?? []
-    expect(sides?.rows).toEqual([['Harness', '3.5M', '30'], ['Loop worktrees', '20.0M', '40']])
-    expect(models?.head).toEqual(['Model', 'Harness', 'Loop'])
+    expect(sides?.rows).toEqual([['Factory', '3.5M', '30'], ['Loop worktrees', '20.0M', '40']])
+    expect(models?.head).toEqual(['Model', 'Factory', 'Loop'])
     expect(models?.rows).toEqual([['opus-5-5', '3.0M', '20.0M'], ['haiku-5-5', '450k', '0']])
   })
-  test("with daily figures its chart adds the harness's and the loop's tokens day by day", () => {
-    const c = DOC.conversations as { harness: object; loop: object }
+  test("with daily figures its chart adds the factory's and the loop's tokens day by day", () => {
+    const c = DOC.conversations as { factory: object; loop: object }
     const doc = { ...DOC, conversations: {
-      harness: { ...c.harness, by_day: [{ day: '2026-10-26', tokens: 10 }, { day: '2026-10-27', tokens: 20 }] },
+      factory: { ...c.factory, by_day: [{ day: '2026-10-26', tokens: 10 }, { day: '2026-10-27', tokens: 20 }] },
       loop: { ...c.loop, by_day: [{ day: '2026-10-27', tokens: 5 }] } } }
     expect(conversations(doc).chart?.points).toEqual([{ date: '2026-10-26', value: 10 }, { date: '2026-10-27', value: 25 }])
     expect(conversations(DOC).chart).toBeUndefined()

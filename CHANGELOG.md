@@ -5,7 +5,7 @@ changes, what it adds, the files it touched, and **Do:** what you need to do to
 take it. Ask the agent "what's new" and [`skills/whats-new/`](skills/whats-new/) reads this, and your
 remote's copy, and tells you what you don't have yet.
 
-Changing your own harness? Any noticeable change gets an entry at the top, in
+Changing your own factory? Any noticeable change gets an entry at the top, in
 the same change, not later. Then "what's new" works for your team too.
 Noticeable means:
 
@@ -18,7 +18,7 @@ Noticeable means:
   take it, it needs an entry whatever its size
 
 Typo fixes, rewording, tests on their own and tidying inside a file don't. The
-test: would someone who copied the harness last week want to know, or need to
+test: would someone who copied the factory last week want to know, or need to
 act? If you're unsure, write the entry.
 
 One entry per change someone would name, not per commit: three files that add
@@ -26,6 +26,14 @@ one feature are one entry. The heading is `## YYYY-MM-DD: Name`, and the name
 never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
+
+## 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory
+
+The rest of the names that meant the whole factory. `docs/harness-in-ci.md` is [`docs/factory-in-ci.md`](docs/factory-in-ci.md) and `docs/harness-evals.md` is [`docs/factory-evals.md`](docs/factory-evals.md), each with its GIF, and the evals GIF is redrawn as *Measuring a factory*. `scripts/eval_harness.py` is [`scripts/eval_factory.py`](scripts/eval_factory.py): its `--harness` option is `--factory`, its scorecard's `Harness` row is `Factory`, a run's record names `factory_commit`, and runs are kept in `.sanvio/factory-evals/`. The factory dashboard's Conversations table and chart call the root's side `Factory`, and [`scripts/dashboard_data.py`](scripts/dashboard_data.py) writes it under the key `factory`. `/github all` labels the factory's own line `factory:`. The loop-crew and loop-pane mods, [`scripts/factories.py`](scripts/factories.py) and [`steering/operating.md`](steering/operating.md) say factory where they meant the repo. The harness root, harness-lens and what the guard and skills did in a session keep "harness".
+
+Files: [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`docs/factory-in-ci.gif`](docs/factory-in-ci.gif), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/factory-evals.gif`](docs/factory-evals.gif), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`examples/eval-suite/`](examples/eval-suite/), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), [`examples/mods/github-status/`](examples/mods/github-status/), [`examples/mods/loop-crew/`](examples/mods/loop-crew/), [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`scripts/factories.py`](scripts/factories.py), [`steering/operating.md`](steering/operating.md), [`steering/project-setup.md`](steering/project-setup.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `claude plugin update` each of `github-status`, `loop-crew`, `loop-pane` and, if you have it, `factory-dashboard`, all `@sanvio-factory`, then `/reload-plugins`. The dashboard mod and [`scripts/dashboard_data.py`](scripts/dashboard_data.py) change together, so update the mod when you pull. Change any command that runs `eval_harness.py` to `eval_factory.py`, and `--harness` to `--factory`. Finish or end any eval run (`resume --end`) before you take this: runs made before it stay in `.sanvio/harness-evals/`, where `resume` and `compare` can't reach them, and a run's sealed copy from before it is refused, so rerun any you need.
 
 ## 2026-11-08: One page for upgrading to Sanvio Factory
 

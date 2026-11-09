@@ -1,6 +1,6 @@
-"""Run with: python3 -m unittest discover -s tests -p 'test_eval_harness.py'
+"""Run with: python3 -m unittest discover -s tests -p 'test_eval_factory.py'
 
-No real model or network: gh is a small fake on PATH and the harness is a stub command."""
+No real model or network: gh is a small fake on PATH and the factory is a stub command."""
 import ast
 import contextlib
 import io
@@ -16,7 +16,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-import eval_harness  # noqa: E402
+import eval_factory  # noqa: E402
 import loop  # noqa: E402
 
 
@@ -43,18 +43,18 @@ class LoadSuite(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(os.path.realpath(tmp.name))
         self.suite = self.tmp / "suite"
-        self.harness = self.tmp / "harness"
-        self.harness.mkdir()
+        self.factory = self.tmp / "factory"
+        self.factory.mkdir()
 
     def load(self):
-        return eval_harness.load_suite(self.suite, self.harness)
+        return eval_factory.load_suite(self.suite, self.factory)
 
     def assert_refused(self, words):
-        with self.assertRaises(eval_harness.SuiteError) as caught:
+        with self.assertRaises(eval_factory.SuiteError) as caught:
             self.load()
         self.assertIn(words, str(caught.exception))
 
-    def test_a_suite_outside_the_harness_loads(self):
+    def test_a_suite_outside_the_factory_loads(self):
         write_suite(self.suite)
         suite = self.load()
         self.assertEqual(suite["name"], "tiny")
@@ -118,19 +118,19 @@ class LoadSuite(unittest.TestCase):
         write_suite(self.suite, required_checks=[])
         self.assert_refused("required_checks")
 
-    def test_a_key_inside_the_harness_is_refused(self):
-        self.suite = self.harness / "suite"
+    def test_a_key_inside_the_factory_is_refused(self):
+        self.suite = self.factory / "suite"
         write_suite(self.suite)
-        self.assert_refused("inside the harness")
+        self.assert_refused("inside the factory")
 
     def test_a_key_inside_the_clone_folder_is_refused(self):
         write_suite(self.suite)
-        with self.assertRaises(eval_harness.SuiteError) as caught:
-            eval_harness.load_suite(self.suite, self.harness, clone_into=self.tmp)
+        with self.assertRaises(eval_factory.SuiteError) as caught:
+            eval_factory.load_suite(self.suite, self.factory, clone_into=self.tmp)
         self.assertIn("clone folder", str(caught.exception))
 
-    def test_the_public_example_may_sit_inside_the_harness(self):
-        self.suite = self.harness / "suite"
+    def test_the_public_example_may_sit_inside_the_factory(self):
+        self.suite = self.factory / "suite"
         write_suite(self.suite, public_example=True)
         self.assertTrue(self.load()["public_example"])
 
@@ -166,8 +166,8 @@ class Validate(unittest.TestCase):
             (folder / name).write_text(text)
 
     def validate(self):
-        suite = eval_harness.load_suite(self.suite, self.tmp / "harness")
-        return eval_harness.validate_suite(suite)
+        suite = eval_factory.load_suite(self.suite, self.tmp / "factory")
+        return eval_factory.validate_suite(suite)
 
     def test_a_sound_suite_passes(self):
         self.assertEqual(self.validate(), [])
@@ -206,12 +206,12 @@ class Validate(unittest.TestCase):
         self.assertIn("not scored", " ".join(problems))
 
     def test_the_public_example_is_sound(self):
-        suite = eval_harness.load_suite(ROOT / "examples" / "eval-suite", ROOT)
+        suite = eval_factory.load_suite(ROOT / "examples" / "eval-suite", ROOT)
         self.assertTrue(suite["public_example"])
-        self.assertEqual(eval_harness.validate_suite(suite), [])
+        self.assertEqual(eval_factory.validate_suite(suite), [])
 
     def test_validate_from_the_command_line(self):
-        code = eval_harness.main(["validate", str(ROOT / "examples" / "eval-suite")])
+        code = eval_factory.main(["validate", str(ROOT / "examples" / "eval-suite")])
         self.assertEqual(code, 0)
 
 
@@ -279,8 +279,8 @@ else:
 save()
 """
 
-# A harness: for each issue it reads what to do from STUB_PLAN, then branches, commits, pushes and opens PRs.
-STUB_HARNESS = r"""#!/usr/bin/env python3
+# A factory: for each issue it reads what to do from STUB_PLAN, then branches, commits, pushes and opens PRs.
+STUB_FACTORY = r"""#!/usr/bin/env python3
 import json, os, subprocess, sys, time
 issue, clone, repo = sys.argv[1:4]
 with open(os.environ["STUB_LOG"], "a") as log:
@@ -323,13 +323,13 @@ class WithFakeGh(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.harness = self.tmp / "harness"
-        (self.harness / "projects").mkdir(parents=True)
-        subprocess.run(["git", "init", "-q", str(self.harness)], check=True)
+        self.factory = self.tmp / "factory"
+        (self.factory / "projects").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(self.factory)], check=True)
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q",
-                        "--allow-empty", "-m", "first"], cwd=str(self.harness), check=True)
+                        "--allow-empty", "-m", "first"], cwd=str(self.factory), check=True)
         old = os.getcwd()
-        os.chdir(str(self.harness))
+        os.chdir(str(self.factory))
         self.addCleanup(os.chdir, old)
         self.suite = write_suite(self.tmp / "suite")
         (self.suite / "key" / "hidden.txt").write_text("the hidden answer\n")
@@ -350,13 +350,13 @@ class WithFakeGh(unittest.TestCase):
     def run_cli(self, *args):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-            code = eval_harness.main(list(args))
+            code = eval_factory.main(list(args))
         return code, out.getvalue()
 
     def create(self):
-        suite = eval_harness.load_suite(self.suite, self.harness, clone_into=self.harness / "projects")
-        return eval_harness.create_run(suite, {"owner": "acme", "harness": self.harness, "start": "true",
-                                               "clone_into": self.harness / "projects"})
+        suite = eval_factory.load_suite(self.suite, self.factory, clone_into=self.factory / "projects")
+        return eval_factory.create_run(suite, {"owner": "acme", "factory": self.factory, "start": "true",
+                                               "clone_into": self.factory / "projects"})
 
 
 class Confirmation(WithFakeGh):
@@ -369,10 +369,10 @@ class Confirmation(WithFakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn("--yes", out)
         self.assertEqual(self.gh_calls(), [])
-        self.assertFalse((self.harness / ".sanvio").exists())
+        self.assertFalse((self.factory / ".sanvio").exists())
 
     def test_the_question_says_a_run_spends_model_tokens(self):
-        with mock.patch("eval_harness.interactive", return_value=True), \
+        with mock.patch("eval_factory.interactive", return_value=True), \
                 mock.patch("builtins.input", return_value="no") as asked:
             code, _ = self.run_cli(*self.start_args())
         self.assertIn("model tokens", asked.call_args[0][0])
@@ -417,41 +417,41 @@ class CreateRun(WithFakeGh):
 
     def test_a_repo_that_comes_back_public_stops_the_run(self):
         self.set_gh(force_visibility="PUBLIC")
-        with self.assertRaises(eval_harness.RunError) as caught:
+        with self.assertRaises(eval_factory.RunError) as caught:
             self.create()
         self.assertIn("private", str(caught.exception))
         self.assertFalse([call for call in self.gh_calls() if call.startswith("issue create")])
 
     def test_protection_that_fails_stops_the_run_and_says_why(self):
         self.set_gh(protect_fails=True)
-        with self.assertRaises(eval_harness.RunError) as caught:
+        with self.assertRaises(eval_factory.RunError) as caught:
             self.create()
         self.assertIn("Upgrade to GitHub Pro", str(caught.exception))
         self.assertFalse([call for call in self.gh_calls() if call.startswith("issue create")])
 
     def test_a_protection_error_that_isnt_about_the_plan_doesnt_blame_the_plan(self):
         self.set_gh(protect_fails=True, protect_message="unexpected end of JSON input")
-        with self.assertRaises(eval_harness.RunError) as caught:
+        with self.assertRaises(eval_factory.RunError) as caught:
             self.create()
         self.assertIn("unexpected end of JSON input", str(caught.exception))
         self.assertNotIn("paid plan", str(caught.exception))
 
     def test_a_protection_error_about_the_plan_says_so(self):
         self.set_gh(protect_fails=True)
-        with self.assertRaises(eval_harness.RunError) as caught:
+        with self.assertRaises(eval_factory.RunError) as caught:
             self.create()
         self.assertIn("paid plan", str(caught.exception))
 
     def test_a_stopped_setup_keeps_the_repo_and_names_it(self):
         self.set_gh(protect_fails=True)
-        with self.assertRaises(eval_harness.RunError) as caught:
+        with self.assertRaises(eval_factory.RunError) as caught:
             self.create()
         self.assertIn("acme/eval-tiny-", str(caught.exception))
         self.assertFalse([call for call in self.gh_calls() if "delete" in call])
 
     def test_list_names_a_repo_whose_setup_stopped(self):
         self.set_gh(protect_fails=True)
-        with self.assertRaises(eval_harness.RunError):
+        with self.assertRaises(eval_factory.RunError):
             self.create()
         out = self.run_cli("list")[1]
         self.assertIn("acme/eval-tiny-", out)
@@ -465,14 +465,14 @@ class CreateRun(WithFakeGh):
 
 
 class RunRecord(WithFakeGh):
-    def test_the_record_holds_the_repos_id_and_the_harness_commit(self):
+    def test_the_record_holds_the_repos_id_and_the_factory_commit(self):
         record = self.create()
-        saved = json.loads((self.harness / ".sanvio" / "harness-evals" / record["id"] / "run.json").read_text())
+        saved = json.loads((self.factory / ".sanvio" / "factory-evals" / record["id"] / "run.json").read_text())
         self.assertEqual(saved["repo_id"], "R_" + record["repo"])
-        self.assertEqual(saved["harness_commit"], subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(self.harness), capture_output=True, text=True).stdout.strip())
+        self.assertEqual(saved["factory_commit"], subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(self.factory), capture_output=True, text=True).stdout.strip())
         self.assertNotIn("suite_path", saved)
-        self.assertEqual(eval_harness.load_run(record["id"])["suite_path"], str(self.suite))
+        self.assertEqual(eval_factory.load_run(record["id"])["suite_path"], str(self.suite))
 
     def test_list_names_each_run_repo(self):
         record = self.create()
@@ -485,7 +485,7 @@ class RunRecord(WithFakeGh):
         self.assertIn("No runs", self.run_cli("list")[1])
 
     def test_nothing_in_the_runner_deletes_a_repo(self):
-        source = (ROOT / "scripts" / "eval_harness.py").read_text()
+        source = (ROOT / "scripts" / "eval_factory.py").read_text()
         self.assertNotIn('"delete"', source)
         self.assertNotIn("repo delete", source)
 
@@ -493,8 +493,8 @@ class RunRecord(WithFakeGh):
 class WithStub(WithFakeGh):
     def setUp(self):
         super().setUp()
-        self.stub = self.tmp / "stub_harness.py"
-        self.stub.write_text(STUB_HARNESS)
+        self.stub = self.tmp / "stub_factory.py"
+        self.stub.write_text(STUB_FACTORY)
         self.log = self.tmp / "stub.log"
         self.plan = self.tmp / "plan.json"
         self.plan.write_text("{}")
@@ -505,7 +505,7 @@ class WithStub(WithFakeGh):
         config = json.loads((self.suite / "suite.json").read_text())
         config["issues"].append("issues/02-second.md")
         (self.suite / "suite.json").write_text(json.dumps(config))
-        patcher = mock.patch("eval_harness.CI_POLL_SECONDS", 0.01)
+        patcher = mock.patch("eval_factory.CI_POLL_SECONDS", 0.01)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -520,7 +520,7 @@ class WithStub(WithFakeGh):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
     def only_run(self):
-        records = sorted((self.harness / ".sanvio" / "harness-evals").glob("*/run.json"))
+        records = sorted((self.factory / ".sanvio" / "factory-evals").glob("*/run.json"))
         self.assertEqual(len(records), 1)
         return json.loads(records[0].read_text())
 
@@ -529,16 +529,16 @@ class WithStub(WithFakeGh):
 
 
 class StartCommand(WithStub):
-    def test_it_runs_in_the_harness_with_its_values_filled(self):
+    def test_it_runs_in_the_factory_with_its_values_filled(self):
         self.run_suite("--merge-in-run-repo")
         calls = self.stub_calls()
         record = self.only_run()
         self.assertEqual([c["issue"] for c in calls], ["1", "2"])
         self.assertEqual(calls[0]["clone"], record["clone"])
         self.assertEqual(calls[0]["repo"], record["repo"])
-        self.assertEqual(calls[0]["cwd"], str(self.harness))
+        self.assertEqual(calls[0]["cwd"], str(self.factory))
 
-    def test_project_is_the_clone_relative_to_the_harness(self):
+    def test_project_is_the_clone_relative_to_the_factory(self):
         self.run_cli("run", str(self.suite), "--start", "echo {project} >> " + str(self.log), "--owner", "acme",
                      "--yes")
         self.assertTrue(self.log.read_text().startswith("projects/eval-tiny-"))
@@ -572,12 +572,12 @@ class FolderCases(WithStub):
         self.set_plan(i1={"prs": 0})
         self.run_suite("--clone-into", str(odd))
         self.assertTrue(self.stub_calls()[0]["clone"].startswith(str(odd)))
-        self.assertFalse((self.harness / "pwned").exists())
+        self.assertFalse((self.factory / "pwned").exists())
 
-    def test_a_harness_that_isnt_a_git_repo_is_refused_before_anything_is_created(self):
+    def test_a_factory_that_isnt_a_git_repo_is_refused_before_anything_is_created(self):
         plain = self.tmp / "plain"
         (plain / "projects").mkdir(parents=True)
-        code, out = self.run_suite("--harness", str(plain))
+        code, out = self.run_suite("--factory", str(plain))
         self.assertEqual(code, 2)
         self.assertIn("git", out)
         self.assertEqual(self.gh_calls(), [])
@@ -632,8 +632,8 @@ class Merging(WithStub):
         self.run_suite()
         record = self.only_run()
         record.update(merge=True, timeout_minutes=0)
-        with self.assertRaises(eval_harness.RunError) as caught:
-            eval_harness.merge_pull_request(record, 1, ["checks"])
+        with self.assertRaises(eval_factory.RunError) as caught:
+            eval_factory.merge_pull_request(record, 1, ["checks"])
         self.assertIn("failed checks", str(caught.exception))
         self.assertEqual(self.merges(), [])
 
@@ -642,8 +642,8 @@ class Merging(WithStub):
         self.run_suite()
         record = self.only_run()
         record.update(merge=True, timeout_minutes=0)
-        with self.assertRaises(eval_harness.RunError) as caught:
-            eval_harness.merge_pull_request(record, 1, ["checks"])
+        with self.assertRaises(eval_factory.RunError) as caught:
+            eval_factory.merge_pull_request(record, 1, ["checks"])
         self.assertIn("hasn't passed", str(caught.exception))
         self.assertEqual(self.merges(), [])
 
@@ -663,8 +663,8 @@ class Merging(WithStub):
         state["repos"]["someone/else"] = dict(state["repos"][record["repo"]], id="R_other")
         self.set_gh(**state)
         record["repo"] = "someone/else"
-        with self.assertRaises(eval_harness.RunError) as caught:
-            eval_harness.merge_pull_request(record, 1, ["checks"])
+        with self.assertRaises(eval_factory.RunError) as caught:
+            eval_factory.merge_pull_request(record, 1, ["checks"])
         self.assertIn("isn't this run's repo", str(caught.exception))
         self.assertEqual(self.merges(), [])
 
@@ -673,8 +673,8 @@ class Merging(WithStub):
         self.run_suite("--merge-in-run-repo")
         record = self.only_run()
         record["merge"] = False
-        with self.assertRaises(eval_harness.RunError):
-            eval_harness.merge_pull_request(record, 1, ["checks"])
+        with self.assertRaises(eval_factory.RunError):
+            eval_factory.merge_pull_request(record, 1, ["checks"])
         self.assertEqual(self.merges(), [])
 
 
@@ -737,7 +737,7 @@ class Stops(WithStub):
         self.run_suite("--merge-in-run-repo")
         run_id = self.only_run()["id"]
         self.run_cli("stop", run_id, "had to fix it afterwards")
-        result = json.loads((self.harness / ".sanvio" / "harness-evals" / run_id / "result.json").read_text())
+        result = json.loads((self.factory / ".sanvio" / "factory-evals" / run_id / "result.json").read_text())
         self.assertEqual(result["stops"][-1]["why"], "had to fix it afterwards")
 
     def test_stop_on_an_unknown_run_says_so(self):
@@ -747,7 +747,7 @@ class Stops(WithStub):
 
 
 class Boundaries(unittest.TestCase):
-    SOURCE = (ROOT / "scripts" / "eval_harness.py").read_text()
+    SOURCE = (ROOT / "scripts" / "eval_factory.py").read_text()
 
     def test_the_runner_imports_only_the_standard_library_and_the_loop(self):
         imported = set()
@@ -785,7 +785,7 @@ class ScoredRun(WithStub):
         (self.suite / "key" / "score").write_text(SCORE_RUN)
 
     def result(self):
-        return json.loads((self.harness / ".sanvio" / "harness-evals" / self.only_run()["id"] / "result.json").read_text())
+        return json.loads((self.factory / ".sanvio" / "factory-evals" / self.only_run()["id"] / "result.json").read_text())
 
 
 class Scoring(ScoredRun):
@@ -837,7 +837,7 @@ class Scoring(ScoredRun):
         self.assertEqual(code, 1)
         self.assertIn("hidden.txt", out)
 
-    def test_an_answer_the_harness_wrote_the_same_as_the_reference_isnt_a_leak(self):
+    def test_an_answer_the_factory_wrote_the_same_as_the_reference_isnt_a_leak(self):
         (self.suite / "key" / "reference").mkdir()
         (self.suite / "key" / "reference" / "answer.txt").write_text("right\n")
         (self.suite / "key" / "wrong" / "close").mkdir(parents=True)
@@ -849,7 +849,7 @@ class Scoring(ScoredRun):
     def test_the_result_holds_what_the_spec_asks(self):
         self.run_suite("--merge-in-run-repo")
         result = self.result()
-        for field in ("suite", "harness_commit", "tests", "traps", "seconds", "stops", "cost"):
+        for field in ("suite", "factory_commit", "tests", "traps", "seconds", "stops", "cost"):
             self.assertIn(field, result)
 
     def test_the_tiny_public_suite_runs_with_a_stub(self):
@@ -881,9 +881,9 @@ class Cost(ScoredRun):
         self.assertEqual(self.result()["cost"], "not reported")
 
     def starter_run(self, entries, *extra):
-        """A harness whose start command names scripts/loop.py and leaves the usage that loop would."""
-        (self.harness / "scripts").mkdir()
-        (self.harness / "scripts" / "loop.py").write_text("")
+        """A factory whose start command names scripts/loop.py and leaves the usage that loop would."""
+        (self.factory / "scripts").mkdir()
+        (self.factory / "scripts" / "loop.py").write_text("")
         usage = self.tmp / "usage.json"
         usage.write_text(json.dumps(entries))
         start = ('mkdir -p .loop/projects/$(basename {{clone}})/issue-{{issue}} && '
@@ -891,7 +891,7 @@ class Cost(ScoredRun):
                  'exit 1 # scripts/loop.py').format(usage)
         return self.run_cli("run", str(self.suite), "--start", start, "--owner", "acme", "--yes", *extra)
 
-    def test_this_harness_reads_its_loops_own_usage(self):
+    def test_this_factory_reads_its_loops_own_usage(self):
         self.starter_run([{"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.5},
                           {"input_tokens": 1, "output_tokens": 1, "cost_usd": 0.25}])
         self.assertEqual(self.result()["cost"], 0.75)
@@ -917,7 +917,7 @@ class Cost(ScoredRun):
                           {"step": "build", "round": 3, "input_tokens": 1}])
         self.assertEqual(self.result()["rounds"], {"1": 3})
 
-    def test_another_harness_reports_no_rounds(self):
+    def test_another_factory_reports_no_rounds(self):
         self.run_suite("--merge-in-run-repo")
         self.assertEqual(self.result()["rounds"], "not reported")
         self.assertEqual(self.result()["tokens"], "not reported")
@@ -957,8 +957,8 @@ DECOY = {"input_tokens": 1000000, "cost_usd": 1000.0}
 class ReadThroughTheLoop(ScoredRun):
     def setUp(self):
         super().setUp()
-        (self.harness / "scripts").mkdir()
-        (self.harness / "scripts" / "loop.py").write_text("")
+        (self.factory / "scripts").mkdir()
+        (self.factory / "scripts" / "loop.py").write_text("")
         script = self.tmp / "record_through_the_loop.py"
         script.write_text("SCRIPTS = {!r}\nCOUNTED = {!r}\nDECOY = {!r}\n".format(
             str(ROOT / "scripts"), COUNTED, DECOY) + RECORD_THROUGH_THE_LOOP)
@@ -974,10 +974,10 @@ class ReadThroughTheLoop(ScoredRun):
     def test_the_entries_it_must_not_count_were_there_to_count(self):
         project = Path(self.only_run()["clone"]).name
         for where, number in ((None, 1), ("other", 1), (project, 99)):
-            self.assertEqual([entry["cost_usd"] for entry in loop.issue_usage(self.harness, where, number)], [1000.0])
+            self.assertEqual([entry["cost_usd"] for entry in loop.issue_usage(self.factory, where, number)], [1000.0])
 
     def test_the_runner_doesnt_know_where_the_loop_keeps_usage(self):
-        source = (ROOT / "scripts" / "eval_harness.py").read_text()
+        source = (ROOT / "scripts" / "eval_factory.py").read_text()
         self.assertNotIn(".loop", source)
         self.assertNotIn("usage.json", source)
 
@@ -986,7 +986,7 @@ def result_file(folder, name, tests, traps, cost=1.0, seconds=60, stops=0, round
     folder = Path(folder) / name
     folder.mkdir(parents=True)
     (folder / "result.json").write_text(json.dumps({
-        "run": name, "suite": "tiny", "harness_commit": name + "000", "seconds": seconds, "cost": cost,
+        "run": name, "suite": "tiny", "factory_commit": name + "000", "seconds": seconds, "cost": cost,
         "rounds": rounds, "tokens": tokens,
         "stops": [{"why": "x", "kind": "run"}] * stops, "key_leaks": [],
         "tests": [{"name": n, "passed": p} for n, p in tests.items()],
@@ -996,7 +996,7 @@ def result_file(folder, name, tests, traps, cost=1.0, seconds=60, stops=0, round
 class Compare(WithFakeGh):
     def setUp(self):
         super().setUp()
-        self.runs = self.harness / ".sanvio" / "harness-evals"
+        self.runs = self.factory / ".sanvio" / "factory-evals"
 
     def compare(self, a_tests, a_traps, b_tests, b_traps, **b_fields):
         result_file(self.runs, "a", a_tests, a_traps)
@@ -1097,7 +1097,7 @@ class Interrupted(ScoredRun):
             return process
 
         self.set_plan(i1={"sleep": 30})
-        with mock.patch("eval_harness.subprocess.Popen", popen), self.assertRaises(KeyboardInterrupt):
+        with mock.patch("eval_factory.subprocess.Popen", popen), self.assertRaises(KeyboardInterrupt):
             self.run_suite("--merge-in-run-repo")
         return started[0]
 
@@ -1120,10 +1120,10 @@ class Interrupted(ScoredRun):
 
 
 class SealedRecord(WithStub):
-    """What a run trusts is kept outside the harness folder, where the agents under test work."""
+    """What a run trusts is kept outside the factory folder, where the agents under test work."""
 
     def edit_record(self, **fields):
-        path = next((self.harness / ".sanvio" / "harness-evals").glob("*/run.json"))
+        path = next((self.factory / ".sanvio" / "factory-evals").glob("*/run.json"))
         record = json.loads(path.read_text())
         record.update(fields)
         path.write_text(json.dumps(record))
@@ -1132,9 +1132,9 @@ class SealedRecord(WithStub):
     def merge_by_hand(self, number=1):
         WaitingForAPerson.merge_by_hand(self, number)
 
-    def test_the_keys_location_isnt_written_in_the_harness(self):
+    def test_the_keys_location_isnt_written_in_the_factory(self):
         self.run_suite()
-        for path in (self.harness / ".sanvio").rglob("*"):
+        for path in (self.factory / ".sanvio").rglob("*"):
             if path.is_file():
                 self.assertNotIn(str(self.suite), path.read_text())
 
@@ -1174,6 +1174,24 @@ class SealedRecord(WithStub):
         code, out = self.run_cli("resume", self.only_run()["id"])
         self.assertEqual(code, 2)
         self.assertIn("sealed", out)
+
+    def test_a_sealed_copy_missing_a_field_isnt_resumed_and_its_folder_isnt_trusted(self):
+        # A sealed copy from before the rename has harness, not factory: run.json, which agents can
+        # write, mustn't fill the gap and point the start command at another folder (security review).
+        marker = self.tmp / "elsewhere"
+        marker.mkdir()
+        self.run_suite()
+        record = self.only_run()
+        path = next(self.sealed.glob("*.json"))
+        sealed = json.loads(path.read_text())
+        sealed["harness"] = sealed.pop("factory")
+        path.write_text(json.dumps(sealed))
+        self.edit_record(factory=str(marker))
+        self.merge_by_hand()
+        code, out = self.run_cli("resume", record["id"])
+        self.assertEqual(code, 2)
+        self.assertIn("before the rename", out)
+        self.assertEqual([c["issue"] for c in self.stub_calls()], ["1"])
 
     def test_stop_still_works_on_a_run_with_no_sealed_copy(self):
         self.run_suite()

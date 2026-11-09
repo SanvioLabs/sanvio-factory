@@ -30,7 +30,7 @@ person's answer.
 
 1. **Say the mistake back** in one line: what the agent did, and what it
    should have done.
-2. **Ask who the rule applies to:** everyone using the harness, one project, or
+2. **Ask who the rule applies to:** everyone using the factory, one project, or
    only this person. For one project or only this person, it goes in the last
    two rows below, whatever it's about. For everyone, pick the one file that
    governs it from the rest. Strongest first, and stop at the first that fits:
