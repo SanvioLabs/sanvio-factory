@@ -1,3 +1,5 @@
+import type { Loop as CrewLoop, Seen as CrewSeen } from './crew'
+
 // What scripts/loop.py writes to .loop/status.json. Every field is optional here: an older or
 // half-written file still draws, with what it has.
 // waiting_on: the open issues it depends on, while the loop waits for them to close.
@@ -56,11 +58,21 @@ export type Seen = {
 export type Tab = 'queue' | 'active' | 'finished'
 export type View = { tab: Tab; start: number }
 
+// Which view the pane draws: the List of tabs, or the Crew's lanes.
+export type Mode = 'list' | 'crew'
+
 declare module 'claude-code' {
   interface PluginState {
     // seen: the loop on screen. loops: every loop's last look, the factory first. picked: the loop to
     // show, a project's name or '' for the factory, null until the pane has opened on one. focus: the
     // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
-    'factory-floor': { launch: string | null; seen: Seen | null; view: View | null; loops: Seen[] | null; picked: string | null; focus: string | null }
+    // mode: the view the person picked. The crew- keys are the Crew view's own, as loop-crew keeps them:
+    // crew-shown the loop it shows, crew-seen that loop's last look, crew-loops every loop its picker
+    // lists, crew-focus the focus as it last read it. The Crew view shares launch with the List.
+    'factory-floor': {
+      launch: string | null; seen: Seen | null; view: View | null; loops: Seen[] | null; picked: string | null; focus: string | null
+      mode: Mode
+      'crew-shown': string; 'crew-seen': CrewSeen | null; 'crew-loops': CrewLoop[] | null; 'crew-focus': string | null
+    }
   }
 }

@@ -713,6 +713,23 @@ group('project loops', () => {
   const pickOptions = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
     ((await ui.find({ key: 'loop-pick' })) as { props: { options: { value: string; label: string }[] } }).props.options
 
+  test('/factory-floor closing the pane in the Crew view opens it on the List next time', async ($, on) => {
+    const { close } = world(on, twoLoops())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect((await ui.find({ key: 'mode-list' }))?.props.variant).toBe('primary')
+    await ui.press({ key: 'mode-crew' })
+    expect((await ui.find({ key: 'mode-crew' }))?.props.variant).toBe('primary')
+    expect(await ui.find({ key: 'tab-queue' })).toBeUndefined()
+    await ui.unmount()
+    expect(await say($ as unknown as Dollar)).toBe('Loop pane closed.')
+    await open($ as unknown as Dollar)
+    const again = await $.ui.mount(PANE)
+    expect(await again.find({ key: 'tab-queue' })).toBeDefined()
+    expect((await again.find({ key: 'mode-list' }))?.props.variant).toBe('primary')
+    await again.unmount()
+    await close()
+  })
   test('there is no row without projects', async ($, on) => {
     const { close } = world(on, new Map([[`${HARNESS}/status.json`, statusText('factory job')]]))
     await open($ as unknown as Dollar)

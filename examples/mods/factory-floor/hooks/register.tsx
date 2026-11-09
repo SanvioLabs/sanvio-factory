@@ -3,9 +3,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
 import type { Lists, Tone } from './logic'
-import type { Row, Seen, Tab, View } from '../types'
+import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
+import { MIN_COLUMNS } from './crew-logic'
+import type { Mode, Row, Seen, Tab, View } from '../types'
 
-const PANE = 'factory-floor'
 // Not /loop: that's Claude Code's own command for running a prompt on a schedule. It sits beside /factory-dashboard.
 const COMMAND = 'factory-floor'
 const POLL_MS = 2000
@@ -19,6 +20,11 @@ const loopsAtom = atom({ plugin: 'factory-floor', key: 'loops' } as const, null)
 const pickedAtom = atom({ plugin: 'factory-floor', key: 'picked' } as const, null)
 // The project in focus as last read from this session's file, or null, so a read can tell it changed.
 const focusAtom = atom({ plugin: 'factory-floor', key: 'focus' } as const, null)
+// The view the person picked with the List and Crew buttons. Each /factory-floor opens on the List.
+const modeAtom = atom({ plugin: 'factory-floor', key: 'mode' } as const, 'list')
+// The view the pane last drew. Only that view's poll runs and asks for redraws: the other's values
+// wait until it's drawn again. Not an atom: a write would redraw the pane.
+let drawnView: Mode | null = null
 // A pick saving the focus: how many saves are under way, and a count bumped as each starts and ends.
 // Between a save's write and its read back, the file says what the pane already shows, and a read
 // landing there mustn't take it for a change.
@@ -213,7 +219,7 @@ async function refresh($: EngineInterface): Promise<void> {
     const last = was.find(l => l.project === loop.project)
     for (const line of changes(last?.status ?? null, loop.status, loop.project)) $.ui.toast(line)
   }
-  $.ui.invalidate('ui.render')
+  if (drawnView !== 'crew') $.ui.invalidate('ui.render')
 }
 
 // Show another loop, from its last look, on its busiest tab. The pick holds until the pane is closed and
@@ -265,10 +271,44 @@ function startPolling($: EngineInterface): void {
       // The dot and the running clock move between reads, so redraw for them while a job is on. The
       // header's uptime moves too, so a live loop redraws at least at every read.
       const seen = await read($, seenAtom)
-      if (isPulsing(seen) || (isRead && seen?.isLocked)) $.ui.invalidate('ui.render')
+      if (drawnView !== 'crew' && (isPulsing(seen) || (isRead && seen?.isLocked))) $.ui.invalidate('ui.render')
     })().catch(() => {})
   })
   stopPolling = () => timer.cancel()
+}
+
+// While the Crew is drawn the List reads nothing: its tick looks for the pane twice a second.
+function stopList(): void {
+  stopPolling?.()
+  stopPolling = null
+}
+
+// The Crew button: the loop the List has on screen, in the Crew's lanes. The Crew reads it before the
+// view changes, so its reads ask for no redraws of their own; the change of mode draws it.
+async function toCrew($: EngineInterface): Promise<void> {
+  if (drawnView === 'crew') return
+  const seen = await read($, seenAtom)
+  await openCrew($, seen?.project ?? '')
+  await update($, modeAtom, () => 'crew')
+}
+
+// The List button: the loop the Crew has on screen, in the List, without writing the session's focus.
+// The focus as it stands is kept, so the List's next read doesn't move it off that loop. Neither button
+// closes the pane.
+async function toList($: EngineInterface): Promise<void> {
+  if (drawnView === 'list' && (await read($, modeAtom)) === 'list') return
+  const shown = await crewShown($)
+  await update($, pickedAtom, () => shown)
+  const root = await rootOf($)
+  if (root) {
+    const focus = await readFocus($, root)
+    await update($, focusAtom, () => focus)
+  }
+  stopCrew()
+  await update($, modeAtom, () => 'list')
+  await $.ui.open({ id: PANE, title: 'Loop' })
+  await refresh($)
+  startPolling($)
 }
 
 export const register: Register = on => {
@@ -291,6 +331,10 @@ export const register: Register = on => {
       if ((await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)) {
         try {
           await $.ui.close({ id: PANE })
+          // Closed in either view, it opens on the List next time.
+          stopCrew()
+          drawnView = null
+          await update($, modeAtom, () => 'list')
           return { text: 'Loop pane closed.' }
         } catch {
           return { text: "The loop pane couldn't close. The × in its corner closes it." }
@@ -300,6 +344,10 @@ export const register: Register = on => {
       if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.` }
       // Opening picks again: the project in focus when it has a loop, else the first loop running, else
       // the factory. The focus read here is remembered, so it isn't a change, and opening writes nothing.
+      // It opens on the List, also after the × closed the pane in the Crew view.
+      stopCrew()
+      drawnView = null
+      await update($, modeAtom, () => 'list')
       await update($, pickedAtom, () => null)
       const focus = await readFocus($, root)
       await update($, focusAtom, () => focus)
@@ -315,12 +363,48 @@ export const register: Register = on => {
   // The wheel and scroll keys move the tab's list, under a header that stays put. At either end of the
   // list, or with nothing to move, the pane scrolls as usual.
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    // The Crew's lanes have no list to move: the pane scrolls as usual.
+    if (drawnView === 'crew') return next(e)
     const moved = e.by !== 0 && (await move($, Math.sign(e.by), e.bodyRows).catch(() => false))
     return moved ? {} : next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
+    // The Crew view, when picked and there's room. A terminal under MIN_COLUMNS has no room for its
+    // board, so the List stands in until it's widened, and the mode stays Crew so widening brings it
+    // back. The other surfaces draw the board at any width.
+    const mode = await read($, modeAtom)
+    const isCrew = mode === 'crew' && (e.surface !== 'terminal' || e.props.bodyColumns >= MIN_COLUMNS)
+    const modeButtons = [
+      <Button
+        key="mode-list"
+        label="List"
+        variant={isCrew ? undefined : 'primary'}
+        dimColor={isCrew}
+        onPress={() => toList($)}
+      />,
+      <Button
+        key="mode-crew"
+        label="Crew"
+        variant={isCrew ? 'primary' : undefined}
+        dimColor={!isCrew}
+        onPress={() => toCrew($)}
+      />,
+    ]
+    if (isCrew) {
+      drawnView = 'crew'
+      stopList()
+      return renderCrew($, e, (
+        <Box key="modes" flexDirection="row" columnGap={1}>
+          {modeButtons}
+        </Box>
+      ))
+    }
+    drawnView = 'list'
+    stopCrew()
+    // Standing in for the Crew on a narrow terminal, the List reads the loop itself.
+    if (mode === 'crew') startPolling($)
     // The mobile app draws no Select, so there the loops stay as buttons however many there are.
     const Select = e.surface === 'mobile' ? null : $.ui.resolve(e).Select
     const seen = await read($, seenAtom)
@@ -419,25 +503,27 @@ export const register: Register = on => {
           {!top.wraps && state}
         </Box>
         {top.wraps ? state : <Text> </Text>}
-        {/* The buttons' row stays when there are none, so the tabs don't move as the loop starts or stops. */}
-        {!tmux && <Text key="actions"> </Text>}
-        {tmux && (
-          <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={1}>
-            {watchFile && (
-              <Button
-                key="watch"
-                label="Watch it"
-                onPress={press =>
-                  openOrCopy($, watchFile, ['open'], () => $.ui.copy({ text: watchCommand(seen) ?? '', surface: press.surface }), WATCH_TOAST)}
-              />
-            )}
+        {/* The buttons' row, with the view buttons first, stays whether or not the loop runs in tmux, so */}
+        {/* the tabs don't move as the loop starts or stops. It's the view buttons' row in the List, so */}
+        {/* the List takes no row more than before. */}
+        <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={1}>
+          {modeButtons}
+          {tmux && watchFile && (
+            <Button
+              key="watch"
+              label="Watch it"
+              onPress={press =>
+                openOrCopy($, watchFile, ['open'], () => $.ui.copy({ text: watchCommand(seen) ?? '', surface: press.surface }), WATCH_TOAST)}
+            />
+          )}
+          {tmux && (
             <Button
               key="tmux"
               label="Copy attach command"
               onPress={press => $.ui.copy({ text: tmux, surface: press.surface })}
             />
-          </Box>
-        )}
+          )}
+        </Box>
         <Text dimColor>{'─'.repeat(width)}</Text>
         {Select && loops.length > 1 ? (
           <Box key="loop-picker" flexDirection="row" columnGap={1}>
