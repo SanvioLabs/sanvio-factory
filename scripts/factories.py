@@ -834,9 +834,12 @@ def run_loop_review(root, record, head):
         return "returned as pull request #{}, but the loop reviewed it against {}, not {}, so it doesn't count".format(
             pr, shown(found.get("base") or "no base"), record["base"])
     if found.get("state") == "posted" and not found.get("verdict"):
+        # loop.py review skips a head it already reviewed against the same base, so a rerun
+        # returns the same verdict-less result: only a new commit from the factory clears it (#423)
+        record["waiting_on"] = "factory"
         return ("returned as pull request #{}, but the loop's review of {} posted with no verdict, so it doesn't "
-                "count: see the loop's log, then python3 scripts/factories.py review {}").format(
-            pr, head["headRefOid"][:7], record["run"])
+                "count: a new commit from the factory clears it, and the run waits for one").format(
+            pr, head["headRefOid"][:7])
     before = record.get("review") or {}
     record["review"] = {"sha": found["sha"], "state": found.get("state", ""), "note": found.get("note", ""),
                         "posted": found.get("verdict")}  # the verdict loop.py wrote, to check GitHub's against

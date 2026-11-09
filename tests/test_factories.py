@@ -3594,6 +3594,17 @@ class AfterReady(Reviewing):
         self.assertIn("posted with no verdict, so it doesn't count", out)
         self.assertIsNone(self.record().get("review"))
 
+    def test_a_posted_review_with_no_verdict_waits_on_the_factory_not_a_rerun(self):
+        """#423: loop.py skips a head it already reviewed against the same base, so telling a person to run
+        review again asks for the same verdict-less answer: the run waits for a new commit instead."""
+        (self.home / "loop-outcome.json").write_text(json.dumps(
+            {"sha": self.head, "state": "posted", "note": "", "verdict": None, "base": "main", "no_verdict": True}))
+        self.linked(prs=[31])
+        _, out, _ = self.review()
+        self.assertIn("a new commit from the factory clears it", out)
+        self.assertNotIn("factories.py review", out)
+        self.assertEqual(self.record()["waiting_on"], "factory")
+
     def test_failing_checks_after_ready_wait_on_a_person_with_no_limit(self):
         self.rollup(self.run_("checks", conclusion="FAILURE"))
         self.review()
