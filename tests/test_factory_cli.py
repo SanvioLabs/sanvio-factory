@@ -7,14 +7,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "bin" / "harness"
+SCRIPT = ROOT / "bin" / "factory"
 APPROVED = "# approved\nRead\nGrep\nBash(gh pr view:*)\n"
 TOOLS = "Read, Grep, Bash(gh pr view:*)"
-PASSED = "Read,Grep,Bash(gh pr view:*)"  # the checked entries, as bin/harness passes them on
+PASSED = "Read,Grep,Bash(gh pr view:*)"  # the checked entries, as bin/factory passes them on
 
-# Stands in for claude: writes where it ran, $HARNESS_HEADLESS and its argv, one per line.
+# Stands in for claude: writes where it ran, $SANVIO_HEADLESS and its argv, one per line.
 FAKE_CLAUDE = """#!/bin/sh
-{ pwd -P; printf '%s\\n' "$HARNESS_HEADLESS"; printf '%s\\n' "$@"; } > "$RECORD"
+{ pwd -P; printf '%s\\n' "$SANVIO_HEADLESS"; printf '%s\\n' "$@"; } > "$RECORD"
 """
 
 
@@ -24,17 +24,17 @@ def skill(root, name, extra):
     (folder / "SKILL.md").write_text("---\nname: {}\ndescription: A skill.\n{}---\n\n# {}\n".format(name, extra, name))
 
 
-class HarnessCli(unittest.TestCase):
-    """bin/harness copied into a fake harness, run from another folder, with a fake claude on PATH."""
+class FactoryCli(unittest.TestCase):
+    """bin/factory copied into a fake harness, run from another folder, with a fake claude on PATH."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         tmp = Path(self.dir.name).resolve()
         self.root = tmp / "harness"
         (self.root / "bin").mkdir(parents=True)
-        shutil.copy2(SCRIPT, self.root / "bin" / "harness")
-        (self.root / "bin" / "harness").chmod(0o755)  # test_the_script_is_executable checks the real file's bit
-        (self.root / "bin" / "harness-tools").write_text(APPROVED)
+        shutil.copy2(SCRIPT, self.root / "bin" / SCRIPT.name)
+        (self.root / "bin" / SCRIPT.name).chmod(0o755)  # test_the_script_is_executable checks the real bits
+        (self.root / "bin" / "factory-tools").write_text(APPROVED)
         skill(self.root, "x", "headless: true\nheadless-tools: {}\n".format(TOOLS))
         skill(self.root, "plain", "headless-tools: Read\n")
         fake = tmp / "fakebin"
@@ -45,20 +45,22 @@ class HarnessCli(unittest.TestCase):
         self.elsewhere.mkdir()
         self.record = tmp / "record"
         self.env = dict(os.environ, PATH="{}{}{}".format(fake, os.pathsep, os.environ["PATH"]), RECORD=str(self.record))
-        self.env.pop("HARNESS_HEADLESS", None)
+        self.env.pop("SANVIO_HEADLESS", None)
+        self.env.pop("HARNESS_HEADLESS", None)  # the guard still reads it, so the fake must not inherit it
 
     def tearDown(self):
         self.dir.cleanup()
 
-    def run_harness(self, *args):
-        return subprocess.run([str(self.root / "bin" / "harness")] + list(args), cwd=self.elsewhere,
+    def run_harness(self, *args, name="factory"):
+        return subprocess.run([str(self.root / "bin" / name)] + list(args), cwd=self.elsewhere,
                               env=self.env, capture_output=True, text=True, timeout=30)
 
     def recorded(self):
         return self.record.read_text().splitlines()
 
     def test_the_script_is_executable(self):
-        self.assertTrue(os.access(SCRIPT, os.X_OK), "chmod +x bin/harness")
+        self.assertTrue(os.access(SCRIPT, os.X_OK), "chmod +x bin/factory")
+        self.assertFalse((ROOT / "bin" / "harness").exists(), "bin/harness went with the old names")
 
     def test_a_headless_skill_runs_from_the_root_with_only_its_tools(self):
         result = self.run_harness("x", "a", "b")

@@ -26,22 +26,22 @@ export type Status = { issues: Row[] }
 
 // One look at one loop's files.
 export type Seen = {
-  // The project under .loop/projects/ this loop belongs to. Unset for the harness's own.
+  // The project under .loop/projects/ this loop belongs to. Unset for the factory's own.
   project?: string
   status: Status | null
   // A lock whose holder is alive: the loop is running.
   isLive: boolean
 }
 
-// One loop as the picker lists it: the root it's under, its project (unset for the harness's own), its
+// One loop as the picker lists it: the root it's under, its project (unset for the factory's own), its
 // status file, and whether a live process holds its lock.
 export type Loop = { root: string; project?: string; status: Status | null; isLocked: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
     // launch: the folder the session started in. shown: the loop on screen, a project's name or ''
-    // for the harness. seen: that loop's last look, null until the first. loops: every loop the picker
-    // lists, the harness first, null until the first read. focus: the session's /project focus as last
+    // for the factory. seen: that loop's last look, null until the first. loops: every loop the picker
+    // lists, the factory first, null until the first read. focus: the session's /project focus as last
     // read, null for none.
     'loop-crew': { launch: string | null; shown: string; seen: Seen | null; loops: Loop[] | null; focus: string | null }
   }

@@ -1,6 +1,6 @@
-# Maintaining the starter
+# Maintaining Sanvio Factory
 
-For whoever releases the starter itself. A copy of the harness needs none of
+For whoever releases Sanvio Factory itself. A copy of this factory needs none of
 this, and most can't reach the repo it names.
 
 ## Factories, against GitHub

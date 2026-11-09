@@ -55,12 +55,12 @@ is built so a figure stands at its station without SMIL.
 
 ## Turn it on
 
-It loads by itself: the harness's [`.claude/settings.json`](../../../.claude/settings.json) turns it on. If `/loop-crew`
+It loads by itself: the factory's [`.claude/settings.json`](../../../.claude/settings.json) turns it on. If `/loop-crew`
 isn't there, install it from inside a session, at the root, or run `/reload-plugins`:
 
 ```
 /plugin marketplace add ./
-/plugin install loop-crew@sanvio-harness-starter
+/plugin install loop-crew@sanvio-factory
 ```
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json).
@@ -68,14 +68,14 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 To turn it off just for you:
 
 ```bash
-claude plugin disable loop-crew@sanvio-harness-starter --scope local
+claude plugin disable loop-crew@sanvio-factory --scope local
 ```
 
 ## Using it
 
 | Type | Does |
 |---|---|
-| `/loop-crew` | Opens the pane on the project in focus when the picker lists that project's loop, titled `Loop crew: <name>`, and otherwise on the harness's loop, titled `Loop crew` |
+| `/loop-crew` | Opens the pane on the project in focus when the picker lists that project's loop, titled `Loop crew: <name>`, and otherwise on the factory's loop, titled `Loop crew` |
 | `/loop-crew <name>` | Opens it on the project's loop in `.loop/projects/<name>/`, titled `Loop crew: <name>` |
 | The same again | Closes the pane |
 | Another loop's name, or no name while another loop is shown | Switches the open pane to that loop |
@@ -83,10 +83,10 @@ claude plugin disable loop-crew@sanvio-harness-starter --scope local
 A name must be exactly a folder under `.loop/projects/`. Anything else, `../x` included, answers
 `No loop for <name> under .loop/projects/.` and changes nothing.
 
-The focus is the one `/project` sets, read from `.harness/project/<session id>` the way the loop
+The focus is the one `/project` sets, read from `.sanvio/project/<session id>` the way the loop
 pane reads it: a real folder directly under [`projects/`](../../../projects/), not a link. While the pane is open it
 follows `/project` changes on each poll: a new focus whose loop the picker lists switches the pane
-to it, and a cleared focus switches it to the harness. A focus whose loop isn't listed switches
+to it, and a cleared focus switches it to the factory's loop. A focus whose loop isn't listed switches
 nothing. A pick, or `/loop-crew <name>`, holds until the focus changes. Loop crew never sets the
 focus.
 
@@ -104,7 +104,7 @@ Checked in this order:
 ## The board
 
 When there's more than one loop, a picker sits above the header, and above the pane's message when
-there's no board. It lists each loop whose `status.json` parses, the harness by its folder's name
+there's no board. It lists each loop whose `status.json` parses, the factory's own by its folder's name
 and each folder under `.loop/projects/` by its own, the loops on a job first, each marked `●` with
 its count past one. Picking a loop switches the pane to it and retitles it, as `/loop-crew <name>`
 does. Picking the loop already shown changes nothing, and a pick never closes the pane. The mobile
@@ -167,7 +167,7 @@ An issue walking out keeps its times, with nothing counting.
 
 Under the times, each station shows what its step has cost in the issue's current run and how many
 tokens it used. The figures come from `<loop dir>/issue-<N>/usage.json`, which the loop adds an
-entry to after each agent run: `.loop/issue-<N>/usage.json` for the harness's loop, and
+entry to after each agent run: `.loop/issue-<N>/usage.json` for the factory's loop, and
 `.loop/projects/<name>/issue-<N>/usage.json` for a project's. They are the current run's only: an
 entry counts when its `run_started` is the row's `started` in `status.json`, as the loop counts its
 own token budget, so a relabelled issue starts again from nothing. The cost is Claude Code's own
@@ -228,7 +228,7 @@ station's colour.
 ## What it doesn't do
 
 It only reads. Every 2 seconds while the pane is open it reads every loop's `status.json` and `lock`,
-for the board and the picker, the session's focus in `.harness/project/<session id>`, and the
+for the board and the picker, the session's focus in `.sanvio/project/<session id>`, and the
 `usage.json` of each issue whose lane it draws when [the spend](#the-spend) has changed, and it
 stops once the pane closes. The one process it runs is `kill -0 <pid>`, to check the
 lock's holder. It never writes a file, never runs [`scripts/loop.py`](../../../scripts/loop.py) or `gh`, and spends no model

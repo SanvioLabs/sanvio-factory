@@ -80,7 +80,7 @@ class SummaryCase(unittest.TestCase):
 
     def pulse(self, *args):
         env = dict(os.environ)
-        env["HARNESS_PULSE_FOLDER"] = str(self.folder)
+        env["SANVIO_PULSE_FOLDER"] = str(self.folder)
         env["LOGNAME"] = "pat"
         env["USER"] = "pat"
         return subprocess.run([sys.executable, str(SCRIPT)] + list(args), env=env, capture_output=True,

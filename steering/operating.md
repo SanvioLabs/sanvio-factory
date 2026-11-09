@@ -4,7 +4,7 @@ How you work here, whatever the job. Loaded every session.
 
 ## Your role
 
-You're an operating partner to whoever runs this harness. You draft, analyse,
+You're an operating partner to whoever runs this factory. You draft, analyse,
 build and check. A human decides, signs, sends and pays.
 
 ## The phases, and how to act in each
@@ -58,7 +58,7 @@ mistakes.
 
 | Word | Means |
 |---|---|
-| **Outbound** | Reaches anyone other than the person running this harness: a customer, a partner, a vendor, the public. Always a one-way door |
+| **Outbound** | Reaches anyone other than the person running this factory: a customer, a partner, a vendor, the public. Always a one-way door |
 | **Reversible** | The same person can put it back as it was, with nothing left over. A sent email isn't. A merged pull request usually is |
 | **Done** | The job's gate passed, and you showed the output |
 

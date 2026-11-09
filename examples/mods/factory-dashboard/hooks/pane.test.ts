@@ -17,11 +17,11 @@ const SEEN = (over: Partial<Seen> = {}): Seen => ({
 })
 
 const PANE = {
-  plugin: 'harness-dashboard',
+  plugin: 'factory-dashboard',
   surface: 'terminal',
   component: 'Pane',
   requestId: 'dashboard',
-  props: { title: 'Harness', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  props: { title: 'Factory', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
 } as const
 
 // Stands in for the pane's last read, and for writes to it, so a press can be watched.
@@ -29,9 +29,9 @@ function seed(on: On, seen: Seen | null): { now: () => Seen | null } {
   let value = seen
   let version = 1
   on('state.get', async (_$, e, next) =>
-    e.plugin === 'harness-dashboard' && e.key === 'seen' ? { value: { value, version } } : next(e))
+    e.plugin === 'factory-dashboard' && e.key === 'seen' ? { value: { value, version } } : next(e))
   on('state.set', async (_$, e, next) => {
-    if (e.plugin !== 'harness-dashboard' || e.key !== 'seen') return next(e)
+    if (e.plugin !== 'factory-dashboard' || e.key !== 'seen') return next(e)
     value = e.value as Seen
     version += 1
     return { value: { isSet: true as const, version } }
@@ -54,7 +54,7 @@ function session(on: On, open: { now: boolean }, root = '/h/starter'): { runs: (
   on('fs.exists', async (_$, e) => ({ value: e.path === '/h/starter/scripts/dashboard_data.py' }))
   on('ui.panes', async () => {
     asks += 1
-    return { value: open.now ? [{ id: 'dashboard', title: 'Harness', isShown: true, isPlaced: true } as never] : [] }
+    return { value: open.now ? [{ id: 'dashboard', title: 'Factory', isShown: true, isPlaced: true } as never] : [] }
   })
   on('process.run', async () => {
     runs += 1
@@ -325,20 +325,20 @@ group('the Refresh button', () => {
   })
 })
 
-group('/harness-dashboard', () => {
+group('/factory-dashboard', () => {
   // A /clear starts a new session with no session.start, so a folder saved there is gone or the last session's.
-  test('after a /clear, with no session.start, finds the harness from the session root', async ($, on) => {
+  test('after a /clear, with no session.start, finds the factory from the session root', async ($, on) => {
     mock.clock(on, { now: 1_800_000_000_000 })
     session(on, { now: false })
     on('ui.open', async () => ({ value: { isPlaced: true } }))
-    const typed = { command: 'harness-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
+    const typed = { command: 'factory-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
     expect(((await $.command.run(typed)) as { text?: string }).text).toBe('Dashboard opened.')
   })
-  test('outside any harness, names the folder it looked from', async ($, on) => {
+  test('outside any factory, names the folder it looked from', async ($, on) => {
     mock.clock(on, { now: 1_800_000_000_000 })
     session(on, { now: false }, '/h/elsewhere')
     await $.session.start({ ...START, cwd: '/h/elsewhere' })
-    const typed = { command: 'harness-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
+    const typed = { command: 'factory-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
     expect(((await $.command.run(typed)) as { text?: string }).text)
       .toBe('No scripts/dashboard_data.py at or above /h/elsewhere, so there are no numbers to show.')
   })

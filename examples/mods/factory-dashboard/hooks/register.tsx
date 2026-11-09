@@ -8,7 +8,7 @@ import type { Table, Tone } from './logic'
 import type { Range, Seen } from '../types'
 
 const PANE = 'dashboard'
-const COMMAND = 'harness-dashboard'
+const COMMAND = 'factory-dashboard'
 // The numbers move slowly, and each refresh calls GitHub, reads git and rewrites the caches, so every
 // five minutes is enough; Refresh reads now.
 const REFRESH_MS = 300_000
@@ -17,9 +17,9 @@ const TIMEOUT_MS = 600_000
 // A chart's height in the terminal, in rows; each row draws eighths, so 5 rows is 40 steps.
 const CHART_ROWS = 5
 
-const launchAtom = atom({ plugin: 'harness-dashboard', key: 'launch' } as const, null)
-const seenAtom = atom({ plugin: 'harness-dashboard', key: 'seen' } as const, null)
-const rangeAtom = atom({ plugin: 'harness-dashboard', key: 'range' } as const, null)
+const launchAtom = atom({ plugin: 'factory-dashboard', key: 'launch' } as const, null)
+const seenAtom = atom({ plugin: 'factory-dashboard', key: 'seen' } as const, null)
+const rangeAtom = atom({ plugin: 'factory-dashboard', key: 'range' } as const, null)
 // More days than this and the Svg labels every 7th bar, as the terminal does when it runs out of room.
 const SVG_EVERY_DAY = 14
 
@@ -110,7 +110,7 @@ export const register: Register = on => {
     await update($, seenAtom, prev => (prev?.isReading ? { ...prev, isReading: false } : prev))
     await $.command.register({
       name: COMMAND,
-      description: "Open a pane with the harness's numbers: what's waiting on you, the loop's spend and rework, evals, tokens",
+      description: "Open a pane with the factory's numbers: what's waiting on you, the loop's spend and rework, evals, tokens",
     })
     // A pane left open across a reload keeps updating.
     if ((await $.ui.panes()).some(pane => pane.id === PANE)) {
@@ -124,7 +124,7 @@ export const register: Register = on => {
     try {
       const root = await rootOf($)
       if (!root) return { text: `No scripts/dashboard_data.py at or above ${await $.session.root()}, so there are no numbers to show.` }
-      const opened = await $.ui.open({ id: PANE, title: 'Harness' })
+      const opened = await $.ui.open({ id: PANE, title: 'Factory' })
       void refresh($, root).catch(() => {})
       startPolling($, root)
       return { text: opened.isPlaced ? 'Dashboard opened.' : 'Dashboard opened. Widen the terminal to see it.' }
@@ -231,7 +231,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box key="header" flexDirection="row" flexWrap="wrap" justifyContent="space-between" columnGap={1}>
-          <Text bold>{fit(seen ? (seen.root.split('/').filter(Boolean).pop() ?? seen.root) : 'Harness')}</Text>
+          <Text bold>{fit(seen ? (seen.root.split('/').filter(Boolean).pop() ?? seen.root) : 'Factory')}</Text>
           <Text {...COLORS[top.tone]}>{fit(top.text)}</Text>
         </Box>
         <Box key="actions" flexDirection="row" columnGap={1}>

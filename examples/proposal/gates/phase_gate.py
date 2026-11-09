@@ -12,7 +12,7 @@ a person's call. Exits 0 when nothing is missing and 1 when something is.
 The questions each phase asks are in steering/gates.md. The ones a script can
 decide are here. Validate and Scale are a person's, so they aren't.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import re
 import sys

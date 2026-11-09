@@ -51,7 +51,7 @@ level needs and nothing else.
 | `enforced` | Real users | A check in the project repo as a required status: every deployed route declared, no identity read from request input, generated 401/403/`owns` tests pass, and a new public route carries a signed approval. The project's `deploy_ready` gate runs it |
 | `hardened` | Restricted data: health or medical records, children's data, biometrics, payment cards, financial account or tax records, government ID numbers, precise location | The checklist below, plus a security review on every PR touching handlers or infrastructure before it merges |
 
-`off` is the default so that a harness already in use changes nothing until
+`off` is the default so that a factory already in use changes nothing until
 someone chooses. The cost is that a live project can sit at `off` unnoticed, so
 `python3 scripts/check_setup.py` warns about any project under [`projects/`](../projects/)
 whose `.studio-project.yaml` says `live_users: true` or `regulated: true` while
@@ -279,7 +279,7 @@ updates:
       ordinary: {patterns: ["*"], exclude-patterns: ["actions/checkout", "actions/setup-python", "astral-sh/setup-uv"]}
 ```
 
-Then bump the security workflows' pins yourself, signed, when this harness's
+Then bump the security workflows' pins yourself, signed, when this factory's
 copy of them changes (upgrading, below).
 
 ### Upgrading a project's copy
@@ -292,7 +292,7 @@ diff, sign the commit (it is all guarded), and merge. `security/VERSION` is a
 hash of what a project copies verbatim (the library, the workflows and the
 Semgrep rule, less the `identity_fields` a project adds); templates and rules
 files are left out because a project fills them in. Harness-health and the
-setup check flag a copy that differs from its stamp or lags this harness.
+setup check flag a copy that differs from its stamp or lags this factory.
 
 ## `hardened`: the checklist
 

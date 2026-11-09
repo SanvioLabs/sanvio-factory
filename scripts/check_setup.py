@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Setup check: is this clone wired up the way the harness assumes?
+"""Setup check: is this clone wired up the way the factory assumes?
 
 Usage:
     python3 scripts/check_setup.py
@@ -16,8 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import names  # noqa: E402 (beside this file: the old names, and the new ones)
+
 ROOT = Path(__file__).resolve().parent.parent
-STARTER = re.compile(r"[/:]SanvioLabs/sanvio-harness-starter(\.git)?/?$", re.I)
+# The public repo.
+STARTER = re.compile(r"[/:]SanvioLabs/sanvio-factory(\.git)?/?$", re.I)
 
 
 def git(root, *args):
@@ -107,7 +111,7 @@ def check_remote(root):
         return ("PASS", "remote: no origin, so nothing gets pushed anywhere yet", None)
     shown = marked(safe_url(url))
     if STARTER.search(url):
-        return ("WARN", "remote: origin is the public starter ({})".format(shown),
+        return ("WARN", "remote: origin is the public Sanvio Factory ({})".format(shown),
                 "company/ stays on your machine either way. Make your own private copy "
                 "before you push your own work: anything pushed to a public repo is public.")
     return ("WARN", "remote: origin is {}".format(shown),
@@ -166,8 +170,8 @@ def check_company(root):
     if (root / "company" / ".git").exists():
         return check_company_repo(root / "company")
     if git(root, "ls-files", "company/"):
-        return ("WARN", "company: the company record is committed in this harness, so it goes wherever "
-                "the harness is pushed", "Keep this repo private. Check: gh repo view --json visibility")
+        return ("WARN", "company: the company record is committed in this repo, so it goes wherever "
+                "the repo is pushed", "Keep this repo private. Check: gh repo view --json visibility")
     record = root / "company" / "COMPANY.md"
     if record.is_file():
         return ("PASS", "company: company/COMPANY.md is written", None)
@@ -195,7 +199,7 @@ def check_shadowed_skills(root, home=None):
     return ("WARN", "skills: your personal ~/.claude/skills has {} too, and in Claude Code the personal "
             "copy wins, so this repo's never runs".format(", ".join(clashes)),
             "Keep one copy. Move what you want into skills/ here, then rename or remove the personal "
-            "one, so everyone using this harness runs the same skill.")
+            "one, so everyone using this factory runs the same skill.")
 
 
 API_SECURITY_TOOL = Path(__file__).resolve().parent.parent / "tools" / "api-security" / "api_security_levels.py"
@@ -219,7 +223,7 @@ def check_security_levels(root):
         tool = _api_security_tool()
     except Exception as exc:  # report it; the setup check never stops on one line
         return ("WARN", "security: tools/api-security/api_security_levels.py could not be loaded ({})".format(exc),
-                "Restore tools/api-security/ from the harness.")
+                "Restore tools/api-security/ from Sanvio Factory.")
     levels, warnings = [], []
     for folder in sorted(p for p in (root / "projects").glob("*") if p.is_dir()):
         identity = folder / ".studio-project.yaml"
@@ -247,7 +251,7 @@ def check_security_levels(root):
         elif digest:
             ours = (tool.TOOL / "VERSION").read_text().strip()
             if stamp.read_text().strip() != ours:
-                warnings.append("{}'s security/VERSION {} is not this harness's {}".format(
+                warnings.append("{}'s security/VERSION {} is not this factory's {}".format(
                     folder.name, stamp.read_text().strip(), ours))
     if warnings:
         return ("WARN", "security: " + "; ".join(warnings),
@@ -258,10 +262,28 @@ def check_security_levels(root):
     return ("PASS", "security: " + ", ".join(levels), None)
 
 
+def check_old_names(root, environ=None):
+    """The names this repo had before Sanvio Factory, still in use. Nothing reads them now."""
+    said, fixes = [], []
+    if (Path(root) / names.OLD_STATE).exists():
+        said.append("both .harness/ and .sanvio/ are here, and only .sanvio/ is read"
+                    if (Path(root) / names.STATE).exists() else ".harness/ is still here, and nothing reads it")
+        fixes.append("move what you need from .harness/ into .sanvio/, then delete .harness/")
+    found = names.old_variables(environ)
+    if found:
+        said.append("{} still set under the old name, which does nothing now".format(", ".join(found)))
+        fixes.append("rename it in your shell profile: " + ", ".join(
+            names.PREFIX + name[len(names.OLD_PREFIX):] for name in found))
+    if said:
+        fix = "; ".join(fixes)
+        return ("WARN", "names: " + "; ".join(said), fix[0].upper() + fix[1:])
+    return ("PASS", "names: nothing here uses a name from before Sanvio Factory", None)
+
+
 def run(root, home=None):
     return [check_python(), check_hooks(root), check_links(root), check_gate(root),
             check_company(root), check_shadowed_skills(root, home), check_security_levels(root),
-            check_remote(root)]
+            check_remote(root), check_old_names(root)]
 
 
 def main(argv):

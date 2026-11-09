@@ -1,18 +1,18 @@
-# Your harness in CI
+# Your factory in CI
 
-Your harness can run in CI in three ways, and each works on its own. Two of
+Your factory can run in CI in three ways, and each works on its own. Two of
 them go in a product repo. The loop's workflow goes in a repo that carries the
-harness itself.
+factory itself.
 
 | What | Workflow | Goes in | What it does | Needs |
 |---|---|---|---|---|
 | Checks | [`examples/ci/project-checks.yml`](../examples/ci/project-checks.yml) | The product repo | Runs the repo's checks on every pull request and every push to `main`. Each job skips with a notice until the file it needs exists, such as `pyproject.toml` or `package.json` | Nothing else |
-| Review | A short caller of [`.github/workflows/review-pr.yml`](../.github/workflows/review-pr.yml), which stays in your harness repo | The product repo | Reviews every pull request with your harness's review-pr skill, its rules and your team's standards, and posts the report as one comment, edited on each push | A read-only deploy key and an Anthropic API key, held as secrets |
-| Loop | [`examples/ci/loop.yml`](../examples/ci/loop.yml) | The harness repo | One pass of the loop on a runner: one issue labelled `loop-ready`, through to a pull request it doesn't merge | An API key, and a token that isn't the workflow's own if its pull requests are to start your checks |
+| Review | A short caller of [`.github/workflows/review-pr.yml`](../.github/workflows/review-pr.yml), which stays in your factory repo | The product repo | Reviews every pull request with your harness's review-pr skill, its rules and your team's standards, and posts the report as one comment, edited on each push | A read-only deploy key and an Anthropic API key, held as secrets |
+| Loop | [`examples/ci/loop.yml`](../examples/ci/loop.yml) | The factory repo | One pass of the loop on a runner: one issue labelled `loop-ready`, through to a pull request it doesn't merge | An API key, and a token that isn't the workflow's own if its pull requests are to start your checks |
 
 Start with checks, then add the review. The loop is optional.
 
-![Three product repos each hold one short caller, review.yml. A pull request, #42, opens in the first. Its caller asks the harness repo, your-org/harness, for .github/workflows/review-pr.yml. The review job checks the harness out with a read-only deploy key, holding only AGENTS.md, steering, skills, agents and standards, beside the product repo at the pull request's base and the pull request itself. The pull request's own AGENTS.md, CLAUDE.md, .claude folders and symlinks are struck out, so its copies of those can't change the review's rules. Claude reads with Read, Grep and Glob only, and one comment is posted: changes needed, two findings. A second push edits the same comment to ready with nits, one finding, marked edited. Last, the harness repo's main is shown as protected, and a change to it marks all three product repos: their next review uses the new rules.](harness-in-ci.gif)
+![Three product repos each hold one short caller, review.yml. A pull request, #42, opens in the first. Its caller asks the factory repo, your-org/factory, for .github/workflows/review-pr.yml. The review job checks the harness out with a read-only deploy key, holding only AGENTS.md, steering, skills, agents and standards, beside the product repo at the pull request's base and the pull request itself. The pull request's own AGENTS.md, CLAUDE.md, .claude folders and symlinks are struck out, so its copies of those can't change the review's rules. Claude reads with Read, Grep and Glob only, and one comment is posted: changes needed, two findings. A second push edits the same comment to ready with nits, one finding, marked edited. Last, the factory repo's main is shown as protected, and a change to it marks all three product repos: their next review uses the new rules.](factory-in-ci.gif)
 
 You make each key yourself and paste it into GitHub. Nobody else, including
 anyone helping you set this up, needs to see one.
@@ -31,29 +31,29 @@ anyone helping you set this up, needs to see one.
 
 ## A review on every pull request
 
-The review lives in your harness repo, and each product repo calls it. A change
+The review lives in your factory repo, and each product repo calls it. A change
 to the skill, the rules or your standards reaches every product repo on its
 next pull request, with no copy in each repo to keep up to date.
 
 Set it up in this order. Each step links to its detail in
 [`examples/ci/README.md`](../examples/ci/README.md).
 
-1. **Protect the harness's `main`.** Every review runs whatever `main` holds,
+1. **Protect the factory repo's `main`.** Every review runs whatever `main` holds,
    with each product repo's secrets, so anyone who can push there can read
    them. Require a pull request with one approval from someone other than its
-   author, require the harness's own CI to pass, block force pushes and
+   author, require the factory repo's own CI to pass, block force pushes and
    deletion, and apply it to admins too.
-   [Protecting the harness](../examples/ci/README.md#protecting-the-harness)
-2. **Let the product repos call it**, if the harness repo is private: Settings,
+   [Protecting the factory repo](../examples/ci/README.md#protecting-the-factory-repo)
+2. **Let the product repos call it**, if the factory repo is private: Settings,
    Actions, General, and under Access, "Accessible from repositories in the
    organization".
-   [A private harness repo](../examples/ci/README.md#a-private-harness-repo)
+   [A private factory repo](../examples/ci/README.md#a-private-factory-repo)
 3. **Make a deploy key** on your machine, and add its public half to the
-   harness repo with write access off. If GitHub refuses it,
+   factory repo with write access off. If GitHub refuses it,
    [When the first review fails](#when-the-first-review-fails) has why.
    [The credential](../examples/ci/README.md#the-credential)
 4. **Add two secrets**, before the caller, so its first pull request doesn't
-   skip: `HARNESS_DEPLOY_KEY`, the deploy key's private half, and
+   skip: `FACTORY_DEPLOY_KEY`, the deploy key's private half, and
    `ANTHROPIC_API_KEY`, made inside a workspace in the Anthropic Console.
    Setting them once for the organisation is easier: each later product repo
    is then added to the secrets' repository access in the organisation's
@@ -62,11 +62,11 @@ Set it up in this order. Each step links to its detail in
    `review-pr-deploy-key` and `review-pr-deploy-key.pub`. A repo you add later
    then needs a new deploy key.
    [The secret](../examples/ci/README.md#the-secret)
-5. **Add the caller** to each product repo, with your harness repo's name in
+5. **Add the caller** to each product repo, with your factory repo's name in
    both places it appears. It's the only file a product repo needs. Anyone who
    can push a branch to a product repo can change its caller in that branch, to
    skip the review or print both secrets, so add the secrets only where you'd
-   trust the writers to read the harness.
+   trust the writers to read the factory repo.
    [The caller](../examples/ci/README.md#the-caller)
 6. **Open a test pull request** in one product repo (the next section has
    what to put in it). The workflow posts one comment on it, and a second push
@@ -74,7 +74,7 @@ Set it up in this order. Each step links to its detail in
    first line says no team standards were loaded. The run's log names the
    harness commit it reviewed with.
 7. **Add your team's standards**, if you have them written down, as Markdown
-   files in a `standards/` folder at the harness repo's root. A finding then
+   files in a `standards/` folder at the factory repo's root. A finding then
    names the file and heading of the standard it breaks.
    [Team standards](../examples/ci/README.md#team-standards)
 
@@ -87,8 +87,8 @@ Claude", after `claude exited 1. What it said:`.
 | The message | What it means | The fix |
 |---|---|---|
 | `Deploy keys are disabled for this repository`, when you add the key | The organisation has deploy keys switched off for every repo | An organisation owner allows them in the organisation's settings. Then add the key again |
-| `HARNESS_DEPLOY_KEY is not set` | The product repo has no deploy-key secret | Step 4 |
-| `has no skills/review-pr/SKILL.md` | `harness-repo` names the wrong repo, or the key belongs to another one | Check both places the caller names the harness, and the deploy key's repo |
+| `FACTORY_DEPLOY_KEY is not set` | The product repo has no deploy-key secret | Step 4 |
+| `has no skills/review-pr/SKILL.md` | `factory-repo` names the wrong repo, or the key belongs to another one | Check both places the caller names the factory repo, and the deploy key's repo |
 | `Credit balance is too low` | The Anthropic account the key bills to has no credit | Add credit in the Anthropic Console, then rerun the job: no new push needed |
 | `This API key is not scoped to a workspace` | The key was made for the organisation, not inside a workspace | Make a new key inside a workspace, set `ANTHROPIC_API_KEY` again, and rerun |
 | `This pull request has no ANTHROPIC_API_KEY`, as a notice | The secret isn't set in this repo, or it's a Dependabot pull request | Step 4, or nothing for Dependabot |
@@ -112,7 +112,7 @@ skill says to, so anything planted beside it goes unread.
 [`examples/ci/evals/`](../examples/ci/evals/) holds six changes like these, each with what a good
 review of it finds. `python3 scripts/eval_agents.py examples/ci/evals` runs
 them against the skill on your machine, which spends model tokens.
-[Measuring a harness](harness-evals.md) has the rest.
+[Measuring a factory](factory-evals.md) has the rest.
 
 ### What the review can and can't be changed by
 
@@ -122,7 +122,7 @@ them against the skill on your machine, which spends model tokens.
 - The rules come from the harness, and the pull request's own copies can't
   change them. Its [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), `CLAUDE.local.md` and [`.claude`](../.claude)
   folders, and its symlinks, are removed before the review starts, and the
-  standards come from the harness's default branch.
+  standards come from the factory repo's default branch.
 - The caller is another matter. It lives in the product repo, so a pull request
   can edit it, as step 5 says.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
@@ -130,14 +130,14 @@ them against the skill on your machine, which spends model tokens.
 
 ## The loop on a runner
 
-Optional, and for the harness's own issues. [`examples/ci/loop.yml`](../examples/ci/loop.yml) runs
-[`scripts/loop.py`](../scripts/loop.py) from the repo it sits in, so it goes in your harness repo, or
-another repo that carries the harness, with a `loop.json` whose `test_command`
+Optional, and for the factory's own issues. [`examples/ci/loop.yml`](../examples/ci/loop.yml) runs
+[`scripts/loop.py`](../scripts/loop.py) from the repo it sits in, so it goes in your factory repo, or
+another repo that carries the factory, with a `loop.json` whose `test_command`
 tests that repo. In a product repo that only calls the review, there's no loop
 to run. To work a product repo's issues, run the loop on a machine with
 `--project`, as [HOW-IT-WORKS.md](../HOW-IT-WORKS.md) (*The loop*) describes.
 
-1. Copy [`examples/ci/loop.yml`](../examples/ci/loop.yml) into the harness repo's [`.github/workflows/`](../.github/workflows/).
+1. Copy [`examples/ci/loop.yml`](../examples/ci/loop.yml) into the factory repo's [`.github/workflows/`](../.github/workflows/).
 2. Add `ANTHROPIC_API_KEY` as a secret.
 3. Turn on Settings, Actions, General, "Allow GitHub Actions to create and
    approve pull requests", or opening the pull request fails.

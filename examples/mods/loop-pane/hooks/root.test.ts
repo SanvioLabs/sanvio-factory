@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 
 const ROOT = '/h/starter'
 
-// The engine beneath the plugin: a session whose root is `root`, a harness at ROOT with its loop
+// The engine beneath the plugin: a session whose root is `root`, a factory at ROOT with its loop
 // script and no loop files yet, and a pane that opens.
 function world(on: On, root: string): void {
   mock.clock(on, { now: 1_800_000_000_000 })
@@ -33,7 +33,7 @@ describe('/loop-pane after a /clear', () => {
     world(on, ROOT)
     expect(await loopPane($)).toBe('Loop pane opened.')
   })
-  test('when the saved folder is outside any harness, finds it from the session root', async ($, on) => {
+  test('when the saved folder is outside any factory, finds it from the session root', async ($, on) => {
     world(on, ROOT)
     await $.session.start({ cwd: '/h/elsewhere', surface: null, isInteractive: true })
     expect(await loopPane($)).toBe('Loop pane opened.')
@@ -43,7 +43,7 @@ describe('/loop-pane after a /clear', () => {
     await $.session.start({ cwd: `${ROOT}/projects/app`, surface: null, isInteractive: true })
     expect(await loopPane($)).toBe('Loop pane opened.')
   })
-  test('outside any harness, names the folder it looked from', async ($, on) => {
+  test('outside any factory, names the folder it looked from', async ($, on) => {
     world(on, '/h/elsewhere')
     await $.session.start({ cwd: '/h/elsewhere', surface: null, isInteractive: true })
     expect(await loopPane($)).toBe('No scripts/loop.py at or above /h/elsewhere, so there is no loop to show.')

@@ -1,11 +1,11 @@
-# Harness dashboard
+# Factory dashboard
 
-The harness's numbers are spread across the loop's records, your usage log,
+The factory's numbers are spread across the loop's records, your usage log,
 saved evals, Claude Code's transcripts and GitHub. This mod opens a pane
 beside the conversation that brings them together, with what needs you first.
 In a terminal pane 66 columns wide, with made-up numbers:
 
-<img src="../../../docs/harness-dashboard.svg" width="480" alt="The Harness pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
+<img src="../../../docs/factory-dashboard.svg" width="480" alt="The Factory pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
 
 <details>
 <summary>The same pane as text</summary>
@@ -93,10 +93,10 @@ Daily, Oct 15 to Oct 27: most 11.0M tokens on Oct 26
                         Oct 20                             Oct 27
 
                                                    Tokens Sessions
-Harness                                             49.4M       10
+Factory                                             49.4M       10
 Loop worktrees                                      18.4M        6
 
-Model                                                Harness  Loop
+Model                                                Factory  Loop
 opus-5-5                                               47.0M 18.4M
 haiku-5-5                                               2.4M     0
 
@@ -119,7 +119,7 @@ standup                                         9   8.2M    $62.12
 Guard refused                                                Times
 credential-file                                                  1
 
-Est. cost: an estimate from .harness/prices.json, checked Oct 1,
+Est. cost: an estimate from .sanvio/prices.json, checked Oct 1,
 worked out Oct 27 12:00. Skills' and commands' tokens are
 attributed from where each started to the next prompt.
 Guard asked 2 times, since Oct 15
@@ -145,21 +145,21 @@ Kiro don't have mods.
 
 ## Open it
 
-Type `/harness-dashboard`. In fullscreen, from 110 columns, the pane docks
+Type `/factory-dashboard`. In fullscreen, from 110 columns, the pane docks
 beside the conversation. Narrower, it sits above the prompt. Close it with the
 `×` in its corner.
 
 It isn't on by default. Load it for one session, from the root:
 
 ```
-claude --plugin-dir examples/mods/harness-dashboard
+claude --plugin-dir examples/mods/factory-dashboard
 ```
 
 Or install it from inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install harness-dashboard@sanvio-harness-starter
+/plugin install factory-dashboard@sanvio-factory
 ```
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), because `/plugin update` keeps an installed copy whose version hasn't changed, and CI checks this on every pull request with [`scripts/check_mod_versions.py`](../../../scripts/check_mod_versions.py).
@@ -168,20 +168,20 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 
 | Section | Shows |
 |---|---|
-| The header | The harness's folder, and when the numbers were read. **7 days**, **14 days** and **30 days** pick how many days it counts, today among them: 14 until you pick another, and the pick is kept across reloads. Picking one reads straight away, and works out what each skill, agent and command spent again, because only the last range's is kept. **Reading…** on the Refresh button during any read, and the numbers shown stay the last range's until it ends. The first read can take a minute or more, because it goes through every Claude Code transcript and keeps what it found in `.harness/cache/`; later reads use that again. What each skill, agent and command spent is kept for 15 minutes, then worked out from the transcripts again. Measured on one machine on 2026-10-30, a read took about 2 seconds with that kept, and 23 to 29 seconds when it was worked out again. Expect that to grow with how many transcripts you have. **Refresh failed** in red when the last refresh didn't work, with the time of the numbers still shown and why under it |
+| The header | The factory's folder, and when the numbers were read. **7 days**, **14 days** and **30 days** pick how many days it counts, today among them: 14 until you pick another, and the pick is kept across reloads. Picking one reads straight away, and works out what each skill, agent and command spent again, because only the last range's is kept. **Reading…** on the Refresh button during any read, and the numbers shown stay the last range's until it ends. The first read can take a minute or more, because it goes through every Claude Code transcript and keeps what it found in `.sanvio/cache/`; later reads use that again. What each skill, agent and command spent is kept for 15 minutes, then worked out from the transcripts again. Measured on one machine on 2026-10-30, a read took about 2 seconds with that kept, and 23 to 29 seconds when it was worked out again. Expect that to grow with how many transcripts you have. **Refresh failed** in red when the last refresh didn't work, with the time of the numbers still shown and why under it |
 | **Waiting on you** | Each open pull request, how long it has waited, whether it's a draft, its checks and whether it conflicts with its base, then each issue the loop blocked, with why. Red when checks fail or it conflicts, yellow while they run. **conflicts unknown** while GitHub hasn't worked it out. Without `gh`, signed out, or a list in a shape it doesn't know, it says in red that it couldn't read them: never that nothing is waiting |
 | **Loop spend** | Three tables: the loop's estimated dollars and tokens today, over the last 7 days, since the date the numbers start and per pull request it opened; the five issues that cost most; and each model, costliest first. Runs that recorded no model show as **model not recorded**. When the loop's records start later than that date, it says when, and the chart starts there |
 | **Throughput and rework** | How the loop's recent issues ended and how many took more than one round, then how many of its merged pull requests needed someone else's commit before merging, split into fixes and merges from main |
 | **Evals** | Each reviewer's newest saved eval: stable, flaky and failing cases, which ones fail, and **stale** when the agent, a brief, a case or the eval script changed after it was saved. **stale: unknown** when git couldn't say |
 | The daily charts | At the top of **Loop spend** and **Conversations**: one bar per day, today in orange, under a line naming the busiest day. The terminal draws them in coloured blocks the width of the pane, with each day and its figures under its bar when the pane has 7 columns a day: cost and tokens for spend, tokens for conversations. Narrower, as for Conversations above, it writes only the day, under every 7th bar counting back from today's. A day whose runs recorded no cost shows **?**, not $0.00. On other surfaces it draws them as a picture whose bars say their day and value when you hover, with every bar's figures under it up to 14 days and every 7th bar's day beyond that; the tests cover Claude Desktop's, and nobody has looked at it in VS Code or the mobile app yet. A `dashboard_data.py` that doesn't give daily figures says so instead |
-| **Conversations** | Claude Code's tokens in the harness and in the loop's worktrees, with sessions and the four biggest models. Cache reads are most of it. Its chart covers every day counted, since the harness's own sessions start before the loop's |
-| **Activity** | The skills, agents and slash commands you used most, what the guard refused and how often it asked, from your usage log. Skills, agents and commands also show **Tokens** and **Est. cost**, from the transcripts of sessions started at the harness's root, including after they move into [`projects/`](../../../projects/). A session started under [`projects/`](../../../projects/) isn't counted. A subagent's are measured, and a skill's or command's are attributed from where it started to the next prompt. **Est. cost** prices those tokens from `.harness/prices.json`, a file you keep yourself: copy [`scripts/prices.example.json`](../../../scripts/prices.example.json), then put in each model you use, from your provider's price list, with the date you checked it. The example's own model and date price nothing of yours. The lines under the tables say when its prices were checked and when the figures were worked out. **?** means no figure, never $0.00: a name the transcripts don't list, or a model with no price. With no price file it says to fill one. **Times** and **Tokens** come from different sources, so don't divide one by the other. A `dashboard_data.py` that doesn't give these figures, or couldn't read the transcripts, draws just **Times** |
+| **Conversations** | Claude Code's tokens in the factory and in the loop's worktrees, with sessions and the four biggest models. Cache reads are most of it. Its chart covers every day counted, since the factory's own sessions start before the loop's |
+| **Activity** | The skills, agents and slash commands you used most, what the guard refused and how often it asked, from your usage log. Skills, agents and commands also show **Tokens** and **Est. cost**, from the transcripts of sessions started at the factory's root, including after they move into [`projects/`](../../../projects/). A session started under [`projects/`](../../../projects/) isn't counted. A subagent's are measured, and a skill's or command's are attributed from where it started to the next prompt. **Est. cost** prices those tokens from `.sanvio/prices.json`, a file you keep yourself: copy [`scripts/prices.example.json`](../../../scripts/prices.example.json), then put in each model you use, from your provider's price list, with the date you checked it. The example's own model and date price nothing of yours. The lines under the tables say when its prices were checked and when the figures were worked out. **?** means no figure, never $0.00: a name the transcripts don't list, or a model with no price. With no price file it says to fill one. **Times** and **Tokens** come from different sources, so don't divide one by the other. A `dashboard_data.py` that doesn't give these figures, or couldn't read the transcripts, draws just **Times** |
 
 A section whose source is missing or can't be read says why, dimmed, and the
 rest still show. The range sets every section but **Throughput and rework**'s
 issues, which are always the loop's 20 most recent. The loop's spend only goes
 back as far as the loop's own records: a run before the loop recorded its usage
-isn't in it, so **Since** can match **7 days** in a young harness.
+isn't in it, so **Since** can match **7 days** in a young factory.
 
 ## What it costs and touches
 
@@ -193,9 +193,9 @@ a time, and a refresh that fails keeps the last numbers it had. After you close
 the pane it stops at the next five-minute mark; a read already running then
 finishes.
 
-The script reads the loop's `.loop/` files, your usage log, `.harness/evals/`,
+The script reads the loop's `.loop/` files, your usage log, `.sanvio/evals/`,
 git and every transcript under `~/.claude/projects`, and writes only its own
-caches under `.harness/cache/`, which is gitignored. Each refresh calls GitHub
+caches under `.sanvio/cache/`, which is gitignored. Each refresh calls GitHub
 through `gh` twice, for the open pull requests and the merged ones, and the
 first time it sees a merged loop pull request, once more for its commits. The
 [`github-status`](../github-status/) mod reads the same pull requests every two minutes, so the two
@@ -203,8 +203,8 @@ can differ for a few minutes.
 
 It runs the script in the nearest folder at or above the one the session
 started in that has [`scripts/dashboard_data.py`](../../../scripts/dashboard_data.py). Installed beyond this repo,
-`/harness-dashboard` in another repo would run that repo's copy, so open it
-only in a harness you trust.
+`/factory-dashboard` in another repo would run that repo's copy, so open it
+only in a repo you trust.
 
 ## Changing it
 
@@ -213,8 +213,8 @@ functions, so they can be tested, and [`hooks/charts.ts`](hooks/charts.ts) draws
 charts. [`hooks/register.tsx`](hooks/register.tsx) runs the script and draws the pane. From [`examples/mods/`](../):
 
 ```bash
-claude plugin validate harness-dashboard
-claude plugin test harness-dashboard
+claude plugin validate factory-dashboard
+claude plugin test factory-dashboard
 ```
 
 `python3 -m unittest discover -s tests`, and so the loop, runs these wherever Claude Code is installed. CI doesn't install Claude Code, so it skips them.

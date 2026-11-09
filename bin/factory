@@ -1,18 +1,18 @@
 #!/bin/sh
 # Runs one of this harness's skills headless, from any folder:
-#   harness [--json] <skill> [arguments...]
+#   factory [--json] <skill> [arguments...]
 # Only a skill marked `headless: true` in its frontmatter runs, with only the
 # tools its `headless-tools` line names, and every one of those has to be in
-# bin/harness-tools. The session starts at the harness root, so the rules,
+# bin/factory-tools. The session starts at the harness root, so the rules,
 # skills and guards load as they do in a normal session. It's `headless-tools`, not Claude Code's
 # own `allowed-tools`, because Claude Code applies allowed-tools in every session the skill runs in.
-# From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+# From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
 root=$(cd "$(dirname "$0")/.." && pwd) || exit 2
 cd "$root" || exit 2
 
 refuse() {
-  echo "harness: $*" >&2
+  echo "factory: $*" >&2
   exit 2
 }
 
@@ -24,7 +24,7 @@ fi
 
 name=$1
 case $name in
-  '') refuse "usage: harness [--json] <skill> [arguments...]" ;;
+  '') refuse "usage: factory [--json] <skill> [arguments...]" ;;
   -* | *[!a-z0-9-]*) refuse "'$name' isn't a skill name: lowercase letters, digits and dashes only" ;;
 esac
 skill="skills/$name/SKILL.md"
@@ -47,8 +47,8 @@ case $tools in
   '>'* | '|'* | '['*) refuse "$name's headless-tools has to be one comma-separated line" ;;
 esac
 
-# Every entry has to be one of bin/harness-tools' lines, and the tools themselves go to --tools too.
-approved=$(grep -v '^#' bin/harness-tools)
+# Every entry has to be one of bin/factory-tools' lines, and the tools themselves go to --tools too.
+approved=$(grep -v '^#' bin/factory-tools)
 names=
 checked=
 set -f  # an entry such as Bash(gh pr view:*) must never match a file name
@@ -56,7 +56,7 @@ old_ifs=$IFS
 IFS=,
 for entry in $tools; do
   entry=$(printf '%s' "$entry" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-  printf '%s\n' "$approved" | grep -Fqx -- "$entry" || refuse "$name lists '$entry', which bin/harness-tools doesn't approve"
+  printf '%s\n' "$approved" | grep -Fqx -- "$entry" || refuse "$name lists '$entry', which bin/factory-tools doesn't approve"
   checked=${checked:+$checked,}$entry
   tool=${entry%%(*}
   case ",$names," in *",$tool,"*) ;; *) names=${names:+$names,}$tool ;; esac
@@ -79,6 +79,6 @@ if [ -n "$json" ]; then
 else
   set -- -p "$prompt" --permission-mode default --strict-mcp-config --tools "$names" --allowedTools "$checked"
 fi
-HARNESS_HEADLESS=1
-export HARNESS_HEADLESS
+SANVIO_HEADLESS=1
+export SANVIO_HEADLESS
 exec claude "$@"

@@ -35,7 +35,7 @@ is cheaper than the problem it prevents.
   runs and blocks nothing is decoration. Take the check names from a real run,
   not from the workflow file, and never require a check behind a `paths:`
   filter: on a PR it doesn't run for, it never reports, and the PR can't merge.
-- Copy this harness's [`.githooks/`](../.githooks/) and run `git config core.hooksPath .githooks`
+- Copy this factory's [`.githooks/`](../.githooks/) and run `git config core.hooksPath .githooks`
   in every clone. The setting doesn't travel with a clone.
 - **If the project exposes an API, set its security level.** Add
   `security_level` under `workspace:` in its `.studio-project.yaml` (absent

@@ -1,4 +1,4 @@
-"""The surface apply.py shares with harness-health and the starter's setup check, SPEC-034.
+"""The surface apply.py shares with harness-health and this repo's setup check, SPEC-034.
 
 They load this file by path, so every name here is a promise: the levels, the files each needs,
 the identity-file parser, the VERSION hash and the apply.py command a check prints.
@@ -140,7 +140,7 @@ def _workspace_lines(identity: str):
 
 def workspace_fields(identity: str) -> dict:
     """security_level, live_users and regulated from the `workspace:` block, lower-cased. The one
-    parser apply.py, harness-health and the starter's setup check share."""
+    parser apply.py, harness-health and this repo's setup check share."""
     fields = {}
     for _, line in _workspace_lines(identity):
         m = re.match(r"^\s+(" + "|".join(WORKSPACE_KEYS) + r"):\s*(.*)$", line)

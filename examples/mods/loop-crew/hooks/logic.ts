@@ -4,7 +4,7 @@ import type { Loop, Row, Seen, Spend, Status } from '../types'
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
 
-// The folder under the root holding one loop's files: the harness's, or a project's.
+// The folder under the root holding one loop's files: the factory's, or a project's.
 export function loopDir(project?: string): string {
   return project ? `${PROJECTS_DIR}/${project}` : '.loop'
 }
@@ -101,7 +101,7 @@ export async function projectNames(entries: { name: string; kind: string }[], ha
   return folders.filter((_, i) => held[i])
 }
 
-// What a loop is called: the project's name, or the root's folder for the harness.
+// What a loop is called: the project's name, or the root's folder for the factory.
 export function loopLabel(seen: Loop): string {
   return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
 }
@@ -121,7 +121,7 @@ export function loopButtonLabel(seen: Loop): string {
 }
 
 // The loop picker's options: the loops on a job first, each group in its own order. A project's
-// value is its name, the harness's ''.
+// value is its name, the factory's ''.
 // Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
 // sends, so this guards against anything else reaching a switch.
 export function isListed(loops: Loop[], value: string): boolean {
@@ -150,7 +150,7 @@ export const SESSION = /^[0-9a-fA-F-]{8,64}$/
 
 // This session's focus file under the harness root, or null for an id that can't name one.
 export function focusFile(root: string, id: string | null): string | null {
-  return id !== null && SESSION.test(id) ? `${root}/.harness/project/${id}` : null
+  return id !== null && SESSION.test(id) ? `${root}/.sanvio/project/${id}` : null
 }
 
 // The project a focus file's text names, before the folder is checked, or null.

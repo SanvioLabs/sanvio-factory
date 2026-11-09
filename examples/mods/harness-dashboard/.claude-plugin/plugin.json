@@ -1,6 +1,0 @@
-{
-  "name": "harness-dashboard",
-  "version": "0.1.7",
-  "description": "A pane with the harness's numbers: what's waiting on you, the loop's spend and rework, evals and tokens",
-  "types": "./types/index.d.ts"
-}

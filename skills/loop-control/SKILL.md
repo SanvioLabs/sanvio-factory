@@ -1,7 +1,7 @@
 ---
 name: loop-control
 description: Drive the loop in scripts/loop.py from a conversation. Put an issue on it after checking it's ready, start it, say what it did, or stop it in the right order, or start the pull-request reviewer. Use when someone says "put #12 on the loop", "is this ready for the loop", "start the loop", "run the loop on #12", "what did the loop do", "why is #12 blocked", "stop the loop", or "review the pull requests waiting on me".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Loop control
@@ -9,9 +9,9 @@ license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLab
 [`scripts/loop.py`](../../scripts/loop.py) takes an issue carrying the ready label, plans it, builds it,
 runs the tests, has a fresh agent review it and opens a pull request. "The
 ready label" here means the effective `ready_label`: `loop-ready` unless a
-`loop.json` sets another. For the harness's own loop, read the harness's
+`loop.json` sets another. For the factory's own loop, read the factory's
 `loop.json`. For a project, its own `loop.json` wins, then its entry under
-`"projects"` in the harness's; the harness's top-level value doesn't apply.
+`"projects"` in the factory's; the factory's top-level value doesn't apply.
 In project mode (see *A project under projects/*) every `gh issue` command
 takes `--repo <owner>/<repo>`.
 [`HOW-IT-WORKS.md`](../../HOW-IT-WORKS.md) (*The loop*) says how. This skill is the conversation
@@ -59,7 +59,7 @@ it gets read before it's labelled.
    acceptance criteria) in the shape of [`.github/ISSUE_TEMPLATE/loop-task.md`](../../.github/ISSUE_TEMPLATE/loop-task.md), and show it. The person adds it to the issue, or tells you to.
 4. **Check where the pull request would go:** `gh repo view --json visibility
    -q .visibility`. If it's `PUBLIC`, say the pull request will be public and
-   ask whether that's meant. A copy of the public starter is public until
+   ask whether that's meant. A copy of the public Sanvio Factory is public until
    someone makes it otherwise.
 5. **Ask, then label:** "Label #N with the ready label?" On a yes,
    `gh issue edit <N> --add-label <ready label>` (with `--repo` for a project),
@@ -129,13 +129,13 @@ loop warns at start-up about each agent that doesn't. Any other value stops
 
 ## A project under projects/
 
-To work a code repo cloned into [`projects/`](../../projects/) rather than the harness, add
+To work a code repo cloned into [`projects/`](../../projects/) rather than this repo, add
 `--project projects/<name>` to `run`, `review` and `stop`, and run them from
 the harness root as above. Name the tmux session after the project,
-`loop-<name>`, so it sits beside the harness's own.
+`loop-<name>`, so it sits beside the factory's own.
 
 1. The project needs its own `loop.json` with a `test_command`, since the
-   default tests the harness, not the project. For TypeScript that's
+   default tests this repo, not the project. For TypeScript that's
    `{"test_command": "npm test"}`, or `node --test` with no `package.json`
    script. Its `base` (default `main`) is where branches start and pull
    requests go. If it has no `loop.json`, say so and ask the person for the
@@ -143,7 +143,7 @@ the harness root as above. Name the tmux session after the project,
    `test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command`
    and `setup_command`. Every other key
    (`agent`, `max_workers`, `allow_lockfile_changes`, ...) is the machine's: it
-   goes in the harness's `loop.json`, for one project under `"projects"`, such
+   goes in the factory's `loop.json`, for one project under `"projects"`, such
    as `"projects": {"app": {"agent": "claude", "max_workers": 2}}`.
 2. The loop refuses, with one `ERROR` line and before it takes anything, a
    folder that isn't directly under [`projects/`](../../projects/), one that isn't a git clone of
@@ -151,11 +151,11 @@ the harness root as above. Name the tmux session after the project,
    no `test_command`, or one that sets a machine key.
 3. Issues, labels and pull requests are the project's GitHub repo's. Label
    with `gh issue edit <N> --repo <owner>/<repo> --add-label <ready label>`; with
-   no `--repo`, `gh` from the harness root reaches the harness's repo.
-4. Its state is in the harness, in `.loop/projects/<name>/`: `status.json`,
+   no `--repo`, `gh` from the harness root reaches this repo.
+4. Its state is in this repo, in `.loop/projects/<name>/`: `status.json`,
    `loop.log` and `issue-<N>/`, with a lock of its own, so it runs beside the
-   harness's loop. Read those in place of `.loop/` under *Say what it did*.
-   Its checkouts are in `~/.harness-loop/<harness>/<name>/`.
+   factory's loop. Read those in place of `.loop/` under *Say what it did*.
+   Its checkouts are in `~/.sanvio-loop/<factory>/<name>/`.
 5. The agents get the harness's [`AGENTS.md`](../../AGENTS.md) and its three steering files at
    the top of each prompt. A `claude` build agent also runs the harness's
    `guard.py` before each tool call. Another build agent, such as `codex`, has

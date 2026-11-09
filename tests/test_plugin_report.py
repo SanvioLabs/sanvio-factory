@@ -14,7 +14,7 @@ SCRIPT = ROOT / "scripts" / "plugin_report.py"
 INSTALL = "/Users/someone/.claude/plugins/cache/secret-install-folder"
 OTHER = "/Users/someone/elsewhere/other-folder"
 FIXTURE = [
-    {"id": "stelliad@sanvio-harness-starter", "version": "1.3", "scope": "project", "enabled": True,
+    {"id": "stelliad@sanvio-factory", "version": "1.3", "scope": "project", "enabled": True,
      "projectPath": str(ROOT), "installPath": INSTALL + "/stelliad"},
     {"id": "loop-pane@inline", "version": "0.2", "scope": "session", "enabled": True,
      "installPath": INSTALL + "/loop-pane"},
@@ -23,7 +23,7 @@ FIXTURE = [
      "projectPath": OTHER, "installPath": INSTALL + "/elsewhere"},
 ]
 TABLE = ["| Plugin | Version | Scope |", "|---|---|---|",
-         "| loop-pane@inline | 0.2 | session |", "| stelliad@sanvio-harness-starter | 1.3 | project |"]
+         "| loop-pane@inline | 0.2 | session |", "| stelliad@sanvio-factory | 1.3 | project |"]
 
 
 def run(args=(), stdout=None, path=None):
@@ -61,14 +61,14 @@ class PluginReportTest(unittest.TestCase):
 
     def test_changed_new_and_gone_show_on_one_line(self):
         with tempfile.TemporaryDirectory() as folder:
-            old = previous(folder, [("stelliad@sanvio-harness-starter", "1.2", "project"), ("gone@market", "1.0", "user")])
+            old = previous(folder, [("stelliad@sanvio-factory", "1.2", "project"), ("gone@market", "1.0", "user")])
             result = run(["--previous", old], stdout=json.dumps(FIXTURE))
         self.assertIn("Changed since 2026-10-10: gone@market (gone), loop-pane@inline (new), "
-                      "stelliad@sanvio-harness-starter 1.2 → 1.3", result.stdout.splitlines())
+                      "stelliad@sanvio-factory 1.2 → 1.3", result.stdout.splitlines())
 
     def test_nothing_changed(self):
         with tempfile.TemporaryDirectory() as folder:
-            old = previous(folder, [("loop-pane@inline", "0.2", "session"), ("stelliad@sanvio-harness-starter", "1.3", "project")])
+            old = previous(folder, [("loop-pane@inline", "0.2", "session"), ("stelliad@sanvio-factory", "1.3", "project")])
             result = run(["--previous", old], stdout=json.dumps(FIXTURE))
         self.assertEqual(result.stdout.splitlines()[-1], "Nothing changed since 2026-10-10.")
 
@@ -115,7 +115,7 @@ class PluginReportTest(unittest.TestCase):
             {"id": "lens@market", "version": "0.2.0", "scope": "user", "enabled": True},
             {"id": "lens@market", "version": "0.2.0", "scope": "project", "enabled": True, "projectPath": str(ROOT)}]
         with tempfile.TemporaryDirectory() as folder:
-            old = previous(folder, [("loop-pane@inline", "0.2", "session"), ("stelliad@sanvio-harness-starter", "1.3", "project"),
+            old = previous(folder, [("loop-pane@inline", "0.2", "session"), ("stelliad@sanvio-factory", "1.3", "project"),
                                     ("lens@market", "0.2.0", "user"), ("lens@market", "0.1.0", "project")])
             result = run(["--previous", old], stdout=json.dumps(twice))
         self.assertEqual(result.stdout.splitlines()[-1], "Changed since 2026-10-10: lens@market (project) 0.1.0 → 0.2.0")
@@ -124,7 +124,7 @@ class PluginReportTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             old = previous(folder, [("gone@market", "1.0", "user")])
             result = run(["--previous", old], stdout=json.dumps(FIXTURE))
-        self.assertIn("| stelliad@sanvio-harness-starter | 1.3 | project |", result.stdout)
+        self.assertIn("| stelliad@sanvio-factory | 1.3 | project |", result.stdout)
         for value in (INSTALL, OTHER, str(ROOT), "installPath", "projectPath"):
             self.assertNotIn(value, result.stdout)
 

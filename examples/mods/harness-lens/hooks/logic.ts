@@ -4,7 +4,7 @@
 import type { GateHit, Hit, Lens, Run, Scope } from '../types'
 
 // Where a harness keeps each layer, relative to its root. A harness with another layout says so in
-// .claude/harness-lens.json, with any of these keys; a key left out keeps the starter's value.
+// .claude/harness-lens.json, with any of these keys; a key left out keeps the default.
 export type Config = {
   // Folders of steering files.
   steering: string[]
@@ -19,7 +19,7 @@ export type Config = {
   // Patterns for a shell command that runs a gate. The first group, if any, is the gate's name.
   gates: string[]
   // Files that hold this session's scope, read in order until one names it. `{session}` stands for the
-  // session id. Put a file a guard enforces first, so a looser one never shows over it. The starter has none.
+  // session id. Put a file a guard enforces first, so a looser one never shows over it. This repo has none.
   scope: string[]
   // Headless sessions to count, by label: a `claude` process counts under the first label whose pattern
   // matches the command of a process it runs beneath.
@@ -383,7 +383,7 @@ export function bandSegments(lens: Lens, showScope = false, now = Date.now(), pl
   const gate = lens.gates.at(-1)
   const refusal = lens.refusals.at(-1)
   const sessions = sessionText(lens.sessions ?? {})
-  // Only a harness that declares where its scope lives gets the segment, so the starter's band is unchanged.
+  // Only a harness that declares where its scope lives gets the segment, so this repo's band is unchanged.
   const scope: Segment[] = showScope
     ? [lens.scope ? { label: 'scope', text: scopeText(lens.scope), tone: 'earlier' } : { label: 'scope', text: 'none', tone: 'quiet' }]
     : []

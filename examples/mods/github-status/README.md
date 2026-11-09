@@ -5,7 +5,7 @@ GitHub, a browser tab away from the session. This mod draws one line above the
 prompt with the repo's running actions, open pull requests and open issues:
 
 ```
-◆ github  SanvioLabs/sanvio-harness-starter · 1 action running (2 queued) · 3 open pull requests · 5 open issues
+◆ github  SanvioLabs/sanvio-factory · 1 action running (2 queued) · 3 open pull requests · 5 open issues
 ```
 
 It's a Claude Code mod, so it works in Claude Code only: it was seen working in
@@ -15,13 +15,13 @@ Claude Code 2.1.301. Codex and Kiro don't have mods.
 
 ## Turn it on
 
-It loads by itself, the same way as the [harness lens](../harness-lens/): the harness's
+It loads by itself, the same way as the [harness lens](../harness-lens/): the factory's
 [`.claude/settings.json`](../../../.claude/settings.json) turns it on. Don't see the line? Install it from
 inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install github-status@sanvio-harness-starter
+/plugin install github-status@sanvio-factory
 ```
 
 It's active as soon as the install says so, no restart. Or load it for one
@@ -35,7 +35,7 @@ It reads GitHub through the [`gh`](https://cli.github.com/) command line, so
 To turn it off just for you:
 
 ```bash
-claude plugin disable github-status@sanvio-harness-starter --scope local
+claude plugin disable github-status@sanvio-factory --scope local
 ```
 
 ## Reading the line
@@ -56,20 +56,20 @@ project's repo and starts with its name: `acme: acme/app · reading…`, or
 
 ## Your projects
 
-The line is the harness's repo, unless you put a project in focus. Then it's
+The line is the factory's repo, unless you put a project in focus. Then it's
 that project's `origin` repo, with `<name>: ` at the start. Repos cloned under
 [`projects/`](../../../projects/) are read with these commands, from a session at the harness root:
 
 | Type | Does |
 |---|---|
 | `/github acme` (or `/github projects/acme`) | Prints the line for the repo cloned in `projects/acme`, read now |
-| `/github all` | Prints the harness's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
+| `/github all` | Prints the factory's line, then one per folder under [`projects/`](../../../projects/) with a GitHub `origin`, in name order, then how many folders have none |
 | `/project <name>` (or `/project projects/<name>`) | Puts that project in focus and prints its line, read now |
-| `/project off` | Clears the focus, and the line shows the harness again |
+| `/project off` | Clears the focus, and the line shows the factory's repo again |
 | `/project` | Prints the project in focus, or that there's none |
 
 ```
-harness: SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 5 open issues
+factory: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 5 open issues
 acme: acme/app · 1 action running · 4 open pull requests · 12 open issues
 1 folder under projects/ has no GitHub remote.
 ```
@@ -79,12 +79,12 @@ outside it, such as `../x`, `a/b` or a leading `.`, is refused before anything
 runs. A folder with no GitHub `origin` says so and `gh` isn't called. A repo
 whose read fails says GitHub is unavailable on its own line, and the others
 still print. `/github <name>` and `/github all` never change the line above
-the prompt, and `/github all`'s `harness:` line is the harness's own repo
+the prompt, and `/github all`'s `factory:` line is the factory's own repo
 whatever is in focus. `/github` alone reads the repo in focus.
 
 The focus is the session's own, so another session's line doesn't move, and a
 `/clear` drops it, because the new session has a new id. It lives in the file
-`.harness/project/<id>`, under the harness root, where `<id>` is the session's
+`.sanvio/project/<id>`, under the harness root, where `<id>` is the session's
 id. An id that doesn't match `^[0-9a-fA-F-]{8,64}$` means no focus, and nothing
 is read or written.
 
@@ -103,7 +103,7 @@ issues or its loop means that project unless another is named.
 
 ## What it doesn't do
 
-It writes `.harness/project/<id>` and nothing else, and it never changes
+It writes `.sanvio/project/<id>` and nothing else, and it never changes
 anything on GitHub. One file is left behind for each session that used
 `/project`, because the mod doesn't delete them. When the session starts it
 runs `git remote get-url origin` in the folder the session started in (and,

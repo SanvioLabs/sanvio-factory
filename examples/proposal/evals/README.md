@@ -45,8 +45,8 @@ From the harness root:
 python3 scripts/eval_agents.py examples/proposal/evals --save
 ```
 
-`--save` on its own writes the results to `.harness/evals/`, as a file named for the
-time and the reviewer, such as `2026-10-27T0930-reviewer.json`. `.harness/` is
+`--save` on its own writes the results to `.sanvio/evals/`, as a file named for the
+time and the reviewer, such as `2026-10-27T0930-reviewer.json`. `.sanvio/` is
 gitignored. `--save FILE` still writes to the file you name. Keep the folder before
 `--save`: written after it, the folder would be read as the file.
 
@@ -99,7 +99,7 @@ To compare a change with before it, save a run before you edit, then run again w
 python3 scripts/eval_agents.py examples/proposal/evals --baseline latest
 ```
 
-`latest` is the newest file in `.harness/evals/` saved for the same reviewer, read from
+`latest` is the newest file in `.sanvio/evals/` saved for the same reviewer, read from
 its `"reviewer"` field, and it prints the file it used. `--baseline FILE` compares with
 that file instead. It lists the cases whose status changed, such as
 `01-unlimited-revisions: stable -> failing`. Both defaults need every case in the folder

@@ -1,9 +1,9 @@
 # Factories
 
 A factory is any system that takes work in and puts checked work out. This
-harness is one. So is another team's delivery system, or a second harness. The
-harness can hand an issue to another factory and review what comes back, with
-GitHub as the only thing between them.
+repo is one. So is another team's delivery system, or another copy of this
+factory. This repo can hand an issue to another factory and review what comes
+back, with GitHub as the only thing between them.
 
 Name the factory in `factories.json` at the harness root. Copy
 [`factories.example.json`](../factories.example.json) to start: it holds one step, with every key a step can set. A factory that runs
@@ -19,16 +19,16 @@ A factory someone else runs needs no folder: `factories.json` names it as
 `remote`. A step's two labels match on GitHub whatever their case, and neither
 can hold a comma, which `gh` would read as two labels.
 
-The harness tracks nothing in this folder except this file, so a factory's
+This repo tracks nothing in this folder except this file, so a factory's
 code never reaches this repo's history.
 
-## What the harness does with a factory's folder
+## What this repo does with a factory's folder
 
 It reads the checkout's commit at submission, and the run records it, with a
 warning when the checkout had uncommitted changes. It reads the checkout's own
 git config first (what it includes, and its worktree config), and asks
 `git status` only when none of it names a filter or fsmonitor, since either would run something of the factory's. A folder that
-isn't its own checkout is refused, so the harness's own commit is never
+isn't its own checkout is refused, so this repo's own commit is never
 recorded as the factory's. That's the version that was
 checked out when you submitted, not proof of what the factory ran. It will
 never run, import or load a file from a factory's folder.
@@ -36,15 +36,15 @@ The factory runs under its own rules and its own guard, not this harness's.
 
 ## What the factory must do
 
-The harness and the factory meet only on GitHub, so this is the whole
+This repo and the factory meet only on GitHub, so this is the whole
 contract. A factory that does less doesn't break anything here: its run waits,
 then stops at the time limit or needs a person.
 
 - **Take the issue when the submit label appears on it.** That label, added on
-  your yes, is the only thing the harness sends.
+  your yes, is the only thing this repo sends.
 - **Open one pull request that closes the issue,** with `Closes #N` in its
   body, into the repo's default branch. GitHub links it to the issue, and
-  that's how the harness finds it. Open it as the step's `factory_login`, from
+  that's how this repo finds it. Open it as the step's `factory_login`, from
   that account's own fork if it's ever to read `ready for a person`. A draft
   isn't reviewed until it's marked ready.
 - **Take the submit label off once it hands the pull request back.** `resend`
@@ -59,8 +59,8 @@ then stops at the time limit or needs a person.
 - **Never merge, approve or close** the pull request or the issue. A person
   does.
 
-A factory that's a copy of this harness does all of that with its own loop,
-once its `loop.json` says so. In the harness's `loop.json` on the factory's
+A factory that's a copy of this repo does all of that with its own loop,
+once its `loop.json` says so. In its top-level `loop.json` on the factory's
 machine, never a project's own:
 
 ```json
@@ -77,8 +77,8 @@ your review never reaches its planner.
 
 ## Before you add one
 
-- **Keep its work out of this harness.** A factory that runs on this machine
-  works in its own clone of the repo, outside this harness, and never in a
+- **Keep its work out of this factory.** A factory that runs on this machine
+  works in its own clone of the repo, outside this factory, and never in a
   clone under [`projects/`](../projects/). An agent started below the harness root loads this
   harness's [`CLAUDE.md`](../CLAUDE.md), which tells it to stop.
 - **Check what it's allowed to see.** Submitting an issue sends the issue and
@@ -89,8 +89,8 @@ your review never reaches its planner.
 - **Have it work from its own fork, with triage access only.** A factory that
   can push to the repo could post a passing check on its own commit, so only
   one working from its own fork can read `ready for a person`;
-  [*Getting to ready*](#getting-to-ready) has everything that takes. The
-  harness reads the account's access; it can't see another account or app the
+  [*Getting to ready*](#getting-to-ready) has everything that takes. This
+  repo reads the account's access; it can't see another account or app the
   factory also controls, so check it has none that can write to the repo.
   Triage lets the factory take its own label off. `factory_login` names a
   user account, such as a machine user: an organisation authors no pull
@@ -101,29 +101,29 @@ your review never reaches its planner.
   factory's checks never report. Turn on running fork pull request workflows,
   and leave sending them write tokens and secrets off: with either on, or
   unreadable to you, the checks read `checks pass, not independent`.
-- **Know what ready means.** It's what the harness can read, not proof:
+- **Know what ready means.** It's what this repo can read, not proof:
   [*Getting to ready*](#getting-to-ready) says what it requires and what it
   can't show.
-- **A factory that's a copy of this harness works in the same repo.** Its
+- **A factory that's a copy of this repo works in the same repo.** Its
   loop takes a round only on its own pull request from a branch in the repo,
   so its runs read `checks pass, not independent` and a person weighs its
   checks. A round on a pull request from its own fork is still to decide.
-- **A local factory runs as you.** It can change the harness's files on this
+- **A local factory runs as you.** It can change this repo's files on this
   machine, run records included, so a local factory is one you already trust
   with this clone.
 - **Check it can take a round.** A review that asks for changes goes back
   to the factory as its submit label, put back on the issue, and the review's
   comment on its pull request says what to change. A factory that reads only
-  its issue never sees that comment, so it rebuilds nothing. This harness's
-  loop reads it, so a factory that is a copy of this harness takes a round
+  its issue never sees that comment, so it rebuilds nothing. This factory's
+  loop reads it, so a factory that is a copy of this repo takes a round
   once it has the loop that does.
-- **Keep a factory copy's `loop.json` local.** A copy of this starter that
-  commits its `loop.json` fails the starter's own link check on every round,
+- **Keep a factory copy's `loop.json` local.** A copy of this repo that
+  commits its `loop.json` fails its own link check on every round,
   whatever the change.
-- **Clone the repo, if it isn't this harness.** `review` reads a pull request
+- **Clone the repo, if it isn't this one.** `review` reads a pull request
   from the repo's clone under [`projects/`](../projects/), and that clone's `loop.json` has to set
   `test_command`: the loop refuses a project without one, since the default
-  tests this harness.
+  tests this repo.
 - **Keep `factories.json` local.** It's gitignored, so a factory's name and
   its account stay on the machine that runs it. Only [`factories.example.json`](../factories.example.json)
   is tracked: name no real factory in it.
@@ -182,7 +182,7 @@ ready.
     and no secrets
   - the base branch has no `pull_request_target` or `workflow_run` workflow
 
-Ready is a claim about what the harness can read, not proof the factory
+Ready is a claim about what this repo can read, not proof the factory
 couldn't have produced its checks. GitHub records no producer for a commit
 status, and nothing of which workflow set or edited a check run's result; a
 third-party CI's settings, and workflows on branches other than the base,
@@ -193,7 +193,7 @@ comment-triggered workflows that run pull request code off every branch,
 leaves the factory the fewest ways in.
 
 Only a factory that works from its own fork gets there. A copy of this
-harness pushes its branches to the repo, so its runs read
+repo pushes its branches to the repo, so its runs read
 `checks pass, not independent` at best.
 
 ### Setting it up
@@ -252,11 +252,11 @@ limit back in range, see
 ## One person runs each run
 
 A run lives in the clone that dispatched it. Its record is in
-`.harness/factories/` on that machine, `review` posts under the login of
+`.sanvio/factories/` on that machine, `review` posts under the login of
 whoever runs it, and the verdict is read from that login's comment. So one
 person dispatches, reviews, sends back and cancels a given run, from one
 clone, and a teammate's `status` in their own clone doesn't see it. A factory
-that's a copy of this harness names that person in `review_logins`. To hand a
+that's a copy of this repo names that person in `review_logins`. To hand a
 run over, cancel it, and dispatch the issue again from the other clone.
 
 ## Stopping
@@ -272,7 +272,7 @@ record of what was reviewed.
 
 ## When a record can't be read
 
-`status` names a run whose record in `.harness/factories/` it can't read, says
+`status` names a run whose record in `.sanvio/factories/` it can't read, says
 why, and goes on with the others; dispatch refuses the issue while one for it
 can't be read. A record goes bad when it's edited by hand or by a local
 factory, or when a newer `factories.py` wrote it. If a newer `factories.py` wrote
@@ -291,7 +291,7 @@ cancel the run it would start.
 
 ## github.com only
 
-Factories work with repos on github.com. The harness tells a pull request's
+Factories work with repos on github.com. This repo tells a pull request's
 repo, and a check run's, from its github.com address, so on GitHub Enterprise
 Server every pull request would read as from another repo. This section is
 the one place that says which origins count. A clone's origin counts when the
@@ -301,10 +301,10 @@ URL git fetches from starts `https://github.com/`, `https://USER@github.com/`,
 since the host is read as written, nor does a port, `http://`, or a URL that
 `insteadOf` sends somewhere else.
 `review` won't run from such a clone, and `steps` warns when it's this
-harness's own, each saying which rule it failed. To use another key, set
+repo's own, each saying which rule it failed. To use another key, set
 origin to `git@github.com:OWNER/NAME` and pick the key with
 `git config core.sshCommand "ssh -i <key>"` in that clone, or an
 `IdentityFile` under `Host github.com` in your SSH config.
 
-The starter's maintainers check factories against GitHub itself before each
+Sanvio Factory's maintainers check factories against GitHub itself before each
 release: [`docs/maintaining.md`](../docs/maintaining.md).

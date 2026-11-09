@@ -285,32 +285,32 @@ export function evals(doc: Doc): Section {
     tables: [{ key: 'evals-reviewers', head: ['Reviewer', 'Stable', 'Flaky', 'Failing', 'Saved', 'Stale'], rows, tones }] }
 }
 
-// Claude Code's own tokens: a table of the harness and the loop's worktrees, one of the biggest
+// Claude Code's own tokens: a table of the factory and the loop's worktrees, one of the biggest
 // models on each side, then the day-by-day chart.
 export function conversations(doc: Doc): Section {
   const why = missing(doc.conversations)
   const c = obj(doc.conversations)
   if (why || !c) return { key: 'conversations', title: 'Conversations', lines: [line('quiet', why ?? 'not in this script')] }
-  const sides = [['harness', 'Harness'], ['loop', 'Loop worktrees']] as const
+  const sides = [['factory', 'Factory'], ['loop', 'Loop worktrees']] as const
   const totals = (side: string) => {
     const by = obj(obj(c[side])?.by_model) ?? {}
     return new Map(Object.entries(by).map(([id, v]) => [id, num(obj(v)?.total) ?? 0] as const).filter(([, n]) => n > 0))
   }
-  const per = { harness: totals('harness'), loop: totals('loop') }
+  const per = { factory: totals('factory'), loop: totals('loop') }
   const tables: Table[] = [{ key: 'conversations-sides', head: ['', 'Tokens', 'Sessions'],
     rows: sides.filter(([side]) => obj(c[side])).map(([side, label]) =>
       [label, tokens([...per[side].values()].reduce((a, n) => a + n, 0)), String(num(obj(c[side])?.sessions) ?? '?')]) }]
-  const ids = [...new Set([...per.harness.keys(), ...per.loop.keys()])]
-    .sort((a, b) => ((per.harness.get(b) ?? 0) + (per.loop.get(b) ?? 0)) - ((per.harness.get(a) ?? 0) + (per.loop.get(a) ?? 0)))
+  const ids = [...new Set([...per.factory.keys(), ...per.loop.keys()])]
+    .sort((a, b) => ((per.factory.get(b) ?? 0) + (per.loop.get(b) ?? 0)) - ((per.factory.get(a) ?? 0) + (per.loop.get(a) ?? 0)))
     .slice(0, 4)
   if (ids.length) {
-    tables.push({ key: 'conversations-models', head: ['Model', 'Harness', 'Loop'],
-      rows: ids.map(id => [model(id), tokens(per.harness.get(id) ?? 0), tokens(per.loop.get(id) ?? 0)]) })
+    tables.push({ key: 'conversations-models', head: ['Model', 'Factory', 'Loop'],
+      rows: ids.map(id => [model(id), tokens(per.factory.get(id) ?? 0), tokens(per.loop.get(id) ?? 0)]) })
   }
   const out = [line('quiet', `Since ${day(str(doc.since))}, cache reads included`)]
-  const points = sum(series(obj(c.harness)?.by_day, 'tokens'), series(obj(c.loop)?.by_day, 'tokens'))
+  const points = sum(series(obj(c.factory)?.by_day, 'tokens'), series(obj(c.loop)?.by_day, 'tokens'))
   if (!points) return { key: 'conversations', title: 'Conversations', lines: [...out, NO_DAILY], tables }
-  const alt = `Claude Code's tokens each day, harness and loop together, ${day(points[0]?.date ?? null)} to ${day(points[points.length - 1]?.date ?? null)}`
+  const alt = `Claude Code's tokens each day, factory and loop together, ${day(points[0]?.date ?? null)} to ${day(points[points.length - 1]?.date ?? null)}`
   const labels = points.map(p => [day(p.date), tokens(p.value)])
   return { key: 'conversations', title: 'Conversations', lines: out, tables,
     chart: { key: 'conversations-chart', alt, caption: daily(points, n => `${tokens(n)} tokens`).text, points, unit: 'tokens', columns: ['Day', 'Tokens'], labels } }
@@ -337,10 +337,10 @@ function stamp(text: string | null): string {
 function estimate(a: Obj): Line[] {
   const whys = Object.values(obj(a.unpriced) ?? {})
   return [
-    line('quiet', `Est. cost: an estimate from .harness/prices.json, checked ${day(str(a.prices_checked))},`),
+    line('quiet', `Est. cost: an estimate from .sanvio/prices.json, checked ${day(str(a.prices_checked))},`),
     line('quiet', `worked out ${stamp(str(a.spend_at))}. Skills' and commands' tokens are`),
     line('quiet', 'attributed from where each started to the next prompt.'),
-    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .harness/prices.json to see dollars')] : []),
+    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .sanvio/prices.json to see dollars')] : []),
   ]
 }
 
