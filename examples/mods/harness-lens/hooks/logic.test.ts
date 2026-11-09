@@ -5,7 +5,7 @@ import { STARTER, alwaysSteering, bandSegments, countSessions, emptyLens, endRun
 const ROOT = '/h/my-harness'
 
 describe('config', () => {
-  test('no file is the starter layout', () => {
+  test('no file is the default layout', () => {
     expect(parseConfig(null)).toEqual(STARTER)
   })
   test('a key given replaces that key only', () => {
@@ -229,7 +229,7 @@ describe('headless sessions', () => {
     '  801   800 claude -p',
   ].join('\n')
 
-  test('the starter counts claude under the eval and under any clone\'s loop, not one under a shell', () => {
+  test('the default counts claude under the eval and under any clone\'s loop, not one under a shell', () => {
     expect(countSessions(PS, STARTER)).toEqual({ eval: 2, loop: 1 })
   })
   test('a loop in the rows ends the walk rather than hanging it', () => {
@@ -242,7 +242,7 @@ describe('headless sessions', () => {
     expect(nextSessions(prev, '', STARTER)).toEqual({})
     expect(nextSessions(undefined, null, STARTER)).toBeUndefined()
   })
-  test('the config keeps the starter\'s labels when left out or wrong, and a custom map replaces them', () => {
+  test('the config keeps the default labels when left out or wrong, and a custom map replaces them', () => {
     expect(parseConfig('{}').running).toEqual(STARTER.running)
     expect(parseConfig('{"running": ["scripts/loop\\\\.py"]}').running).toEqual(STARTER.running)
     expect(parseConfig('{"running": {"loop": 3}}').running).toEqual(STARTER.running)
@@ -279,7 +279,7 @@ describe('scope', () => {
   const config = parseConfig(JSON.stringify({
     scope: ['.studio/hooks/.client-scope.{session}.json', '.studio/hooks/.client-scope.shared.json', '.studio/hooks/.focus.{session}.json'],
   }))
-  test('the starter declares no scope, so its band and report are unchanged', () => {
+  test('the default declares no scope, so its band and report are unchanged', () => {
     expect(STARTER.scope).toEqual([])
     const lens = emptyLens(ROOT, [])
     expect(bandSegments(lens).map(s => s.label)).not.toContain('scope')

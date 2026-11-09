@@ -1,12 +1,12 @@
 cff-version: 1.2.0
-message: "If you build on this harness, please credit it as below."
-title: "Harness starter"
+message: "If you build on this factory, please credit it as below."
+title: "Sanvio Factory"
 abstract: "The smallest useful agent harness: instructions, a skill, a gate, a hook and a review agent. Works with Claude Code, Codex and Kiro."
 type: software
 authors:
   - name: "Sanvio Labs, LLC"
     website: "https://sanviolabs.com"
     email: "contact@sanviolabs.com"
-repository-code: "https://github.com/SanvioLabs/sanvio-harness-starter"
+repository-code: "https://github.com/SanvioLabs/sanvio-factory"
 url: "https://sanviolabs.com"
 license: MIT

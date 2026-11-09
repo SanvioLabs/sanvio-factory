@@ -5,11 +5,11 @@
     python3 scripts/usage_report.py --since 2026-10-01
     python3 scripts/usage_report.py --previous reports/usage/<last report>.md
 
-Reads your own log, .harness/usage/<you>.jsonl, written by
+Reads your own log, .sanvio/usage/<you>.jsonl, written by
 .claude/hooks/usage_log.py, and prints counts only: sessions, skills, agents,
 slash commands, guard refusals and asks. Nothing it prints names a file, a
 prompt or a line of code, because the log never holds them. The
-skills/harness-trends/ skill runs this and turns it into the report you share.
+skills/factory-trends/ skill runs this and turns it into the report you share.
 """
 import argparse
 import datetime
@@ -118,7 +118,7 @@ def main(argv=None):
     path = Path(args.log) if args.log else log_path(ROOT)
     if not path.exists():
         print("No usage log at {}. Is the hook wired in .claude/settings.json, and "
-              "HARNESS_USAGE_LOG not set to off?".format(path), file=sys.stderr)
+              "SANVIO_USAGE_LOG not set to off?".format(path), file=sys.stderr)
         return 1
     previous = earlier_unused(args.previous) if args.previous else None
     print(report(read(path, args.since), args.since, today.isoformat(), skills_here(ROOT), previous))

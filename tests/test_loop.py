@@ -18,7 +18,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import loop  # noqa: E402
+import loop  # noqa: E402 (needs scripts/ on the path first)
+import names  # noqa: E402 (same reason)
 
 REAL_ORIGIN = loop.origin if hasattr(loop, "origin") else None  # the fixture names its bare origin o/r
 # A made-up credential, built from parts so no scanner reads it as one (#413).
@@ -301,7 +302,7 @@ class TestPureParts(unittest.TestCase):
 
     def test_config_overlays_defaults_from_loop_json(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(loop.load_config(tmp), dict(loop.DEFAULTS, generate_command=loop.HARNESS_GENERATE))
+            self.assertEqual(loop.load_config(tmp), dict(loop.DEFAULTS, generate_command=loop.FACTORY_GENERATE))
             Path(tmp, "loop.json").write_text(json.dumps({"max_rounds": 2}))
             cfg = loop.load_config(tmp)
             self.assertEqual(cfg["max_rounds"], 2)
@@ -310,7 +311,7 @@ class TestPureParts(unittest.TestCase):
     def test_the_harness_gets_its_generate_command_and_loop_json_can_change_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(loop.DEFAULTS["generate_command"], "")
-            self.assertEqual(loop.load_config(tmp)["generate_command"], loop.HARNESS_GENERATE)
+            self.assertEqual(loop.load_config(tmp)["generate_command"], loop.FACTORY_GENERATE)
             Path(tmp, "loop.json").write_text(json.dumps({"generate_command": ""}))
             self.assertEqual(loop.load_config(tmp)["generate_command"], "")
 
@@ -341,6 +342,14 @@ class TestPureParts(unittest.TestCase):
         self.assertIn("Do not edit", loop.shape_prompt(issue(4)))
         for text in (build, again, review, loop.shape_prompt(issue(4))):
             self.assertNotIn(EM_DASH, text)
+
+    def test_the_reviewer_checks_every_reader_of_a_new_state(self):
+        review = loop.review_prompt("Plan.", "+++ orders.py", "ok", 0)
+        self.assertIn("If the change adds a value to a state, status or kind", review)
+        self.assertIn("including code the diff doesn't touch", review)
+        self.assertIn("Any such place is a FIX.", review)
+        self.assertLess(review.index("Any such place is a FIX."), review.index("VERDICT: PASS or VERDICT: FIX"))
+        self.assertNotIn(EM_DASH, review)
 
     def test_the_planner_is_told_the_build_agent_gets_only_the_plan(self):
         # This checks the prompt's wording; it can't prove what a planner writes.
@@ -653,7 +662,7 @@ with open(os.path.join(state, "agents-started"), "a") as f:
 # Each step's last prompt, and its words whole, as plan-prompt and plan-argv.
 open(os.path.join(state, step + "-prompt"), "w").write(prompt)
 open(os.path.join(state, step + "-argv"), "w").write(json.dumps(sys.argv[1:]))
-open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("HARNESS_RETRO", "unset"))
+open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset") + os.environ.get("HARNESS_RETRO", "unset"))
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -823,6 +832,9 @@ elif args[:2] == ["issue", "view"]:
     print(open(path).read().strip() if os.path.exists(path) else "OPEN")
 elif args[:2] == ["pr", "create"]:
     print("https://example.test/pull/1")
+elif args[:2] == ["pr", "edit"] and os.path.exists(os.path.join(state, "pr-edit-fails")):
+    print("could not add label: 'needs-review' not found")  # on stdout, as gh prints its errors
+    sys.exit(1)
 elif args[:2] == ["pr", "list"] and "--head" in args:
     # The open pull requests from a branch name, any repo's: open-prs.json, {"branch": [{...}]}, none by default.
     import json
@@ -964,10 +976,10 @@ class TestAPass(unittest.TestCase):
             return loop.Loop(self.work, self.cfg).run(once=True, **kwargs)
 
     def test_no_agent_keeps_its_session_for_a_session_retro_even_with_it_switched_on(self):
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on", "HARNESS_RETRO": "on"}):
             self.go()
         for step in ("plan", "build", "review"):
-            self.assertEqual((self.state / (step + "-retro-switch")).read_text(), "off", step)
+            self.assertEqual((self.state / (step + "-retro-switch")).read_text(), "offoff", step)
 
     # -- the retro ---------------------------------------------------------
 
@@ -2221,7 +2233,7 @@ class TestAPass(unittest.TestCase):
         self.assertTrue((Path(self.cfg["worktree_dir"]) / "issue-12" / "feature.txt").exists())
         self.assertFalse((self.work / ".loop" / "worktrees").exists())
         default = loop.Loop(self.work, dict(loop.DEFAULTS)).worktrees()
-        self.assertEqual(default, Path.home() / ".harness-loop" / "work")
+        self.assertEqual(default, names.loop_home() / "work")
 
     def test_without_a_project_the_loop_works_in_its_own_clone_as_before(self):
         self.assertEqual(self.go(), 0)
@@ -4850,7 +4862,7 @@ class TestOriginSlug(unittest.TestCase):
 
 
 class TestPortBoundary(unittest.TestCase):
-    """loop.py ships to the starter before factories.py, in a pull request of its own."""
+    """loop.py ships to Sanvio Factory before factories.py, in a pull request of its own."""
 
     def test_loop_and_its_tests_name_no_factories_module(self):
         import ast
@@ -5289,6 +5301,32 @@ class TestProject(unittest.TestCase):
                 self.assertIn('"projects"', err)
                 built.assert_not_called()
 
+    def test_a_project_s_rubric_is_set_in_the_factory_s_projects_entry_never_the_clone(self):
+        rubric = {"ready": 6, "ready with nits": 4, "changes needed": 2, "failing": 0, "unreadable": 0}
+        (self.harness / "rubrics").mkdir()
+        (self.harness / "rubrics" / "app.json").write_text(json.dumps(rubric))
+        (self.harness / "review-rubric.json").write_text(json.dumps(RUBRIC))
+        # The clone's own files, which anyone who can push to it could write: never read.
+        (self.project / "review-rubric.json").write_text(json.dumps(dict(RUBRIC, **{"changes needed": 10})))
+        (self.project / "rubrics").mkdir()
+        (self.project / "rubrics" / "app.json").write_text(json.dumps(dict(RUBRIC, **{"changes needed": 10})))
+        cfg = json.loads((self.harness / "loop.json").read_text())
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (RUBRIC, None))
+        self.harness_config(dict(cfg, projects={"app": {"review_rubric": "rubrics/app.json"}}))
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (rubric, None))
+        self.harness_config(dict(cfg, projects={"other": {"review_rubric": "rubrics/app.json"}}))
+        self.assertEqual(loop.Loop(self.harness, project=self.project).rubric(), (RUBRIC, None))
+
+    def test_a_project_whose_loop_json_sets_its_own_rubric_is_refused(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "review_rubric": "mine.json"}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("review_rubric", err)
+        self.assertIn('"projects"', err)
+        built.assert_not_called()
+
     def test_a_harness_projects_entry_that_is_malformed_or_sets_a_project_key_is_refused(self):
         site = self.on_github("site")
         (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
@@ -5348,6 +5386,29 @@ class TestProject(unittest.TestCase):
         cfg["tester_agent"] = "claude"  # it edits as the build agent does, so it's held the same way
         self.assertIn("--settings", loop.Loop(self.harness, cfg, project=self.project).argv("tester_agent")[0])
 
+    def test_the_build_agent_runs_no_tests_of_its_own_unless_the_harness_says_so(self):
+        self.go()
+        built = json.loads((self.state / "build-argv").read_text())
+        self.assertNotIn("--allowedTools", built)
+        self.assertIn("Don't run the test suite: the loop runs it.", (self.state / "build-prompt").read_text())
+
+    def test_with_builder_runs_tests_the_build_agent_may_run_the_test_command_and_nothing_more(self):
+        self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
+                             "worktree_dir": str(self.trees), "builder_runs_tests": True})
+        self.assertEqual(self.go(), 0)
+        built = json.loads((self.state / "build-argv").read_text())
+        self.assertEqual(built[built.index("--allowedTools") + 1], "Bash({}:*)".format(PROJECT_TESTS))
+        self.assertEqual(built.count("--allowedTools"), 1)
+        prompt = (self.state / "build-prompt").read_text()
+        self.assertIn("Run the tests with `{}` before you finish".format(PROJECT_TESTS), prompt)
+        self.assertNotIn("Don't run the test suite", prompt)
+        for step in ("plan", "review"):
+            self.assertNotIn("--allowedTools", json.loads((self.state / (step + "-argv")).read_text()), step)
+
+    def test_builder_runs_tests_gives_a_build_agent_that_isnt_claude_nothing_new(self):
+        cfg = dict(loop.load_config(self.project), agent="codex", generate_command="", builder_runs_tests=True)
+        self.assertNotIn("--allowedTools", loop.Loop(self.harness, cfg, project=self.project).argv("agent")[0])
+
     def test_the_project_test_command_runs_in_the_checkout_without_the_tokens(self):
         self.go()
         self.assertEqual(Path((self.state / "test-cwd").read_text().strip()).resolve(),
@@ -5384,7 +5445,17 @@ def save():
     json.dump(comments, open(path, "w"))
 if args[:2] == ["api", "user"]:
     print("pat")
+elif args[:2] == ["pr", "list"] and "--label" in args:
+    # The open pull requests carrying the label: labeled.json, none by default. label-list-fails fails it.
+    if os.path.exists(os.path.join(state, "label-list-fails")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    labeled = os.path.join(state, "labeled.json")
+    print(open(labeled).read() if os.path.exists(labeled) else "[]")
 elif args[:2] == ["pr", "list"]:
+    if os.path.exists(os.path.join(state, "search-list-fails")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
     print(open(os.path.join(state, "prs.json")).read())
 elif args[:2] == ["pr", "view"]:
     one = os.path.join(state, "pr-%s.json" % args[2])
@@ -5392,6 +5463,16 @@ elif args[:2] == ["pr", "view"]:
         print("GraphQL: Could not resolve to a PullRequest with the number of %s." % args[2], file=sys.stderr)
         sys.exit(1)
     print(open(one).read())
+elif args[:1] == ["api"] and args[1].endswith("/check-runs"):
+    if os.path.exists(os.path.join(state, "checks-fail")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    runs = os.path.join(state, "checks.tsv")
+    if os.path.exists(runs):
+        print(open(runs).read())
+elif args[:2] == ["api", "--paginate"] and args[-1].endswith("@json"):  # REVIEW_COMMENTS_JQ's rows
+    for c in comments:
+        print(json.dumps([c["user"], c.get("updated", ""), c["body"]]))
 elif args[:2] == ["api", "--paginate"]:
     for c in comments:
         marker = "<!-- loop-review-pr-report -->"
@@ -5421,7 +5502,7 @@ import os, sys
 prompt = sys.stdin.read()
 state = os.environ["LOOP_TEST_STATE"]
 open(os.path.join(state, "argv"), "w").write(" ".join(sys.argv[1:]))
-open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("HARNESS_RETRO", "unset"))
+open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset"))
 with open(os.path.join(state, "prompts"), "a") as f:
     f.write(prompt + "\\n=====\\n")
 with open(os.path.join(state, "cwds"), "a") as f:
@@ -5545,6 +5626,13 @@ class ReviewFixture:
 
     def view_pr(self, number, sha, state="OPEN"):
         (self.state / "pr-{}.json".format(number)).write_text(json.dumps(dict(self.pr(number, sha), state=state)))
+
+    def alone(self, number):
+        """review --pr number, and the one JSON line it prints."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            loop.Loop(self.work, self.cfg).review(pr=number)
+        return json.loads(out.getvalue())
 
 
 class TestReview(ReviewFixture, unittest.TestCase):
@@ -5673,12 +5761,6 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertTrue(left.exists())  # never deleted: a lock is the OS's hold on the file, not the file
-
-    def alone(self, number):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            loop.Loop(self.work, self.cfg).review(pr=number)
-        return json.loads(out.getvalue())
 
     def test_the_watcher_skips_a_head_review_pr_already_reviewed(self):
         # Before 2026-11-07 the watcher read status.json alone and paid for a second review (Phase 6 review).
@@ -5969,7 +6051,7 @@ class TestReview(ReviewFixture, unittest.TestCase):
 
     def test_the_review_agent_is_never_kept_for_a_session_retro(self):
         self.list_prs(self.pr(7, self.push(7, "thing.txt")))
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on", "HARNESS_RETRO": "on"}):
             self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertEqual((self.state / "retro-switch").read_text(), "off")
@@ -6364,6 +6446,421 @@ class TestReview(ReviewFixture, unittest.TestCase):
             self.assertEqual(loop.Loop(self.work, self.cfg).review(once=True), 0)
         self.assertEqual(self.agents_started(), 1)
         self.assertNotIn("HOURS", [l.split()[2] for l in self.lines()])
+
+
+RUBRIC = {"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 0, "unreadable": 0}
+
+
+class TestReviewLabel(ReviewFixture, unittest.TestCase):
+    """review_label: review takes the open pull requests carrying it as well as the ones review_query finds."""
+
+    LIST = "--limit 50 --json number,title,headRefOid,baseRefName,isDraft"
+
+    def label(self, *rows):
+        """The open pull requests GitHub lists as carrying the label."""
+        (self.state / "labeled.json").write_text(json.dumps(list(rows)))
+
+    def lists(self):
+        return [c for c in self.calls() if c.startswith("pr list")]
+
+    def posted(self):
+        return [r.split(" - ", 1)[1] for r in self.reviews() if r.endswith(" posted")]
+
+    def errors(self):
+        return [l.split(" - ", 1)[1] for l in self.lines() if l.split()[2] == "ERROR"]
+
+    def test_with_the_label_unset_only_the_query_is_listed_and_reviewed(self):
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(8, self.push(8, "eight.txt")))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.lists(), ["pr list --state open --search review-requested:@me " + self.LIST])
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+
+    def test_a_pull_request_only_the_label_finds_is_reviewed_on_that_pass(self):
+        self.cfg["review_label"] = "needs-review"
+        eight = self.push(8, "eight.txt")
+        self.list_prs()
+        self.label(self.pr(8, eight))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.lists(), ["pr list --state open --search review-requested:@me " + self.LIST,
+                                        "pr list --state open --label needs-review " + self.LIST])
+        self.assertEqual(self.posted(), ["REVIEW #8 {} posted".format(eight[:7])])
+
+    def test_both_lists_are_reviewed_lowest_number_first(self):
+        self.cfg["review_label"] = "needs-review"
+        seven, eight = self.push(7, "seven.txt"), self.push(8, "eight.txt")
+        self.list_prs(self.pr(8, eight))
+        self.label(self.pr(7, seven))
+        self.go()
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7]),
+                                         "REVIEW #8 {} posted".format(eight[:7])])
+
+    def test_a_pull_request_in_both_lists_is_reviewed_once_per_head(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(7, seven))
+        self.go()
+        self.go()  # the same head on a second pass
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+        self.assertEqual(len(self.comments()), 1)
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_once_the_label_is_taken_off_a_pull_request_the_query_misses_is_not_reviewed(self):
+        self.cfg["review_label"] = "needs-review"
+        first = self.push(8, "eight.txt")
+        self.list_prs()
+        self.label(self.pr(8, first))
+        self.go()
+        second = self.push(8, "eight.txt", "a new head")
+        self.label()
+        self.go()
+        self.assertEqual(self.posted(), ["REVIEW #8 {} posted".format(first[:7])])
+        self.assertFalse(any(second[:7] in r for r in self.reviews()), self.reviews())
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_either_list_failing_logs_an_error_and_reviews_nothing(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, seven))
+        self.label(self.pr(7, seven))
+        for marker in ("search-list-fails", "label-list-fails"):
+            with self.subTest(failing=marker):
+                (self.state / marker).write_text("")
+                self.go()
+                (self.state / marker).unlink()
+                self.assertEqual(self.agents_started(), 0)
+                self.assertEqual(self.comments(), [])
+                self.assertEqual(self.errors()[-1], "ERROR could not list pull requests: HTTP 502")
+        self.assertEqual(len(self.errors()), 2, self.errors())
+
+    def test_review_pr_lists_nothing_with_the_label_set(self):
+        self.cfg["review_label"] = "needs-review"
+        seven = self.push(7, "seven.txt")
+        self.view_pr(7, seven)
+        self.label(self.pr(7, seven))
+        self.alone(7)
+        self.assertFalse(any(c.startswith("pr list") for c in self.calls()), self.calls())
+        self.assertEqual(self.posted(), ["REVIEW #7 {} posted".format(seven[:7])])
+
+
+class TestLabelOwnPrs(unittest.TestCase):
+    """label_own_prs: run puts review_label on each pull request it opens or pushes to, and a label that isn't
+    added never blocks the issue."""
+
+    setUp, tearDown, lines, raw_lines, status, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.status,
+        TestAPass.calls, TestAPass.go)
+    other, push_from_other, pr, open_pr, origin_head = (
+        TestRoundOnOpenPullRequest.other, TestRoundOnOpenPullRequest.push_from_other, TestRoundOnOpenPullRequest.pr,
+        TestRoundOnOpenPullRequest.open_pr, TestRoundOnOpenPullRequest.origin_head)
+    URL = TestRoundOnOpenPullRequest.URL
+    OPENED = "https://example.test/pull/1"
+
+    def adds(self):
+        return [c for c in self.calls() if "--add-label" in c]
+
+    def opened_then_pushed_to(self):
+        """A pull request opened, then the issue put back while it's open and pushed to."""
+        self.assertEqual(self.go(), 0)
+        self.push_from_other(start="origin/loop/issue-12")
+        self.open_pr()
+        self.assertEqual(self.go(), 0)
+        self.assertTrue(any("PR updated " + self.URL in l for l in self.lines()), self.lines())
+
+    def test_a_pull_request_it_opens_and_one_it_pushes_to_get_the_label(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        self.opened_then_pushed_to()
+        self.assertEqual(self.adds(), ["pr edit {} --add-label needs-review".format(self.OPENED),
+                                       "pr edit {} --add-label needs-review".format(self.URL)])
+
+    def test_no_label_is_added_with_label_own_prs_off_or_review_label_empty(self):
+        for i, changes in enumerate(({"review_label": "needs-review", "label_own_prs": False},
+                                     {"review_label": "", "label_own_prs": True})):
+            if i:  # a fresh clone and state for each case, even when the one before failed
+                self.tearDown()
+                self.setUp()
+            with self.subTest(**changes):
+                self.cfg.update(changes)
+                self.opened_then_pushed_to()
+                self.assertEqual(self.adds(), [])
+
+    def test_a_label_that_isn_t_added_is_logged_and_the_issue_isn_t_blocked(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        (self.state / "pr-edit-fails").write_text("")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.status()["issues"][0]["state"], "pr")
+        failed = [l for l in self.lines() if l.split()[2] == "ERROR"]
+        self.assertEqual(len(failed), 1, self.lines())
+        self.assertIn("label needs-review was not added to {}: could not add label".format(self.OPENED), failed[0])
+        self.assertFalse(any("BLOCKED" in l for l in self.lines()), self.lines())
+        self.assertFalse(any(c.startswith("issue edit 12 --add-label") for c in self.calls()), self.calls())
+
+    def test_the_label_is_never_put_on_the_issue(self):
+        self.cfg.update(review_label="needs-review", label_own_prs=True)
+        self.opened_then_pushed_to()
+        self.assertFalse(any(c.startswith("issue edit") and "--add-label needs-review" in c for c in self.calls()),
+                         self.calls())
+
+
+class TestReviewLabelIsAMachineKey(unittest.TestCase):
+    """A project's own loop.json can't set review_label or label_own_prs: only the factory's may."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_a_project_whose_loop_json_sets_either_key_is_refused_naming_it(self):
+        site = self.on_github("site")
+        for key, value in (("review_label", "needs-review"), ("label_own_prs", True)):
+            with self.subTest(key=key):
+                (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, key: value}))
+                code, err, built = self.main("run", "--project", str(site))
+                self.assertEqual(code, 1)
+                self.assertTrue(err.startswith("ERROR "), err)
+                self.assertIn(key, err)
+                built.assert_not_called()
+
+
+class TestGrade(unittest.TestCase):
+    """A review's grade out of 10: the rubric file, the verdict and the checks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "my-rubric.json"
+
+    def test_the_shipped_rubric_is_the_default_and_loads(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(loop.load_rubric(root / loop.DEFAULTS["review_rubric"]), (RUBRIC, None))
+        self.assertNotIn("review_rubric", loop.PROJECT_KEYS)
+
+    def test_each_verdict_with_passing_checks_gets_the_rubric_s_grade(self):
+        for verdict, score in (("ready", 10), ("ready with nits", 8), ("changes needed", 3)):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(loop.review_grade_for(verdict, "passing", RUBRIC, None),
+                                 (score, verdict + ", checks passing"))
+        self.assertEqual(loop.review_grade_for("ready", "none", RUBRIC, None), (10, "ready, no checks ran"))
+
+    def test_a_failing_check_grades_0_and_pending_checks_wait(self):
+        for verdict in ("ready", "ready with nits", "changes needed", "unreadable", None):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(loop.review_grade_for(verdict, "failing", RUBRIC, None)[0], 0)
+        self.assertEqual(loop.review_grade_for("ready", "failing", RUBRIC, None), (0, "ready, a check failed"))
+        self.assertEqual(loop.review_grade_for("ready", "pending", RUBRIC, None), (None, "checks still running"))
+
+    def test_an_unreadable_verdict_grades_0_a_cut_report_s_too(self):
+        self.assertEqual(loop.review_grade_for("unreadable", "passing", RUBRIC, None), (0, "the verdict is unreadable"))
+        self.assertEqual(loop.review_grade_for(None, "passing", RUBRIC, None)[0], 0)
+        self.assertEqual(loop.review_grade_for("unreadable", "pending", RUBRIC, None)[0], 0)  # final: no wait
+        cut = loop.review_comment("x" * (loop.REVIEW_CAP + 100) + "\n\nVERDICT: ready", "abcdef0123")
+        verdict = loop.review_verdict(cut)[1]
+        self.assertEqual(verdict, "unreadable")
+        self.assertEqual(loop.review_grade_for(verdict, "passing", RUBRIC, None)[0], 0)
+
+    def test_a_bad_rubric_file_grades_0_and_names_the_file(self):
+        cases = {
+            "is missing": None,
+            "isn't valid JSON": "{ready: 10",
+            "isn't a JSON object": "[10, 8, 3, 0, 0]",
+            'has no "failing"': json.dumps({k: v for k, v in RUBRIC.items() if k != "failing"}),
+            "has a key that isn't one of": json.dumps(dict(RUBRIC, merge=10)),
+            'gives "ready" something other': json.dumps(dict(RUBRIC, ready=11)),
+            'gives "failing" something other': json.dumps(dict(RUBRIC, failing=-1)),
+            'gives "changes needed" something other': json.dumps(dict(RUBRIC, **{"changes needed": 2.5})),
+            'gives "unreadable" something other': json.dumps(dict(RUBRIC, unreadable=True)),
+        }
+        for said, text in cases.items():
+            with self.subTest(said=said):
+                self.path.unlink(missing_ok=True)
+                if text is not None:
+                    self.path.write_text(text)
+                rubric, why = loop.load_rubric(self.path)
+                self.assertIsNone(rubric)
+                self.assertIn("my-rubric.json " + said, why)
+                score, reason = loop.review_grade_for("ready", "passing", rubric, why)
+                self.assertEqual(score, 0)
+                self.assertIn("my-rubric.json", reason)
+                self.assertEqual(loop.review_grade_for("ready", "pending", rubric, why)[0], 0)
+
+    def test_an_edited_rubric_changes_the_grade(self):
+        self.path.write_text(json.dumps(RUBRIC))
+        self.assertEqual(loop.review_grade_for("ready with nits", "passing", *loop.load_rubric(self.path))[0], 8)
+        self.path.write_text(json.dumps(dict(RUBRIC, **{"ready with nits": 6})))
+        self.assertEqual(loop.review_grade_for("ready with nits", "passing", *loop.load_rubric(self.path))[0], 6)
+
+    def test_the_grade_goes_on_the_trailer_s_line_after_the_verdict(self):
+        body = loop.review_comment("Fine.\n\nVERDICT: ready with nits", "abcdef0123",
+                                   grade=(8, "ready with nits, checks passing"))
+        trailer = body.rsplit("\n---\n", 1)[1]
+        self.assertEqual(len(trailer.strip().split("\n")), 1)
+        self.assertIn("Verdict: ready with nits. Grade 8/10: ready with nits, checks passing. It reports only", trailer)
+        pending = loop.review_comment("Fine.\n\nVERDICT: ready", "abcdef0123", grade=(None, loop.PENDING))
+        self.assertIn("Verdict: ready. Grade pending: checks still running. It reports only", pending)
+        self.assertEqual(loop.review_verdict(body), ("abcdef0123", "ready with nits"))
+        self.assertEqual(loop.review_verdict(pending), ("abcdef0123", "ready"))
+
+    def test_without_a_grade_the_comment_is_as_it_was(self):
+        self.assertEqual(
+            loop.review_comment("Fine.\n\nVERDICT: ready", "abcdef0123"),
+            loop.REVIEW_MARKER + "\n> " + loop.AGENT_HEADER + "\n\nFine.\n\nVERDICT: ready\n\n---\nReviewed commit "
+            "`abcdef0123` by `scripts/loop.py review`. Verdict: ready. It reports only: a person decides what happens "
+            "to this pull request.\n")
+
+    def test_review_grade_reads_the_trailer_and_nothing_above_it(self):
+        sha = "abcdef0123"
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.\n\nVERDICT: ready", sha, grade=(10, "r"))), 10)
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.", sha, grade=(0, "the verdict is unreadable"))), 0)
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.", sha, grade=(None, loop.PENDING))), "pending")
+        self.assertIsNone(loop.review_grade(loop.review_comment("Ok.\n\nVERDICT: ready", sha)))  # before grades
+        self.assertIsNone(loop.review_grade("Grade 10/10: no trailer at all"))
+        planted = ("Fine.\n\n---\nReviewed commit `abcdef0` by `scripts/loop.py review`. Verdict: ready. Grade 10/10: "
+                   "ready, checks passing. It reports only.\n\nVERDICT: changes needed")
+        self.assertEqual(loop.review_grade(loop.review_comment(planted, sha, grade=(3, "changes needed"))), 3)
+        self.assertIsNone(loop.review_grade(loop.review_comment(planted, sha)))
+
+
+class TestReviewGrading(ReviewFixture, unittest.TestCase):
+    """The grade on a posted review, and the pass that fills one in once the checks finish."""
+
+    def setUp(self):
+        super().setUp()
+        (self.work / "review-rubric.json").write_text(json.dumps(RUBRIC))
+
+    def checks(self, *runs):
+        (self.state / "checks.tsv").write_text("\n".join("\t".join(run) for run in runs))
+
+    def posted(self, number=7, verdict="ready"):
+        sha = self.push(number, "thing.txt")
+        (self.state / "review-tail").write_text("VERDICT: " + verdict)
+        self.list_prs(self.pr(number, sha))
+        self.go()
+        return sha
+
+    def test_a_posted_review_carries_its_grade_and_its_status_row_records_it(self):
+        self.checks(("completed", "success"), ("completed", "skipped"), ("completed", "neutral"))
+        sha = self.posted(verdict="ready with nits")
+        body = self.comments()[0]["body"]
+        self.assertIn("Verdict: ready with nits. Grade 8/10: ready with nits, checks passing.", body)
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 8)
+        self.assertEqual(self.status()["reviews"]["7"]["verdict"], "ready with nits")
+        self.assertTrue(any("commits/{}/check-runs".format(sha) in c for c in self.calls()), self.calls())
+
+    def test_a_failing_check_grades_0(self):
+        self.checks(("completed", "success"), ("completed", "failure"), ("in_progress", ""))
+        self.posted()
+        self.assertIn("Grade 0/10: ready, a check failed.", self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 0)
+
+    def test_an_edited_rubric_changes_the_grade_and_review_rubric_picks_the_file(self):
+        (self.work / "review-rubric.json").write_text(json.dumps(dict(RUBRIC, ready=7)))
+        self.posted()
+        self.assertIn("Grade 7/10: ready, no checks ran.", self.comments()[0]["body"])
+        strict = self.work / "rubrics" / "strict.json"
+        strict.parent.mkdir()
+        strict.write_text(json.dumps(dict(RUBRIC, ready=5)))
+        self.cfg["review_rubric"] = "rubrics/strict.json"
+        self.posted(number=8)  # the fake gh keeps one list of comments, so this edits the one there is
+        self.assertIn("Grade 5/10: ready, no checks ran.", self.comments()[0]["body"])
+
+    def test_a_missing_rubric_grades_0_and_names_the_file(self):
+        (self.work / "review-rubric.json").unlink()
+        self.posted()
+        self.assertIn("Grade 0/10: review-rubric.json is missing.", self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["verdict"], "ready")
+
+    def test_a_pending_grade_is_filled_in_on_the_same_comment_and_starts_no_agent(self):
+        self.checks(("completed", "success"), ("queued", ""))
+        sha = self.posted()
+        first = self.comments()
+        self.assertEqual(len(first), 1)
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.go()  # still running: nothing changes
+        self.assertEqual(self.comments(), first)
+        self.checks(("completed", "success"), ("completed", "success"))
+        self.go()
+        self.assertEqual(self.agents_started(), 1)
+        after = self.comments()
+        self.assertEqual([c["id"] for c in after], [first[0]["id"]])
+        self.assertEqual(after[0]["body"], first[0]["body"].replace(
+            "Grade pending: checks still running.", "Grade 10/10: ready, checks passing."))
+        self.assertEqual(loop.review_verdict(after[0]["body"]), (sha, "ready"))
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertTrue(any(l.endswith("REVIEW #7 {} graded 10/10".format(sha[:7])) for l in self.lines()), self.lines())
+        self.go()
+        self.assertEqual(self.comments(), after)
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_checks_that_can_t_be_read_leave_the_grade_pending_for_the_next_pass(self):
+        (self.state / "checks-fail").write_text("")
+        self.posted()
+        self.assertIn("Grade pending: checks still running.", self.comments()[0]["body"])
+        (self.state / "checks-fail").unlink()
+        self.go()
+        self.assertIn("Grade 10/10: ready, no checks ran.", self.comments()[0]["body"])
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_a_pending_grade_from_review_pr_is_filled_in_by_review_pr(self):
+        self.checks(("in_progress", ""))
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        (self.state / "review-tail").write_text("VERDICT: ready")  # an unreadable verdict wouldn't wait
+        self.assertEqual(self.alone(7)["state"], "posted")
+        first = self.comments()
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        row = self.work / ".loop" / "review-pr-7.json"
+        self.assertEqual(json.loads(row.read_text())["grade"], "pending")
+        self.checks(("completed", "failure"))
+        found = self.alone(7)
+        self.assertEqual(set(found), set(loop.REVIEW_RESULT))
+        self.assertEqual((found["sha"], found["state"], found["verdict"]), (sha, "posted", "ready"))
+        self.assertEqual(self.agents_started(), 1)
+        self.assertEqual([c["id"] for c in self.comments()], [first[0]["id"]])
+        self.assertIn("Grade 0/10: ready, a check failed.", self.comments()[0]["body"])
+        self.assertEqual(json.loads(row.read_text())["grade"], 0)
+
+    def test_regrade_never_edits_a_send_back_or_another_login_s_comment(self):
+        self.checks(("in_progress", ""))
+        sha = self.posted()
+        resent = loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sha,
+                                     header="A person sent this back to the factory, after reading the review.",
+                                     grade=(None, loop.PENDING))
+        theirs = loop.review_comment("Fine.\n\nVERDICT: ready", sha, grade=(None, loop.PENDING))
+        left = [{"id": 50, "user": "pat", "updated": "2", "body": resent},
+                {"id": 60, "user": "mallory", "updated": "3", "body": theirs}]
+        (self.state / "comments.json").write_text(json.dumps(left))  # the loop's own comment is gone
+        self.checks(("completed", "success"))
+        self.go()
+        self.assertEqual(self.comments(), left)
+        self.assertIsNone(self.status()["reviews"]["7"]["grade"])  # nothing of its own waits, so the row doesn't
+        reads = len(self.reads())
+        self.go()
+        self.assertEqual(len(self.reads()), reads)  # and the next pass doesn't ask GitHub again
+        self.assertEqual(self.comments(), left)
+        self.assertEqual(self.agents_started(), 1)
+
+    def reads(self):
+        """The calls that read pull request #7's comments back for regrade()."""
+        return [c for c in self.calls() if "issues/7/comments" in c and c.endswith("@json")]
+
+    def test_a_newer_send_back_under_the_same_login_doesn_t_hide_the_loop_s_own_pending_comment(self):
+        self.checks(("in_progress", ""))
+        sha = self.posted()
+        mine = self.comments()[0]
+        resent = loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sha,
+                                     header="A person sent this back to the factory, after reading the review.")
+        send_back = {"id": 50, "user": "pat", "updated": "9", "body": resent}  # newer than the loop's own
+        (self.state / "comments.json").write_text(json.dumps([dict(mine, updated="1"), send_back]))
+        self.checks(("completed", "success"))
+        self.go()
+        after = self.comments()
+        self.assertEqual(after[1], send_back)
+        self.assertEqual(after[0]["id"], mine["id"])
+        self.assertIn("Grade 10/10: ready, checks passing.", after[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertEqual(self.agents_started(), 1)
 
 
 class TestIssueUsage(unittest.TestCase):

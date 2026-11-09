@@ -1,5 +1,5 @@
 {
-  "source": "An example of the shape only: these figures and this date are not real prices. Copy this file to .harness/prices.json, then put in each model you use, in dollars per million tokens, from your provider's price list, with the date you checked it.",
+  "source": "An example of the shape only: these figures and this date are not real prices. Copy this file to .sanvio/prices.json, then put in each model you use, in dollars per million tokens, from your provider's price list, with the date you checked it.",
   "checked": "2026-01-01",
   "models": {
     "example-model": {

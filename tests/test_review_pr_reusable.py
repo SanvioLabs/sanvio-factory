@@ -73,11 +73,15 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(children(self.code, "on"), ["workflow_call"])
         self.assertNotIn("pull_request_target", self.text)
 
-    def test_it_takes_the_harness_repo_and_three_optional_secrets(self):
+    def test_it_takes_the_factory_repo_and_three_optional_secrets(self):
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-        self.assertRegex(on, r"harness-repo:\n(?:\s+\S.*\n)*?\s+required: true\n(?:\s+\S.*\n)*?\s+type: string")
-        for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HARNESS_DEPLOY_KEY"):
+        self.assertRegex(on, r"factory-repo:\n(?:\s+\S.*\n)*?\s+required: true\n(?:\s+\S.*\n)*?\s+type: string")
+        for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "FACTORY_DEPLOY_KEY"):
             self.assertRegex(on, r"{}:\n(?:\s+description: .*\n)?\s+required: false".format(name))
+
+    def test_the_old_ci_names_are_gone(self):
+        for old in ("harness-repo", "HARNESS_DEPLOY_KEY", "HARNESS_REPO"):
+            self.assertNotIn(old, self.text)
 
     def test_permissions_are_read_contents_and_write_comments_only(self):
         self.assertEqual(sorted(single.block(self.code, "permissions")), ["contents: read", "pull-requests: write"])
@@ -111,12 +115,12 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIsNone(single.KEY_SHAPES.search(self.text), "something in the file looks like a key")
 
     def test_a_missing_deploy_key_fails_and_names_it(self):
-        result, output, _ = self.run_step(CREDENTIAL, HARNESS_DEPLOY_KEY="")
+        result, output, _ = self.run_step(CREDENTIAL, FACTORY_DEPLOY_KEY="")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("::error::", result.stdout)
-        self.assertIn("HARNESS_DEPLOY_KEY", result.stdout)
+        self.assertIn("FACTORY_DEPLOY_KEY", result.stdout)
         self.assertEqual(output, "")
-        result, output, _ = self.run_step(CREDENTIAL, HARNESS_DEPLOY_KEY="k")
+        result, output, _ = self.run_step(CREDENTIAL, FACTORY_DEPLOY_KEY="k")
         self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_a_missing_anthropic_key_skips_with_a_notice(self):
@@ -217,8 +221,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
 
     def test_the_harness_comes_from_its_default_branch_with_the_deploy_key(self):
         harness = self.step(HARNESS)
-        self.assertIn("repository: ${{ inputs.harness-repo }}", harness)
-        self.assertIn("ssh-key: ${{ secrets.HARNESS_DEPLOY_KEY }}", harness)
+        self.assertIn("repository: ${{ inputs.factory-repo }}", harness)
+        self.assertIn("ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}", harness)
         self.assertIn("path: harness", harness)
         self.assertIn("persist-credentials: false", harness)
         self.assertNotRegex(harness, r"(?m)^\s+ref:")
@@ -226,12 +230,12 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIn('echo "Harness commit: $(git -C harness rev-parse HEAD)"', sha)
         self.assertIn("harness/skills/review-pr/SKILL.md", sha)
         self.assertIn("::error::", sha)
-        self.assertIn("HARNESS_DEPLOY_KEY", sha)
-        self.assertIn("inputs.harness-repo", sha)
+        self.assertIn("FACTORY_DEPLOY_KEY", sha)
+        self.assertIn("inputs.factory-repo", sha)
         self.assertRegex(sha, r"exit [1-9]")
 
     def test_a_harness_without_the_skill_fails(self):
-        result, _, _ = self.run_step(HARNESS_SHA, HARNESS_REPO="o/not-a-harness")
+        result, _, _ = self.run_step(HARNESS_SHA, FACTORY_REPO="o/not-a-harness")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("o/not-a-harness", result.stdout)
 
@@ -337,11 +341,11 @@ class ReusableReviewWorkflow(unittest.TestCase):
             (harness / "skills" / "review-pr" / "SKILL.md").write_text("skill\n")
             self.git(harness, "add", ".")
             self.git(harness, "commit", "-q", "-m", "skill")
-            result = self.run_in(HARNESS_SHA, tmp, HARNESS_REPO="o/h")
+            result = self.run_in(HARNESS_SHA, tmp, FACTORY_REPO="o/h")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("harness/AGENTS.md", result.stdout)
             (harness / "AGENTS.md").write_text("rules\n")
-            result = self.run_in(HARNESS_SHA, tmp, HARNESS_REPO="o/h")
+            result = self.run_in(HARNESS_SHA, tmp, FACTORY_REPO="o/h")
             self.assertEqual(result.returncode, 0, result.stdout)
 
     def prompt_for(self, big, standards=None):
@@ -433,23 +437,23 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertNotIn(self.CUT, prompt)
 
     def test_the_deploy_key_reaches_only_the_check_and_the_harness_checkout(self):
-        holding = [name for name, text in self.steps() if "secrets.HARNESS_DEPLOY_KEY" in text]
+        holding = [name for name, text in self.steps() if "secrets.FACTORY_DEPLOY_KEY" in text]
         self.assertEqual(sorted(holding), sorted([CREDENTIAL, HARNESS]))
         for name in (PROMPT, CLAUDE, POST):
-            self.assertNotIn("HARNESS_DEPLOY_KEY", self.step(name), name)
+            self.assertNotIn("FACTORY_DEPLOY_KEY", self.step(name), name)
 
     def test_each_step_holds_only_its_own_key(self):
         claude = {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}
         self.assertEqual(self.secrets_in(CLAUDE), claude)
         self.assertEqual(self.secrets_in("Skip when Claude has no key"), claude)
-        self.assertEqual(self.secrets_in(CREDENTIAL), {"HARNESS_DEPLOY_KEY"})
+        self.assertEqual(self.secrets_in(CREDENTIAL), {"FACTORY_DEPLOY_KEY"})
         for name in (DRAFT, PROMPT, POST, BASE, HEAD, HARNESS_SHA):
             self.assertEqual(self.secrets_in(name), set(), name)
 
     def test_the_comment_goes_on_the_calling_repo_after_the_checkouts(self):
         post = self.step(POST)
         self.assertIn("REPO: ${{ github.repository }}", post)
-        self.assertNotIn("harness-repo", post)
+        self.assertNotIn("factory-repo", post)
         names = self.names()
         for name in (HARNESS, HARNESS_SHA, BASE, HEAD):
             self.assertLess(names.index(name), names.index(POST), name)
@@ -457,7 +461,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
     def test_the_header_says_it_never_approves_or_merges(self):
         header = self.text.split("\nname:", 1)[0]
         self.assertIn("never", header)
-        for word in ("approves", "merges", "examples/ci/README.md", "HARNESS_DEPLOY_KEY", "ANTHROPIC_API_KEY",
+        for word in ("approves", "merges", "examples/ci/README.md", "FACTORY_DEPLOY_KEY", "ANTHROPIC_API_KEY",
                      "CLAUDE_CODE_OAUTH_TOKEN", "claude setup-token"):
             self.assertIn(word, header)
 
@@ -473,25 +477,25 @@ class CallerReadme(unittest.TestCase):
 
     def test_the_headings_come_in_order(self):
         headings = re.findall(r"^## (.+)$", self.text, re.M)
-        self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private harness repo",
-                                    "Protecting the harness", "Testing the review", "Team standards"])
+        self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private factory repo",
+                                    "Protecting the factory repo", "Testing the review", "Team standards"])
 
-    def test_the_harness_section_says_how_to_protect_it(self):
-        self.assertIn("\n## Protecting the harness\n", self.text)
-        section = self.text.split("\n## Protecting the harness\n", 1)[1].split("\n## ", 1)[0]
+    def test_the_protecting_section_says_how(self):
+        self.assertIn("\n## Protecting the factory repo\n", self.text)
+        section = self.text.split("\n## Protecting the factory repo\n", 1)[1].split("\n## ", 1)[0]
         section = " ".join(section.split())
         for word in ("ruleset", "approval", "force push", "admins", "review-pr.yml@<sha>", "rotate"):
             self.assertIn(word, section)
         caller = self.text.split("\n## The caller\n", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("(#protecting-the-harness)", caller)
+        self.assertIn("(#protecting-the-factory-repo)", caller)
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")
         self.assertEqual(len(blocks), 1, "one ```yaml block, the caller")
         caller = blocks[0]
-        self.assertIn("uses: your-org/harness/.github/workflows/review-pr.yml@main", caller)
-        self.assertIn("harness-repo: your-org/harness", caller)
-        for name in ("ANTHROPIC_API_KEY", "HARNESS_DEPLOY_KEY"):
+        self.assertIn("uses: your-org/factory/.github/workflows/review-pr.yml@main", caller)
+        self.assertIn("factory-repo: your-org/factory", caller)
+        for name in ("ANTHROPIC_API_KEY", "FACTORY_DEPLOY_KEY"):
             self.assertIn("{0}: ${{{{ secrets.{0} }}}}".format(name), caller)
         self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", caller)
         self.assertNotIn("secrets: inherit", caller)

@@ -8,7 +8,7 @@ type Options = {
   betaFails?: boolean
   // This session's id, from a variable a test changes between calls. Null is an id the engine refuses.
   session?: { id: string | null }
-  // The harness's folder has no GitHub remote.
+  // The factory's folder has no GitHub remote.
   noRemote?: boolean
   // Every fs.write is refused.
   writesFail?: boolean
@@ -18,7 +18,7 @@ type Options = {
   onGit?: ((argv: string[]) => void) | undefined
 }
 
-// A harness at ROOT with three folders under projects/: acme and beta are clones on GitHub, notes is a plain folder.
+// A factory at ROOT with three folders under projects/: acme and beta are clones on GitHub, notes is a plain folder.
 // gh answers each repo with its own pull request count, and fails for beta when beta-fails is set.
 // fs.read answers from `files`, fs.write records each path and text and stores it, and fs.stat knows the
 // real folders, a file in projects/, a link, and a folder named off.
@@ -80,11 +80,11 @@ function stage(on: On, options: Options = {}) {
     if (argv[0] === 'git') {
       options.onGit?.(argv)
       const remotes: Record<string, string> = {
-        ...(options.noRemote ? {} : { [ROOT]: 'git@github.com:SanvioLabs/sanvio-harness-starter.git' }),
+        ...(options.noRemote ? {} : { [ROOT]: 'git@github.com:SanvioLabs/sanvio-factory.git' }),
         [`${ROOT}/projects/acme`]: 'https://github.com/acme/app.git',
         [`${ROOT}/projects/beta`]: 'git@github.com:beta/site.git',
-        // Not a clone: git inside it finds the harness's own repo.
-        [`${ROOT}/projects/notes`]: 'git@github.com:SanvioLabs/sanvio-harness-starter.git',
+        // Not a clone: git inside it finds the factory's own repo.
+        [`${ROOT}/projects/notes`]: 'git@github.com:SanvioLabs/sanvio-factory.git',
       }
       const url = remotes[argv[2] ?? '']
       return url ? ok(url) : fail
@@ -125,12 +125,12 @@ async function github($: Dollar, args: string): Promise<string> {
 
 const A = 'aaaaaaaa-1111'
 const B = 'bbbbbbbb-2222'
-const fileOf = (id: string) => `${ROOT}/.harness/project/${id}`
+const fileOf = (id: string) => `${ROOT}/.sanvio/project/${id}`
 const TICK = 15_000
 const LIMIT = 120_000
 const ACME = 'acme: acme/app · 0 actions running · 4 open pull requests · 1 open issue'
 const BETA = 'beta: beta/site · 0 actions running · 7 open pull requests · 1 open issue'
-const HARNESS = 'SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 1 open issue'
+const HARNESS = 'SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 1 open issue'
 
 const start = ($: Dollar) => $.session.start({ cwd: ROOT, surface: null, isInteractive: true })
 const textOf = (result: unknown) => (result as { text?: string }).text ?? ''
@@ -161,9 +161,9 @@ function gate(): { hold: Promise<void>; open: () => void } {
 }
 
 // First in the file. Each needs no timer and no repo to start from, so these rely on the kit loading the
-// module afresh for each test, which loop-pane's polling tests need too.
+// module afresh for each test, which factory-floor's polling tests need too.
 describe('/project with no session.start, as after a /clear', () => {
-  test('alone looks up the harness and starts the timer', async ($, on) => {
+  test('alone looks up the factory and starts the timer', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     expect(await project($)).toBe('No project in focus.')
     await s.clock.advance(TICK)
@@ -172,7 +172,7 @@ describe('/project with no session.start, as after a /clear', () => {
     expect(line).toContain(HARNESS)
     expect(line).not.toContain('no GitHub remote')
   })
-  test('off looks up the harness and starts the timer', async ($, on) => {
+  test('off looks up the factory and starts the timer', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     await project($, 'off')
     await s.clock.settle()
@@ -189,13 +189,13 @@ describe('/project with no session.start, as after a /clear', () => {
     await s.clock.advance(TICK)
     expect(readsOf(s.ran, 'beta')).toBe(1)
   })
-  test('/project off then shows the harness, and /github all names it', async ($, on) => {
+  test('/project off then shows the factory, and /github all names it', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     await project($, 'acme')
     await project($, 'off')
     await s.clock.settle()
     expect(await drawn($)).toContain(HARNESS)
-    expect((await gitHub($, 'all')).split('\n')[0]).toBe(`harness: ${HARNESS}`)
+    expect((await gitHub($, 'all')).split('\n')[0]).toBe(`factory: ${HARNESS}`)
   })
 })
 
@@ -242,21 +242,21 @@ describe('/github after a /clear', () => {
 })
 
 describe('/github all', () => {
-  test('the harness, each project with a remote in name order, and a count of the rest', async ($, on) => {
+  test('the factory, each project with a remote in name order, and a count of the rest', async ($, on) => {
     world(on, { betaFails: true })
     expect(await github($, 'all')).toBe([
-      'harness: SanvioLabs/sanvio-harness-starter · 0 actions running · 2 open pull requests · 1 open issue',
+      'factory: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 1 open issue',
       'acme: acme/app · 0 actions running · 4 open pull requests · 1 open issue',
       'beta: beta/site · GitHub unavailable (is gh installed and signed in?)',
       '1 folder under projects/ has no GitHub remote.',
     ].join('\n'))
   })
-  test('the line above the prompt stays the harness\'s', async ($, on) => {
+  test('the line above the prompt stays the factory\'s', async ($, on) => {
     world(on)
     await github($, 'acme')
     const ui = await $.ui.mount({ plugin: 'github-status', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('SanvioLabs/sanvio-harness-starter')
+    expect(drawn).toContain('SanvioLabs/sanvio-factory')
     expect(drawn).not.toContain('acme/app')
     await ui.unmount()
   })
@@ -334,11 +334,11 @@ describe('/project <name>', () => {
 })
 
 describe('/project off and /project alone', () => {
-  test('off writes the file empty, says the line is the harness\'s, and the line stops showing the project', async ($, on) => {
+  test('off writes the file empty, says the line is the factory\'s, and the line stops showing the project', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     await start($)
     await project($, 'acme')
-    expect(await project($, 'off')).toContain('shows the harness again')
+    expect(await project($, 'off')).toContain("shows the factory's repo again")
     expect(s.writes.at(-1)).toEqual({ path: fileOf(A), text: '' })
     expect(s.files.get(fileOf(A))).toBe('')
     await s.clock.settle()
@@ -347,7 +347,7 @@ describe('/project off and /project alone', () => {
     expect(line).not.toContain('acme')
     expect(await project($)).toBe('No project in focus.')
   })
-  test('off doesn\'t wait for the harness\'s read, and the project is gone from the line at once', async ($, on) => {
+  test('off doesn\'t wait for the factory\'s read, and the project is gone from the line at once', async ($, on) => {
     const gh: NonNullable<Options['gh']> = {}
     const s = stage(on, { session: { id: A }, gh })
     await start($)
@@ -356,7 +356,7 @@ describe('/project off and /project alone', () => {
     gh.hold = new Promise<void>(resolve => { release = resolve })
     await project($, 'off')
     const line = await drawn($)
-    expect(line).toContain('SanvioLabs/sanvio-harness-starter · reading…')
+    expect(line).toContain('SanvioLabs/sanvio-factory · reading…')
     expect(line).not.toContain('acme')
     gh.hold = null
     release()
@@ -372,11 +372,11 @@ describe('/project off and /project alone', () => {
     await s.clock.settle()
     expect(ghCalls(s.ran).length).toBe(before)
   })
-  test('off on a harness with no remote shows that at once', async ($, on) => {
+  test('off on a factory with no remote shows that at once', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
     await start($)
     await project($, 'acme')
-    expect(await project($, 'off')).toContain('shows the harness again')
+    expect(await project($, 'off')).toContain("shows the factory's repo again")
     const line = await drawn($)
     expect(line).toContain('no GitHub remote')
     expect(line).not.toContain('acme')
@@ -522,7 +522,7 @@ describe('the line with a project in focus', () => {
     expect(line).toContain(BETA)
     expect(line).not.toContain('acme')
   })
-  test('with no focus it\'s the harness\'s, with no prefix', async ($, on) => {
+  test('with no focus it\'s the factory\'s, with no prefix', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     await start($)
     await s.clock.settle()
@@ -530,7 +530,7 @@ describe('the line with a project in focus', () => {
     expect(line).toContain(HARNESS)
     expect(line).not.toContain(': SanvioLabs')
   })
-  test('a reload with a focus never shows the harness', async ($, on) => {
+  test('a reload with a focus never shows the factory', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     s.files.set(fileOf(A), 'acme\n')
     await start($)
@@ -543,7 +543,7 @@ describe('the line with a project in focus', () => {
 })
 
 describe('the tick', () => {
-  test('runs with no remote on the harness, and reads the file each time', async ($, on) => {
+  test('runs with no remote on the factory, and reads the file each time', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
     await start($)
     await s.clock.settle()
@@ -564,7 +564,7 @@ describe('the tick', () => {
     expect(readsOf(s.ran, 'beta')).toBe(1)
     expect(await drawn($)).toContain(BETA)
   })
-  test('a focus going away reads the harness straight away', async ($, on) => {
+  test('a focus going away reads the factory straight away', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     s.files.set(fileOf(A), 'acme\n')
     await start($)
@@ -607,7 +607,7 @@ describe('the tick', () => {
     await s.clock.advance(TICK)
     expect(lookups()).toBe(2)
   })
-  test('a harness with no remote and no focus never calls gh', async ($, on) => {
+  test('a factory with no remote and no focus never calls gh', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
     await start($)
     for (let i = 0; i < 10; i++) await s.clock.advance(TICK)
@@ -721,14 +721,14 @@ describe('/github with a project in focus', () => {
     expect(await gitHub($)).toBe(ACME)
     expect(readsOf(s.ran, 'acme')).toBe(2)
   })
-  test('no argument reads it when the harness has no remote too', async ($, on) => {
+  test('no argument reads it when the factory has no remote too', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
     s.files.set(fileOf(A), 'acme\n')
     await start($)
     await s.clock.settle()
     expect(await gitHub($)).toBe(ACME)
   })
-  test('no argument, a harness with no remote and no focus, says so', async ($, on) => {
+  test('no argument, a factory with no remote and no focus, says so', async ($, on) => {
     const s = stage(on, { session: { id: A }, noRemote: true })
     await start($)
     expect(await gitHub($)).toBe("This session's folder has no GitHub origin remote, so there's nothing to read.")
@@ -747,12 +747,12 @@ describe('/github with a project in focus', () => {
     await s.clock.advance(TICK)
     expect(readsOf(s.ran, 'beta')).toBe(1)
   })
-  test('/github all keeps the harness\'s own repo on harness:', async ($, on) => {
+  test('/github all keeps the factory\'s own repo on factory:', async ($, on) => {
     const s = stage(on, { session: { id: A } })
     s.files.set(fileOf(A), 'beta\n')
     await start($)
     await s.clock.settle()
-    expect(await gitHub($, 'all')).toBe([`harness: ${HARNESS}`, ACME, BETA, '1 folder under projects/ has no GitHub remote.'].join('\n'))
+    expect(await gitHub($, 'all')).toBe([`factory: ${HARNESS}`, ACME, BETA, '1 folder under projects/ has no GitHub remote.'].join('\n'))
   })
 })
 

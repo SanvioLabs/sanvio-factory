@@ -39,7 +39,7 @@ async function readOr($: EngineInterface, path: string): Promise<string | null> 
 }
 
 // The harness root: the nearest folder above the launch directory with a lens config, or with the
-// starter's own shape (AGENTS.md beside steering/). None means this session isn't in a harness.
+// default shape (AGENTS.md beside steering/). None means this session isn't in a harness.
 async function findRoot($: EngineInterface, from: string): Promise<string | null> {
   let dir = from.replace(/\/+$/, '')
   while (dir) {

@@ -47,7 +47,7 @@ that, in our conventions." Your version follows your rules and names your
 tools, and nobody else's update can change it under you. Put the source link,
 commit and licence at the top.
 
-**4. Commit it.** Everyone who checks out the harness gets it.
+**4. Commit it.** Everyone who checks out the factory gets it.
 
 Each skill takes a few minutes this way. Doing it every time matters more than
 which skills you pick.

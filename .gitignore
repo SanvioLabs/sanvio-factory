@@ -11,16 +11,19 @@ projects/*
 factories/*
 !factories/README.md
 /factories.json
-.harness/
+/.sanvio
+/.harness
 reports/usage/*
 !reports/usage/README.md
 reports/work/*
 !reports/work/README.md
 reports/pulse/*
 !reports/pulse/README.md
+reports/standup/*
+!reports/standup/README.md
 reports/trends/*
 !reports/trends/README.md
 .inbox/
 *.git/
 # scripts/draw_dashboard.py writes this for one run and deletes it; a killed run can leave it
-examples/mods/harness-dashboard/hooks/draw-picture.test.ts
+examples/mods/factory-dashboard/hooks/draw-picture.test.ts

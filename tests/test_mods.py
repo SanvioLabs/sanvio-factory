@@ -1,4 +1,5 @@
 """Run with: python3 -m unittest discover -s tests"""
+import json
 import re
 import shutil
 import subprocess
@@ -84,6 +85,65 @@ def add_mod_test(folder):
 
 for _folder in MODS:
     add_mod_test(_folder)
+
+
+MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
+ATOM_PLUGIN = re.compile(r"atom\(\s*\{\s*plugin:\s*'([^']*)'")
+PANE_ID = re.compile(r"^const PANE = '([^']*)'", re.MULTILINE)
+
+
+def missing_from_marketplace(folders, market):
+    """Each mod folder with no marketplace entry of its name whose source is its folder."""
+    sources = {p["name"]: p["source"] for p in market["plugins"]}
+    return [f.name for f in folders if sources.get(f.name) != "./examples/mods/" + f.name]
+
+
+def foreign_atoms(name, source):
+    """Each atom namespace in source that isn't the mod's own name."""
+    return [plugin for plugin in ATOM_PLUGIN.findall(source) if plugin != name]
+
+
+def hook_sources(folder):
+    return "\n".join(p.read_text() for p in sorted((folder / "hooks").glob("*.ts*"))
+                     if ".test." not in p.name)
+
+
+class ModsStayApart(unittest.TestCase):
+    """Each mod installs by its own name, and keeps its saved state and its pane to itself."""
+
+    def test_every_mod_has_a_marketplace_entry_for_its_folder(self):
+        # The CHANGELOG's and READMEs' "<mod>@sanvio-factory" install lines only work through this entry.
+        market = json.loads(MARKETPLACE.read_text())
+        self.assertEqual(missing_from_marketplace(MODS, market), [])
+
+    def test_a_mod_with_no_entry_or_a_wrong_source_is_caught(self):
+        market = {"plugins": [{"name": "tide-pane", "source": "./examples/mods/tide-pane"},
+                              {"name": "factory-floor", "source": "./examples/mods/factory-flor"}]}
+        folders = [MODS_DIR / "tide-pane", MODS_DIR / "factory-floor", MODS_DIR / "tide-crew"]
+        self.assertEqual(missing_from_marketplace(folders, market), ["factory-floor", "tide-crew"])
+
+    def test_every_plugin_json_names_its_folder(self):
+        for folder in MODS:
+            manifest = json.loads((folder / ".claude-plugin" / "plugin.json").read_text())
+            self.assertEqual(manifest["name"], folder.name)
+
+    def test_every_mod_keeps_its_saved_state_under_its_own_name(self):
+        # Two mods sharing an atom namespace would share picks, views and focus in one session.
+        for folder in MODS:
+            source = hook_sources(folder)
+            # Every atom is read, so one written another way can't slip past.
+            self.assertEqual(len(ATOM_PLUGIN.findall(source)), source.count("atom("), folder.name)
+            self.assertEqual(foreign_atoms(folder.name, source), [], folder.name)
+
+    def test_an_atom_under_another_mods_name_is_caught(self):
+        source = ("const a = atom({ plugin: 'factory-floor', key: 'view' } as const, null)\n"
+                  "const b = atom({ plugin: 'tide-pane', key: 'picked' } as const, null)\n")
+        self.assertEqual(foreign_atoms("factory-floor", source), ["tide-pane"])
+
+    def test_no_two_mods_share_a_pane(self):
+        # A shared pane id lets one mod's command find and close the other's pane.
+        panes = [p for folder in MODS for p in PANE_ID.findall(hook_sources(folder))]
+        self.assertEqual(len(panes), len(set(panes)), panes)
 
 
 class CheckModCatchesFailures(unittest.TestCase):

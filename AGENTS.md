@@ -1,7 +1,8 @@
 # How to work in this repo
 
-This is a harness: the rules, skills, gates and agents you work inside. You do
-the work. A human reviews it, and a human sends, merges or pays.
+This is Sanvio Factory. Its harness is what you work inside: the rules, skills,
+gates and agents. You do the work. A human reviews it, and a human sends,
+merges or pays.
 
 ## Steering
 
@@ -73,14 +74,14 @@ steps in order.
 | [`skills/review-tests/SKILL.md`](skills/review-tests/SKILL.md) | Asked whether tests are any good or would catch a regression, or after tests were written by an agent |
 | [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md) | Asked to install, add, try or review a skill from outside this repo |
 | [`skills/learn/SKILL.md`](skills/learn/SKILL.md) | The agent got something wrong and the person wants it to stick: "learn from that", "don't do that again", "make that a rule" |
-| [`skills/retro/SKILL.md`](skills/retro/SKILL.md) | Asked for a retro, why something went wrong in a session, or which sessions the retro hook kept. The hook keeps nothing unless `HARNESS_RETRO=on` |
+| [`skills/retro/SKILL.md`](skills/retro/SKILL.md) | Asked for a retro, why something went wrong in a session, or which sessions the retro hook kept. The hook keeps nothing unless `SANVIO_RETRO=on` |
 | [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md) | Putting an issue on the loop, starting or stopping [`scripts/loop.py`](scripts/loop.py), or asked what the loop did or why an issue is blocked |
-| [`skills/dispatch/SKILL.md`](skills/dispatch/SKILL.md) | Handing an issue to another factory, such as another team's delivery system or a second harness, checking what it sent back, or sending it back for changes. It never merges |
+| [`skills/dispatch/SKILL.md`](skills/dispatch/SKILL.md) | Handing an issue to another factory, such as another team's delivery system or a second copy of this factory, checking what it sent back, or sending it back for changes. It never merges |
 | [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md) | Someone runs `/orientation`, is new here, asks how to use this, says "get me started", or wants it set up for their own job and their company's data |
-| [`skills/harness-trends/SKILL.md`](skills/harness-trends/SKILL.md) | At the end of a sprint, or asked for a harness report, a sprint follow-up, or what to add to the harness, or how many tokens the harness or the loop used. Its daily run, for "how did yesterday go", recommends one change for the team to vote on in pulse |
+| [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md) | At the end of a sprint, or asked for a factory report, a sprint follow-up, or what to add to the factory, or how many tokens conversations here or the loop used. Its daily run, for "how did yesterday go", recommends one change for the team to vote on in pulse |
 | [`skills/work-report/SKILL.md`](skills/work-report/SKILL.md) | Asked for a work report, what got done or shipped over a period, which milestones were met, or a report on the team's work for a lead |
 | [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md) | Asked what's new, what changed, or whether this copy is up to date with its remote |
-| [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md) | Asked to "check the starter", "starter updates", "what's new in the starter", "what has the starter added", or "should we take the starter's changes". It asks what you want to bring over, one question at a time |
+| [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md) | Asked to "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates". It asks what you want to bring over, one question at a time |
 | [`skills/standup/SKILL.md`](skills/standup/SKILL.md) | Asked for a standup or a morning check, or what's on them today: reviews waiting, issues assigned, what the loop finished or blocked, today's meetings |
 | [`skills/inbox/SKILL.md`](skills/inbox/SKILL.md) | Asked to check their email or inbox: what needs a reply, what's waiting on someone, what matters today |
 | [`skills/pulse/SKILL.md`](skills/pulse/SKILL.md) | Someone runs `/pulse`, says "pulse", or asks to see or answer the team's daily question, or how the team answered yesterday, or to summarise a period's answers for leadership |
@@ -88,7 +89,7 @@ steps in order.
 These come from the Stelliad plugin, which [`.claude/settings.json`](.claude/settings.json) switches on.
 Installing it is the one install that doesn't go through `review-skill`; the
 README says why. In Claude Code, invoke them by name, and if one isn't
-installed, say so and point at `/plugin install stelliad@sanvio-harness-starter`. In a tool
+installed, say so and point at `/plugin install stelliad@sanvio-factory`. In a tool
 without plugins, write tickets from [`steering/tickets.md`](steering/tickets.md) and
 [`.github/ISSUE_TEMPLATE/loop-task.md`](.github/ISSUE_TEMPLATE/loop-task.md), and say there's no spec procedure here
 without Stelliad.
@@ -113,7 +114,7 @@ refuses credential files and asks the human before any connector changes
 something. If it refuses, don't look for another way to do the same thing. Say
 what you needed and ask.
 
-## Changing the harness
+## Changing the factory
 
 A noticeable change (something new, something that works differently,
 something that moved, or anything someone has to act on) adds an entry at the
@@ -142,7 +143,7 @@ instructions.
 catches. Run it after changing an agent's file, a job's brief or the model. It starts real
 sessions, so it isn't part of the gate; [`examples/proposal/evals/`](examples/proposal/evals/) has the reviewer's cases, [`examples/typescript/evals/`](examples/typescript/evals/) the security reviewer's, and [`examples/ci/evals/`](examples/ci/evals/) the review-pr skill's.
 
-[`scripts/eval_harness.py`](scripts/eval_harness.py) runs a whole harness through a suite of jobs and prints a scorecard, and `compare` shows what a harness change did. It creates a private repo and spends model tokens, so only start a run when a person asks. [`examples/eval-suite/`](examples/eval-suite/) shows a suite's format. A private suite's `key/` never goes in this repo, or anywhere an agent working on the run can read.
+[`scripts/eval_factory.py`](scripts/eval_factory.py) runs a whole factory through a suite of jobs and prints a scorecard, and `compare` shows what a factory change did. It creates a private repo and spends model tokens, so only start a run when a person asks. [`examples/eval-suite/`](examples/eval-suite/) shows a suite's format. A private suite's `key/` never goes in this repo, or anywhere an agent working on the run can read.
 
 ## Examples
 
@@ -154,7 +155,6 @@ sessions, so it isn't part of the gate; [`examples/proposal/evals/`](examples/pr
 | [`examples/proposal/`](examples/proposal/) | Drafting a client proposal: inputs, rules, a skill (`skills/draft-proposal/SKILL.md` inside it), a gate, the hook block and a review brief. Also when asked whether a proposal is ready to send or can enter Shape or Build: its README's *Ready to send, and ready for Build* |
 | [`examples/typescript/`](examples/typescript/) | A TypeScript project tested with Node alone: `node --test` runs the `.ts` tests with no build step, `tsc` checks the types, and its README gives the loop's `test_command`. Read it when starting a TypeScript project or putting one on the loop |
 | [`examples/mods/harness-lens/`](examples/mods/harness-lens/) | A Claude Code mod that shows which layer just acted, above the prompt. On by default from [`.claude/settings.json`](.claude/settings.json); `/lens` lists the session |
-| [`examples/mods/loop-pane/`](examples/mods/loop-pane/) | A Claude Code mod: `/loop-pane` opens a pane showing [`scripts/loop.py`](scripts/loop.py)'s queue, each issue's step and round, its tokens and estimated cost, and its pull request, and on a Mac opens a read-only window on the loop's tmux session. On by default; it never changes the loop |
-| [`examples/mods/github-status/`](examples/mods/github-status/) | A Claude Code mod that shows the repo's running actions, open pull requests and open issues above the prompt, read through `gh`. On by default; it writes `.harness/project/`, `/github` reads now, and `/project` puts one project in focus for the session |
-| [`examples/mods/harness-dashboard/`](examples/mods/harness-dashboard/) | A Claude Code mod: `/harness-dashboard` opens a pane with what's waiting on you, the loop's spend, throughput and rework, the saved evals and whether they're stale, Claude Code's tokens and the harness's activity, from [`scripts/dashboard_data.py`](scripts/dashboard_data.py), with a bar chart a day for the loop's spend and Claude Code's tokens, over 7, 14 or 30 days. Off by default; it spends no model tokens, calls `gh` on each read and writes only the script's caches |
-| [`examples/mods/loop-crew/`](examples/mods/loop-crew/) | A Claude Code mod: `/loop-crew` opens a pane with a lane for each issue being worked on, the loop's steps left to right, and a figure running to its step and working there, and `/loop-crew <project>` shows a project's loop. On by default; it only reads the loop's files and spends no model tokens |
+| [`examples/mods/factory-floor/`](examples/mods/factory-floor/) | A Claude Code mod: `/factory-floor` opens a pane showing [`scripts/loop.py`](scripts/loop.py)'s loops, the factory's and each project's, as a List view (the queue, each issue's step and round, its tokens and estimated cost, and its pull request, and on a Mac a read-only window on the loop's tmux session) or a Crew view (a lane for each issue being worked on, with a figure working at its step). On by default. Until a later release, the two loop mods it replaced keep their commands as aliases that open it in the List or the Crew view; its README names them |
+| [`examples/mods/github-status/`](examples/mods/github-status/) | A Claude Code mod that shows the repo's running actions, open pull requests and open issues above the prompt, read through `gh`. On by default; it writes `.sanvio/project/`, `/github` reads now, and `/project` puts one project in focus for the session |
+| [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/) | A Claude Code mod: `/factory-dashboard` opens a pane with what's waiting on you, the loop's spend, throughput and rework, the saved evals and whether they're stale, Claude Code's tokens and the harness's activity, from [`scripts/dashboard_data.py`](scripts/dashboard_data.py), with a bar chart a day for the loop's spend and Claude Code's tokens, over 7, 14 or 30 days. Off by default; it spends no model tokens, calls `gh` on each read and writes only the script's caches |

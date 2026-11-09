@@ -36,16 +36,16 @@ status name the session, so `tmux attach -t <name>` opens it. On macOS the run a
 .loop/watch.command, which opens a read-only Terminal window on it (the loop pane's Watch it),
 and .loop/issue-N/watch.command for each issue's window (the pane's Watch on that issue).
 Everything a round produced is in .loop/issue-N/, and agent.log there is what its agents said, as
-they said it. Checkouts live outside the clone, in ~/.harness-loop/. It never merges.
+they said it. Checkouts live outside the clone, in ~/.sanvio-loop/. It never merges.
 
 max_workers in loop.json (default 1) is how many issues it works at once, each on its own thread
 and each agent its own session, so usage grows with it. Inside tmux each issue gets a window,
 issue-N, that follows its agent.log and closes when the issue ends. An issue whose Scope names a
 path a running issue's Scope names waits for it, with a HELD line in the log.
 
---project projects/<name> works a clone under projects/ instead of the harness: its GitHub repo's
+--project projects/<name> works a clone under projects/ instead of this repo: its GitHub repo's
 issues and pull requests, its loop.json, which has to set test_command, and its checkouts under
-~/.harness-loop/<harness>/<name>/. Its state stays in the harness, in .loop/projects/<name>/. The
+~/.sanvio-loop/<factory>/<name>/. Its state stays in this repo, in .loop/projects/<name>/. The
 agents get the harness's rules in their prompts, and a claude build agent the harness's guard.
 Standard library only; needs git and the gh CLI, signed in.
 """
@@ -64,6 +64,9 @@ import time
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import names  # noqa: E402 (beside this file: the state and home folders)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
@@ -106,6 +109,9 @@ DEFAULTS = {
     # Whether each lessons.md entry also gets findings on why the lesson reached the agent late, from one
     # more reader_agent run over the run's session logs. Only true turns it on.
     "retro": False,
+    # Whether the build agent may run test_command itself, in its round, and fix what fails before the
+    # round ends. The loop still runs the tests after it. Only true turns it on, and only for claude.
+    "builder_runs_tests": False,
     "agent_timeout": 1800,
     "test_timeout": 1800,
     "poll_seconds": 60,
@@ -114,11 +120,21 @@ DEFAULTS = {
     "hours": "",
     # Which open pull requests `review` takes: a GitHub search qualifier string.
     "review_query": "review-requested:@me",
+    # A label whose open pull requests `review` also takes, as well as the ones review_query finds. Empty means
+    # off. A machine key: a clone anyone can push to mustn't choose which pull requests get reviewed.
+    "review_label": "",
+    # Whether run puts review_label on each pull request it opens or pushes to, so `review` picks it up. Only
+    # true turns it on, and only with review_label set. A machine key.
+    "label_own_prs": False,
     # The GitHub logins whose marked review comment a round reads, such as the person who dispatched an issue
     # to this loop as a factory. Empty means the login the loop runs as. A machine key: a clone anyone can
     # push to mustn't choose whose words reach the planner.
     "review_logins": [],
-    # Where the build checkouts go. Empty means ~/.harness-loop/<this folder's name>. Keep it outside the
+    # The file that turns a posted review's verdict into a grade out of 10, from the factory's root. A machine
+    # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
+    # factory's projects[<name>] entry.
+    "review_rubric": "review-rubric.json",
+    # Where the build checkouts go. Empty means ~/.sanvio-loop/<this folder's name>. Keep it outside the
     # clone: an agent started in a nested folder loads this repo's CLAUDE.md too, which tells it to stop.
     "worktree_dir": "",
 }
@@ -326,14 +342,14 @@ def next_start(hours, ts):
     return None  # not reached: every set of hours has a day
 
 
-# The harness's own generated files: the dashboard's sample, then the picture drawn from it. A project doesn't get this.
+# This repo's own generated files: the dashboard's sample, then the picture drawn from it. A project doesn't get this.
 # Joined with ; because the sample's first test reads the old sample, so it can exit 1 on a run that rewrites it.
-HARNESS_GENERATE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py"
+FACTORY_GENERATE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py"
 
 
 def load_config(root):
-    """The defaults and the harness's generate command, overlaid with loop.json at the repo root if there is one."""
-    cfg = dict(DEFAULTS, generate_command=HARNESS_GENERATE)
+    """The defaults and this repo's generate command, overlaid with loop.json at the repo root if there is one."""
+    cfg = dict(DEFAULTS, generate_command=FACTORY_GENERATE)
     path = Path(root) / "loop.json"
     if path.exists():
         cfg.update(json.loads(path.read_text()))
@@ -341,16 +357,16 @@ def load_config(root):
 
 
 # What a project's own loop.json may set. Everything else is the machine's: it decides what the loop may
-# run and spend, so it comes from the harness's loop.json, never from a clone anyone can push to.
+# run and spend, so it comes from the factory's loop.json, never from a clone anyone can push to.
 PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_label", "generate_command",
                 "setup_command")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 
 
 def load_project_config(root, project):
-    """The defaults, then the harness's loop.json without "projects" or the PROJECT_KEYS, then its
+    """The defaults, then the factory's loop.json without "projects" or the PROJECT_KEYS, then its
     projects[<folder name>] entry, then the PROJECT_KEYS of the project's own loop.json. A project key the
-    project leaves out is the default, not the harness's: the harness's base or labels describe the harness."""
+    project leaves out is the default, not the factory's: the factory's base or labels describe this repo."""
     cfg = dict(DEFAULTS)
     path = Path(root) / "loop.json"
     harness = json.loads(path.read_text()) if path.exists() else {}
@@ -438,8 +454,8 @@ def project_root(path, root=None):
     """The clone at path, resolved, when the loop may work it as a project; else None, after one ERROR
     line on stderr saying why.
 
-    It has to be a folder directly under the harness's projects/, a git clone of its own with a GitHub
-    origin, and its loop.json has to set test_command: the default tests the harness, not the project.
+    It has to be a folder directly under this repo's projects/, a git clone of its own with a GitHub
+    origin, and its loop.json has to set test_command: the default tests this repo, not the project.
     """
     projects = Path(root or ROOT).resolve() / "projects"
     folder = Path(path).expanduser().resolve()
@@ -474,23 +490,23 @@ def project_root(path, root=None):
         return refuse("its loop.json doesn't set test_command, the command that tests the project")
     machine = sorted(set(cfg) & MACHINE_KEYS)
     if machine:
-        return refuse('its loop.json sets {}, which only the harness\'s loop.json may set; move it there under '
+        return refuse('its loop.json sets {}, which only the factory\'s loop.json may set; move it there under '
                       '"projects": {{"{}": {{...}}}}'.format(", ".join(machine), folder.name))
     try:
         harness = json.loads((projects.parent / "loop.json").read_text())
     except OSError:
         harness = {}
     except ValueError as err:
-        return refuse("the harness's loop.json isn't JSON: {}".format(err))
+        return refuse("the factory's loop.json isn't JSON: {}".format(err))
     if not isinstance(harness, dict):
-        return refuse("the harness's loop.json isn't a JSON object")
+        return refuse("the factory's loop.json isn't a JSON object")
     entries = harness.get("projects", {})
     if not isinstance(entries, dict) or not all(isinstance(e, dict) for e in entries.values()):
-        return refuse('"projects" in the harness\'s loop.json isn\'t an object of objects, one per project folder')
+        return refuse('"projects" in the factory\'s loop.json isn\'t an object of objects, one per project folder')
     for name, entry in entries.items():
         other = sorted(set(entry) - MACHINE_KEYS)
         if other:
-            return refuse('"projects" in the harness\'s loop.json sets {} for {}; a project\'s own loop.json '
+            return refuse('"projects" in the factory\'s loop.json sets {} for {}; a project\'s own loop.json '
                           'sets those'.format(", ".join(other), name))
     return folder
 
@@ -771,20 +787,24 @@ def tail(text, size=20_000):
     return text if len(text) <= size else "...\n" + text[-size:]
 
 
-def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=()):
+def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=(), test_command=""):
     """Everything goes in the prompt: an agent in a worktree can't read the loop's own folder.
 
-    fixed is the files a separate agent's tests are in, when one wrote them first.
+    fixed is the files a separate agent's tests are in, when one wrote them first. test_command is set
+    when the build agent may run the tests itself (builder_runs_tests).
     """
     held = (" A separate agent already wrote these tests, and they are fixed: {}. Don't change or delete them. "
             "The job is to make them pass. You may add other test files.".format(", ".join(fixed))) if fixed else ""
     prompt = rules + (
         "Make the change for issue #{n} in this git worktree.\n"
         "Keep to the plan below. Don't commit, push or use git for anything but reading. "
-        "Don't run the test suite: the loop runs it. Before each step, say in a line what "
+        "{run_tests} Before each step, say in a line what "
         "you're about to do and why: the issue's window shows what you say, not what you "
         "think. When the change is in place, say in two lines what you changed.{generate}{held}\n\nPLAN:\n{plan}\n"
     ).format(n=number, plan=plan, held=held,
+             run_tests=("Run the tests with `{}` before you finish, and fix what fails: the loop runs them "
+                        "again after you.".format(test_command) if test_command
+                        else "Don't run the test suite: the loop runs it."),
              generate=generated(generate, "Don't run it, and don't write its files by hand."))
     if review or tests:
         prompt += (
@@ -806,6 +826,9 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
         "Below are the plan, the diff, and the test output (the tests exited {code}). Say "
         "whether the change does what the plan asks, and list the problems that matter, "
         "most important first, one line each.\n"
+        "If the change adds a value to a state, status or kind, such as a new status, "
+        "search the whole worktree for every place that reads or filters on that field, including code the "
+        "diff doesn't touch, and name each place that doesn't handle the new value. Any such place is a FIX.\n"
         "Below the problems, write a table with the columns Requirement and Test and one row for "
         "each requirement in the plan, filled in from the diff, not from what the plan says the "
         "tests will be. A requirement with no test in the diff gets none in the Test column, and "
@@ -1334,12 +1357,80 @@ COMMENT_KINDS_JQ = ('.[] | [.id, .user.login, (.body | gsub("\\r"; "") | if star
                              headed=json.dumps(REVIEW_MARKER + "\n> "), marker=json.dumps(REVIEW_MARKER))
 
 
-def review_comment(report, sha, header=AGENT_HEADER):
+RUBRIC_KEYS = ("ready", "ready with nits", "changes needed", "failing", "unreadable")  # a rubric's keys, and only these
+GRADED_VERDICTS = ("ready", "ready with nits", "changes needed")
+PASSING_CHECKS = ("success", "neutral", "skipped")  # a completed check run's conclusions that don't fail it
+# A commit's check runs as pr_checks() reads them, one per line: its status, then its conclusion or ''.
+CHECK_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // "")] | @tsv'
+PENDING = "checks still running"  # the reason a grade waits, which regrade() looks for in the trailer
+# The grade in a trailer: read there only, as the verdict is.
+GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
+
+
+def load_rubric(path):
+    """(rubric, None) from the rubric file at path, or (None, why not), why naming the file. It has to be a
+    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10."""
+    name = Path(path).name
+    try:
+        rubric = json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        return None, "{} is missing".format(name)
+    except OSError:
+        return None, "{} can't be read".format(name)
+    except ValueError:
+        return None, "{} isn't valid JSON".format(name)
+    if not isinstance(rubric, dict):
+        return None, "{} isn't a JSON object".format(name)
+    missing = [key for key in RUBRIC_KEYS if key not in rubric]
+    if missing:
+        return None, '{} has no "{}"'.format(name, missing[0])
+    if len(rubric) != len(RUBRIC_KEYS):
+        return None, "{} has a key that isn't one of {}".format(name, ", ".join(RUBRIC_KEYS))
+    for key in RUBRIC_KEYS:
+        value = rubric[key]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10:
+            return None, '{} gives "{}" something other than a whole number from 0 to 10'.format(name, key)
+    return rubric, None
+
+
+def review_grade_for(verdict, checks, rubric, why):
+    """(the grade out of 10, or None while it waits on the checks, the reason it gives). verdict is the
+    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s.
+    A bad rubric grades 0. A failing check or an unreadable verdict is final, so neither waits on the rest."""
+    if rubric is None:
+        return 0, why
+    if checks == "failing":
+        return rubric["failing"], "{}, a check failed".format(verdict if verdict in GRADED_VERDICTS else "unreadable")
+    if verdict not in GRADED_VERDICTS:
+        return rubric["unreadable"], "the verdict is unreadable"
+    if checks == "pending":
+        return None, PENDING
+    return rubric[verdict], "{}, {}".format(verdict, "no checks ran" if checks == "none" else "checks passing")
+
+
+def grade_text(grade):
+    """The grade as the trailer says it, after the verdict and on its line: ' Grade 8/10: why.'"""
+    score, why = grade
+    return " Grade {}: {}.".format("pending" if score is None else "{}/10".format(score), why)
+
+
+def review_grade(body):
+    """The grade in a review comment's trailer, out of 10, or 'pending'; None when it has none, as a comment
+    written before trailers carried one doesn't. Never from the report above the trailer."""
+    found = REVIEWED.search(body)
+    graded = GRADE.search(found.group(0)) if found else None
+    if not graded:
+        return None
+    return int(graded.group(1)) if graded.group(1) else "pending"
+
+
+def review_comment(report, sha, header=AGENT_HEADER, grade=None):
     """The one comment a pull request gets: the marker, a line saying who wrote it, the report, and a
     trailer saying which commit it read and the verdict the report's last line gave. The report can't open a
     tag, an HTML block or a fence that would hide the trailer on the page and leave it in the text:
     shown_safely. A report cut to fit one comment has no verdict: the line it ended with isn't posted, and
-    padding could put a quoted verdict last before the cut."""
+    padding could put a quoted verdict last before the cut. grade, review_grade_for()'s, follows the verdict
+    on the trailer's line; without one the comment is as it was before grades."""
     whole = report.replace("\r", "").strip()  # the page breaks a line at a bare CR, which shown_safely doesn't track
     part, shown = whole, shown_safely(safe_to_post(whole))
     if len(shown) > REVIEW_CAP:
@@ -1357,9 +1448,14 @@ def review_comment(report, sha, header=AGENT_HEADER):
     if part != whole:
         shown += "\n\n(Cut here: the report ran past what one comment holds, so its verdict isn't read.)"
     return ("{marker}\n> {header}\n\n{report}\n\n---\nReviewed commit `{sha}` by `scripts/loop.py review`. "
-            "Verdict: {verdict}. It reports only: a person decides what happens to this pull request.\n").format(
+            "Verdict: {verdict}.{grade} It reports only: a person decides what happens to this pull request.\n").format(
         marker=REVIEW_MARKER, header=header, report=shown, sha=sha,
-        verdict=report_verdict(whole) if part == whole else "unreadable")
+        verdict=report_verdict(whole) if part == whole else "unreadable", grade=grade_text(grade) if grade else "")
+
+
+def comment_verdict(report, sha):
+    """The verdict review_comment() gives report's trailer: its last line's, or unreadable when it's cut."""
+    return review_verdict(review_comment(report, sha))[1]
 
 
 def review_verdict(body):
@@ -1404,6 +1500,21 @@ def newest_review(out, logins, head, skipped=None):
         return None
     body = max(found)[1]
     return body, review_verdict(body)[1]
+
+
+def agent_rows(out):
+    """gh api's comment rows, as newest_review() reads them, with only the loop's own agent comments kept: a
+    marked comment with another header, such as a person's send-back, is left out."""
+    ours = REVIEW_MARKER + "\n> " + AGENT_HEADER + "\n"
+    kept = []
+    for line in out.split("\n"):  # as newest_review() splits them
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, list) and len(row) == 3 and isinstance(row[2], str) and row[2].startswith(ours):
+            kept.append(line)
+    return "\n".join(kept)
 
 
 def pr_comment(url, rounds, updated=False):
@@ -1476,7 +1587,7 @@ def changelog_with(base, added):
 
 
 def state_dir(root, project):
-    """The loop's state folder under the harness at root. project is a name, or None for the harness's own.
+    """The loop's state folder under the factory at root. project is a name, or None for the factory's own.
 
     Only works out the path: nothing is created."""
     state = Path(root) / ".loop"
@@ -1486,7 +1597,7 @@ def state_dir(root, project):
 def issue_usage(root, project, number):
     """The usage entries the loop recorded for an issue: none when it can't read any. Creates nothing.
 
-    project is the project's name, or None for the harness's own loop."""
+    project is the project's name, or None for the factory's own loop."""
     try:
         found = json.loads((state_dir(root, project) / "issue-{}".format(number) / "usage.json").read_text())
     except (OSError, ValueError):
@@ -1529,10 +1640,10 @@ class FileLock:
 
 class Loop:
     def __init__(self, root=ROOT, cfg=None, project=None):
-        """root is the harness. project, from project_root(), is a clone under projects/ to work instead.
+        """root is the factory. project, from project_root(), is a clone under projects/ to work instead.
 
-        self.repo is the clone gh and git run in: the project, or the harness without one. The state
-        stays in the harness either way, a project's in .loop/projects/<name>/, out of its repo.
+        self.repo is the clone gh and git run in: the project, or this repo without one. The state
+        stays in this repo either way, a project's in .loop/projects/<name>/, out of its repo.
         """
         self.root = Path(root)
         self.project = Path(project) if project else None
@@ -1865,7 +1976,7 @@ class Loop:
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=dict(os.environ, HARNESS_RETRO="off"))
+                           env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
@@ -1892,7 +2003,14 @@ class Loop:
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
         if which in ("agent", "tester_agent") and self.project and Path(cmd[0]).name == "claude":
             cmd = cmd + ["--settings", self.guard_settings()]
+        if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
+            # The project's own test command and nothing else: the rest of Bash stays as it was.
+            cmd = cmd + ["--allowedTools", "Bash({}:*)".format(self.cfg["test_command"].strip())]
         return cmd, None
+
+    def builder_runs_tests(self):
+        """Whether the build agent may run test_command itself. Only true turns it on."""
+        return self.cfg.get("builder_runs_tests") is True and bool(str(self.cfg.get("test_command", "")).strip())
 
     def guard_settings(self):
         """--settings for a claude build agent in a project's checkout, which holds none of the harness's
@@ -1934,12 +2052,14 @@ class Loop:
         try:
             # A session of its own: a timeout kills whatever it started too, which would otherwise hold
             # its output open, and a Ctrl-C meant for the loop's terminal doesn't reach it. Its session
-            # log is never kept by .claude/hooks/session_retro.py, whatever HARNESS_RETRO says here:
+            # log is never kept by .claude/hooks/session_retro.py, whatever SANVIO_RETRO says here:
             # nobody corrected it, and a copy in a worktree is one commit from being pushed.
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
                                     text=True, errors="replace", start_new_session=True,
-                                    env=dict(os.environ, HARNESS_RETRO="off"))
+                                    # The old name too: a project's hook from before the rename reads it,
+                                    # and off only ever records less.
+                                    env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])
@@ -2276,7 +2396,7 @@ class Loop:
         if self.cfg["worktree_dir"]:
             where = Path(self.cfg["worktree_dir"]).expanduser()
         else:
-            where = Path.home() / ".harness-loop" / self.root.name
+            where = names.loop_home() / self.root.name
         return where / self.project.name if self.project else where
 
     def worktree(self, number):
@@ -2581,7 +2701,8 @@ class Loop:
             last_review = (folder / "review.md").read_text() if (folder / "review.md").exists() else ""
             last_tests = (folder / "test-output.txt").read_text() if (folder / "test-output.txt").exists() else ""
             code, said = self.agent("agent", build_prompt(number, plan, last_review, last_tests, self.rules, generate,
-                                                          fixed),
+                                                          fixed, self.cfg["test_command"]
+                                                          if self.builder_runs_tests() else ""),
                                     tree, number=number, step="build", round_no=round_no)
             if code != 0:
                 return self.block(number, "build failed (agent exit {})".format(code))
@@ -2831,6 +2952,7 @@ class Loop:
             # The push updated the pull request that's open: no second one.
             self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
             self.log("SCALE", "PR updated " + reopened["url"], number)
+            self.label_pr(reopened["url"], number)
             self.mark(number, state="pr", pr=reopened["url"])
             self.comment(number, pr_comment(reopened["url"], rounds, updated=True))
             if problems:
@@ -2850,10 +2972,22 @@ class Loop:
         self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
         url = out.strip().splitlines()[-1]
         self.log("SCALE", "PR opened " + url, number)
+        self.label_pr(url, number)
         self.mark(number, state="pr", pr=url)
         self.comment(number, pr_comment(url, rounds))
         if problems:
             self.lesson(number, rounds, problems, passed=True)
+
+    def label_pr(self, url, number):
+        """With label_own_prs true and review_label set, put review_label on the pull request at url, so
+        `review` takes it. A label that isn't added is logged and nothing else: the pull request is open
+        and the work is done; only the reviewer's pick-up is lost."""
+        label = self.cfg.get("review_label")
+        if self.cfg.get("label_own_prs") is not True or not label:
+            return
+        code, out = self.gh("pr", "edit", url, "--add-label", label)
+        if code != 0:
+            self.log("ERROR", "label {} was not added to {}: {}".format(label, url, out.strip()[:200]), number)
 
     def tidy(self):
         """Remove the worktree and branch of each issue whose pull request is merged or closed.
@@ -3369,16 +3503,25 @@ class Loop:
             time.sleep(self.cfg["poll_seconds"])
 
     def pulls(self):
-        """Open pull requests matching review_query, lowest number first, or None if GitHub couldn't be asked."""
-        code, out = self.gh("pr", "list", "--state", "open", "--search", self.cfg["review_query"],
-                            "--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft")
+        """Open pull requests matching review_query, and, with review_label set, those carrying that label,
+        once each, lowest number first, or None if GitHub couldn't be asked for either list. GitHub's search
+        can't OR a query with a label, so the label is a second list, and review_query stays as written."""
+        fields = ("--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft")
+        asks = [("--search", self.cfg["review_query"])]
+        if self.cfg.get("review_label"):
+            asks.append(("--label", self.cfg["review_label"]))
+        found = {}
         try:
-            if code != 0:
-                raise ValueError(out.strip()[:200])
-            return sorted(json.loads(out or "[]"), key=lambda p: p["number"])
+            for ask in asks:
+                code, out = self.gh("pr", "list", "--state", "open", *ask, *fields)
+                if code != 0:
+                    raise ValueError(out.strip()[:200])
+                for pr in json.loads(out or "[]"):
+                    found.setdefault(pr["number"], pr)
         except (ValueError, KeyError, TypeError) as err:
             self.log("ERROR", "could not list pull requests: {}".format(err))
             return None
+        return [found[n] for n in sorted(found)]
 
     def one_pull(self, number):
         """review --pr: that pull request alone if it's open, [] if it isn't, None if GitHub couldn't be asked."""
@@ -3425,8 +3568,12 @@ class Loop:
         """Whether sha has a review to go on against the base the pull request has now, and if so, skip it.
         A review read against another base, or one that didn't record its base, read another diff. The
         watcher never pays twice for a head and base; review --pr, which a person asked for, tries a failed
-        one again."""
+        one again. A posted review whose grade waits on the checks is graded once they finish, with no agent."""
         before = self.last_review(number)
+        if (before and before.get("sha") == sha and base and before.get("base") == base
+                and before.get("state") == "posted" and before.get("grade") == "pending"):
+            self.regrade(number, sha, before)
+            return True
         if (before and before.get("sha") == sha and base and before.get("base") == base
                 and (self.only_pr is None or before.get("state") == "posted")):
             self.skip(number, sha, "already reviewed")
@@ -3464,6 +3611,7 @@ class Loop:
                 "number": number, "title": pr["title"], "sha": sha, "base": pr.get("baseRefName", ""),
                 "state": "posted" if why is None else "failed", "note": why or "",
                 "verdict": review_verdict(body or "")[1] if why is None else None,
+                "grade": review_grade(body or "") if why is None else None,
                 "updated": datetime.now().isoformat(timespec="seconds")}
         self.save_status(reviewing=None)
         if why is None:
@@ -3534,7 +3682,7 @@ class Loop:
                 return True, sha, "agent exit {}".format(code), True
             if not report.strip():
                 return True, sha, "the agent said nothing", True
-            body = review_comment(report, sha)
+            body = review_comment(report, sha, grade=self.grade(comment_verdict(report, sha), sha))
             self.posted[number] = body
             why = self.post_review(number, body)
             if why is not None:
@@ -3563,6 +3711,77 @@ class Loop:
         else:
             code, out = self.gh("pr", "comment", str(number), "--body-file", "-", stdin=body)
         return None if code == 0 else "could not post the comment: " + out.strip()[:200]
+
+    def rubric(self):
+        """load_rubric() on review_rubric, from the factory's root: never a project's clone, which anyone who
+        can push to it could give a rubric of its own."""
+        name = self.cfg.get("review_rubric", DEFAULTS["review_rubric"])  # .get: a cfg can be built without DEFAULTS
+        if not isinstance(name, str) or not name.strip():
+            return None, "review_rubric in loop.json isn't a file name"
+        return load_rubric(self.root / name)
+
+    def pr_checks(self, sha):
+        """The check runs on commit sha: passing, none when no check ran, failing when one that finished
+        didn't pass, or pending while one runs. Pending when GitHub can't be asked too, so the next pass asks
+        again rather than failing the pull request for an outage."""
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
+                            "--jq", CHECK_RUNS_JQ)
+        if code != 0:
+            return "pending"
+        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
+        if any(len(run) != 2 for run in runs):
+            return "pending"
+        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion in runs):
+            return "failing"
+        if any(status != "completed" for status, _ in runs):
+            return "pending"
+        return "passing" if runs else "none"
+
+    def grade(self, verdict, sha):
+        """review_grade_for() for verdict on commit sha, with the rubric as it is on disk now."""
+        rubric, why = self.rubric()
+        return review_grade_for(verdict, self.pr_checks(sha) if rubric else "", rubric, why)
+
+    def regrade(self, number, sha, before):
+        """Give a posted review whose grade waited on the checks its grade, once they've finished: this login's
+        own agent comment for sha, read back, with the grade in its trailer replaced and nothing else. No agent
+        runs. before is the review's status row, which gets the grade."""
+        rubric, why = self.rubric()
+        checks = self.pr_checks(sha) if rubric else ""
+        if checks == "pending":
+            self.skip(number, sha, PENDING)
+            return
+        code, out = self.gh("api", "--paginate", "repos/{{owner}}/{{repo}}/issues/{}/comments".format(number),
+                            "--jq", REVIEW_COMMENTS_JQ)
+        if code != 0:
+            self.skip(number, sha, "could not read its comment to grade it (will retry)")
+            return
+        # Only the loop's own comment: never a person's send-back, even under this login, and a newer one
+        # mustn't hide the loop's from newest_review.
+        found = newest_review(agent_rows(out), [self.whoami()], sha)
+        body = found[0] if found else ""
+        if review_grade(body) != "pending":
+            # Nothing of its own waits any more: the row takes what its comment says, or no grade when it's
+            # gone, so the next pass doesn't ask GitHub again.
+            with self.write_lock:
+                self.status["reviews"][str(number)] = dict(
+                    before, grade=review_grade(body), updated=datetime.now().isoformat(timespec="seconds"))
+            self.save_status()
+            self.skip(number, sha, "no review of its own waiting for a grade")
+            return
+        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why)
+        start = REVIEWED.search(body).start()
+        graded = body[:start] + body[start:].replace(grade_text((None, PENDING)), grade_text(grade), 1)
+        failed = self.post_review(number, graded)
+        if failed is not None:
+            self.skip(number, sha, failed + " (will retry)")
+            return
+        self.posted[number] = graded
+        with self.write_lock:
+            self.status["reviews"][str(number)] = dict(
+                before, grade=grade[0], updated=datetime.now().isoformat(timespec="seconds"))
+        self.save_status()
+        self.log("REVIEW", "#{} {} graded {}/10".format(number, sha[:7], grade[0]))
 
 
 def build_parser():
@@ -3595,7 +3814,7 @@ def build_parser():
     stop = sub.add_parser("stop", help="ask a running loop to stop after its current step")
     for each in (run, review, stop):
         each.add_argument("--project", metavar="PATH",
-                          help="a clone under projects/ to work instead of the harness; its loop.json sets test_command")
+                          help="a clone under projects/ to work instead of this repo; its loop.json sets test_command")
     return parser
 
 

@@ -68,5 +68,5 @@ jobs:
       - name: Tests
         working-directory: examples/typescript
         run: npm test
-      - name: The harness test runs the example and sees it fail when broken
+      - name: This repo's test runs the example and sees it fail when broken
         run: python3 -m unittest tests.test_typescript_example -v

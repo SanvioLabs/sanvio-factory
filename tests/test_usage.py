@@ -57,15 +57,16 @@ class Entries(unittest.TestCase):
         self.assertEqual(usage_log.entry("SessionStart", {"source": "startup"})["event"], "session_start")
         self.assertEqual(usage_log.entry("SessionEnd", {"reason": "exit"})["event"], "session_end")
 
-    def test_a_session_bin_harness_started_says_it_was_headless(self):
-        with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+    def test_a_session_bin_factory_started_says_it_was_headless(self):
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
             self.assertIs(usage_log.entry("SessionStart", {"source": "startup"})["headless"], True)
         with mock.patch.dict(os.environ):
+            os.environ.pop("SANVIO_HEADLESS", None)
             os.environ.pop("HARNESS_HEADLESS", None)
             self.assertNotIn("headless", usage_log.entry("SessionStart", {"source": "startup"}))
 
     def test_a_headless_refusal_is_logged_as_headless_not_as_a_credential(self):
-        with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
             self.assertEqual(pre("Bash", command="npm test"), {"event": "guard_deny", "rule": "headless"})
             self.assertEqual(pre("mcp__claude_ai_Gmail__search_threads", query="x")["rule"], "headless")
             self.assertEqual(pre("Bash", command="cat .env")["rule"], "credential-command")
@@ -91,7 +92,7 @@ class TheHook(unittest.TestCase):
             full_env = dict(os.environ, CLAUDE_PROJECT_DIR=tmp, **env)
             result = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event),
                                     capture_output=True, text=True, env=full_env, timeout=30)
-            logs = list((Path(tmp) / ".harness" / "usage").glob("*.jsonl"))
+            logs = list((Path(tmp) / ".sanvio" / "usage").glob("*.jsonl"))
             lines = [json.loads(l) for p in logs for l in p.read_text().splitlines()]
             return result, lines
 
@@ -102,9 +103,21 @@ class TheHook(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual((lines[0]["event"], lines[0]["name"], lines[0]["session"]), ("skill", "learn", "s1"))
 
-    def test_off_means_nothing_is_written(self):
+    def test_the_old_off_switch_still_counts_since_it_only_records_less(self):
         _, lines = self.run_hook({"hook_event_name": "PreToolUse", "tool_name": "Skill",
                                   "tool_input": {"skill": "learn"}}, HARNESS_USAGE_LOG="off")
+        self.assertEqual(lines, [])
+
+    def test_a_leftover_old_folder_is_not_logged_to(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".harness").mkdir()
+            usage_log.record(tmp, {"event": "skill", "name": "learn"})
+            self.assertEqual(len(list((Path(tmp) / ".sanvio" / "usage").glob("*.jsonl"))), 1)
+            self.assertFalse((Path(tmp) / ".harness" / "usage").exists())
+
+    def test_off_means_nothing_is_written(self):
+        _, lines = self.run_hook({"hook_event_name": "PreToolUse", "tool_name": "Skill",
+                                  "tool_input": {"skill": "learn"}}, SANVIO_USAGE_LOG="off")
         self.assertEqual(lines, [])
 
     def test_bad_input_never_fails_the_call(self):
@@ -114,7 +127,10 @@ class TheHook(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 
     def test_the_log_is_gitignored(self):
-        self.assertIn(".harness/", (ROOT / ".gitignore").read_text().splitlines())
+        lines = (ROOT / ".gitignore").read_text().splitlines()
+        # No trailing slash, so a link by either name is ignored too, not only a folder (security review).
+        self.assertIn("/.sanvio", lines)
+        self.assertIn("/.harness", lines)  # a leftover old folder that failed to move stays out of git
 
     def test_a_report_is_gitignored_and_the_folders_readme_is_not(self):
         def ignored(path):
@@ -197,7 +213,7 @@ class Report(unittest.TestCase):
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "usage_report.py"),
                                  "--log", "/nonexistent/me.jsonl"], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("HARNESS_USAGE_LOG", result.stderr)
+        self.assertIn("SANVIO_USAGE_LOG", result.stderr)
 
     def test_the_help_says_what_since_and_log_take(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "usage_report.py"), "--help"],
