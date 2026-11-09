@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Factory floor mod
+
+A new mod, off by default. `/factory-floor` opens the loop pane as
+`/loop-pane` shows it: the queue, what each issue is on, and its pull request.
+A Crew view, the lanes `/loop-crew` draws, follows in this same pane. The
+`loop-pane` and `loop-crew` mods stay as they are.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+
+**Do:** add `"factory-floor@sanvio-factory": true` to `.claude/settings.json`'s
+`enabledPlugins` to try it.
+
 ## 2026-11-09: Review pull requests that carry a label
 
 Two new keys in the factory's `loop.json`, both off by default. With
