@@ -1868,7 +1868,7 @@ class Loop:
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=dict(os.environ, SANVIO_RETRO="off"))
+                           env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
@@ -1942,7 +1942,9 @@ class Loop:
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
                                     text=True, errors="replace", start_new_session=True,
-                                    env=dict(os.environ, SANVIO_RETRO="off"))
+                                    # The old name too: a project's hook from before the rename reads it,
+                                    # and off only ever records less.
+                                    env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])

@@ -2806,13 +2806,13 @@ class List(Running):
                      record["started"]):
             self.assertIn(part, line)
 
-    def test_a_live_run_still_under_the_old_folder_is_listed(self):
-        # A copy that hasn't started a session since the rename still has .harness/ (review the rename).
+    def test_a_run_left_under_the_old_folder_is_not_listed(self):
+        # Nothing reads .harness/ now: the next session moves it to .sanvio/ (review the rename).
         old = self.root / ".harness"
         (self.root / ".sanvio").rename(old)
         code, out, _ = self.run_cli("list")
         self.assertEqual(code, 0)
-        self.assertIn(self.record_at(old)["run"], out)
+        self.assertNotIn(self.record_at(old)["run"], out)
 
     def record_at(self, folder):
         path, = (folder / "factories").glob("run-*.json")

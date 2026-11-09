@@ -103,10 +103,10 @@ class TheHook(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual((lines[0]["event"], lines[0]["name"], lines[0]["session"]), ("skill", "learn", "s1"))
 
-    def test_the_old_off_switch_does_nothing(self):
+    def test_the_old_off_switch_still_counts_since_it_only_records_less(self):
         _, lines = self.run_hook({"hook_event_name": "PreToolUse", "tool_name": "Skill",
                                   "tool_input": {"skill": "learn"}}, HARNESS_USAGE_LOG="off")
-        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines, [])
 
     def test_a_leftover_old_folder_is_not_logged_to(self):
         with tempfile.TemporaryDirectory() as tmp:

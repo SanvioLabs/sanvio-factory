@@ -1,8 +1,9 @@
 """The names this repo took when it became Sanvio Factory, and the old ones it still recognises.
 
 The state folder is .sanvio/, the variables are SANVIO_*, and the home folders are ~/.sanvio-loop and
-~/.sanvio-evals. Nothing reads the old names any more, with one exception: HARNESS_HEADLESS=1 still makes
-a run headless, because that reading only ever makes the guard stricter. The old names are kept here so
+~/.sanvio-evals. Nothing reads the old names any more, with two exceptions that only ever make things
+stricter: HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=off still turns the usage log
+off. The old names are kept here so
 .claude/hooks/session_start.py can move a leftover .harness/ across once, and scripts/check_setup.py can
 name any old variable still set, which now does nothing.
 
@@ -48,6 +49,14 @@ def headless(environ=None):
     always wins: a script that sets only HARNESS_HEADLESS keeps the guard as strict as it was."""
     environ = os.environ if environ is None else environ
     return environ.get(PREFIX + "HEADLESS") == "1" or environ.get(OLD_PREFIX + "HEADLESS") == "1"
+
+
+def logging_off(environ=None):
+    """The usage log is switched off. The old name's off still counts: like headless, it only ever means
+    less is recorded, so someone who opted out stays opted out."""
+    environ = os.environ if environ is None else environ
+    return any(environ.get(prefix + "USAGE_LOG", "").strip().lower() in ("off", "0", "false", "no")
+               for prefix in (PREFIX, OLD_PREFIX))
 
 
 def old_variables(environ=None):

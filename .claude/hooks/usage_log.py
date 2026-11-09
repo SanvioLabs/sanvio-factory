@@ -97,7 +97,7 @@ def record(root, line, session_id="", now=None):
 
 
 def main():
-    if names.env("USAGE_LOG").strip().lower() in ("off", "0", "false", "no"):
+    if names.logging_off():
         return 0
     try:
         event = json.load(sys.stdin)

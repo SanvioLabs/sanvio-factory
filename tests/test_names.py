@@ -108,6 +108,12 @@ class Variables(unittest.TestCase):
         self.assertTrue(names.headless({"SANVIO_HEADLESS": "0", "HARNESS_HEADLESS": "1"}))
         self.assertFalse(names.headless({}))
 
+    def test_either_name_switches_the_usage_log_off(self):
+        self.assertTrue(names.logging_off({"SANVIO_USAGE_LOG": "off"}))
+        self.assertTrue(names.logging_off({"HARNESS_USAGE_LOG": "no"}))
+        self.assertFalse(names.logging_off({"HARNESS_USAGE_LOG": "on"}))
+        self.assertFalse(names.logging_off({}))
+
     def test_old_variables_are_named_once_each(self):
         environ = {"HARNESS_RETRO": "on", "HARNESS_PULSE_FOLDER": "/p", "SANVIO_PULSE_FOLDER": "/p",
                    "HARNESS_HEADLESS": "1", "HARNESS_OTHER": "x"}

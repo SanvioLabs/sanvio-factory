@@ -302,7 +302,7 @@ class TestPureParts(unittest.TestCase):
 
     def test_config_overlays_defaults_from_loop_json(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(loop.load_config(tmp), dict(loop.DEFAULTS, generate_command=loop.HARNESS_GENERATE))
+            self.assertEqual(loop.load_config(tmp), dict(loop.DEFAULTS, generate_command=loop.FACTORY_GENERATE))
             Path(tmp, "loop.json").write_text(json.dumps({"max_rounds": 2}))
             cfg = loop.load_config(tmp)
             self.assertEqual(cfg["max_rounds"], 2)
@@ -311,7 +311,7 @@ class TestPureParts(unittest.TestCase):
     def test_the_harness_gets_its_generate_command_and_loop_json_can_change_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(loop.DEFAULTS["generate_command"], "")
-            self.assertEqual(loop.load_config(tmp)["generate_command"], loop.HARNESS_GENERATE)
+            self.assertEqual(loop.load_config(tmp)["generate_command"], loop.FACTORY_GENERATE)
             Path(tmp, "loop.json").write_text(json.dumps({"generate_command": ""}))
             self.assertEqual(loop.load_config(tmp)["generate_command"], "")
 
