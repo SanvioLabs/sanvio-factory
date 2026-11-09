@@ -133,6 +133,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** push or save any commits you made by hand on a `loop/issue-N` branch whose pull request is still open, before the loop runs again: a round starts from `origin`'s branch and drops local commits that aren't there, and the loop's log names how many. `git reflog loop/issue-N` still has them. And if this harness takes issues from someone else's as a factory, set `review_logins` in its `loop.json` to the login that reviews your pull requests, so a round reads that review. If the loop or its review watcher is running, restart it so it runs this version: `python3 scripts/loop.py stop`, with the same `--project projects/<name>` for one started on a project, since each one watches for its own stop, then start it as you did. One started before this keeps the old `post_review`, which can edit a person's send-back.
 
+## 2026-11-07: The build agent can run the tests itself
+
+A new loop setting, `builder_runs_tests`, off by default. Turned on, a `claude` build agent may run the project's `test_command` inside its round and is asked to fix what fails before it finishes, instead of learning about a failure only in the next round. Nothing else it may run changes, and the loop still runs the tests and the review after it. On a local model it took fewer rounds and about a quarter less time for the same eval scores.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, add `"builder_runs_tests": true` to `loop.json`.
+
 ## 2026-11-07: The loop's reviewer checks every reader of a new state
 
 The loop's reviewer is now told that when a change adds a state, status or kind, it should search the whole worktree for everything that reads or filters on that field, code the diff doesn't touch included, and say FIX for any place that doesn't handle the new value. A new status that slips past an old filter passes every visible test, so only a search finds it. On a local model it took the starter from missing these to catching all of them in most runs, with no extra rounds on work that adds no state.

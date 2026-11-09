@@ -109,6 +109,9 @@ DEFAULTS = {
     # Whether each lessons.md entry also gets findings on why the lesson reached the agent late, from one
     # more reader_agent run over the run's session logs. Only true turns it on.
     "retro": False,
+    # Whether the build agent may run test_command itself, in its round, and fix what fails before the
+    # round ends. The loop still runs the tests after it. Only true turns it on, and only for claude.
+    "builder_runs_tests": False,
     "agent_timeout": 1800,
     "test_timeout": 1800,
     "poll_seconds": 60,
@@ -774,20 +777,24 @@ def tail(text, size=20_000):
     return text if len(text) <= size else "...\n" + text[-size:]
 
 
-def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=()):
+def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=(), test_command=""):
     """Everything goes in the prompt: an agent in a worktree can't read the loop's own folder.
 
-    fixed is the files a separate agent's tests are in, when one wrote them first.
+    fixed is the files a separate agent's tests are in, when one wrote them first. test_command is set
+    when the build agent may run the tests itself (builder_runs_tests).
     """
     held = (" A separate agent already wrote these tests, and they are fixed: {}. Don't change or delete them. "
             "The job is to make them pass. You may add other test files.".format(", ".join(fixed))) if fixed else ""
     prompt = rules + (
         "Make the change for issue #{n} in this git worktree.\n"
         "Keep to the plan below. Don't commit, push or use git for anything but reading. "
-        "Don't run the test suite: the loop runs it. Before each step, say in a line what "
+        "{run_tests} Before each step, say in a line what "
         "you're about to do and why: the issue's window shows what you say, not what you "
         "think. When the change is in place, say in two lines what you changed.{generate}{held}\n\nPLAN:\n{plan}\n"
     ).format(n=number, plan=plan, held=held,
+             run_tests=("Run the tests with `{}` before you finish, and fix what fails: the loop runs them "
+                        "again after you.".format(test_command) if test_command
+                        else "Don't run the test suite: the loop runs it."),
              generate=generated(generate, "Don't run it, and don't write its files by hand."))
     if review or tests:
         prompt += (
@@ -1898,7 +1905,14 @@ class Loop:
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
         if which in ("agent", "tester_agent") and self.project and Path(cmd[0]).name == "claude":
             cmd = cmd + ["--settings", self.guard_settings()]
+        if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
+            # The project's own test command and nothing else: the rest of Bash stays as it was.
+            cmd = cmd + ["--allowedTools", "Bash({}:*)".format(self.cfg["test_command"].strip())]
         return cmd, None
+
+    def builder_runs_tests(self):
+        """Whether the build agent may run test_command itself. Only true turns it on."""
+        return self.cfg.get("builder_runs_tests") is True and bool(str(self.cfg.get("test_command", "")).strip())
 
     def guard_settings(self):
         """--settings for a claude build agent in a project's checkout, which holds none of the harness's
@@ -2589,7 +2603,8 @@ class Loop:
             last_review = (folder / "review.md").read_text() if (folder / "review.md").exists() else ""
             last_tests = (folder / "test-output.txt").read_text() if (folder / "test-output.txt").exists() else ""
             code, said = self.agent("agent", build_prompt(number, plan, last_review, last_tests, self.rules, generate,
-                                                          fixed),
+                                                          fixed, self.cfg["test_command"]
+                                                          if self.builder_runs_tests() else ""),
                                     tree, number=number, step="build", round_no=round_no)
             if code != 0:
                 return self.block(number, "build failed (agent exit {})".format(code))
