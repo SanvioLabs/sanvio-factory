@@ -73,7 +73,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import names  # noqa: E402  beside this file: the state and home folders, old names included for a release
+import names  # noqa: E402  beside this file: the state and home folders
 import loop  # noqa: E402  beside this file: the loop's own usage arithmetic and secret-stripped environment
 
 REQUIRED_FIELDS = ("name", "seed", "key", "issues", "required_checks")

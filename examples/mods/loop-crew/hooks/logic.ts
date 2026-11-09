@@ -153,12 +153,6 @@ export function focusFile(root: string, id: string | null): string | null {
   return id !== null && SESSION.test(id) ? `${root}/.sanvio/project/${id}` : null
 }
 
-// The same file under .harness/, the state folder's name before Sanvio Factory. It's read when the new one
-// can't be, so a focus a mod from before the rename wrote still counts. It goes with that old name.
-export function oldFocusFile(file: string): string {
-  return file.replace(/\/\.sanvio\/project\//, '/.harness/project/')
-}
-
 // The project a focus file's text names, before the folder is checked, or null.
 export function focusName(text: string): string | null {
   const picked = projectName(text.trim())

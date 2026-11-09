@@ -79,7 +79,6 @@ if [ -n "$json" ]; then
 else
   set -- -p "$prompt" --permission-mode default --strict-mcp-config --tools "$names" --allowedTools "$checked"
 fi
-# The old name too, until the release that drops it, so a hook from before the rename sees a headless run.
-SANVIO_HEADLESS=1 HARNESS_HEADLESS=1
-export SANVIO_HEADLESS HARNESS_HEADLESS
+SANVIO_HEADLESS=1
+export SANVIO_HEADLESS
 exec claude "$@"

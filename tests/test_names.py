@@ -18,32 +18,24 @@ class Folders(unittest.TestCase):
     def test_the_new_folder_is_used_when_neither_exists(self):
         self.assertEqual(names.state_dir(self.tmp), self.tmp / ".sanvio")
 
-    def test_the_old_folder_is_read_while_the_new_one_is_missing(self):
+    def test_the_old_folder_is_never_read(self):
         (self.tmp / ".harness").mkdir()
-        self.assertEqual(names.state_dir(self.tmp), self.tmp / ".harness")
+        self.assertEqual(names.state_dir(self.tmp), self.tmp / ".sanvio")
 
     def test_the_new_folder_wins_when_both_exist(self):
         (self.tmp / ".harness").mkdir()
         (self.tmp / ".sanvio").mkdir()
         self.assertEqual(names.state_dir(self.tmp), self.tmp / ".sanvio")
 
-    def test_the_home_folders_fall_back_the_same_way(self):
-        self.assertEqual(names.loop_home(self.tmp), self.tmp / ".sanvio-loop")
-        self.assertEqual(names.evals_home(self.tmp, environ={}), self.tmp / ".sanvio-evals")
+    def test_the_home_folders_are_the_new_ones_even_when_the_old_ones_exist(self):
         (self.tmp / ".harness-loop").mkdir()
         (self.tmp / ".harness-evals").mkdir()
-        self.assertEqual(names.loop_home(self.tmp), self.tmp / ".harness-loop")
-        self.assertEqual(names.evals_home(self.tmp, environ={}), self.tmp / ".harness-evals")
-        (self.tmp / ".sanvio-loop").mkdir()
         self.assertEqual(names.loop_home(self.tmp), self.tmp / ".sanvio-loop")
+        self.assertEqual(names.evals_home(self.tmp, environ={}), self.tmp / ".sanvio-evals")
 
-    def test_both_loop_homes_are_named_new_first(self):
-        self.assertEqual(names.loop_homes(self.tmp), (self.tmp / ".sanvio-loop", self.tmp / ".harness-loop"))
-
-    def test_the_evals_home_variable_beats_both_folders_and_the_new_name_beats_the_old(self):
-        both = {"SANVIO_EVALS_HOME": "/new", "HARNESS_EVALS_HOME": "/old"}
-        self.assertEqual(names.evals_home(self.tmp, environ=both), Path("/new"))
-        self.assertEqual(names.evals_home(self.tmp, environ={"HARNESS_EVALS_HOME": "/old"}), Path("/old"))
+    def test_the_evals_home_variable_beats_the_folder_and_its_old_name_does_nothing(self):
+        self.assertEqual(names.evals_home(self.tmp, environ={"SANVIO_EVALS_HOME": "/new"}), Path("/new"))
+        self.assertEqual(names.evals_home(self.tmp, environ={"HARNESS_EVALS_HOME": "/old"}), self.tmp / ".sanvio-evals")
 
 
 class Moving(unittest.TestCase):
@@ -98,7 +90,7 @@ class Moving(unittest.TestCase):
         finally:
             os.rename = real
         self.assertIn("couldn't move .harness/", said)
-        self.assertEqual(names.state_dir(self.tmp), self.tmp / ".harness")
+        self.assertIn("nothing reads .harness/ now", said)
 
 
 class Variables(unittest.TestCase):
@@ -106,8 +98,8 @@ class Variables(unittest.TestCase):
         environ = {"SANVIO_RETRO": "off", "HARNESS_RETRO": "on"}
         self.assertEqual(names.env("RETRO", environ=environ), "off")
 
-    def test_the_old_name_still_works_for_a_release(self):
-        self.assertEqual(names.env("PULSE_FOLDER", environ={"HARNESS_PULSE_FOLDER": "/p"}), "/p")
+    def test_the_old_name_does_nothing(self):
+        self.assertEqual(names.env("PULSE_FOLDER", "none", environ={"HARNESS_PULSE_FOLDER": "/p"}), "none")
         self.assertEqual(names.env("PULSE_FOLDER", "none", environ={}), "none")
 
     def test_either_headless_variable_makes_a_run_headless(self):

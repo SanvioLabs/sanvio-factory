@@ -2,42 +2,44 @@
 
 For anyone whose copy was taken before 2026-11-08, when this repo was
 `SanvioLabs/sanvio-harness-starter`. It's now `SanvioLabs/sanvio-factory`, and
-the names inside it changed with it. This page puts the five rename entries in
-[`CHANGELOG.md`](../CHANGELOG.md) into one order, for taking them together.
+the names inside it changed with it. This page puts the 2026-11-08 rename
+entries in [`CHANGELOG.md`](../CHANGELOG.md) into one order, for taking them together.
 
 The factory is the repo you own and everything that runs between sessions, so
 the names that mean the whole repo changed. The harness is what one agent
 session works inside, so harness-lens, the harness root and the review
 workflow's `harness/` checkout keep their names.
 
-The state folder, the variables, [`bin/harness`](../bin/harness) and the home folders keep
-working under their old names until a later release, whose CHANGELOG entry
-will say it drops them. Two things don't wait:
-
-- **Your mods.** After you take the changes, [`.claude/settings.json`](../.claude/settings.json) turns
-  on each mod as `<name>@sanvio-factory`, and Claude Code won't find them
-  until you register the marketplace under that name (step 4).
-- **A product repo whose CI calls the review workflow.** Its input and secret
-  changed names with no fallback (step 8). A caller that runs
-  `SanvioLabs/sanvio-harness-starter/...@main` or
-  `SanvioLabs/sanvio-factory/...@main` straight from the public repo has been
-  failing since 2026-11-08: fix it first.
+**The old names no longer work.** Nothing reads `.harness/`, a `HARNESS_`
+variable, `bin/harness` or the old home folders any more, so do every step
+below when you take the rename. One thing breaks before you even pull: a
+product repo whose CI runs this repo's review workflow straight from
+`SanvioLabs/sanvio-harness-starter/...@main` or
+`SanvioLabs/sanvio-factory/...@main` has been failing since 2026-11-08. Fix
+that first (step 9).
 
 ## What changed
 
-| Old | New | Old one still works? |
-|---|---|---|
-| `SanvioLabs/sanvio-harness-starter` | `SanvioLabs/sanvio-factory` | Yes, GitHub redirects it |
-| `.harness/` | `.sanvio/` | Moved for you by the next session (step 3) |
-| `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_USAGE_LOG`, `HARNESS_EVALS_HOME` | `SANVIO_` with the same ending | Until a later release, with a warning |
-| [`bin/harness`](../bin/harness) | [`bin/factory`](../bin/factory) | Until a later release, with a warning |
-| `bin/harness-tools` | [`bin/factory-tools`](../bin/factory-tools) | No: it moved |
-| `~/.harness-loop/`, `~/.harness-evals/` | `~/.sanvio-loop/`, `~/.sanvio-evals/` | Until a later release |
-| Marketplace `sanvio-harness-starter` | `sanvio-factory` | No |
-| `harness-dashboard` mod, `/harness-dashboard` | `factory-dashboard`, `/factory-dashboard` | No |
-| `harness-trends` skill | `factory-trends` | "harness trends" still reaches it |
-| CI input `harness-repo`, secret `HARNESS_DEPLOY_KEY` | `factory-repo`, `FACTORY_DEPLOY_KEY` | No |
-| [`scripts/token_report.py`](../scripts/token_report.py)'s root row `This harness` | `This repo` | Only matters if something reads its output |
+| Old | New |
+|---|---|
+| `SanvioLabs/sanvio-harness-starter` | `SanvioLabs/sanvio-factory`. GitHub redirects the old address |
+| `.harness/` | `.sanvio/`, moved for you by the next session (step 3) |
+| `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_USAGE_LOG`, `HARNESS_EVALS_HOME` | `SANVIO_` with the same ending |
+| `bin/harness` | [`bin/factory`](../bin/factory) |
+| `bin/harness-tools` | [`bin/factory-tools`](../bin/factory-tools) |
+| `~/.harness-loop/`, `~/.harness-evals/` | `~/.sanvio-loop/`, `~/.sanvio-evals/` |
+| Marketplace `sanvio-harness-starter` | `sanvio-factory` |
+| `harness-dashboard` mod, `/harness-dashboard` | `factory-dashboard`, `/factory-dashboard` |
+| The dashboard's `Harness` column | `Factory` |
+| `harness-trends` skill, "harness trends", "my harness report" | `factory-trends`, "factory trends", "my factory report" |
+| `/github all`'s `harness:` line | `factory:` |
+| `scripts/eval_harness.py`, `--harness` | [`scripts/eval_factory.py`](../scripts/eval_factory.py), `--factory` |
+| `docs/harness-in-ci.md`, `docs/harness-evals.md` | [`docs/factory-in-ci.md`](factory-in-ci.md), [`docs/factory-evals.md`](factory-evals.md) |
+| CI input `harness-repo`, secret `HARNESS_DEPLOY_KEY` | `factory-repo`, `FACTORY_DEPLOY_KEY` |
+| [`scripts/token_report.py`](../scripts/token_report.py)'s root row `This harness` | `This repo` |
+
+One old name still counts: `HARNESS_HEADLESS=1` keeps a run headless, because
+reading it only ever makes the guard stricter.
 
 ## Which kind of copy you have
 
@@ -45,10 +47,10 @@ will say it drops them. Two things don't wait:
 forked it, and pull its `main` into yours. Follow the steps below as written.
 
 **Your copy takes changes file by file with "check the starter"**, because
-you made it from the template or adapted it heavily. Leave the address in your
-copy's [`skills/starter-updates/`](../skills/starter-updates/) as it is: it still reaches Sanvio
-Factory through GitHub's redirect, and taking this release brings the new
-address. In place of step 2:
+you made it from the template or adapted it heavily. Its
+[`skills/starter-updates/`](../skills/starter-updates/) still reaches Sanvio Factory through GitHub's
+redirect, so leave its address as it is: taking this release brings the new
+one. In place of step 2:
 
 1. Ask your agent to "check the starter", and take the rename's files.
 2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py) and
@@ -57,9 +59,12 @@ address. In place of step 2:
    [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and the plugin lines of
    [`.claude/settings.json`](../.claude/settings.json), or step 4 registers the old name again.
 4. Copying a file never deletes the old one, so remove what moved:
-   `examples/mods/harness-dashboard/`, `skills/harness-trends/` and
-   `bin/harness-tools`, after you've carried any lines you added there into
-   [`bin/factory-tools`](../bin/factory-tools).
+   `bin/harness`, `bin/harness-tools` (after you've carried any lines you
+   added into [`bin/factory-tools`](../bin/factory-tools)), `examples/mods/harness-dashboard/`,
+   `skills/harness-trends/`, `scripts/eval_harness.py`,
+   `tests/test_eval_harness.py`, `docs/harness-in-ci.md`,
+   `docs/harness-in-ci.gif`, `docs/harness-evals.md` and
+   `docs/harness-evals.gif`.
 5. Commit, so step 4's `git checkout .claude/settings.json` can't undo what
    you copied.
 
@@ -93,17 +98,28 @@ address. In place of step 2:
    [`.claude/settings.json`](../.claude/settings.json) back in a different order,
    `git checkout .claude/settings.json` puts it back.
 5. **Rename your variables.** In your shell profile, on each machine you use,
-   change each `HARNESS_` variable in the table to its `SANVIO_` name. If
-   `company/DATA.md`'s `Pulse folder` row names the old variable, change it
-   there too.
-6. **Check your tools.** Any alias or script that runs [`bin/harness`](../bin/harness) should
-   run [`bin/factory`](../bin/factory). Check that any lines you added to
-   `bin/harness-tools` are in [`bin/factory-tools`](../bin/factory-tools).
-7. **Push to your own repo**, if your copy has one. Everyone else who pulls it
-   then repeats steps 1 and 3 to 6 in their own clone.
-8. **Update CI callers**, only if a product repo calls
+   change each `HARNESS_` variable in the table to its `SANVIO_` name. The old
+   ones do nothing now. If `company/DATA.md`'s `Pulse folder` row names the old
+   variable, change it there too.
+6. **Check your tools.** Any alias or script that runs `bin/harness` should
+   run [`bin/factory`](../bin/factory), and any that runs `eval_harness.py` should run
+   [`scripts/eval_factory.py`](../scripts/eval_factory.py) with `--factory` in place of `--harness`. Check
+   that any lines you added to `bin/harness-tools` are in
+   [`bin/factory-tools`](../bin/factory-tools).
+7. **Move off the old home folders**, on each machine that ran the loop or an
+   eval:
+   - The loop makes its checkouts in `~/.sanvio-loop/` now, and no longer
+     sees `~/.harness-loop/`. Remove each checkout in the old folder with
+     `git worktree remove <path>` from the clone or project it belongs to
+     (it refuses one with uncommitted changes, so commit or copy those
+     first), then delete the folder.
+   - Rename `~/.harness-evals` to `~/.sanvio-evals`. Eval runs made before
+     the rename can't be read by `compare`: rerun the ones you need.
+8. **Push to your own repo**, if your copy has one. Everyone else who pulls it
+   then repeats steps 1 and 3 to 7 in their own clone.
+9. **Update CI callers**, only if a product repo calls
    [`.github/workflows/review-pr.yml`](../.github/workflows/review-pr.yml). A caller of your own factory's
-   `@main` runs whatever that `main` holds, so change it straight after step 7.
+   `@main` runs whatever that `main` holds, so change it straight after step 8.
    In each caller's workflow file:
    - `uses: SanvioLabs/sanvio-harness-starter/...` becomes
      `uses: SanvioLabs/sanvio-factory/...`, if it names this repo
@@ -124,25 +140,15 @@ address. In place of step 2:
    it: `gh secret delete HARNESS_DEPLOY_KEY --repo your-org/product`, or
    `--org your-org`. Lost the key file? Add a new read-only deploy key as
    *The secret* in [`examples/ci/README.md`](../examples/ci/README.md) says, and remove the old one.
-9. **Start the loop again** the way you started it before.
-10. **Check, from a new terminal:** `python3 scripts/check_setup.py` names any
+10. **Start the loop again** the way you started it before.
+11. **Check, from a new terminal:** `python3 scripts/check_setup.py` names any
     old variable still set and any `.harness/` still there. It doesn't check
-    your mods, CI callers, scripts or home folders: those are steps 4, 8, 6
-    and the section below.
+    your mods, CI callers, scripts or home folders: those are steps 4, 9, 6
+    and 7.
 
-When it suits you, point any remote that names the old address at the new one,
-for example
+Point any remote that names the old address at the new one, for example
 `git remote set-url upstream https://github.com/SanvioLabs/sanvio-factory`.
-
-## Before the release that drops the old names
-
-- **Move off `~/.harness-loop/`.** The loop keeps using it while it's there.
-  With the loop stopped, remove each checkout in it with `git worktree remove`
-  from the clone or project it belongs to (it refuses one with uncommitted
-  changes), then delete the folder. The loop makes new checkouts in
-  `~/.sanvio-loop/`.
-- **Rename `~/.harness-evals` to `~/.sanvio-evals`.** It holds only results.
-- **Check nothing still calls [`bin/harness`](../bin/harness)** or sets a `HARNESS_` variable.
+The setup check only recognises the public repo by its new address.
 
 Stuck on a step? Run `python3 scripts/check_setup.py`, and check the step
 against its entry in [`CHANGELOG.md`](../CHANGELOG.md): each one has a **Do:** line.

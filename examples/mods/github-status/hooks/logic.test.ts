@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, oldFocusFile, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
+import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
 import type { Counts } from '../types'
 
 const REPO = 'SanvioLabs/sanvio-factory'
@@ -120,7 +120,6 @@ describe('/github all', () => {
 describe('the focus file', () => {
   test('an id matching the pattern names a file under .sanvio/project', () => {
     expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.sanvio/project/aaaaaaaa-1111')
-    expect(oldFocusFile('/h/.sanvio/project/aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
     expect(focusFile('/h', 'A'.repeat(64))).toBe(`/h/.sanvio/project/${'A'.repeat(64)}`)
   })
   test('anything else names none', () => {

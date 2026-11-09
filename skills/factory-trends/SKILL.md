@@ -1,6 +1,6 @@
 ---
 name: factory-trends
-description: Turn your factory usage for a sprint into a short report you share with the factory's owner, with what you'd add, change or drop. A daily run reads the day before's numbers, names at most three trends, recommends one change and, with your yes, puts it to the team as tomorrow's pulse question. Reads your own local usage log, Claude Code's token counts, the loop's own records and the dashboard's numbers, and the sprint run reads the team's pulse counts. You read every report before it goes anywhere, and nothing goes to the pulse folder without your yes. Use at the end of a sprint, or when someone asks for "factory trends", "how did yesterday go", "what should we change in the factory", "my factory report", "what did I use this sprint", "sprint follow-up", "what should we add to the factory", "token burn", "how many tokens", or "what did the loop cost", or by its old name, "harness trends", "my harness report" or "what should we add to the harness".
+description: Turn your factory usage for a sprint into a short report you share with the factory's owner, with what you'd add, change or drop. A daily run reads the day before's numbers, names at most three trends, recommends one change and, with your yes, puts it to the team as tomorrow's pulse question. Reads your own local usage log, Claude Code's token counts, the loop's own records and the dashboard's numbers, and the sprint run reads the team's pulse counts. You read every report before it goes anywhere, and nothing goes to the pulse folder without your yes. Use at the end of a sprint, or when someone asks for "factory trends", "how did yesterday go", "what should we change in the factory", "my factory report", "what did I use this sprint", "sprint follow-up", "what should we add to the factory", "token burn", "how many tokens", or "what did the loop cost".
 license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
@@ -113,8 +113,7 @@ version and scope and no path.
    ```
 
    For each file, find the summary entry headed
-   `## <the file's date plus one day>: Factory`, or, for a question asked
-   before the chip's rename, `## <that date>: Harness`, or
+   `## <the file's date plus one day>: Factory`, or
    `## <that date>: trend-<that date>` for a question since removed from the
    bank. Copy that entry's option counts. Write
    `Fewer than three answered.` where the summary says that, and `No answers.`

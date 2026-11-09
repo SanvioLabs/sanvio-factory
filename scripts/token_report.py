@@ -52,12 +52,11 @@ def loop_dir(root):
 
 
 def loop_dirs(root):
-    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or both home folders while
-    the old name still counts, so a period that spans the move keeps its earlier loop tokens."""
+    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or the home folder."""
     configured = load_config(root).get("worktree_dir")
     if configured:
         return [Path(configured).expanduser()]
-    return [home / Path(root).name for home in names.loop_homes()]
+    return [names.loop_home() / Path(root).name]
 
 
 def usage_files(root):

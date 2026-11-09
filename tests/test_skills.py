@@ -295,8 +295,7 @@ class StarterUpdatesCapabilities(unittest.TestCase):
         self.assertTrue(skips_the_capabilities(None))
         self.assertTrue(skips_the_capabilities(""))
         self.assertTrue(skips_the_capabilities("https://github.com/acme/our-harness"))
-        self.assertFalse(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-harness-starter"))
-        self.assertFalse(skips_the_capabilities("git@github.com:SanvioLabs/sanvio-harness-starter.git"))
+        self.assertTrue(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-harness-starter"))
         self.assertFalse(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-factory"))
         self.assertFalse(skips_the_capabilities("git@github.com:SanvioLabs/sanvio-factory.git"))
         self.assertTrue(skips_the_capabilities("https://github.com/SanvioLabs/sanvio-factory-fork"))
@@ -372,15 +371,13 @@ class StarterUpdatesRename(unittest.TestCase):
 
 
 class FactoryTrendsRename(unittest.TestCase):
-    """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report,
-    its scripts and the phrases people already say didn't."""
+    """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report
+    and its scripts didn't. The old trigger phrases went with the other old names."""
 
     SKILL = ROOT / "skills" / "factory-trends" / "SKILL.md"
     PHRASES = [
         '"factory trends"',
         '"my factory report"',
-        '"harness trends"',
-        '"my harness report"',
         '"what did I use this sprint"',
         '"sprint follow-up"',
         '"token burn"',
@@ -475,8 +472,9 @@ class FactoryTrendsDaily(unittest.TestCase):
         self.assertLess(step.index("## Daily recommendations"), step.index("## Proposals"))
         for words in ("python3 scripts/pulse.py summary --since", "Fewer than three answered.", "No answers.",
                       "Pulse folder not cleared.", "never copies an Other answer",
-                      "`## <the file's date plus one day>: Factory`", "`## <that date>: Harness`"):
+                      "`## <the file's date plus one day>: Factory`"):
             self.assertIn(words, step)
+        self.assertNotIn("`## <that date>: Harness`", step)
 
     def test_the_sprint_run_keeps_its_report(self):
         text = self.text()

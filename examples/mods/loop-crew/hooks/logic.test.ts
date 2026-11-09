@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, focusFile, focusName, oldFocusFile, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectName, projectNames, poseAt, roundText, SESSION, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
+import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectName, projectNames, poseAt, roundText, SESSION, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './logic'
 import type { Lane, Loop, Station, Walk } from './logic'
 import type { Row, Seen } from '../types'
 
@@ -859,7 +859,6 @@ group('the project in focus', () => {
   })
   test("the focus file sits under .sanvio/project/, and an id SESSION refuses gives none", () => {
     expect(focusFile('/h/starter', '0123abcd-4567')).toBe('/h/starter/.sanvio/project/0123abcd-4567')
-    expect(oldFocusFile('/h/.sanvio/project/aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
     for (const id of [null, 'short', '../../etc/passwd', 'not-hex-zzzzzzzz', '0'.repeat(65)]) {
       if (id !== null) expect(SESSION.test(id)).toBe(false)
       expect(focusFile('/h/starter', id)).toBeNull()

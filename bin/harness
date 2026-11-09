@@ -1,8 +1,0 @@
-#!/bin/sh
-# The old name for bin/factory, kept for one release so scripts and habits that call it still work.
-# It says so on stderr, where --json output isn't touched, and runs bin/factory with the same arguments.
-# The root is found the way bin/factory finds it, so a link to this file elsewhere refuses as it used to.
-root=$(cd "$(dirname "$0")/.." && pwd) || exit 2
-echo "harness: bin/harness is now bin/factory, and this name goes in a later release" >&2
-[ -d "$root/skills" ] && [ -x "$root/bin/factory" ] || { echo "harness: no harness root at $root" >&2; exit 2; }
-exec "$root/bin/factory" "$@"

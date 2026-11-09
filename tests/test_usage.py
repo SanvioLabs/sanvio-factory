@@ -103,17 +103,17 @@ class TheHook(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual((lines[0]["event"], lines[0]["name"], lines[0]["session"]), ("skill", "learn", "s1"))
 
-    def test_the_old_off_switch_still_works_for_a_release(self):
+    def test_the_old_off_switch_does_nothing(self):
         _, lines = self.run_hook({"hook_event_name": "PreToolUse", "tool_name": "Skill",
                                   "tool_input": {"skill": "learn"}}, HARNESS_USAGE_LOG="off")
-        self.assertEqual(lines, [])
+        self.assertEqual(len(lines), 1)
 
-    def test_a_clone_still_on_the_old_folder_keeps_logging_there(self):
+    def test_a_leftover_old_folder_is_not_logged_to(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / ".harness").mkdir()
             usage_log.record(tmp, {"event": "skill", "name": "learn"})
-            self.assertEqual(len(list((Path(tmp) / ".harness" / "usage").glob("*.jsonl"))), 1)
-            self.assertFalse((Path(tmp) / ".sanvio").exists())
+            self.assertEqual(len(list((Path(tmp) / ".sanvio" / "usage").glob("*.jsonl"))), 1)
+            self.assertFalse((Path(tmp) / ".harness" / "usage").exists())
 
     def test_off_means_nothing_is_written(self):
         _, lines = self.run_hook({"hook_event_name": "PreToolUse", "tool_name": "Skill",
@@ -130,7 +130,7 @@ class TheHook(unittest.TestCase):
         lines = (ROOT / ".gitignore").read_text().splitlines()
         # No trailing slash, so a link by either name is ignored too, not only a folder (security review).
         self.assertIn("/.sanvio", lines)
-        self.assertIn("/.harness", lines)  # the old folder, until the release that drops it
+        self.assertIn("/.harness", lines)  # a leftover old folder that failed to move stays out of git
 
     def test_a_report_is_gitignored_and_the_folders_readme_is_not(self):
         def ignored(path):
