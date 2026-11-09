@@ -34,9 +34,9 @@ A new mod, off by default. `/factory-floor` opens the loop pane as
 A Crew view, the lanes `/loop-crew` draws, follows in this same pane. The
 `loop-pane` and `loop-crew` mods stay as they are.
 
-Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md).
 
-**Do:** add `"factory-floor@sanvio-factory": true` to `.claude/settings.json`'s
+**Do:** add `"factory-floor@sanvio-factory": true` to [`.claude/settings.json`](.claude/settings.json)'s
 `enabledPlugins` to try it.
 
 ## 2026-11-09: Review pull requests that carry a label
