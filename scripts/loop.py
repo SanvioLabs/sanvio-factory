@@ -121,6 +121,10 @@ DEFAULTS = {
     # to this loop as a factory. Empty means the login the loop runs as. A machine key: a clone anyone can
     # push to mustn't choose whose words reach the planner.
     "review_logins": [],
+    # The file that turns a posted review's verdict into a grade out of 10, from the factory's root. A machine
+    # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
+    # factory's projects[<name>] entry.
+    "review_rubric": "review-rubric.json",
     # Where the build checkouts go. Empty means ~/.sanvio-loop/<this folder's name>. Keep it outside the
     # clone: an agent started in a nested folder loads this repo's CLAUDE.md too, which tells it to stop.
     "worktree_dir": "",
@@ -1340,12 +1344,80 @@ COMMENT_KINDS_JQ = ('.[] | [.id, .user.login, (.body | gsub("\\r"; "") | if star
                              headed=json.dumps(REVIEW_MARKER + "\n> "), marker=json.dumps(REVIEW_MARKER))
 
 
-def review_comment(report, sha, header=AGENT_HEADER):
+RUBRIC_KEYS = ("ready", "ready with nits", "changes needed", "failing", "unreadable")  # a rubric's keys, and only these
+GRADED_VERDICTS = ("ready", "ready with nits", "changes needed")
+PASSING_CHECKS = ("success", "neutral", "skipped")  # a completed check run's conclusions that don't fail it
+# A commit's check runs as pr_checks() reads them, one per line: its status, then its conclusion or ''.
+CHECK_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // "")] | @tsv'
+PENDING = "checks still running"  # the reason a grade waits, which regrade() looks for in the trailer
+# The grade in a trailer: read there only, as the verdict is.
+GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
+
+
+def load_rubric(path):
+    """(rubric, None) from the rubric file at path, or (None, why not), why naming the file. It has to be a
+    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10."""
+    name = Path(path).name
+    try:
+        rubric = json.loads(Path(path).read_text())
+    except FileNotFoundError:
+        return None, "{} is missing".format(name)
+    except OSError:
+        return None, "{} can't be read".format(name)
+    except ValueError:
+        return None, "{} isn't valid JSON".format(name)
+    if not isinstance(rubric, dict):
+        return None, "{} isn't a JSON object".format(name)
+    missing = [key for key in RUBRIC_KEYS if key not in rubric]
+    if missing:
+        return None, '{} has no "{}"'.format(name, missing[0])
+    if len(rubric) != len(RUBRIC_KEYS):
+        return None, "{} has a key that isn't one of {}".format(name, ", ".join(RUBRIC_KEYS))
+    for key in RUBRIC_KEYS:
+        value = rubric[key]
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10:
+            return None, '{} gives "{}" something other than a whole number from 0 to 10'.format(name, key)
+    return rubric, None
+
+
+def review_grade_for(verdict, checks, rubric, why):
+    """(the grade out of 10, or None while it waits on the checks, the reason it gives). verdict is the
+    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s.
+    A bad rubric grades 0. A failing check or an unreadable verdict is final, so neither waits on the rest."""
+    if rubric is None:
+        return 0, why
+    if checks == "failing":
+        return rubric["failing"], "{}, a check failed".format(verdict if verdict in GRADED_VERDICTS else "unreadable")
+    if verdict not in GRADED_VERDICTS:
+        return rubric["unreadable"], "the verdict is unreadable"
+    if checks == "pending":
+        return None, PENDING
+    return rubric[verdict], "{}, {}".format(verdict, "no checks ran" if checks == "none" else "checks passing")
+
+
+def grade_text(grade):
+    """The grade as the trailer says it, after the verdict and on its line: ' Grade 8/10: why.'"""
+    score, why = grade
+    return " Grade {}: {}.".format("pending" if score is None else "{}/10".format(score), why)
+
+
+def review_grade(body):
+    """The grade in a review comment's trailer, out of 10, or 'pending'; None when it has none, as a comment
+    written before trailers carried one doesn't. Never from the report above the trailer."""
+    found = REVIEWED.search(body)
+    graded = GRADE.search(found.group(0)) if found else None
+    if not graded:
+        return None
+    return int(graded.group(1)) if graded.group(1) else "pending"
+
+
+def review_comment(report, sha, header=AGENT_HEADER, grade=None):
     """The one comment a pull request gets: the marker, a line saying who wrote it, the report, and a
     trailer saying which commit it read and the verdict the report's last line gave. The report can't open a
     tag, an HTML block or a fence that would hide the trailer on the page and leave it in the text:
     shown_safely. A report cut to fit one comment has no verdict: the line it ended with isn't posted, and
-    padding could put a quoted verdict last before the cut."""
+    padding could put a quoted verdict last before the cut. grade, review_grade_for()'s, follows the verdict
+    on the trailer's line; without one the comment is as it was before grades."""
     whole = report.replace("\r", "").strip()  # the page breaks a line at a bare CR, which shown_safely doesn't track
     part, shown = whole, shown_safely(safe_to_post(whole))
     if len(shown) > REVIEW_CAP:
@@ -1363,9 +1435,9 @@ def review_comment(report, sha, header=AGENT_HEADER):
     if part != whole:
         shown += "\n\n(Cut here: the report ran past what one comment holds, so its verdict isn't read.)"
     return ("{marker}\n> {header}\n\n{report}\n\n---\nReviewed commit `{sha}` by `scripts/loop.py review`. "
-            "Verdict: {verdict}. It reports only: a person decides what happens to this pull request.\n").format(
+            "Verdict: {verdict}.{grade} It reports only: a person decides what happens to this pull request.\n").format(
         marker=REVIEW_MARKER, header=header, report=shown, sha=sha,
-        verdict=report_verdict(whole) if part == whole else "unreadable")
+        verdict=report_verdict(whole) if part == whole else "unreadable", grade=grade_text(grade) if grade else "")
 
 
 def review_verdict(body):
@@ -3433,8 +3505,12 @@ class Loop:
         """Whether sha has a review to go on against the base the pull request has now, and if so, skip it.
         A review read against another base, or one that didn't record its base, read another diff. The
         watcher never pays twice for a head and base; review --pr, which a person asked for, tries a failed
-        one again."""
+        one again. A posted review whose grade waits on the checks is graded once they finish, with no agent."""
         before = self.last_review(number)
+        if (before and before.get("sha") == sha and base and before.get("base") == base
+                and before.get("state") == "posted" and before.get("grade") == "pending"):
+            self.regrade(number, sha, before)
+            return True
         if (before and before.get("sha") == sha and base and before.get("base") == base
                 and (self.only_pr is None or before.get("state") == "posted")):
             self.skip(number, sha, "already reviewed")
@@ -3472,6 +3548,7 @@ class Loop:
                 "number": number, "title": pr["title"], "sha": sha, "base": pr.get("baseRefName", ""),
                 "state": "posted" if why is None else "failed", "note": why or "",
                 "verdict": review_verdict(body or "")[1] if why is None else None,
+                "grade": review_grade(body or "") if why is None else None,
                 "updated": datetime.now().isoformat(timespec="seconds")}
         self.save_status(reviewing=None)
         if why is None:
@@ -3542,7 +3619,8 @@ class Loop:
                 return True, sha, "agent exit {}".format(code), True
             if not report.strip():
                 return True, sha, "the agent said nothing", True
-            body = review_comment(report, sha)
+            # The verdict the trailer will carry, which a cut report makes unreadable, then the grade for it.
+            body = review_comment(report, sha, grade=self.grade(review_verdict(review_comment(report, sha))[1], sha))
             self.posted[number] = body
             why = self.post_review(number, body)
             if why is not None:
@@ -3571,6 +3649,70 @@ class Loop:
         else:
             code, out = self.gh("pr", "comment", str(number), "--body-file", "-", stdin=body)
         return None if code == 0 else "could not post the comment: " + out.strip()[:200]
+
+    def rubric(self):
+        """load_rubric() on review_rubric, from the factory's root: never a project's clone, which anyone who
+        can push to it could give a rubric of its own."""
+        name = self.cfg.get("review_rubric", DEFAULTS["review_rubric"])  # .get: a cfg can be built without DEFAULTS
+        if not isinstance(name, str) or not name.strip():
+            return None, "review_rubric in loop.json isn't a file name"
+        return load_rubric(self.root / name)
+
+    def pr_checks(self, sha):
+        """The check runs on commit sha: passing, none when no check ran, failing when one that finished
+        didn't pass, or pending while one runs. Pending when GitHub can't be asked too, so the next pass asks
+        again rather than failing the pull request for an outage."""
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
+                            "--jq", CHECK_RUNS_JQ)
+        if code != 0:
+            return "pending"
+        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
+        if any(len(run) != 2 for run in runs):
+            return "pending"
+        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion in runs):
+            return "failing"
+        if any(status != "completed" for status, _ in runs):
+            return "pending"
+        return "passing" if runs else "none"
+
+    def grade(self, verdict, sha):
+        """review_grade_for() for verdict on commit sha, with the rubric as it is on disk now."""
+        rubric, why = self.rubric()
+        return review_grade_for(verdict, self.pr_checks(sha) if rubric else "", rubric, why)
+
+    def regrade(self, number, sha, before):
+        """Give a posted review whose grade waited on the checks its grade, once they've finished: this login's
+        own agent comment for sha, read back, with the grade in its trailer replaced and nothing else. No agent
+        runs. before is the review's status row, which gets the grade."""
+        rubric, why = self.rubric()
+        checks = self.pr_checks(sha) if rubric else ""
+        if checks == "pending":
+            self.skip(number, sha, PENDING)
+            return
+        code, out = self.gh("api", "--paginate", "repos/{{owner}}/{{repo}}/issues/{}/comments".format(number),
+                            "--jq", REVIEW_COMMENTS_JQ)
+        if code != 0:
+            self.skip(number, sha, "could not read its comment to grade it (will retry)")
+            return
+        found = newest_review(out, [self.whoami()], sha)
+        body = found[0] if found else ""
+        # Only the loop's own comment, still waiting: never a person's send-back, even under this login.
+        if not body.startswith(REVIEW_MARKER + "\n> " + AGENT_HEADER + "\n") or review_grade(body) != "pending":
+            self.skip(number, sha, "no review of its own waiting for a grade")
+            return
+        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why)
+        start = REVIEWED.search(body).start()
+        graded = body[:start] + body[start:].replace(grade_text((None, PENDING)), grade_text(grade), 1)
+        failed = self.post_review(number, graded)
+        if failed is not None:
+            self.skip(number, sha, failed + " (will retry)")
+            return
+        self.posted[number] = graded
+        with self.write_lock:
+            self.status["reviews"][str(number)] = dict(
+                before, grade=grade[0], updated=datetime.now().isoformat(timespec="seconds"))
+        self.save_status()
+        self.log("REVIEW", "#{} {} graded {}/10".format(number, sha[:7], grade[0]))
 
 
 def build_parser():

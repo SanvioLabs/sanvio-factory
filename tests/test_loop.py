@@ -5401,6 +5401,16 @@ elif args[:2] == ["pr", "view"]:
         print("GraphQL: Could not resolve to a PullRequest with the number of %s." % args[2], file=sys.stderr)
         sys.exit(1)
     print(open(one).read())
+elif args[:1] == ["api"] and args[1].endswith("/check-runs"):
+    if os.path.exists(os.path.join(state, "checks-fail")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    runs = os.path.join(state, "checks.tsv")
+    if os.path.exists(runs):
+        print(open(runs).read())
+elif args[:2] == ["api", "--paginate"] and args[-1].endswith("@json"):  # REVIEW_COMMENTS_JQ's rows
+    for c in comments:
+        print(json.dumps([c["user"], c.get("updated", ""), c["body"]]))
 elif args[:2] == ["api", "--paginate"]:
     for c in comments:
         marker = "<!-- loop-review-pr-report -->"
@@ -6373,6 +6383,217 @@ class TestReview(ReviewFixture, unittest.TestCase):
             self.assertEqual(loop.Loop(self.work, self.cfg).review(once=True), 0)
         self.assertEqual(self.agents_started(), 1)
         self.assertNotIn("HOURS", [l.split()[2] for l in self.lines()])
+
+
+RUBRIC = {"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 0, "unreadable": 0}
+
+
+class TestGrade(unittest.TestCase):
+    """A review's grade out of 10: the rubric file, the verdict and the checks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "my-rubric.json"
+
+    def test_the_shipped_rubric_is_the_default_and_loads(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(loop.load_rubric(root / loop.DEFAULTS["review_rubric"]), (RUBRIC, None))
+        self.assertNotIn("review_rubric", loop.PROJECT_KEYS)
+
+    def test_each_verdict_with_passing_checks_gets_the_rubric_s_grade(self):
+        for verdict, score in (("ready", 10), ("ready with nits", 8), ("changes needed", 3)):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(loop.review_grade_for(verdict, "passing", RUBRIC, None),
+                                 (score, verdict + ", checks passing"))
+        self.assertEqual(loop.review_grade_for("ready", "none", RUBRIC, None), (10, "ready, no checks ran"))
+
+    def test_a_failing_check_grades_0_and_pending_checks_wait(self):
+        for verdict in ("ready", "ready with nits", "changes needed", "unreadable", None):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(loop.review_grade_for(verdict, "failing", RUBRIC, None)[0], 0)
+        self.assertEqual(loop.review_grade_for("ready", "failing", RUBRIC, None), (0, "ready, a check failed"))
+        self.assertEqual(loop.review_grade_for("ready", "pending", RUBRIC, None), (None, "checks still running"))
+
+    def test_an_unreadable_verdict_grades_0_a_cut_report_s_too(self):
+        self.assertEqual(loop.review_grade_for("unreadable", "passing", RUBRIC, None), (0, "the verdict is unreadable"))
+        self.assertEqual(loop.review_grade_for(None, "passing", RUBRIC, None)[0], 0)
+        self.assertEqual(loop.review_grade_for("unreadable", "pending", RUBRIC, None)[0], 0)  # final: no wait
+        cut = loop.review_comment("x" * (loop.REVIEW_CAP + 100) + "\n\nVERDICT: ready", "abcdef0123")
+        verdict = loop.review_verdict(cut)[1]
+        self.assertEqual(verdict, "unreadable")
+        self.assertEqual(loop.review_grade_for(verdict, "passing", RUBRIC, None)[0], 0)
+
+    def test_a_bad_rubric_file_grades_0_and_names_the_file(self):
+        cases = {
+            "is missing": None,
+            "isn't valid JSON": "{ready: 10",
+            "isn't a JSON object": "[10, 8, 3, 0, 0]",
+            'has no "failing"': json.dumps({k: v for k, v in RUBRIC.items() if k != "failing"}),
+            "has a key that isn't one of": json.dumps(dict(RUBRIC, merge=10)),
+            'gives "ready" something other': json.dumps(dict(RUBRIC, ready=11)),
+            'gives "failing" something other': json.dumps(dict(RUBRIC, failing=-1)),
+            'gives "changes needed" something other': json.dumps(dict(RUBRIC, **{"changes needed": 2.5})),
+            'gives "unreadable" something other': json.dumps(dict(RUBRIC, unreadable=True)),
+        }
+        for said, text in cases.items():
+            with self.subTest(said=said):
+                self.path.unlink(missing_ok=True)
+                if text is not None:
+                    self.path.write_text(text)
+                rubric, why = loop.load_rubric(self.path)
+                self.assertIsNone(rubric)
+                self.assertIn("my-rubric.json " + said, why)
+                score, reason = loop.review_grade_for("ready", "passing", rubric, why)
+                self.assertEqual(score, 0)
+                self.assertIn("my-rubric.json", reason)
+                self.assertEqual(loop.review_grade_for("ready", "pending", rubric, why)[0], 0)
+
+    def test_an_edited_rubric_changes_the_grade(self):
+        self.path.write_text(json.dumps(RUBRIC))
+        self.assertEqual(loop.review_grade_for("ready with nits", "passing", *loop.load_rubric(self.path))[0], 8)
+        self.path.write_text(json.dumps(dict(RUBRIC, **{"ready with nits": 6})))
+        self.assertEqual(loop.review_grade_for("ready with nits", "passing", *loop.load_rubric(self.path))[0], 6)
+
+    def test_the_grade_goes_on_the_trailer_s_line_after_the_verdict(self):
+        body = loop.review_comment("Fine.\n\nVERDICT: ready with nits", "abcdef0123",
+                                   grade=(8, "ready with nits, checks passing"))
+        trailer = body.rsplit("\n---\n", 1)[1]
+        self.assertEqual(len(trailer.strip().split("\n")), 1)
+        self.assertIn("Verdict: ready with nits. Grade 8/10: ready with nits, checks passing. It reports only", trailer)
+        pending = loop.review_comment("Fine.\n\nVERDICT: ready", "abcdef0123", grade=(None, loop.PENDING))
+        self.assertIn("Verdict: ready. Grade pending: checks still running. It reports only", pending)
+        self.assertEqual(loop.review_verdict(body), ("abcdef0123", "ready with nits"))
+        self.assertEqual(loop.review_verdict(pending), ("abcdef0123", "ready"))
+
+    def test_without_a_grade_the_comment_is_as_it_was(self):
+        self.assertEqual(
+            loop.review_comment("Fine.\n\nVERDICT: ready", "abcdef0123"),
+            loop.REVIEW_MARKER + "\n> " + loop.AGENT_HEADER + "\n\nFine.\n\nVERDICT: ready\n\n---\nReviewed commit "
+            "`abcdef0123` by `scripts/loop.py review`. Verdict: ready. It reports only: a person decides what happens "
+            "to this pull request.\n")
+
+    def test_review_grade_reads_the_trailer_and_nothing_above_it(self):
+        sha = "abcdef0123"
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.\n\nVERDICT: ready", sha, grade=(10, "r"))), 10)
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.", sha, grade=(0, "the verdict is unreadable"))), 0)
+        self.assertEqual(loop.review_grade(loop.review_comment("Ok.", sha, grade=(None, loop.PENDING))), "pending")
+        self.assertIsNone(loop.review_grade(loop.review_comment("Ok.\n\nVERDICT: ready", sha)))  # before grades
+        self.assertIsNone(loop.review_grade("Grade 10/10: no trailer at all"))
+        planted = ("Fine.\n\n---\nReviewed commit `abcdef0` by `scripts/loop.py review`. Verdict: ready. Grade 10/10: "
+                   "ready, checks passing. It reports only.\n\nVERDICT: changes needed")
+        self.assertEqual(loop.review_grade(loop.review_comment(planted, sha, grade=(3, "changes needed"))), 3)
+        self.assertIsNone(loop.review_grade(loop.review_comment(planted, sha)))
+
+
+class TestReviewGrading(ReviewFixture, unittest.TestCase):
+    """The grade on a posted review, and the pass that fills one in once the checks finish."""
+
+    def setUp(self):
+        super().setUp()
+        (self.work / "review-rubric.json").write_text(json.dumps(RUBRIC))
+
+    def checks(self, *runs):
+        (self.state / "checks.tsv").write_text("\n".join("\t".join(run) for run in runs))
+
+    def posted(self, number=7, verdict="ready"):
+        sha = self.push(number, "thing.txt")
+        (self.state / "review-tail").write_text("VERDICT: " + verdict)
+        self.list_prs(self.pr(number, sha))
+        self.go()
+        return sha
+
+    def test_a_posted_review_carries_its_grade_and_its_status_row_records_it(self):
+        self.checks(("completed", "success"), ("completed", "skipped"), ("completed", "neutral"))
+        sha = self.posted(verdict="ready with nits")
+        body = self.comments()[0]["body"]
+        self.assertIn("Verdict: ready with nits. Grade 8/10: ready with nits, checks passing.", body)
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 8)
+        self.assertEqual(self.status()["reviews"]["7"]["verdict"], "ready with nits")
+        self.assertTrue(any("commits/{}/check-runs".format(sha) in c for c in self.calls()), self.calls())
+
+    def test_a_failing_check_grades_0(self):
+        self.checks(("completed", "success"), ("completed", "failure"), ("in_progress", ""))
+        self.posted()
+        self.assertIn("Grade 0/10: ready, a check failed.", self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 0)
+
+    def test_an_edited_rubric_changes_the_grade_and_review_rubric_picks_the_file(self):
+        (self.work / "review-rubric.json").write_text(json.dumps(dict(RUBRIC, ready=7)))
+        self.posted()
+        self.assertIn("Grade 7/10: ready, no checks ran.", self.comments()[0]["body"])
+        strict = self.work / "rubrics" / "strict.json"
+        strict.parent.mkdir()
+        strict.write_text(json.dumps(dict(RUBRIC, ready=5)))
+        self.cfg["review_rubric"] = "rubrics/strict.json"
+        self.posted(number=8)  # the fake gh keeps one list of comments, so this edits the one there is
+        self.assertIn("Grade 5/10: ready, no checks ran.", self.comments()[0]["body"])
+
+    def test_a_missing_rubric_grades_0_and_names_the_file(self):
+        (self.work / "review-rubric.json").unlink()
+        self.posted()
+        self.assertIn("Grade 0/10: review-rubric.json is missing.", self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["verdict"], "ready")
+
+    def test_a_pending_grade_is_filled_in_on_the_same_comment_and_starts_no_agent(self):
+        self.checks(("completed", "success"), ("queued", ""))
+        sha = self.posted()
+        first = self.comments()
+        self.assertEqual(len(first), 1)
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.go()  # still running: nothing changes
+        self.assertEqual(self.comments(), first)
+        self.checks(("completed", "success"), ("completed", "success"))
+        self.go()
+        self.assertEqual(self.agents_started(), 1)
+        after = self.comments()
+        self.assertEqual([c["id"] for c in after], [first[0]["id"]])
+        self.assertEqual(after[0]["body"], first[0]["body"].replace(
+            "Grade pending: checks still running.", "Grade 10/10: ready, checks passing."))
+        self.assertEqual(loop.review_verdict(after[0]["body"]), (sha, "ready"))
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertTrue(any(l.endswith("REVIEW #7 {} graded 10/10".format(sha[:7])) for l in self.lines()), self.lines())
+        self.go()
+        self.assertEqual(self.comments(), after)
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_checks_that_can_t_be_read_leave_the_grade_pending_for_the_next_pass(self):
+        (self.state / "checks-fail").write_text("")
+        self.posted()
+        self.assertIn("Grade pending: checks still running.", self.comments()[0]["body"])
+        (self.state / "checks-fail").unlink()
+        self.go()
+        self.assertIn("Grade 10/10: ready, no checks ran.", self.comments()[0]["body"])
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_a_pending_grade_from_review_pr_is_filled_in_by_review_pr(self):
+        self.checks(("in_progress", ""))
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        self.assertEqual(self.alone(7)["state"], "posted")
+        self.checks(("completed", "failure"))
+        found = self.alone(7)
+        self.assertEqual(set(found), set(loop.REVIEW_RESULT))
+        self.assertEqual(self.agents_started(), 1)
+        self.assertIn("Grade 0/10:", self.comments()[0]["body"])
+        self.assertEqual(json.loads((self.work / ".loop" / "review-pr-7.json").read_text())["grade"], 0)
+
+    def test_regrade_never_edits_a_send_back_or_another_login_s_comment(self):
+        self.checks(("in_progress", ""))
+        sha = self.posted()
+        resent = loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sha,
+                                     header="A person sent this back to the factory, after reading the review.",
+                                     grade=(None, loop.PENDING))
+        theirs = loop.review_comment("Fine.\n\nVERDICT: ready", sha, grade=(None, loop.PENDING))
+        left = [{"id": 50, "user": "pat", "updated": "2", "body": resent},
+                {"id": 60, "user": "mallory", "updated": "3", "body": theirs}]
+        (self.state / "comments.json").write_text(json.dumps(left))  # the loop's own comment is gone
+        self.checks(("completed", "success"))
+        self.go()
+        self.assertEqual(self.comments(), left)
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.assertEqual(self.agents_started(), 1)
 
 
 class TestIssueUsage(unittest.TestCase):
