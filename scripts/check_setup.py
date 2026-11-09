@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Setup check: is this clone wired up the way the harness assumes?
+"""Setup check: is this clone wired up the way the factory assumes?
 
 Usage:
     python3 scripts/check_setup.py

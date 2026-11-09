@@ -317,9 +317,15 @@ def load_run(run_id, sealed=True):
     if not sealed:
         return record
     try:
-        record.update(json.loads((sealed_dir() / "{}.json".format(run_id)).read_text()))
+        sealed_copy = json.loads((sealed_dir() / "{}.json".format(run_id)).read_text())
     except (OSError, ValueError):
         raise RunError("run {} has no sealed copy in {}, so it can't be carried on".format(run_id, sealed_dir()))
+    # Every sealed field or none: a field the copy lacks would come from run.json, which agents can write.
+    missing = [field for field in SEALED if field not in sealed_copy]
+    if missing:
+        raise RunError("run {}'s sealed copy is from before the rename (it has no {}), so it can't be carried on"
+                       .format(run_id, ", ".join(missing)))
+    record.update({field: sealed_copy[field] for field in SEALED})
     record["id"] = run_id
     for issue in record["issues"]:
         if issue.get("pr") is not None and type(issue["pr"]) is not int:

@@ -5,7 +5,7 @@ changes, what it adds, the files it touched, and **Do:** what you need to do to
 take it. Ask the agent "what's new" and [`skills/whats-new/`](skills/whats-new/) reads this, and your
 remote's copy, and tells you what you don't have yet.
 
-Changing your own harness? Any noticeable change gets an entry at the top, in
+Changing your own factory? Any noticeable change gets an entry at the top, in
 the same change, not later. Then "what's new" works for your team too.
 Noticeable means:
 
@@ -18,7 +18,7 @@ Noticeable means:
   take it, it needs an entry whatever its size
 
 Typo fixes, rewording, tests on their own and tidying inside a file don't. The
-test: would someone who copied the harness last week want to know, or need to
+test: would someone who copied the factory last week want to know, or need to
 act? If you're unsure, write the entry.
 
 One entry per change someone would name, not per commit: three files that add

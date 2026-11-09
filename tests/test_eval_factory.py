@@ -1175,6 +1175,24 @@ class SealedRecord(WithStub):
         self.assertEqual(code, 2)
         self.assertIn("sealed", out)
 
+    def test_a_sealed_copy_missing_a_field_isnt_resumed_and_its_folder_isnt_trusted(self):
+        # A sealed copy from before the rename has harness, not factory: run.json, which agents can
+        # write, mustn't fill the gap and point the start command at another folder (security review).
+        marker = self.tmp / "elsewhere"
+        marker.mkdir()
+        self.run_suite()
+        record = self.only_run()
+        path = next(self.sealed.glob("*.json"))
+        sealed = json.loads(path.read_text())
+        sealed["harness"] = sealed.pop("factory")
+        path.write_text(json.dumps(sealed))
+        self.edit_record(factory=str(marker))
+        self.merge_by_hand()
+        code, out = self.run_cli("resume", record["id"])
+        self.assertEqual(code, 2)
+        self.assertIn("before the rename", out)
+        self.assertEqual([c["issue"] for c in self.stub_calls()], ["1"])
+
     def test_stop_still_works_on_a_run_with_no_sealed_copy(self):
         self.run_suite()
         for path in self.sealed.glob("*"):
