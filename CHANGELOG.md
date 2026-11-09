@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: One page for upgrading to Sanvio Factory
+
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) puts the five rename entries below into one order, for a copy taken before the rename that takes them together. It says which two things break at once (the mods, and a CI caller of the review workflow), lists every old name with its new one and whether the old one still works, gives separate steps for a copy that pulls Sanvio Factory's `main` and one that takes changes with "check the starter", and says what to do before the release that drops the old names. [`README.md`](README.md) links it from *Set up*.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** copied before 2026-11-08? Follow the page instead of the five entries below one by one.
+
 ## 2026-11-08: Every link points at SanvioLabs/sanvio-factory
 
 The last part of the rename to Sanvio Factory, after the GitHub repo became `SanvioLabs/sanvio-factory`. Every address in the docs, the skills and the scripts points at the new name: [`CITATION.cff`](CITATION.cff), the talk slides' link, the address drawn in [`docs/harness-anatomy.png`](docs/harness-anatomy.png), and the line at the top of each skill and script, which now reads "From Sanvio Factory by Sanvio Labs, MIT". Where the docs said "the starter" for the public repo, they say Sanvio Factory. The starter-updates skill keeps its name and every phrase that reaches it, "check the starter" included. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo by either address, since a clone taken before the rename keeps the old one and GitHub redirects it.
