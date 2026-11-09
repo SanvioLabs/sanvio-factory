@@ -3,7 +3,7 @@ import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Loop, Placement } from './crew-logic'
-import type { Row, Seen, Spend } from '../types/crew'
+import type { CrewRow as Row, CrewSeen as Seen, CrewSpend as Spend } from '../types'
 
 // The Crew view: loop-crew's hooks/register.tsx moved into factory-floor's pane, with its own saved
 // values under factory-floor's name. register.tsx draws it when the person presses Crew. One installed
@@ -71,7 +71,10 @@ let drawn: { shown: string; numbers: Set<number> } | null = null
 // the List's drawing reads none of these values.
 let isOnScreen = false
 
-const paneIsUp = async ($: EngineInterface): Promise<boolean> => (await $.ui.panes()).some(pane => pane.id === PANE)
+// A function declaration, not an arrow bound to a const: the validator follows $ into the first only.
+async function paneIsUp($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some(pane => pane.id === PANE)
+}
 
 // The placement to draw. Before any read, a draw gets one that walks nobody and doesn't store it, so
 // the first read after a reload still walks nobody.

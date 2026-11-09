@@ -168,17 +168,18 @@ const typed = { command: 'factory-floor', args: '', origin: { kind: 'composer' }
 // List keeps the loop it opened on, the focus's as /loop-crew's was, and the Crew goes back to the
 // factory, as /loop-crew did. A press waits for everything it starts, so the pane `at` is the one the
 // test mounts next: its drawing reads usage.json and starts the timers of its surface. Crew on the
-// Crew view does nothing.
-const say = async ($: unknown, name?: string, at: typeof PANE = WIDE()): Promise<void> => {
+// Crew view does nothing. A test that holds the pane mounted passes it as `mounted`: the kit refuses a
+// second mount of one pane on one surface, where loop-crew's say ran a command and mounted nothing.
+const say = async ($: unknown, name?: string, at: typeof PANE = WIDE(), mounted?: Pressed): Promise<void> => {
   const engine = $ as Dollar
   if (!panesNow.some(p => p.isShown)) await engine.command.run(typed)
-  const ui = await engine.ui.mount(at)
+  const ui = mounted ?? await engine.ui.mount(at)
   const isList = (await ui.find({ key: 'tab-queue' })) !== undefined
   const target = isList ? name : (name ?? '')
   const picker = await ui.find({ key: 'loop-pick' })
   if (picker && target !== undefined && picker.props.value !== target) await ui.select({ key: 'loop-pick', value: target })
   await ui.press({ key: 'mode-crew' })
-  await ui.unmount()
+  if (!mounted) await ui.unmount()
 }
 
 // /factory-floor on an open pane: it closes.
@@ -410,18 +411,18 @@ group('the walk', () => {
     await say($, '', desk)
     const ui = await $.ui.mount(desk)
     expect(await walks(ui)).toBe(0)
-    await say($, 'alpha', desk)
+    await say($, 'alpha', desk, ui)
     await ui.redraw()
     expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #30 at build'])
     expect(await walks(ui)).toBe(0)
-    await say($, '', desk)
+    await say($, '', desk, ui)
     await ui.redraw()
     expect(await walks(ui)).toBe(0)
     // Closed and opened again on what has since moved. /factory-floor closes it, where loop-crew's test
     // ran /loop-crew a second time.
     await shut($)
     files.set(STATUS, statusText(job(12, 'SCALE'), job(13, 'SHAPE')))
-    await say($, '', desk)
+    await say($, '', desk, ui)
     await ui.redraw()
     expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #12 at ship', 'Issue #13 at plan'])
     expect(await walks(ui)).toBe(0)
@@ -552,7 +553,7 @@ group('walking out', () => {
     files.set(STATUS, statusText(job(12, 'BUILD', { state: 'pr' })))
     await clock.advance(2000)
     await drain()
-    await say($, 'alpha')
+    await say($, 'alpha', WIDE(), ui)
     await drain()
     const after = invalidated.length
     await clock.advance(OUT_MS)
@@ -1441,10 +1442,10 @@ group('the spend', () => {
     await say($)
     const ui = await $.ui.mount(WIDE())
     expect(await buildSpend(ui)).toBe('$1.72 6.2M')
-    await say($, 'alpha')
+    await say($, 'alpha', WIDE(), ui)
     await ui.redraw()
     expect(await buildSpend(ui)).toBe('$12.40 2k')
-    await say($)
+    await say($, undefined, WIDE(), ui)
     await ui.redraw()
     expect(await buildSpend(ui)).toBe('$1.72 6.2M')
     expect([readsOf(reads, usagePath(HARNESS, 12)), readsOf(reads, usagePath(ALPHA, 12))]).toEqual([1, 1])

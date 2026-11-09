@@ -36,7 +36,7 @@ the loop. A terminal pane under 42 columns shows the list until it's widened.
 `/factory-floor` always opens on the list. The `loop-pane` and `loop-crew`
 mods are unchanged.
 
-Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/crew.tsx`, `hooks/crew-logic.ts`, `types/crew.d.ts` and their tests new; version 0.2.0), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/crew.tsx`, `hooks/crew-logic.ts` and their tests new, the Crew types added to `types/index.d.ts`; version 0.2.0), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing. To try it, add `"factory-floor@sanvio-factory": true` to
 [`.claude/settings.json`](.claude/settings.json)'s `enabledPlugins`.

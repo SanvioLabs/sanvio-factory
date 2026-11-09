@@ -1,5 +1,3 @@
-import type { Loop as CrewLoop, Seen as CrewSeen } from './crew'
-
 // What scripts/loop.py writes to .loop/status.json. Every field is optional here: an older or
 // half-written file still draws, with what it has.
 // waiting_on: the open issues it depends on, while the loop waits for them to close.
@@ -76,3 +74,44 @@ declare module 'claude-code' {
     }
   }
 }
+
+// The Crew view's types, as loop-crew declared them, named Crew* beside the List's. One file: a mod's
+// types contract can't import another.
+// The part of what scripts/loop.py writes to status.json that the figures draw from.
+// step_seconds and step_started are there only when the loop that wrote the row records them.
+export type CrewRow = {
+  number: number
+  title: string
+  step: string
+  state: string
+  round: number
+  // Whole seconds spent on each step in the current run, by step name.
+  step_seconds?: Record<string, number>
+  // When the current step began, as loop.py writes it, or null once the row has left working.
+  step_started?: string | null
+  // When the current run began. usage.json stamps each entry with it, as run_started.
+  started?: string
+  // The issue's tokens and cost over every run, as loop.py totals usage.json. Only read to tell
+  // when usage.json has changed.
+  tokens?: number
+  cost_usd?: number
+}
+
+// Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
+// The stations are crew-logic.ts's Station, written out: this contract has to stand alone.
+export type CrewSpend = Record<'start' | 'plan' | 'test' | 'build' | 'check' | 'ship', { tokens: number | null; cost: number | null }>
+
+export type CrewStatus = { issues: CrewRow[] }
+
+// One look at one loop's files.
+export type CrewSeen = {
+  // The project under .loop/projects/ this loop belongs to. Unset for the factory's own.
+  project?: string
+  status: CrewStatus | null
+  // A lock whose holder is alive: the loop is running.
+  isLive: boolean
+}
+
+// One loop as the picker lists it: the root it's under, its project (unset for the factory's own), its
+// status file, and whether a live process holds its lock.
+export type CrewLoop = { root: string; project?: string; status: CrewStatus | null; isLocked: boolean }

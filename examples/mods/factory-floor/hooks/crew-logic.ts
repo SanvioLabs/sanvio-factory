@@ -1,5 +1,5 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
-import type { Loop, Row, Seen, Spend, Status } from '../types/crew'
+import type { CrewLoop as Loop, CrewRow as Row, CrewSeen as Seen, CrewSpend as Spend, CrewStatus as Status } from '../types'
 
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
@@ -90,7 +90,7 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
 }
 
 // One loop as the picker lists it, written out in the types beside Seen.
-export type { Loop } from '../types/crew'
+export type { CrewLoop as Loop } from '../types'
 
 // Copied from loop-pane's hooks/logic.ts, with the same bodies: one installed mod can't import from another.
 

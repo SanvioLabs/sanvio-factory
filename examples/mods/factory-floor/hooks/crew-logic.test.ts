@@ -2,7 +2,7 @@ import { describe as group, expect, test } from 'claude-code/testing'
 
 import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectName, projectNames, poseAt, roundText, SESSION, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './crew-logic'
 import type { Lane, Loop, Station, Walk } from './crew-logic'
-import type { Row, Seen } from '../types/crew'
+import type { CrewRow as Row, CrewSeen as Seen } from '../types'
 
 const NOW = 1_800_000_000_000
 // No time reads as an em dash, U+2014, built from its code so this file holds none.
