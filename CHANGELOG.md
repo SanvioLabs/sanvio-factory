@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: factory-floor is on, loop-pane and loop-crew are off
+
+[`.claude/settings.json`](.claude/settings.json) switches on `factory-floor` in place of `loop-pane`
+and `loop-crew`. `/factory-floor` shows the loop as a list or as the Crew's
+lanes, in one pane. Until the next change retires them, `/loop-pane` and
+`/loop-crew` aren't there unless you switch them back on.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md) (version 0.3.1), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that set its own `enabledPlugins`, add
+`"factory-floor@sanvio-factory": true` and take out `loop-pane` and
+`loop-crew`. Then `/reload-plugins` or a new session.
+
 ## 2026-11-09: factory-floor reads loops once
 
 The `/factory-floor` pane's List and Crew views now read loops through one

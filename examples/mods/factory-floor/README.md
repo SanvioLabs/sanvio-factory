@@ -88,7 +88,7 @@ have mods.
 
 ## Open it
 
-It's off by default. To switch it on, add `"factory-floor@sanvio-factory": true`
+It's on by default. A copy that doesn't have it on yet adds `"factory-floor@sanvio-factory": true`
 to `enabledPlugins` in the factory's [`.claude/settings.json`](../../../.claude/settings.json). Or load it for one
 session with `claude --plugin-dir examples/mods/factory-floor`.
 
