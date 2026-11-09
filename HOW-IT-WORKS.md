@@ -255,6 +255,7 @@ keeps its default:
 | `ready_label`, `blocked_label` | `loop-ready`, `loop:blocked` | What it looks for, and what it leaves on a failure |
 | `review_query` | `review-requested:@me` | The GitHub search `loop.py review` runs to find pull requests that ask for you |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
 
@@ -560,6 +561,33 @@ whose agent exits non-zero or times out posts nothing, and it isn't tried again
 until the pull request has a new commit; neither is a diff that can't be made,
 such as a base with no history in common. A fetch, checkout or GitHub error is
 logged once with `(will retry)` and tried again on the next poll.
+
+**The grade on a review.** The trailer's line also carries a grade out of
+10, after the verdict, such as `Verdict: ready with nits. Grade 8/10: ready
+with nits, checks passing.` It comes from
+[`review-rubric.json`](review-rubric.json) at the factory's root, which gives
+each of five keys a whole number from 0 to 10: `ready`, `ready with nits` and
+`changes needed` for the verdicts, `failing` for a reviewed commit with a check
+run that finished and didn't pass (success, neutral and skipped pass), and
+`unreadable` for a verdict that isn't one of the three. The checks are the
+reviewed commit's check runs, not the pull request's newer head. A commit with
+no check runs counts as passing, and the grade says `no checks ran`. While a
+check is still running, or GitHub can't say, the trailer reads `Grade pending:
+checks still running.` and the status row's `grade` is `pending`; the next poll
+reads the checks again, with no agent, and once they've finished edits the
+grade into your own comment's trailer and nothing else, logging `REVIEW #31
+4f2a9c1 graded 10/10`. A comment someone else posted, or a send-back with
+another header, is never edited, and a newer send-back under your login doesn't
+hide the comment that's waiting. If that comment is gone, the row stops waiting
+and no later poll asks again. A rubric that's missing, isn't valid JSON, or
+lacks a key, has another key or a value outside 0 to 10 grades every review 0,
+with the file named in the trailer. Edit the file to change the grades. A
+project under [`projects/`](projects/) gets its own with `review_rubric` in the
+factory's `projects` entry, a path from the factory's root. The project's own
+`loop.json` can't set it, since anyone who can push to the project could
+otherwise give every pull request a 10. The grade is read from the trailer
+alone, never from the report above it. It's recorded as `grade` in the review's
+status row, and isn't in `--pr`'s JSON line.
 
 **What it never does:** approve, request changes, merge, push, or ask the agent
 to post. The comment goes up under your own GitHub identity. A pull request's
