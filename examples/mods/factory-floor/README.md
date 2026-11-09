@@ -3,16 +3,17 @@
 [`scripts/loop.py`](../../../scripts/loop.py) works without you, which also means you can't see it
 work. This mod opens a pane beside the conversation that shows it.
 
-Today the pane shows the loop as a list, the same one `/loop-pane` shows. A
-Crew view, the lanes `/loop-crew` draws, comes next in this same pane. Until
-then [`loop-pane`](../loop-pane/) and [`loop-crew`](../loop-crew/) stay as they are.
+The pane has two views. **List** shows the loop as a list, the same one
+`/loop-pane` shows. **Crew** shows the lanes `/loop-crew` draws, a figure
+working at each issue's step. The two buttons at the top of the pane switch
+between them. [`loop-pane`](../loop-pane/) and [`loop-crew`](../loop-crew/) stay as they are.
 
 The list looks like this:
 
 ```
 starter                                ● Running 2 · up 1h 04m
 
-[ Watch it ] [ Copy attach command ]
+[ List ] [ Crew ] [ Watch it ] [ Copy attach command ]
 ──────────────────────────────────────────────────────────────
 [ Queue 1 ] [ Active 2 ] [ Finished 4 ]
 
@@ -157,6 +158,38 @@ not, also pops up a short notice, so you hear about it without reading the pane.
 A project's starts with its name (`app: #14 has a pull request`), the factory's
 with `Loop:`.
 
+## Crew view
+
+Press **Crew** and the same pane shows the loop on screen as `/loop-crew`
+draws it: a lane for each issue being worked, the steps left to right, each
+step's time and spend under it. [`loop-crew`'s README](../loop-crew/README.md) says how to read a
+lane. **List** goes back to the list, on the loop the Crew had on screen.
+Neither button closes the pane, writes the session's focus or changes the
+loop.
+
+```
+[ List ] [ Crew ]
+ start   plan   test   build   check   ship
+#14 Gate: an empty Role cell passes · building, round 2
+  (the lane: a figure at build, each step's time and spend under it)
+```
+
+With more than one loop, the Crew view has its own loop picker under the
+buttons. It follows the
+session's focus as the list does. It keeps what it shows under factory-floor's
+own name, so `/loop-crew` in the same session shows its own loop, not this
+one's.
+
+A terminal pane needs 42 columns for the Crew's board. Narrower, the pane
+shows the list until it's widened, then the Crew comes back with no press.
+Claude Desktop, VS Code and the mobile app draw the board at any width.
+`/factory-floor` always opens on the list, also after the `×` closed the pane
+in the Crew view.
+
+Only the view on screen reads the loop's files: the list's two-second read
+stops while the Crew is drawn, and the Crew's reads and its animation stop
+while the list is.
+
 ## What it doesn't do
 
 It only reads the loop's files. It never starts, stops or changes the loop: run
@@ -169,7 +202,8 @@ and not at all while it's closed, it reads `.loop/status.json`, which the loop
 rewrites at every step, and checks `.loop/STOP` and `.loop/lock`, with
 `kill -0` on the process the lock names. It lists `.loop/projects/` and does the
 same in each project's folder, so a project's `.loop/projects/<name>/` stands in
-for `.loop/` in every path above.
+for `.loop/` in every path above. The Crew view also reads each drawn issue's
+`.loop/issue-N/usage.json` for its spend.
 
 The one file it writes is the session's focus, `.sanvio/project/<id>`, and only
 when you pick a loop in the pane: the project's name, or nothing for this
@@ -183,7 +217,11 @@ at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the proje
 ## Changing it
 
 [`hooks/logic.ts`](hooks/logic.ts) holds the decisions as plain functions, so they can be tested.
-[`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. From
+[`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. The Crew view is
+[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), copies of `loop-crew`'s `register.tsx` and
+`logic.ts`, since one installed mod can't import from another. Its types are the
+`Crew*` ones in [`types/index.d.ts`](types/index.d.ts), which can't import a second file. A fix to the Crew's drawing goes in both mods until
+`loop-crew` is retired. From
 [`examples/mods/`](../):
 
 ```bash

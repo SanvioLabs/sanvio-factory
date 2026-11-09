@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Crew view in factory-floor
+
+The `/factory-floor` pane has a **Crew** button. It switches the same pane to
+the lanes `/loop-crew` draws, on the loop the list had on screen, and **List**
+switches back. Neither closes the pane, writes the session's focus or changes
+the loop. A terminal pane under 42 columns shows the list until it's widened.
+`/factory-floor` always opens on the list. The `loop-pane` and `loop-crew`
+mods are unchanged.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/crew.tsx`, `hooks/crew-logic.ts` and their tests new, the Crew types added to `types/index.d.ts`; version 0.2.0), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, add `"factory-floor@sanvio-factory": true` to
+[`.claude/settings.json`](.claude/settings.json)'s `enabledPlugins`.
+
 ## 2026-11-09: Factory floor mod
 
 A new mod, off by default. `/factory-floor` opens the loop pane as
