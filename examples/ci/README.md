@@ -220,17 +220,19 @@ The comment's last line gives the review's verdict and a grade out of 10, the
 same grade the loop gives its own reviews:
 `Verdict: ready. Grade 10/10: ready, checks passing.` The grade comes from the
 factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scripts/loop.py`](../../scripts/loop.py), both read
-from the factory's default branch. A `review-rubric.json` in the product repo,
+from the factory's default branch. A [`review-rubric.json`](../../review-rubric.json) in the product repo,
 or in the pull request, is never read. It combines the report's verdict with
 the pull request's other checks: a failed check gives the rubric's `failing`
 grade, and a report whose last line isn't a verdict gives its `unreadable`
 one. A rubric that's missing or isn't valid grades 0 and names the file.
 
-To change the grades, edit `review-rubric.json` in your factory's repo. Every
+To change the grades, edit [`review-rubric.json`](../../review-rubric.json) in your factory's repo. Every
 product repo's next review uses the new numbers.
 
 The grade waits up to 10 minutes for the pull request's other checks to
-finish, leaving out the review's own job. To wait a different time,
+finish. It leaves out every job in the caller's own workflow run, so tests
+run from the same workflow file as the review don't count toward the grade:
+run them from a separate workflow if they should. To wait a different time,
 add `grade-wait-minutes: 5`, say, under `with:` in the caller. The job stops
 at 30 minutes, so a wait of more than about 15 risks the review never posting.
 A check still running when the wait ends leaves the grade pending, and nothing

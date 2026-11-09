@@ -138,9 +138,9 @@ The comment's last line gives the verdict and a grade out of 10, such as
   it's the same grade the loop gives. A product repo or a pull request can't
   change it. A failed check, or a report with no verdict on its last line,
   takes the rubric's `failing` or `unreadable` grade.
-- **How to change it:** edit `review-rubric.json` in the factory repo.
-- **How long it waits:** up to 10 minutes for the pull request's other checks.
-  Add `grade-wait-minutes` under `with:` in the caller to change that. The job
+- **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo.
+- **How long it waits:** up to 10 minutes for the pull request's other checks,
+  leaving out every job in the caller's own workflow run. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
   stops at 30 minutes, so keep it under about 15. A check still running at the
   end leaves the grade pending until the next push or a re-run.
 - **What it does:** nothing but say it. It sets no status, approves nothing

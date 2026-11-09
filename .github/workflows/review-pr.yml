@@ -49,10 +49,12 @@
 # Why the permissions are so small: the agent reads diff text that anyone who
 # can open a pull request can write, so treat it as untrusted input. The agent
 # gets no GitHub token. The job's token can read the repo and write to pull
-# requests. The grade step uses it to read the pull request's check runs, and
-# only the last step uses it to write, to post the comment. A called
-# workflow can't get more than its caller grants, and this one asks for no
-# more than this. Keep it that way: don't add a permission.
+# requests. The grade step uses it to try to read the pull request's check
+# runs. Whether these permissions allow that hasn't been tried on a live pull
+# request yet: if the read is refused, the grade says pending and the run's
+# summary says why. Only the last step uses it to write, to post the comment.
+# A called workflow can't get more than its caller grants, and this one asks
+# for no more than this. Keep it that way: don't add a permission.
 #
 # The Claude Code CLI is pinned to an exact version, because a change in how
 # it reads its permission rules changes what the agent can reach. Move the pin
