@@ -2,8 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
-import type { Ink, Lane, Loop, Placement } from './crew-logic'
-import type { CrewRow as Row, CrewSeen as Seen, CrewSpend as Spend } from '../types'
+import type { Ink, Lane, Placement } from './crew-logic'
+import type { CrewSpend as Spend, Row, Seen } from '../types'
 
 // The Crew view: loop-crew's hooks/register.tsx moved into factory-floor's pane, with its own saved
 // values under factory-floor's name. register.tsx draws it when the person presses Crew. One installed
@@ -131,35 +131,36 @@ async function lockHolderAlive($: EngineInterface, root: string, project?: strin
   return !ran || ran.exitCode === 0 || !/no such process/i.test(ran.stderr)
 }
 
-// One look at one loop's files. It only reads: the loop is the only writer.
+// One look at one loop's files, as the List takes it in register.tsx. It only reads: the loop is the
+// only writer.
 async function look($: EngineInterface, root: string, project?: string): Promise<Seen> {
-  const text = await $.fs.read(`${root}/${loopDir(project)}/status.json`).catch(() => null)
-  const isLive = (await lockHolderAlive($, root, project)) === true
-  return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
+  const dir = `${root}/${loopDir(project)}`
+  const text = await $.fs.read(`${dir}/status.json`).catch(() => null)
+  const alive = await lockHolderAlive($, root, project)
+  return {
+    root,
+    ...(project ? { project } : {}),
+    status: parseStatus(text),
+    isLocked: alive === true,
+    isStaleLock: alive === false,
+    isStopping: await $.fs.exists(`${dir}/STOP`),
+    hasWatchFile: await $.fs.exists(`${dir}/watch.command`),
+  }
 }
 
 // Every loop the picker lists: the factory first, then each project folder holding a status file, by
 // name. A loop whose status file can't be read or doesn't parse is left out, the factory's too. A
 // folder that can't be listed gives the factory alone, or nothing when it's left out too.
-async function readLoops($: EngineInterface, root: string): Promise<Loop[]> {
+async function readLoops($: EngineInterface, root: string): Promise<Seen[]> {
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`).catch(() => false))
-  const one = async (project?: string): Promise<Loop | null> => {
-    const [text, holder] = await Promise.all([
-      $.fs.read(`${root}/${loopDir(project)}/status.json`).catch(() => null),
-      lockHolderAlive($, root, project),
-    ])
-    const status = parseStatus(text)
-    if (!status) return null
-    return { root, ...(project ? { project } : {}), status, isLocked: holder === true }
-  }
-  const loops = await Promise.all([one(), ...names.map(name => one(name))])
-  return loops.filter((loop): loop is Loop => loop !== null)
+  const loops = await Promise.all([look($, root), ...names.map(name => look($, root, name))])
+  return loops.filter(loop => loop.status !== null)
 }
 
 // Keep a read of every loop when no newer one has started and it differs from the last. Says whether
 // it was kept, so the caller asks for the redraw.
-async function storeLoops($: EngineInterface, at: number, loops: Loop[]): Promise<boolean> {
+async function storeLoops($: EngineInterface, at: number, loops: Seen[]): Promise<boolean> {
   if (at !== loopReads || JSON.stringify(await read($, loopsAtom)) === JSON.stringify(loops)) return false
   await update($, loopsAtom, () => loops)
   return true
@@ -271,7 +272,7 @@ async function show($: EngineInterface, name: string) {
 
 // A pick from the dropdown. Only a loop it lists, and one not already on screen, switches the pane. A
 // pick never closes the pane.
-async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<void> {
+async function pick($: EngineInterface, value: string, loops: Seen[]): Promise<void> {
   if (!isListed(loops, value)) return
   if ((await read($, shownAtom)) === value) return
   await show($, value)

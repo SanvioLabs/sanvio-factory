@@ -14,7 +14,8 @@ export type Row = {
   review: string | null
   pr: string | null
   note: string
-  // When this run of the issue began, in local time. An older loop.py doesn't write it.
+  // When this run of the issue began, in local time. An older loop.py doesn't write it. usage.json
+  // stamps each entry with it, as run_started.
   started?: string
   updated?: string
   // Totals over every run of the issue. A loop.py older than #179 doesn't write them.
@@ -24,6 +25,12 @@ export type Row = {
   model?: string
   // The issue's tmux window, issue-N, while it's open.
   window?: string
+  // Whole seconds spent on each step in the current run, by step name. There only when the loop that
+  // wrote the row records it.
+  step_seconds?: Record<string, number>
+  // When the current step began, as loop.py writes it, or null once the row has left working. There
+  // only when the loop that wrote the row records it.
+  step_started?: string | null
 }
 
 export type Status = {
@@ -66,52 +73,16 @@ declare module 'claude-code' {
     // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
     // mode: the view the person picked. The crew- keys are the Crew view's own, as loop-crew keeps them:
     // crew-shown the loop it shows, crew-seen that loop's last look, crew-loops every loop its picker
-    // lists, crew-focus the focus as it last read it. The Crew view shares launch with the List.
+    // lists, crew-focus the focus as it last read it. Both views look at a loop the same way, as a Seen.
+    // The Crew view shares launch with the List.
     'factory-floor': {
       launch: string | null; seen: Seen | null; view: View | null; loops: Seen[] | null; picked: string | null; focus: string | null
       mode: Mode
-      'crew-shown': string; 'crew-seen': CrewSeen | null; 'crew-loops': CrewLoop[] | null; 'crew-focus': string | null
+      'crew-shown': string; 'crew-seen': Seen | null; 'crew-loops': Seen[] | null; 'crew-focus': string | null
     }
   }
-}
-
-// The Crew view's types, as loop-crew declared them, named Crew* beside the List's. One file: a mod's
-// types contract can't import another.
-// The part of what scripts/loop.py writes to status.json that the figures draw from.
-// step_seconds and step_started are there only when the loop that wrote the row records them.
-export type CrewRow = {
-  number: number
-  title: string
-  step: string
-  state: string
-  round: number
-  // Whole seconds spent on each step in the current run, by step name.
-  step_seconds?: Record<string, number>
-  // When the current step began, as loop.py writes it, or null once the row has left working.
-  step_started?: string | null
-  // When the current run began. usage.json stamps each entry with it, as run_started.
-  started?: string
-  // The issue's tokens and cost over every run, as loop.py totals usage.json. Only read to tell
-  // when usage.json has changed.
-  tokens?: number
-  cost_usd?: number
 }
 
 // Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
 // The stations are crew-logic.ts's Station, written out: this contract has to stand alone.
 export type CrewSpend = Record<'start' | 'plan' | 'test' | 'build' | 'check' | 'ship', { tokens: number | null; cost: number | null }>
-
-export type CrewStatus = { issues: CrewRow[] }
-
-// One look at one loop's files.
-export type CrewSeen = {
-  // The project under .loop/projects/ this loop belongs to. Unset for the factory's own.
-  project?: string
-  status: CrewStatus | null
-  // A lock whose holder is alive: the loop is running.
-  isLive: boolean
-}
-
-// One loop as the picker lists it: the root it's under, its project (unset for the factory's own), its
-// status file, and whether a live process holds its lock.
-export type CrewLoop = { root: string; project?: string; status: CrewStatus | null; isLocked: boolean }

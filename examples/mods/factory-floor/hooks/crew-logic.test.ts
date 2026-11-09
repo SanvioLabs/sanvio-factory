@@ -1,15 +1,22 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
 import { ACCENT, ACTS, DARK, LANE_PIXELS, LANE_ROWS, LIGHT, MIN_COLUMNS, NOTHING, OUT_MS, RAIL_Y, RUN, STATIONS, SVG_COLUMNS, boardColumns, clip, costText, easeInOut, effectAt, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, isListed, lanesOf, lockPid, loopButtonLabel, loopOptions, parseSpend, parseStatus, place, projectName, projectNames, poseAt, roundText, SESSION, scene, showsBoard, spendText, stageTimes, stationOf, stationX, stepLine, svgColumns, timeText, tokenText, unitsAt, walkLeft, walkMs, walkingOut, word } from './crew-logic'
-import type { Lane, Loop, Station, Walk } from './crew-logic'
-import type { CrewRow as Row, CrewSeen as Seen } from '../types'
+import type { Lane, Station, Walk } from './crew-logic'
+import type { Row, Seen, Status } from '../types'
 
 const NOW = 1_800_000_000_000
 // No time reads as an em dash, U+2014, built from its code so this file holds none.
 const DASH = String.fromCharCode(0x2014)
-const row = (over: Partial<Row>): Row => ({ number: 1, title: 'A job', step: 'BUILD', state: 'working', round: 1, ...over })
-const look = (over: Partial<Seen>): Seen => ({ status: { issues: [] }, isLive: true, ...over })
-const reading = (...issues: Row[]): Seen => look({ status: { issues } })
+const row = (over: Partial<Row>): Row => ({ number: 1, title: 'A job', step: 'BUILD', state: 'working', round: 1, tests: null, review: null, pr: null, note: '', ...over })
+const statusOf = (issues: Row[]): Status => ({ running: true, updated: null, tmux: null, queue: [], issues })
+const look = (over: Partial<Seen>): Seen => ({ root: '/h/starter', status: statusOf([]), isLocked: true, isStaleLock: false, isStopping: false, hasWatchFile: false, ...over })
+const reading = (...issues: Row[]): Seen => look({ status: statusOf(issues) })
+// A row as parseStatus gives it, every key it always sets spelled out: one with only a number, then `over`.
+const PARSED = {
+  number: 0, title: '', step: '', state: '', round: 0, max_rounds: undefined, tests: null, review: null, pr: null, note: '',
+  started: undefined, updated: undefined, window: undefined, tokens: undefined, cost_usd: undefined, model: undefined,
+}
+const parsedRow = (over: object) => ({ ...PARSED, ...over })
 const lane = (station: Station, over: Partial<Row> = {}): Lane => ({ row: row(over), station, walk: null })
 const ALL_FRAMES = [...Object.values(ACTS).flat().map(pose => pose.frame), ...RUN]
 
@@ -451,14 +458,14 @@ group('the times', () => {
       '{"number": 8, "step_started": "2027-01-15T08:00:00"}, ' +
       '{"number": 9}]}'
     const [a, b, c, d, e, f] = parseStatus(text)!.issues
-    expect(a).toEqual({ number: 4, title: 'T', step: 'BUILD', state: 'working', round: 1, step_seconds: { SHAPE: 30, TEST: 0, BUILD: 1.5 }, step_started: '2027-01-15T08:00:00' })
+    expect(a).toEqual(parsedRow({ number: 4, title: 'T', step: 'BUILD', state: 'working', round: 1, step_seconds: { SHAPE: 30, TEST: 0, BUILD: 1.5 }, step_started: '2027-01-15T08:00:00' }))
     expect([b!.step_seconds, b!.step_started]).toEqual([{}, null])
     expect([c!.step_seconds, c!.step_started]).toEqual([{}, null])
     expect([d!.step_seconds, d!.step_started]).toEqual([{}, null])
     expect('step_seconds' in e!).toBe(false)
     expect(e!.step_started).toBe('2027-01-15T08:00:00')
     // A row with neither, as an older loop writes, parses as it always has.
-    expect(f).toEqual({ number: 9, title: '', step: '', state: '', round: 0 })
+    expect(f).toEqual(parsedRow({ number: 9 }))
     expect('step_seconds' in f! || 'step_started' in f!).toBe(false)
   })
   test('a time reads in seconds, then minutes, then hours and two-digit minutes, floored, a negative as 0s, and none or a non-finite one as a dash', () => {
@@ -679,11 +686,10 @@ group('the spend', () => {
       '{"number": 6, "started": null, "tokens": 1e999, "cost_usd": [1]}, ' +
       '{"number": 7}]}'
     const [a, b, c, d] = parseStatus(text)!.issues
-    expect(a).toEqual({ number: 4, title: '', step: '', state: '', round: 0, started: STARTED, tokens: 6_208_489, cost_usd: 1.729 })
-    for (const odd of [b!, c!]) expect('started' in odd || 'tokens' in odd || 'cost_usd' in odd).toBe(false)
-    // A row without them parses exactly as before.
-    expect(d).toEqual({ number: 7, title: '', step: '', state: '', round: 0 })
-    expect(Object.keys(d!)).toEqual(['number', 'title', 'step', 'state', 'round'])
+    expect(a).toEqual(parsedRow({ number: 4, started: STARTED, tokens: 6_208_489, cost_usd: 1.729 }))
+    for (const odd of [b!, c!]) expect([odd.started, odd.tokens, odd.cost_usd]).toEqual([undefined, undefined, undefined])
+    // A row without them has none.
+    expect(d).toEqual(parsedRow({ number: 7 }))
   })
   test('a cost reads in dollars and whole cents, floored', () => {
     const cases: [number, string][] = [[0.004, '$0.00'], [0.29, '$0.29'], [1.15, '$1.15'], [1.729, '$1.72'], [12.4, '$12.40'], [0, '$0.00'], [100, '$100.00']]
@@ -785,24 +791,27 @@ group('the scene', () => {
     expect(scene(null).message).toBe('No loop has run here yet.')
   })
   test('with no live lock there are no figures, even for rows left at working', () => {
-    const seen = look({ isLive: false, status: { issues: [row({})] } })
+    const seen = look({ isLocked: false, status: statusOf([row({})]) })
     expect(scene(seen)).toEqual({ message: "The loop isn't running.", rows: [] })
   })
   test('with nothing working it says so', () => {
-    expect(scene(look({ status: { issues: [row({ state: 'pr' })] } })).message).toBe('Nothing being built right now.')
+    expect(scene(look({ status: statusOf([row({ state: 'pr' })]) })).message).toBe('Nothing being built right now.')
   })
   test('working rows come in issue-number order, and others are left out', () => {
     const issues = [row({ number: 9 }), row({ number: 3 }), row({ number: 5, state: 'blocked' })]
-    expect(scene(look({ status: { issues } })).rows.map(r => r.number)).toEqual([3, 9])
+    expect(scene(look({ status: statusOf(issues) })).rows.map(r => r.number)).toEqual([3, 9])
   })
 })
 
-group('the copied helpers', () => {
+group("the helpers from logic.ts", () => {
   test('the status file: a bad one is none, and a row without a number is dropped', () => {
     expect(parseStatus(null)).toBeNull()
     expect(parseStatus('{not json')).toBeNull()
     expect(parseStatus(JSON.stringify({ issues: [{ title: 'no number' }, { number: 4, title: 'T', step: 'BUILD', state: 'working', round: 2, pr: 'x' }] })))
-      .toEqual({ issues: [{ number: 4, title: 'T', step: 'BUILD', state: 'working', round: 2 }] })
+      .toEqual({
+        running: false, updated: null, tmux: null, started: null, queue: [],
+        issues: [parsedRow({ number: 4, title: 'T', step: 'BUILD', state: 'working', round: 2, pr: 'x' })],
+      })
   })
   test("the lock's pid", () => {
     expect(lockPid('4242\n')).toBe(4242)
@@ -820,15 +829,15 @@ group('the copied helpers', () => {
 })
 
 group('the loop picker', () => {
-  const loop = (over: Partial<Loop>): Loop => ({ root: '/h/starter', status: { issues: [] }, isLocked: true, ...over })
+  const loop = look
   test('the projects are the folders holding a status file, by name, and nothing else', async () => {
     const entries = [{ name: 'gamma', kind: 'dir' }, { name: 'beta', kind: 'dir' }, { name: 'alpha', kind: 'dir' }, { name: 'a-file', kind: 'file' }]
     expect(await projectNames(entries, async name => name !== 'gamma')).toEqual(['alpha', 'beta'])
   })
   test('the loops on a job come first, the factory is named by its folder, and a loop with no live lock counts none', () => {
-    const factory = loop({ status: { issues: [row({ number: 12, state: 'pr' })] } })
-    const alpha = loop({ project: 'alpha', status: { issues: [row({ number: 30 }), row({ number: 31 })] } })
-    const beta = loop({ project: 'beta', isLocked: false, status: { issues: [row({ number: 40 })] } })
+    const factory = loop({ status: statusOf([row({ number: 12, state: 'pr' })]) })
+    const alpha = loop({ project: 'alpha', status: statusOf([row({ number: 30 }), row({ number: 31 })]) })
+    const beta = loop({ project: 'beta', isLocked: false, status: statusOf([row({ number: 40 })]) })
     const options = loopOptions([factory, alpha, beta])
     expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
     expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
@@ -842,7 +851,7 @@ group('the loop picker', () => {
     expect(isListed([loop({ project: 'alpha' })], '')).toBe(false)
   })
   test('one job is a marker with no count', () => {
-    expect(loopButtonLabel(loop({ project: 'alpha', status: { issues: [row({})] } }))).toBe('● alpha')
+    expect(loopButtonLabel(loop({ project: 'alpha', status: statusOf([row({})]) }))).toBe('● alpha')
   })
 })
 

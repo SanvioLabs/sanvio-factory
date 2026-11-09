@@ -1,162 +1,17 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
-import type { CrewLoop as Loop, CrewRow as Row, CrewSeen as Seen, CrewSpend as Spend, CrewStatus as Status } from '../types'
+import type { CrewSpend as Spend, Row, Seen } from '../types'
+import { clip, has } from './logic'
 
-export const PROJECTS_DIR = '.loop/projects'
-export const SCRIPT = 'scripts/loop.py'
-
-// The folder under the root holding one loop's files: the factory's, or a project's.
-export function loopDir(project?: string): string {
-  return project ? `${PROJECTS_DIR}/${project}` : '.loop'
-}
-
-const str = (v: unknown): string => (typeof v === 'string' ? v : '')
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
-const has = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key)
-
-// The steps whose time a lane shows, each with the station it's worked at.
-const TIMED_STEPS = ['SHAPE', 'TEST', 'BUILD', 'VALIDATE', 'SCALE']
-
-// A row's time fields, each only when the row has it. Only the timed steps with a time of 0 or more are
-// kept, and a step_started that doesn't read as a time is null.
-function timeFields(r: Record<string, unknown>): Pick<Row, 'step_seconds' | 'step_started'> {
-  const out: Pick<Row, 'step_seconds' | 'step_started'> = {}
-  if (has(r, 'step_seconds')) {
-    const raw = r.step_seconds
-    const seconds: Record<string, number> = {}
-    if (raw && typeof raw === 'object') {
-      for (const step of TIMED_STEPS) {
-        const value = has(raw, step) ? (raw as Record<string, unknown>)[step] : undefined
-        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) seconds[step] = value
-      }
-    }
-    out.step_seconds = seconds
-  }
-  if (has(r, 'step_started')) {
-    const raw = r.step_started
-    out.step_started = typeof raw === 'string' && !Number.isNaN(Date.parse(raw)) ? raw : null
-  }
-  return out
-}
+// How a loop is read, and how the picker and the focus work, are the List's: logic.ts holds the one
+// copy of each, and these are its own functions, passed on for crew.tsx and its tests.
+export { PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopDir, loopOptions, parseStatus, projectName, projectNames } from './logic'
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
-// A row's run fields, each only when it has the right type: started a string, tokens and cost_usd
-// finite numbers. They say which usage.json entries count, and when to read it again.
-function runFields(r: Record<string, unknown>): Pick<Row, 'started' | 'tokens' | 'cost_usd'> {
-  return {
-    ...(typeof r.started === 'string' ? { started: r.started } : {}),
-    ...(isCount(r.tokens) ? { tokens: r.tokens } : {}),
-    ...(isCount(r.cost_usd) ? { cost_usd: r.cost_usd } : {}),
-  }
-}
-
-// The status file, or null when there's none or it can't be read. A row without a number is dropped.
-export function parseStatus(text: string | null): Status | null {
-  if (!text) return null
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return null
-  }
-  if (!raw || typeof raw !== 'object') return null
-  const rows = (raw as Record<string, unknown>).issues
-  const issues: Row[] = (Array.isArray(rows) ? rows : [])
-    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && num((r as Record<string, unknown>).number) > 0)
-    .map(r => ({ number: num(r.number), title: str(r.title), step: str(r.step), state: str(r.state), round: num(r.round), ...timeFields(r), ...runFields(r) }))
-  return { issues }
-}
-
-// The process id in the lock, or null when it isn't a number.
-export function lockPid(text: string): number | null {
-  const pid = Number.parseInt(text.trim(), 10)
-  return Number.isInteger(pid) && pid > 0 ? pid : null
-}
-
-// Fit one line to the pane, with an ellipsis where it was cut.
-export function clip(text: string, width: number): string {
-  if (width < 2) return ''
-  return text.length <= width ? text : text.slice(0, width - 1) + '…'
-}
-
-// The nearest folder at or above `from` that holds the loop script. None means no loop here.
-export async function findRoot(from: string, exists: (path: string) => Promise<boolean>): Promise<string | null> {
-  let dir = from.replace(/\/+$/, '')
-  while (dir) {
-    if (await exists(`${dir}/${SCRIPT}`)) return dir
-    dir = dir.slice(0, dir.lastIndexOf('/'))
-  }
-  return null
-}
-
-// One loop as the picker lists it, written out in the types beside Seen.
-export type { CrewLoop as Loop } from '../types'
-
-// Copied from loop-pane's hooks/logic.ts, with the same bodies: one installed mod can't import from another.
-
-// The projects with a loop to show, by name: folders under PROJECTS_DIR that hold a status file.
-export async function projectNames(entries: { name: string; kind: string }[], hasStatus: (name: string) => Promise<boolean>): Promise<string[]> {
-  const folders = entries.filter(e => e.kind === 'dir').map(e => e.name).sort((a, b) => a.localeCompare(b))
-  const held = await Promise.all(folders.map(name => hasStatus(name)))
-  return folders.filter((_, i) => held[i])
-}
-
-// What a loop is called: the project's name, or the root's folder for the factory.
-export function loopLabel(seen: Loop): string {
-  return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
-}
-
-// How many jobs a live loop is on. The lock is the truth about running, so with no live lock it's
-// none, whatever the file's rows say. A stop request doesn't change it: those jobs are still being worked.
-export function workingCount(seen: Loop): number {
-  if (!seen.isLocked) return 0
-  return seen.status?.issues.filter(r => r.state === 'working').length ?? 0
-}
-
-// What a loop's button says: its name, with a marker while it's on a job and a count past one.
-export function loopButtonLabel(seen: Loop): string {
-  const working = workingCount(seen)
-  if (!working) return loopLabel(seen)
-  return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
-}
-
-// The loop picker's options: the loops on a job first, each group in its own order. A project's
-// value is its name, the factory's ''.
 // Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
 // sends, so this guards against anything else reaching a switch.
-export function isListed(loops: Loop[], value: string): boolean {
+export function isListed(loops: Seen[], value: string): boolean {
   return loops.some(loop => (loop.project ?? '') === value)
-}
-
-export function loopOptions(loops: Loop[]): { value: string; label: string }[] {
-  const working = loops.filter(l => workingCount(l) > 0)
-  const rest = loops.filter(l => workingCount(l) === 0)
-  return [...working, ...rest].map(loop => ({ value: loop.project ?? '', label: loopButtonLabel(loop) }))
-}
-
-// The session's project focus. Copied from loop-pane's hooks/logic.ts, which copied them from
-// github-status, with the same bodies: one installed mod can't import from another.
-
-// The folder under projects/ that a /github argument names: `acme` or `projects/acme`, one folder deep.
-// Anything that could reach outside projects/ is refused before anything runs.
-export function projectName(arg: string): { name: string } | { why: string } {
-  const name = arg.trim().replace(/^projects\//, '').replace(/\/$/, '')
-  if (/^[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(name) && !name.includes('..')) return { name }
-  return { why: `"${arg.trim()}" isn't a project: give the name of a folder under projects/, such as /github acme, or /github all.` }
-}
-
-// A session id that can name a file: harness-lens's rule. Anything else means no focus.
-export const SESSION = /^[0-9a-fA-F-]{8,64}$/
-
-// This session's focus file under the harness root, or null for an id that can't name one.
-export function focusFile(root: string, id: string | null): string | null {
-  return id !== null && SESSION.test(id) ? `${root}/.sanvio/project/${id}` : null
-}
-
-// The project a focus file's text names, before the folder is checked, or null.
-export function focusName(text: string): string | null {
-  const picked = projectName(text.trim())
-  return 'name' in picked ? picked.name : null
 }
 
 const WORDS: Record<string, string> = {
@@ -188,7 +43,7 @@ export const NOTHING = 'Nothing being built right now.'
 // about running: rows left at working by a killed run draw nothing.
 export function scene(seen: Seen | null): { message: string | null; rows: Row[] } {
   if (!seen?.status) return { message: 'No loop has run here yet.', rows: [] }
-  if (!seen.isLive) return { message: "The loop isn't running.", rows: [] }
+  if (!seen.isLocked) return { message: "The loop isn't running.", rows: [] }
   const rows = seen.status.issues.filter(r => r.state === 'working').sort((a, b) => a.number - b.number)
   return rows.length ? { message: null, rows } : { message: NOTHING, rows: [] }
 }
@@ -435,7 +290,7 @@ export function place(seen: Seen | null, previous: Placement | null, now: number
     const station = stationOf(row.step)
     return { row, station, walk: previous ? arrival(before.get(row.number), station, now) : null }
   })
-  const read = seen?.status && seen.isLive ? seen.status.issues : []
+  const read = seen?.status && seen.isLocked ? seen.status.issues : []
   const opening = new Map(read.filter(r => r.state === 'pr').map(r => [r.number, r]))
   const outs: WalkOut[] = (previous?.outs ?? []).filter(out => now < out.walk.end && opening.has(out.row.number))
   for (const old of previous?.figures ?? []) {

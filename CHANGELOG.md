@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: factory-floor reads loops once
+
+The `/factory-floor` pane's List and Crew views now read loops through one
+copy of the code: how the status file is parsed, what the loop picker says,
+and how the session's focus is read. The Crew's copies and its own types are
+gone, so a fix to how a loop is read lands in both views. What each view draws
+is unchanged. A new test fails if a second copy comes back.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/logic.ts`, `hooks/crew-logic.ts`, `hooks/crew.tsx`, `types/index.d.ts`, `README.md`, `hooks/crew-logic.test.ts`, `hooks/shared.test.ts` new; version 0.3.0), [`tests/test_factory_floor.py`](tests/test_factory_floor.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-09: Crew view in factory-floor
 
 The `/factory-floor` pane has a **Crew** button. It switches the same pane to
