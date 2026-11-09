@@ -26,7 +26,7 @@ export function series(v: unknown, field: string): Point[] | null {
   return points.length ? points : null
 }
 
-// Two series added day by day: the harness's conversations and the loop's. A day is null only
+// Two series added day by day: the factory's conversations and the loop's. A day is null only
 // when neither side counted it.
 export function sum(a: Point[] | null, b: Point[] | null): Point[] | null {
   if (!a || !b) return a ?? b

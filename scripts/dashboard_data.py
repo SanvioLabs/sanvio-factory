@@ -27,7 +27,7 @@
                      slash commands by name, guard refusals by rule, and how many times it asked.
                      skill_spend, agent_spend and command_spend hold each name's tokens and estimated
                      cost_usd, from token_report.py's split of the transcripts in ~/.claude/projects for
-                     sessions started at the harness's root, including after they move into projects/. A
+                     sessions started at the factory's root, including after they move into projects/. A
                      session started under projects/ isn't counted. A name there needn't match the counts: a
                      subagent's are measured, a skill's or command's attributed from where it started to
                      the next prompt. cost_usd prices each model's tokens at .sanvio/prices.json's
@@ -45,12 +45,12 @@
                      file in agents/, scripts/eval_agents.py, or a case's case.json, work file or
                      brief. A file changed when its last commit is later than saved, or when it has
                      uncommitted changes, or git ignores it, and it was written later. A file that
-                     doesn't exist and was never committed can't count. changed lists those files from the harness
+                     doesn't exist and was never committed can't count. changed lists those files from the factory
                      root, and newest_change is the latest of their dates. A result with no saved
                      time or no cases in its folder is stale with a why, and one git can't check
                      has stale null with a why
     conversations    Claude Code's tokens since --since from ~/.claude/projects, counted as
-                     token_report.py counts them: "harness" for conversations at the root and in
+                     token_report.py counts them: "factory" for conversations at the root and in
                      projects/, "loop" for the loop's worktrees, each by model (input, output, cache
                      writes, cache reads and total) with how many sessions, and by_day, every day
                      from --since to today, oldest first, the same days as loop_spend's, with its
@@ -136,7 +136,7 @@ WEEK = 7  # days in the last-7-days window, today included
 TRANSCRIPTS = Path.home() / ".claude" / "projects"
 CACHE = Path("cache") / "conversations.json"  # each of these under names.state_dir()
 SAVE_EVERY = 50  # transcripts read between saves of the conversations cache
-SIDES = {"Conversations": "harness", "projects/": "harness", "Loop": "loop"}  # token_report's groups, two sides
+SIDES = {"Conversations": "factory", "projects/": "factory", "Loop": "loop"}  # token_report's groups, two sides
 COUNTS = ("input", "output", "cache_writes", "cache_reads")  # token_report's FIELDS, in order
 GH_TIMEOUT = 30  # seconds before a gh call counts as unavailable
 PR_FIELDS = "number,title,createdAt,headRefName,isDraft,statusCheckRollup,mergeable"
@@ -571,9 +571,9 @@ def conversations(root, since, today, projects_dir, cache_path):
     if read or fresh.keys() != cache.keys():
         save(cache_path, fresh)
 
-    by_model = {"harness": {}, "loop": {}}
-    sessions = {"harness": set(), "loop": set()}
-    by_day = {side: dict.fromkeys(days(since, today), 0) for side in ("harness", "loop")}
+    by_model = {"factory": {}, "loop": {}}
+    sessions = {"factory": set(), "loop": set()}
+    by_day = {side: dict.fromkeys(days(since, today), 0) for side in ("factory", "loop")}
     seen = set()
     for entry in fresh.values():
         for message_id, request_id, day, side, model, session, local, *counts in entry["replies"]:
@@ -592,7 +592,7 @@ def conversations(root, since, today, projects_dir, cache_path):
                                 for model, values in sorted(by_model[side].items(), key=lambda kv: natural(kv[0]))},
                    "sessions": len(sessions[side]),
                    "by_day": [{"day": day, "tokens": n} for day, n in by_day[side].items()]}
-            for side in ("harness", "loop")}
+            for side in ("factory", "loop")}
 
 
 def kept_shape(result):

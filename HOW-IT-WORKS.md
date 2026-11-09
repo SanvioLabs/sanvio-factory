@@ -652,20 +652,20 @@ back.
 ```mermaid
 sequenceDiagram
     participant You
-    participant Harness as This factory
+    participant Factory as This factory
     participant GitHub
     participant Factory
-    You->>Harness: dispatch #12, then yes
-    Harness->>GitHub: add the factory's submit label to #12
+    You->>Factory: dispatch #12, then yes
+    Factory->>GitHub: add the factory's submit label to #12
     Factory->>GitHub: open a pull request that closes #12
-    Harness->>GitHub: status: read #12 and its pull request
-    Harness->>GitHub: review: loop.py review --pr N posts one comment
+    Factory->>GitHub: status: read #12 and its pull request
+    Factory->>GitHub: review: loop.py review --pr N posts one comment
     alt changes needed
-        You->>Harness: resend, then yes
-        Harness->>GitHub: put the submit label back on #12
+        You->>Factory: resend, then yes
+        Factory->>GitHub: put the submit label back on #12
     else ready
-        Harness->>GitHub: read the required checks
-        Harness-->>You: ready for a person, or why not
+        Factory->>GitHub: read the required checks
+        Factory-->>You: ready for a person, or why not
     end
     You->>GitHub: merge
 ```

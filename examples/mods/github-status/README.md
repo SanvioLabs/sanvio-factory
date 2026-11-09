@@ -15,7 +15,7 @@ Claude Code 2.1.301. Codex and Kiro don't have mods.
 
 ## Turn it on
 
-It loads by itself, the same way as the [harness lens](../harness-lens/): the harness's
+It loads by itself, the same way as the [harness lens](../harness-lens/): the factory's
 [`.claude/settings.json`](../../../.claude/settings.json) turns it on. Don't see the line? Install it from
 inside a session, at the root:
 
@@ -69,7 +69,7 @@ that project's `origin` repo, with `<name>: ` at the start. Repos cloned under
 | `/project` | Prints the project in focus, or that there's none |
 
 ```
-harness: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 5 open issues
+factory: SanvioLabs/sanvio-factory · 0 actions running · 2 open pull requests · 5 open issues
 acme: acme/app · 1 action running · 4 open pull requests · 12 open issues
 1 folder under projects/ has no GitHub remote.
 ```
@@ -79,7 +79,7 @@ outside it, such as `../x`, `a/b` or a leading `.`, is refused before anything
 runs. A folder with no GitHub `origin` says so and `gh` isn't called. A repo
 whose read fails says GitHub is unavailable on its own line, and the others
 still print. `/github <name>` and `/github all` never change the line above
-the prompt, and `/github all`'s `harness:` line is the factory's own repo
+the prompt, and `/github all`'s `factory:` line is the factory's own repo
 whatever is in focus. `/github` alone reads the repo in focus.
 
 The focus is the session's own, so another session's line doesn't move, and a

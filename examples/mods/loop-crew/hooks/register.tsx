@@ -126,9 +126,9 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   return { ...(project ? { project } : {}), status: parseStatus(text), isLive }
 }
 
-// Every loop the picker lists: the harness first, then each project folder holding a status file, by
-// name. A loop whose status file can't be read or doesn't parse is left out, the harness's too. A
-// folder that can't be listed gives the harness alone, or nothing when it's left out too.
+// Every loop the picker lists: the factory first, then each project folder holding a status file, by
+// name. A loop whose status file can't be read or doesn't parse is left out, the factory's too. A
+// folder that can't be listed gives the factory alone, or nothing when it's left out too.
 async function readLoops($: EngineInterface, root: string): Promise<Loop[]> {
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`).catch(() => false))
@@ -246,7 +246,7 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   if (seenChanged || loopsKept) $.ui.invalidate('ui.render')
 }
 
-// Show a loop, by its project's name or '' for the harness: the command's switch and a pick's. On a pane
+// Show a loop, by its project's name or '' for the factory: the command's switch and a pick's. On a pane
 // already open this retitles it.
 async function show($: EngineInterface, name: string) {
   await update($, shownAtom, () => name)
@@ -265,7 +265,7 @@ async function pick($: EngineInterface, value: string, loops: Loop[]): Promise<v
 }
 
 // Read the focus and keep it as the one last read. Gives the loop the command opens on with no name:
-// the project in focus when the picker lists its loop, else the harness.
+// the project in focus when the picker lists its loop, else the factory.
 async function openingName($: EngineInterface, root: string): Promise<string> {
   const focus = await readFocus($, root)
   await update($, focusAtom, () => focus)
@@ -273,7 +273,7 @@ async function openingName($: EngineInterface, root: string): Promise<string> {
 }
 
 // Follow the session's /project focus. Only a focus that differs from the last read moves the pane: to
-// that project's loop when the picker lists it, or to the harness when the focus is cleared. Moving goes
+// that project's loop when the picker lists it, or to the factory when the focus is cleared. Moving goes
 // through a pick, so it never closes the pane. A pick or a named loop holds until the focus changes.
 async function follow($: EngineInterface): Promise<void> {
   const root = await rootOf($)

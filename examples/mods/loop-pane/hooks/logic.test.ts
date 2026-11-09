@@ -25,10 +25,10 @@ group('project loops', () => {
     expect(await projectNames(entries, async name => held.has(name))).toEqual(['alpha', 'zeta'])
     expect(await projectNames([], async () => true)).toEqual([])
   })
-  test('the pane opens on the first loop running, harness first, else the harness', () => {
+  test('the pane opens on the first loop running, factory first, else the factory', () => {
     const open = (...flags: boolean[]) => {
-      const [harness = false, a = false, b = false] = flags
-      return openingLoop([running(undefined, harness), running('a', a), running('b', b)])?.project
+      const [factory = false, a = false, b = false] = flags
+      return openingLoop([running(undefined, factory), running('a', a), running('b', b)])?.project
     }
     expect(open(true, true, true)).toBeUndefined()
     expect(open(false, false, true)).toBe('b')
@@ -45,19 +45,19 @@ group('project loops', () => {
     expect(openingLoop(loops)?.project).toBe('b')
     expect(openingLoop([running(undefined, false), running('a', false)], 'gone')).toEqual(running(undefined, false))
   })
-  test("a project's name is its label and the header's left side; the harness keeps its folder", () => {
+  test("a project's name is its label and the header's left side; the factory keeps its folder", () => {
     expect(loopLabel(running(undefined, false))).toBe('starter')
     expect(loopLabel(running('app', false))).toBe('app')
     expect(header(running('app', true), 0, 60).left).toBe('app')
   })
-  test("a project's paths sit under its own folder, and the harness's don't move", () => {
+  test("a project's paths sit under its own folder, and the factory's don't move", () => {
     expect(loopDir()).toBe('.loop')
     expect(loopDir('app')).toBe('.loop/projects/app')
     expect(jobWatchFile(12, 'app')).toBe('.loop/projects/app/issue-12/watch.command')
     const inTmux = { ...seen(status([ROW], undefined, true, 'loop-app'), true, false, false, true), project: 'app' }
     expect(watch(inTmux)).toBe('/h/starter/.loop/projects/app/watch.command')
   })
-  test("a project's toast starts with its name, and the harness's with Loop", () => {
+  test("a project's toast starts with its name, and the factory's with Loop", () => {
     const before = status([ROW])
     const after = status([{ ...ROW, state: 'pr' }, { ...ROW, number: 9, state: 'blocked' }, { ...ROW, number: 8, state: 'stopped' }])
     expect(changes(before, after, 'app')).toEqual(['app: #12 has a pull request', 'app: #9 is blocked', 'app: #8 stopped'])
@@ -78,7 +78,7 @@ group('the loop buttons', () => {
     expect(loopButtonLabel(app(status([]), true))).toBe('app')
     expect(state(app(status([]), true))).toBe('● Idle')
   })
-  test("the harness's button marks its folder's name", () => {
+  test("the factory's button marks its folder's name", () => {
     expect(loopButtonLabel(seen(status([ROW]), true))).toBe('● starter')
   })
   test('no status, a stale lock, no lock, or only ended rows: the name alone', () => {

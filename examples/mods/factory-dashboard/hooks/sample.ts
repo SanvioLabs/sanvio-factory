@@ -42,7 +42,7 @@ export const SAMPLE: Doc = {
     "unpriced": {}
   },
   "conversations": {
-    "harness": {
+    "factory": {
       "by_day": [
         {
           "day": "2026-10-15",

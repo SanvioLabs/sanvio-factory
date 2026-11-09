@@ -843,7 +843,7 @@ def review_argv(pr, target):
     return ["review", "--pr", str(int(pr))] + list(target)
 
 
-def this_harness(root):
+def this_factory(root):
     """Whether root is the repo this script, and the loop.py it runs, are in. loop.py reviews from its own
     repo, so a review run for another's would read that one's clones and post from this one."""
     return Path(root).resolve() == LOOP.resolve().parent.parent
@@ -1008,7 +1008,7 @@ def cmd_status(args):
 
 def cmd_review(args):
     """Have the loop review the run's pull request, posting its comment on your login, then move it on."""
-    if not this_harness(args.root):
+    if not this_factory(args.root):
         print("{} isn't the repo this script is in, {}: run review from there.".format(
             args.root, LOOP.resolve().parent.parent), file=sys.stderr)
         return 1

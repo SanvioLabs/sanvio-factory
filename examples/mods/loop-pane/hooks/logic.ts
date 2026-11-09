@@ -7,7 +7,7 @@ export type Line = { tone: Tone; text: string }
 export const PROJECTS_DIR = '.loop/projects'
 export const SCRIPT = 'scripts/loop.py'
 
-// The folder under the root holding one loop's files: the harness's, or a project's.
+// The folder under the root holding one loop's files: the factory's, or a project's.
 export function loopDir(project?: string): string {
   return project ? `${PROJECTS_DIR}/${project}` : '.loop'
 }
@@ -19,8 +19,8 @@ export async function projectNames(entries: { name: string; kind: string }[], ha
   return folders.filter((_, i) => held[i])
 }
 
-// The loop to open on: the project in focus when it's listed, else the first one running, harness
-// first, else the harness.
+// The loop to open on: the project in focus when it's listed, else the first one running, factory
+// first, else the factory.
 export function openingLoop(loops: Seen[], focus?: string | null): Seen | undefined {
   const focused = focus ? loops.find(l => l.project === focus) : undefined
   return focused ?? loops.find(l => l.isLocked) ?? loops[0]
@@ -57,7 +57,7 @@ export function focusName(text: string): string | null {
   return 'name' in picked ? picked.name : null
 }
 
-// What a loop is called: the project's name, or the root's folder for the harness.
+// What a loop is called: the project's name, or the root's folder for the factory.
 export function loopLabel(seen: Seen): string {
   return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
 }
@@ -77,7 +77,7 @@ export function loopButtonLabel(seen: Seen): string {
 }
 
 // The loop picker's options: the loops on a job first, each group in its own order. A project's
-// value is its name, the harness's ''.
+// value is its name, the factory's ''.
 export function loopOptions(loops: Seen[]): { value: string; label: string }[] {
   const working = loops.filter(l => workingCount(l) > 0)
   const rest = loops.filter(l => workingCount(l) === 0)

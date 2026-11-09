@@ -107,13 +107,13 @@ describe('a project name', () => {
 })
 
 describe('/github all', () => {
-  test('the harness first, then each project, then the folders without a remote', () => {
+  test('the factory first, then each project, then the folders without a remote', () => {
     expect(allText('h/r · 0 actions running', [{ name: 'acme', text: 'a/b · 1 action running' }], 2, 3)).toBe(
-      'harness: h/r · 0 actions running\nacme: a/b · 1 action running\n2 folders under projects/ have no GitHub remote.')
+      'factory: h/r · 0 actions running\nacme: a/b · 1 action running\n2 folders under projects/ have no GitHub remote.')
   })
   test('one folder without a remote, and none under projects/', () => {
-    expect(allText('x', [], 1, 1)).toBe('harness: x\n1 folder under projects/ has no GitHub remote.')
-    expect(allText('x', [], 0, 0)).toBe('harness: x\nNo folders under projects/.')
+    expect(allText('x', [], 1, 1)).toBe('factory: x\n1 folder under projects/ has no GitHub remote.')
+    expect(allText('x', [], 0, 0)).toBe('factory: x\nNo folders under projects/.')
   })
 })
 

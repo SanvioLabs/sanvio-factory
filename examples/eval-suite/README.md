@@ -1,6 +1,6 @@
 # A tiny eval suite
 
-The smallest suite [`scripts/eval_harness.py`](../../scripts/eval_harness.py) can run, to show the format. Copy its shape for your own. It's public so you can read it, which means an agent could too, so it can't tell you how good a harness is. A real suite's folder belongs in a private repo, outside this factory, and somewhere its agents aren't allowed to read.
+The smallest suite [`scripts/eval_factory.py`](../../scripts/eval_factory.py) can run, to show the format. Copy its shape for your own. It's public so you can read it, which means an agent could too, so it can't tell you how good a factory is. A real suite's folder belongs in a private repo, outside this factory, and somewhere its agents aren't allowed to read.
 
 ```
 suite.json        name, seed, key, issues in order, required_checks
@@ -16,19 +16,19 @@ key/
 
 Check a suite before you use it. This spends no tokens and creates no repo, and it passes only when the seed fails, each wrong answer fails and the reference passes:
 
-    python3 scripts/eval_harness.py validate examples/eval-suite
+    python3 scripts/eval_factory.py validate examples/eval-suite
 
 Run a suite through this factory's loop. The seed needs a `loop.json` with its `test_command`, as this one has. A run creates a private repo in the owner you name and spends model tokens:
 
-    python3 scripts/eval_harness.py run <suite> --owner <your-org> --merge-in-run-repo --start \
+    python3 scripts/eval_factory.py run <suite> --owner <your-org> --merge-in-run-repo --start \
       'gh label create loop-ready -R {repo} --force && gh issue edit {issue} -R {repo} --add-label loop-ready && for i in $(seq 40); do gh issue list -R {repo} --label loop-ready --json number -q ".[].number" | grep -qx {issue} && break; sleep 3; done && python3 scripts/loop.py run --once --issue {issue} --project {project}'
 
 The wait in the middle matters: a new label can take a few seconds to show in GitHub's issue list, and a loop that looks too soon finds nothing ready.
 
-To spend no model tokens, point the loop at a local Ollama model. Use a copy of this factory whose root `loop.json` names a wrapper called `claude`, which sets `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` before it runs the real one. Pass `--harness <copy>` and `--usage-command 'echo 0'`, because Claude Code prices local tokens as though they were Anthropic's. Compare such runs only with runs on the same models.
+To spend no model tokens, point the loop at a local Ollama model. Use a copy of this factory whose root `loop.json` names a wrapper called `claude`, which sets `ANTHROPIC_BASE_URL=http://127.0.0.1:11434` before it runs the real one. Pass `--factory <copy>` and `--usage-command 'echo 0'`, because Claude Code prices local tokens as though they were Anthropic's. Compare such runs only with runs on the same models.
 
 Then compare two runs, by the names `list` prints:
 
-    python3 scripts/eval_harness.py compare <run-a> <run-b>
+    python3 scripts/eval_factory.py compare <run-a> <run-b>
 
 Scoring runs code an agent wrote on your machine. It gets an empty `HOME` and no `gh` login, but it still has the network and can read anything outside `HOME` that you can, the suite's key included. Keep made-up data in every suite.
