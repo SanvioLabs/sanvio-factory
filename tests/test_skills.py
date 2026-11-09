@@ -370,6 +370,58 @@ class StarterUpdatesRename(unittest.TestCase):
             self.assertEqual(found, self.ALLOWED.get(name, 0), name)
 
 
+class StarterUpdatesOneScreen(unittest.TestCase):
+    """Each starter-updates question fits on one screen, and the windows, answers and rules stay as they were."""
+
+    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+
+    def text(self):
+        return " ".join(self.SKILL.read_text().split())
+
+    def between(self, start, end=None):
+        text = self.text()
+        begin = text.index(start)
+        return text[begin:text.index(end, begin)] if end else text[begin:]
+
+    def step_6(self):
+        return self.between("6. **Ask", "7. **Recommend")
+
+    def test_step_6_caps_the_question(self):
+        step = self.step_6()
+        for words in ("is at most 60 words", "not counting its option labels",
+                      "**Tell me more**", "**Show me the changes**"):
+            self.assertIn(words, step)
+
+    def test_update_window_names_only(self):
+        step = self.step_6()
+        self.assertIn("or the commit's subject when it has none, and nothing else about it", step)
+        self.assertIn("Past 8 updates, it gives the count and the first 8 names", step)
+
+    def test_output_one_line_per_commit(self):
+        self.assertIn("as one line, with no prose between commits", self.between("## Output"))
+
+    def test_rules_unchanged(self):
+        rules = self.between("## Rules", "## Output")
+        self.assertIn("Never pull, merge, check out, copy or commit in this copy, and never offer to.", rules)
+        self.assertIn("Every commit on the list is in the answer, and the count you give is the list's length.",
+                      rules)
+
+    def test_windows_and_answers_unchanged(self):
+        step = self.step_6()
+        for label in ("**Yes, bring it over**", "**No, leave it**", "**Tell me more**", "**Skip the rest**",
+                      "**Yes, take them**", "**No, keep mine**", "**Show me the changes**",
+                      "**Yes, merge by hand**"):
+            self.assertIn(label, step)
+        recommend = self.between("7. **Recommend", "8. **Weigh")
+        for row in ("| **take** | None of the below |",
+                    "| **merge by hand** | It touches an adapted file |",
+                    "| **skip** | It changes something this copy removed |",
+                    "| **ask** | A line in it weakens a guard or a gate, sends data off the machine, "
+                    "or runs downloaded code. Quote that line |",
+                    "Every commit is still in the output."):
+            self.assertIn(row, recommend)
+
+
 class FactoryTrendsRename(unittest.TestCase):
     """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report
     and its scripts didn't. The old trigger phrases went with the other old names."""
