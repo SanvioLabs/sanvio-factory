@@ -85,6 +85,7 @@ import contextlib
 import json
 import math
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -363,12 +364,19 @@ def checked(record):
     for field in ("run", "repo", "factory", "base", "submit_label", "stopped_label", "state"):
         if not isinstance(record[field], str):
             raise ValueError("its {} isn't text: {!r}".format(field, record[field]))
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+", record["repo"]):
+        # the merge command prints the repo, shell-quoted: a hand-edited record could put anything
+        # there, so only a shape a repository can have reads (#427)
+        raise ValueError("its repo isn't OWNER/NAME: {!r}".format(record["repo"]))
     for field in ("review", "checks"):
         if record.get(field) is not None and not isinstance(record[field], dict):
             raise ValueError("its {} isn't a review or a set of checks: {!r}".format(field, record[field]))
     review = record.get("review")
     if review is not None and not all(isinstance(review.get(field), str) for field in ("sha", "state", "note")):
         raise ValueError("its review hasn't a sha, a state and a note, each as text: {!r}".format(review))
+    if review is not None and not re.fullmatch(r"[0-9a-f]{40}", review.get("sha") or ""):
+        # the merge command pins the reviewed commit: only a whole commit reads (#427)
+        raise ValueError("its reviewed commit isn't 40 hex characters: {!r}".format(review.get("sha")))
     return record
 
 
@@ -987,7 +995,9 @@ def cmd_list(args):
              "checks": "waiting on its checks"}
     for _, record in runs:
         where = ended_line(record, label=False)
-        parts = [record["run"], "#{} in {}".format(record["issue"], record["repo"]), record["factory"], where]
+        # marked, so a value a hand-edited record put there can't hide, break or reorder the line (#427)
+        parts = [one_line(record["run"]), "#{} in {}".format(record["issue"], one_line(record["repo"])),
+                 one_line(record["factory"]), "into " + one_line(record["base"]), where]
         if record.get("waiting_on") in whose and not is_over(record):
             parts.append(whose[record["waiting_on"]])
         if record.get("pr"):
