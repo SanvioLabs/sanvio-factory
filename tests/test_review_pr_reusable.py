@@ -22,6 +22,7 @@ BASE = "Check out the pull request's base"
 HEAD = "Check out the pull request's head"
 PROMPT = "Run the review-pr skill: build the prompt"
 CLAUDE = "Run the review-pr skill on Claude"
+GRADE = "Grade the review"
 POST = "Post the report as one comment"
 RULES = "Remove the pull request's own rules"
 DRAFT = "Skip a draft pull request"
@@ -178,7 +179,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
     def test_the_steps_run_in_the_planned_order(self):
         names = self.names()
         order = ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL, HARNESS,
-                 HARNESS_SHA, BASE, HEAD, "Remove the pull request's own rules", PROMPT, CLAUDE, POST]
+                 HARNESS_SHA, BASE, HEAD, "Remove the pull request's own rules", PROMPT, CLAUDE, GRADE, POST]
         self.assertEqual([name for name in names if name in order], order)
 
     def test_a_skipped_review_runs_nothing_after_the_key_check(self):
@@ -323,7 +324,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
                 break
             paths.append(line.strip())
         self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/",
-                                 "/.github/workflows/review-pr.yml"])
+                                 "/.github/workflows/review-pr.yml", "/review-rubric.json", "/scripts/loop.py",
+                                 "/scripts/names.py", "/scripts/review_grade.py"])
         self.assertIn("sparse-checkout-cone-mode: false", harness)
         for name in (BASE, HEAD):
             self.assertNotIn("sparse-checkout", self.step(name), name)
@@ -439,7 +441,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
     def test_the_deploy_key_reaches_only_the_check_and_the_harness_checkout(self):
         holding = [name for name, text in self.steps() if "secrets.FACTORY_DEPLOY_KEY" in text]
         self.assertEqual(sorted(holding), sorted([CREDENTIAL, HARNESS]))
-        for name in (PROMPT, CLAUDE, POST):
+        for name in (PROMPT, CLAUDE, GRADE, POST):
             self.assertNotIn("FACTORY_DEPLOY_KEY", self.step(name), name)
 
     def test_each_step_holds_only_its_own_key(self):
@@ -447,7 +449,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(self.secrets_in(CLAUDE), claude)
         self.assertEqual(self.secrets_in("Skip when Claude has no key"), claude)
         self.assertEqual(self.secrets_in(CREDENTIAL), {"FACTORY_DEPLOY_KEY"})
-        for name in (DRAFT, PROMPT, POST, BASE, HEAD, HARNESS_SHA):
+        for name in (DRAFT, PROMPT, GRADE, POST, BASE, HEAD, HARNESS_SHA):
             self.assertEqual(self.secrets_in(name), set(), name)
 
     def test_the_comment_goes_on_the_calling_repo_after_the_checkouts(self):
@@ -470,6 +472,219 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIn("runs in every calling repo", header)
 
 
+RUN_ID = "4242"
+OWN = "https://github.com/o/r/actions/runs/{}/job/1".format(RUN_ID)
+OTHER = "https://github.com/o/r/actions/runs/777/job/9"
+# A rubric whose every key gives a different number, so a grade shows which key it came from.
+RUBRIC = '{"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 1, "unreadable": 2}'
+NOT_LATER = "Nothing grades this review later"
+# A stand-in gh: it logs its arguments, fails when told to, and otherwise prints the check runs for this call,
+# runs.<n> on its nth call when that file exists, else runs.
+FAKE_GH = """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE/args"
+if [ -n "$FAKE_GH_FAIL" ]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi
+n=$(( $(cat "$FAKE/count" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$FAKE/count"
+if [ -f "$FAKE/runs.$n" ]; then cat "$FAKE/runs.$n"; else cat "$FAKE/runs"; fi
+"""
+
+
+def tsv(runs):
+    return "".join("{}\t{}\t{}\n".format(*run) for run in runs)
+
+
+class GradeTheReview(unittest.TestCase):
+    steps = single.ReviewPrWorkflow.steps
+    step = single.ReviewPrWorkflow.step
+    run_in = ReusableReviewWorkflow.run_in
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text()
+        self.code = single.code(self.text)
+        self.helper = (ROOT / "scripts" / "review_grade.py").read_text()
+
+    def grade(self, report, runs=(("completed", "success", OTHER),), rubric=RUBRIC, wait="0", later=None,
+              fail=False, base=None, head=None, loop=None):
+        """Run the grade step in a workspace whose harness/ is a copy of this factory's grading files. Returns
+        the step's result, grade.txt or None, the step summary, and gh's argument lines."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            scripts = ws / "harness" / "scripts"
+            scripts.mkdir(parents=True)
+            for name in ("loop.py", "names.py", "review_grade.py"):
+                (scripts / name).write_text((ROOT / "scripts" / name).read_text())
+            if loop is not None:
+                (scripts / "loop.py").write_text(loop)
+            if rubric is not None:
+                (ws / "harness" / "review-rubric.json").write_text(rubric)
+            for folder, text in (("base", base), ("head", head)):
+                if text is not None:
+                    (ws / folder).mkdir()
+                    (ws / folder / "review-rubric.json").write_text(text)
+            fake, temp, bin_dir = ws / "fake", ws / "temp", ws / "bin"
+            for folder in (fake, temp, bin_dir):
+                folder.mkdir()
+            (fake / "runs").write_text(tsv(runs))
+            for n, more in enumerate(later or [], 2):
+                (fake / "runs.{}".format(n)).write_text(tsv(more))
+            (bin_dir / "gh").write_text(FAKE_GH)
+            (bin_dir / "gh").chmod(0o755)
+            (temp / "report.md").write_text(report)
+            summary = ws / "summary.md"
+            env = dict(PATH="{}:{}".format(bin_dir, os.environ["PATH"]), RUNNER_TEMP=str(temp),
+                       GITHUB_STEP_SUMMARY=str(summary), GITHUB_RUN_ID=RUN_ID, REPO="o/r", HEAD_SHA="abc123",
+                       GH_TOKEN="", GRADE_WAIT_MINUTES=wait, GRADE_POLL_SECONDS="0.05", FAKE=str(fake))
+            if fail:
+                env["FAKE_GH_FAIL"] = "1"
+            result = self.run_in(GRADE, ws, **env)
+            grade = temp / "grade.txt"
+            args = fake / "args"
+            return (result, grade.read_text() if grade.exists() else None,
+                    summary.read_text() if summary.exists() else "",
+                    args.read_text().splitlines() if args.exists() else [])
+
+    def assertGrade(self, report, line, **kwargs):
+        result, grade, summary, _ = self.grade(report, **kwargs)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(grade, line + "\n", result.stdout + result.stderr)
+        self.assertIn(line, summary)
+        return result, summary
+
+    def test_a_ready_report_with_passing_checks_grades_ten(self):
+        self.assertGrade("Ready.\n\nNo findings.\n\nVERDICT: ready\n",
+                         "Verdict: ready. Grade 10/10: ready, checks passing.")
+
+    def test_nits_grade_eight(self):
+        self.assertGrade("Two nits.\n\n**VERDICT: ready with nits**\n",
+                         "Verdict: ready with nits. Grade 8/10: ready with nits, checks passing.")
+
+    def test_changes_needed_grades_three(self):
+        self.assertGrade("A finding.\n\nVERDICT: changes needed\n",
+                         "Verdict: changes needed. Grade 3/10: changes needed, checks passing.")
+
+    def test_a_verdict_it_can_t_read_takes_the_unreadable_key(self):
+        self.assertGrade("Fine.\n\nVERDICT: looks good\n",
+                         "Verdict: unreadable. Grade 2/10: the verdict is unreadable.")
+
+    def test_a_failed_check_takes_the_failing_key(self):
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 1/10: ready, a check failed.",
+                         runs=[("completed", "success", OTHER), ("completed", "failure", OTHER)])
+
+    def test_neutral_and_skipped_checks_pass(self):
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, checks passing.",
+                         runs=[("completed", "neutral", OTHER), ("completed", "skipped", OTHER)])
+
+    def test_no_check_left_once_its_own_run_goes_says_none_ran(self):
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, no checks ran.",
+                         runs=[("in_progress", "", OWN)])
+
+    def test_its_own_run_s_failure_is_ignored_and_another_run_s_counts(self):
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, checks passing.",
+                         runs=[("completed", "failure", OWN), ("completed", "success", OTHER)])
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 1/10: ready, a check failed.",
+                         runs=[("completed", "success", OWN), ("completed", "failure", OTHER)])
+
+    def test_a_check_still_running_when_the_wait_ends_leaves_it_pending(self):
+        _, summary = self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade pending: checks still running.",
+                                      runs=[("in_progress", "", OTHER)])
+        self.assertIn(NOT_LATER, summary)
+
+    def test_it_waits_for_a_check_that_finishes(self):
+        result, grade, summary, args = self.grade("VERDICT: ready\n", runs=[("queued", "", OTHER)], wait="0.05",
+                                                  later=[[("completed", "success", OTHER)]])
+        self.assertEqual(grade, "Verdict: ready. Grade 10/10: ready, checks passing.\n", result.stdout)
+        self.assertEqual(len(args), 2)
+        self.assertNotIn(NOT_LATER, summary)
+
+    def test_it_reads_the_head_commit_s_check_runs(self):
+        _, _, _, args = self.grade("VERDICT: ready\n")
+        self.assertEqual(len(args), 1)
+        self.assertTrue(args[0].startswith("api --paginate repos/o/r/commits/abc123/check-runs --jq "), args[0])
+
+    def test_a_failed_read_counts_as_pending_and_says_why(self):
+        result, summary = self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade pending: checks still running.",
+                                           fail=True)
+        self.assertIn("gh api exited 1: HTTP 403: Resource not accessible by integration", summary)
+        self.assertIn(NOT_LATER, summary)
+
+    def test_a_missing_or_invalid_rubric_grades_zero_and_names_the_file(self):
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 0/10: review-rubric.json is missing.",
+                         rubric=None)
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 0/10: review-rubric.json isn't valid JSON.",
+                         rubric="{not json")
+
+    def test_a_rubric_in_base_or_head_changes_nothing(self):
+        mine = '{"ready": 0, "ready with nits": 0, "changes needed": 0, "failing": 0, "unreadable": 0}'
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, checks passing.",
+                         base=mine, head=mine)
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 0/10: review-rubric.json is missing.",
+                         rubric=None, base=RUBRIC, head=RUBRIC)
+
+    def test_a_broken_grader_still_exits_zero_and_writes_no_grade(self):
+        result, grade, _, _ = self.grade("VERDICT: ready\n", loop="this is not python(\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(grade)
+        self.assertIn("::warning::", result.stdout)
+
+    def post(self, grade):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "gh").write_text("#!/bin/sh\nexit 0\n")
+            (bin_dir / "gh").chmod(0o755)
+            (Path(tmp) / "report.md").write_text("Ready.\n\nVERDICT: ready\n")
+            if grade is not None:
+                (Path(tmp) / "grade.txt").write_text(grade)
+            result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
+                                 REPO="o/r", PR="1", GH_TOKEN="", STANDARDS_LOADED="true")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return (Path(tmp) / "comment.md").read_text().splitlines()[-1]
+
+    def test_the_comment_s_last_line_carries_the_grade(self):
+        self.assertEqual(self.post("Verdict: ready. Grade 10/10: ready, checks passing.\n"),
+                         "Posted by the review-pr workflow. Verdict: ready. Grade 10/10: ready, checks passing. "
+                         "A person decides what happens to this pull request.")
+        self.assertEqual(self.post(None),
+                         "Posted by the review-pr workflow. A person decides what happens to this pull request.")
+
+    def test_the_prompt_asks_for_the_verdict_on_the_last_line(self):
+        prompt = " ".join(self.step(PROMPT).split())
+        self.assertIn("Its last line is its verdict, exactly one of: VERDICT: ready, VERDICT: ready with nits, "
+                      "or VERDICT: changes needed.", prompt)
+
+    def test_the_grade_comes_from_loop_py_alone(self):
+        key_and_number = re.compile(r"""["']?(ready with nits|ready|changes needed|failing|unreadable)["']?\s*[:=]\s*\d""")
+        for name, text in (("the workflow", self.text), ("the helper", self.helper)):
+            self.assertIsNone(key_and_number.search(text), name)
+        self.assertIn("import loop", self.helper)
+        for name in ("load_rubric", "review_grade_for", "grade_text", "report_verdict", "PASSING_CHECKS"):
+            self.assertIn("loop." + name, self.helper)
+            self.assertNotIn("def " + name, self.helper)
+        self.assertIn('loop.ROOT / loop.DEFAULTS["review_rubric"]', self.helper)
+
+    def test_the_grade_step_holds_no_secret_and_waits_as_told(self):
+        grade = self.step(GRADE)
+        env = grade.split("env:\n", 1)[1].split("run: |", 1)[0]
+        self.assertEqual(sorted(line.strip() for line in env.splitlines() if line.strip()), sorted([
+            "GH_TOKEN: ${{ github.token }}", "REPO: ${{ github.repository }}",
+            "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+            "GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}"]))
+        self.assertIn("python3 harness/scripts/review_grade.py", grade)
+        on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertRegex(on, r"grade-wait-minutes:\n(?:\s+description: .*\n)\s+required: false\n"
+                             r"\s+default: 10\n\s+type: number")
+        self.assertIn("timeout-minutes: 30", self.code)
+
+    def test_the_grade_sets_no_status_and_approves_or_merges_nothing(self):
+        self.assertEqual(sorted(single.block(self.code, "permissions")), ["contents: read", "pull-requests: write"])
+        self.assertNotIn("statuses", self.code)
+        for name in (GRADE, POST):
+            for word in ("statuses", "approve", "merge"):
+                self.assertNotIn(word, self.step(name).lower(), name)
+        for word in ("statuses", "/reviews", "/merge", "--method", "-X", "POST", "PATCH", "PUT"):
+            self.assertNotIn(word, self.helper)
+
+
 class CallerReadme(unittest.TestCase):
     def setUp(self):
         self.assertTrue(README.is_file(), "examples/ci/README.md doesn't exist")
@@ -478,7 +693,8 @@ class CallerReadme(unittest.TestCase):
     def test_the_headings_come_in_order(self):
         headings = re.findall(r"^## (.+)$", self.text, re.M)
         self.assertEqual(headings, ["The credential", "The caller", "The secret", "A private factory repo",
-                                    "Protecting the factory repo", "Testing the review", "Team standards"])
+                                    "Protecting the factory repo", "Testing the review", "Team standards",
+                                    "The grade"])
 
     def test_the_protecting_section_says_how(self):
         self.assertIn("\n## Protecting the factory repo\n", self.text)
@@ -511,6 +727,15 @@ class CallerReadme(unittest.TestCase):
         credential = self.text.split("## The credential", 1)[1].split("## The caller", 1)[0]
         self.assertIn("Allow write access", credential)
         self.assertIsNone(single.KEY_SHAPES.search(self.text), "something in the README looks like a key")
+
+    def test_the_grade_section_says_where_it_comes_from_and_that_it_only_advises(self):
+        section = " ".join(self.text.split("\n## The grade\n", 1)[1].split("\n## ", 1)[0].split())
+        for words in ("review-rubric.json", "scripts/loop.py", "default branch", "grade-wait-minutes",
+                      "advisory", "sets no status", "merges nothing"):
+            self.assertIn(words, section)
+        docs = " ".join((ROOT / "docs" / "factory-in-ci.md").read_text().split())
+        for words in ("### The grade", "review-rubric.json", "grade-wait-minutes", "merges nothing"):
+            self.assertIn(words, docs)
 
     def test_it_lists_the_other_examples(self):
         for name in ("loop.yml", "project-checks.yml", "review-pr.yml"):

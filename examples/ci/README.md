@@ -14,7 +14,8 @@ factory's repo, so every review follows the same skill and the same rules, and
 a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
-[`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), `base/` (the product repo at the pull
+[`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), with the
+[`review-rubric.json`](../../review-rubric.json) and the three scripts [the grade](#the-grade) needs, `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
@@ -131,7 +132,9 @@ Access choose "Accessible from repositories in the organization". That lets
 the product repos use the workflow file;
 the deploy key can read the whole of your factory's repo, and the workflow checks out only the paths it needs.
 A private factory's other files (scripts, docs, examples, reports) aren't
-checked out, so the review can't read them or quote them.
+checked out, so the review can't read them or quote them. The exceptions are
+[`review-rubric.json`](../../review-rubric.json), [`scripts/loop.py`](../../scripts/loop.py), [`scripts/names.py`](../../scripts/names.py) and
+[`scripts/review_grade.py`](../../scripts/review_grade.py), which [the grade](#the-grade) needs.
 
 ## Protecting the factory repo
 
@@ -210,3 +213,29 @@ empty folder doesn't pass unnoticed. The folder belongs to your factory, not to
 a product repo, so every product repo that calls the workflow is held to the
 same standards. A pull request can't add or change one: the standards are read
 from the factory's default branch, never from the pull request.
+
+## The grade
+
+The comment's last line gives the review's verdict and a grade out of 10, the
+same grade the loop gives its own reviews:
+`Verdict: ready. Grade 10/10: ready, checks passing.` The grade comes from the
+factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scripts/loop.py`](../../scripts/loop.py), both read
+from the factory's default branch. A `review-rubric.json` in the product repo,
+or in the pull request, is never read. It combines the report's verdict with
+the pull request's other checks: a failed check gives the rubric's `failing`
+grade, and a report whose last line isn't a verdict gives its `unreadable`
+one. A rubric that's missing or isn't valid grades 0 and names the file.
+
+To change the grades, edit `review-rubric.json` in your factory's repo. Every
+product repo's next review uses the new numbers.
+
+The grade waits up to 10 minutes for the pull request's other checks to
+finish, leaving out the review's own job. To wait a different time,
+add `grade-wait-minutes: 5`, say, under `with:` in the caller. The job stops
+at 30 minutes, so a wait of more than about 15 risks the review never posting.
+A check still running when the wait ends leaves the grade pending, and nothing
+grades it later: the next push or a re-run grades it again. The run's summary
+says why, including when reading the checks failed.
+
+The grade is advisory. It sets no status and no required check, approves
+nothing and merges nothing. A person decides what happens to the pull request.
