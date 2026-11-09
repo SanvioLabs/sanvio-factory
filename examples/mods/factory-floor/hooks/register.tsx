@@ -9,6 +9,13 @@ import type { Mode, Row, Seen, Tab, View } from '../types'
 
 // Not /loop: that's Claude Code's own command for running a prompt on a schedule. It sits beside /factory-dashboard.
 const COMMAND = 'factory-floor'
+// The retired mods' commands, kept until a later release. Each opens this pane in the view that mod
+// showed, never closes it, and says the new name.
+const ALIASES = [
+  { name: 'loop-pane', view: 'list', description: 'Now /factory-floor: opens the loop pane in the List view' },
+  { name: 'loop-crew', view: 'crew', description: 'Now /factory-floor: opens the loop pane in the Crew view' },
+] as const
+const aliasToast = (name: string) => `/${name} is now /${COMMAND}. The old name goes in a later release.`
 const POLL_MS = 2000
 // The pulse's half beat. The pane redraws this often only while a job's dot is pulsing.
 const TICK_MS = 500
@@ -311,6 +318,31 @@ async function toList($: EngineInterface): Promise<void> {
   startPolling($)
 }
 
+const CANT_OPEN = "The loop pane couldn't open. .loop/loop.log has the same story: tail -f .loop/loop.log"
+
+// Open the pane on the List, whether or not it's up: /factory-floor's open and the aliases'. Opening
+// picks again: the project in focus when it has a loop, else the first loop running, else the factory.
+// The focus read here is remembered, so it isn't a change, and opening writes nothing. It opens on the
+// List, also after the × closed the pane in the Crew view.
+async function openPane($: EngineInterface): Promise<{ text: string; isOpen: boolean }> {
+  try {
+    const root = await rootOf($)
+    if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.`, isOpen: false }
+    stopCrew()
+    drawnView = null
+    await update($, modeAtom, () => 'list')
+    await update($, pickedAtom, () => null)
+    const focus = await readFocus($, root)
+    await update($, focusAtom, () => focus)
+    await refresh($)
+    const opened = await $.ui.open({ id: PANE, title: 'Loop' })
+    startPolling($)
+    return { text: opened.isPlaced ? 'Loop pane opened.' : 'Loop pane opened. Widen the terminal to see it.', isOpen: true }
+  } catch {
+    return { text: CANT_OPEN, isOpen: false }
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     // A reload fires session.start again; the directory the session started in is the first one.
@@ -319,6 +351,15 @@ export const register: Register = on => {
       name: COMMAND,
       description: "Open or close a pane showing the loop: what's waiting, what each issue is on, and its pull request",
     })
+    // Each alias on its own: one refused, say while the old mod is still on, leaves the other and
+    // /factory-floor working.
+    for (const alias of ALIASES) {
+      try {
+        await $.command.register({ name: alias.name, description: alias.description })
+      } catch {
+        // The old name stays with whatever holds it.
+      }
+    }
     // A pane left open across a reload keeps updating.
     if ((await $.ui.panes()).some(pane => pane.id === PANE)) startPolling($)
     return next(e)
@@ -340,25 +381,26 @@ export const register: Register = on => {
           return { text: "The loop pane couldn't close. The × in its corner closes it." }
         }
       }
-      const root = await rootOf($)
-      if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.` }
-      // Opening picks again: the project in focus when it has a loop, else the first loop running, else
-      // the factory. The focus read here is remembered, so it isn't a change, and opening writes nothing.
-      // It opens on the List, also after the × closed the pane in the Crew view.
-      stopCrew()
-      drawnView = null
-      await update($, modeAtom, () => 'list')
-      await update($, pickedAtom, () => null)
-      const focus = await readFocus($, root)
-      await update($, focusAtom, () => focus)
-      await refresh($)
-      const opened = await $.ui.open({ id: PANE, title: 'Loop' })
-      startPolling($)
-      return { text: opened.isPlaced ? 'Loop pane opened.' : 'Loop pane opened. Widen the terminal to see it.' }
     } catch {
-      return { text: "The loop pane couldn't open. .loop/loop.log has the same story: tail -f .loop/loop.log" }
+      return { text: CANT_OPEN }
     }
+    return { text: (await openPane($)).text }
   })
+
+  // An alias opens, never closes: someone typing the old name wants the pane. /loop-crew then moves the
+  // List's loop into the Crew, as the Crew button does.
+  for (const alias of ALIASES) {
+    on('command.run', { command: alias.name }, async $ => {
+      const opened = await openPane($)
+      if (opened.isOpen && alias.view === 'crew') await toCrew($).catch(() => {})
+      try {
+        await $.ui.toast(aliasToast(alias.name))
+      } catch {
+        // A notice that can't show leaves the pane as it opened.
+      }
+      return { text: opened.text }
+    })
+  }
 
   // The wheel and scroll keys move the tab's list, under a header that stays put. At either end of the
   // list, or with nothing to move, the pane scrolls as usual.

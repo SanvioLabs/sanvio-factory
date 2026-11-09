@@ -27,6 +27,21 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Factory floor
+
+The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
+both. Until a later release, `/loop-pane` opens the `/factory-floor` pane in
+its List view and `/loop-crew` opens it in its Crew view. Each shows a notice
+with the new name, and neither closes the pane. A new test fails if a tracked
+file outside this changelog, [`docs/specs/`](docs/specs/) and factory-floor names either old
+mod again.
+
+Files: `examples/mods/loop-pane/` and `examples/mods/loop-crew/` (removed), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/register.tsx`, `hooks/alias.test.ts` new, its [`README.md`](examples/mods/factory-floor/README.md); version 0.4.0), [`examples/mods/github-status/hooks/command.test.ts`](examples/mods/github-status/hooks/command.test.ts) (version 0.5.2), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_mods.py`](tests/test_mods.py), [`tests/test_plugin_report.py`](tests/test_plugin_report.py), [`tests/test_retired_mods.py`](tests/test_retired_mods.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that has them, add `"factory-floor@sanvio-factory": true`
+to `enabledPlugins` and remove `loop-pane@sanvio-factory` and
+`loop-crew@sanvio-factory`. Then `/reload-plugins` or a new session.
+
 ## 2026-11-09: factory-floor is on, loop-pane and loop-crew are off
 
 [`.claude/settings.json`](.claude/settings.json) switches on `factory-floor` in place of `loop-pane`

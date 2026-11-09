@@ -161,7 +161,7 @@ function gate(): { hold: Promise<void>; open: () => void } {
 }
 
 // First in the file. Each needs no timer and no repo to start from, so these rely on the kit loading the
-// module afresh for each test, which loop-pane's polling tests need too.
+// module afresh for each test, which factory-floor's polling tests need too.
 describe('/project with no session.start, as after a /clear', () => {
   test('alone looks up the factory and starts the timer', async ($, on) => {
     const s = stage(on, { session: { id: A } })

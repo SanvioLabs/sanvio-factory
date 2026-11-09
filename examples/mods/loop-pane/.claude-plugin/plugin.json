@@ -1,6 +1,0 @@
-{
-  "name": "loop-pane",
-  "version": "0.16.2",
-  "description": "A pane beside the conversation showing the loop: what's waiting, what each issue is on, and its pull request",
-  "types": "./types/index.d.ts"
-}
