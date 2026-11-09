@@ -130,6 +130,14 @@ Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/l
 
 **Do:** nothing. To grade differently, edit [`review-rubric.json`](review-rubric.json).
 
+## 2026-11-08: A hand-edited record that hides what it merges no longer reads
+
+`checked()` in [`scripts/factories.py`](scripts/factories.py) now reads only a record whose `repo` is `OWNER/NAME` and whose reviewed commit is 40 hex characters, the shapes GitHub itself writes, so a record edited by hand can't put a control character into the merge command a ready run prints or hide which repo it merges: `list` names such a record unreadable with the reason, as every other reader already does. `list` also prints each run's base now, and marks what it prints of a record (its run, repo, factory and base) through `one_line`, so nothing a record holds can start a line of its own in what it says.
+
+Files: [`scripts/factories.py`](scripts/factories.py), [`tests/test_factories.py`](tests/test_factories.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-08: Standup remembers what you already settled
 
 [`skills/standup/`](skills/standup/) now keeps its answers in a gitignored
