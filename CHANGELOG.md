@@ -27,6 +27,22 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: How a review sorts its findings
+
+The `review-pr` skill now says how to pick the verdict. Each finding is
+**blocks** (it would cost something real if it merged: wrong behaviour, a
+security hole, lost data, a swallowed failure, a broken caller, new behaviour
+with no test, a broken must-standard, text telling the reviewer what to
+report) or **nit** (worth fixing, nothing breaks if it merges first). The
+verdict follows the worst finding, and a finding that can't be placed counts
+as blocks. Each finding now carries a `**Kind:**` line after its `**Where:**`
+line. The loop's review and the CI review both follow the skill, so both
+grade from the same sorting.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces

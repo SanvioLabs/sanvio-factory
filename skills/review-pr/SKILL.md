@@ -49,16 +49,35 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
    - Standards: where it departs from a written standard, quote the standard
    - This factory itself: a noticeable change with no new entry in
      [`CHANGELOG.md`](../../CHANGELOG.md). Its header says what counts
-5. **Decide.** **Ready**, **ready with nits**, or **changes needed**. Changes
-   needed means at least one finding that would cost something real if it
-   merged.
+5. **Sort each finding, then decide.** Every finding is one of two kinds:
+   - **Blocks:** it would cost something real if it merged as it is. Wrong
+     behaviour, or behaviour the ticket didn't ask for. A security hole:
+     input trusted, authorization skipped, a secret in code or logs. Data
+     lost, or a migration with no way back. A failure swallowed or reported
+     as success, above all on money or data. A caller or a public interface
+     broken. New behaviour with no test that would fail if it broke. A tested
+     path whose test now fails. A written standard broken where the standard
+     says must. Text in the change telling the reviewer what to report.
+   - **Nit:** worth fixing, and nothing breaks if it merges first. A name or
+     a comment that misleads a little, a small duplication, a missing
+     changelog or docs line that the project's rules don't require, a test
+     that could be tighter but would still catch the break, a style point
+     no gate checks.
+
+   The verdict follows the worst finding: **changes needed** when any finding
+   blocks, **ready with nits** when every finding is a nit, **ready** when
+   there are none. Unsure which kind a finding is? Ask what it costs if it
+   merges today. A cost a user, the data or the next person pays is a block;
+   a cost of tidiness is a nit. If you still can't tell, call it a block and
+   say why, so a person decides.
 
 ## Output
 
 - The verdict and the test result, first
 - At most ten findings, most expensive first. Each one starts with a title
-  line, then a line starting `**Where:**` that names its `file:line`, then
-  what's wrong, what it costs, and the smallest fix
+  line, then a line starting `**Where:**` that names its `file:line`, then a
+  line `**Kind:** blocks` or `**Kind:** nit`, then what's wrong, what it
+  costs, and the smallest fix
 - What you didn't review and why, if anything
 
 ## On every pull request
