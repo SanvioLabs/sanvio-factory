@@ -219,9 +219,11 @@ at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the proje
 [`hooks/logic.ts`](hooks/logic.ts) holds the decisions as plain functions, so they can be tested.
 [`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. The Crew view is
 [`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), copies of `loop-crew`'s `register.tsx` and
-`logic.ts`, since one installed mod can't import from another. Its types are the
-`Crew*` ones in [`types/index.d.ts`](types/index.d.ts), which can't import a second file. A fix to the Crew's drawing goes in both mods until
-`loop-crew` is retired. From
+`logic.ts`, since one installed mod can't import from another. Both views read
+loops through one copy: the Crew imports `parseStatus`, the picker's labels and
+the focus rules from [`hooks/logic.ts`](hooks/logic.ts), and takes a loop as the same `Seen` and `Row`
+in [`types/index.d.ts`](types/index.d.ts). [`tests/test_factory_floor.py`](../../../tests/test_factory_floor.py) fails if a second copy comes back.
+A fix to the Crew's drawing goes in both mods until `loop-crew` is retired. From
 [`examples/mods/`](../):
 
 ```bash

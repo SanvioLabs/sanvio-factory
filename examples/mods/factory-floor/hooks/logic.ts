@@ -27,7 +27,8 @@ export function openingLoop(loops: Seen[], focus?: string | null): Seen | undefi
 }
 
 // The session's project focus, by github-status's rules. One installed mod can't import from another,
-// so these are copies of its projectName, SESSION, focusFile and focusName, with the same bodies.
+// so these are copies of its projectName, SESSION, focusFile and focusName, with the same bodies. Within
+// this mod they're the only copies: the Crew view imports them from here.
 
 // The folder under projects/ that a /github argument names: `acme` or `projects/acme`, one folder deep.
 // Anything that could reach outside projects/ is refused before anything runs.
@@ -108,8 +109,36 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const orNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null)
 const positive = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined)
+// Whether an object has a key of its own, so a key named like Object's own properties never counts.
+export const has = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key)
+
+// The steps whose time a lane shows, each with the station it's worked at.
+const TIMED_STEPS = ['SHAPE', 'TEST', 'BUILD', 'VALIDATE', 'SCALE']
+
+// A row's time fields, each only when the row has it. Only the timed steps with a time of 0 or more are
+// kept, and a step_started that doesn't read as a time is null.
+function timeFields(r: Record<string, unknown>): Pick<Row, 'step_seconds' | 'step_started'> {
+  const out: Pick<Row, 'step_seconds' | 'step_started'> = {}
+  if (has(r, 'step_seconds')) {
+    const raw = r.step_seconds
+    const seconds: Record<string, number> = {}
+    if (raw && typeof raw === 'object') {
+      for (const step of TIMED_STEPS) {
+        const value = has(raw, step) ? (raw as Record<string, unknown>)[step] : undefined
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) seconds[step] = value
+      }
+    }
+    out.step_seconds = seconds
+  }
+  if (has(r, 'step_started')) {
+    const raw = r.step_started
+    out.step_started = typeof raw === 'string' && !Number.isNaN(Date.parse(raw)) ? raw : null
+  }
+  return out
+}
 
 // The status file, or null when there's none or it can't be read. A row without a number is dropped.
+// Both views read it here: the List draws every field, the Crew its step, round, times and run fields.
 export function parseStatus(text: string | null): Status | null {
   if (!text) return null
   let raw: unknown
@@ -147,6 +176,7 @@ export function parseStatus(text: string | null): Status | null {
       tokens: positive(r.tokens),
       cost_usd: positive(r.cost_usd),
       model: orNull(r.model) ?? undefined,
+      ...timeFields(r),
     }))
   return {
     running: data.running === true, updated: orNull(data.updated), tmux: orNull(data.tmux),
