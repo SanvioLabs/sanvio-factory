@@ -41,6 +41,33 @@ class SetupCheck(unittest.TestCase):
         (self.root / ".kiro" / "steering").mkdir(parents=True)
         (self.root / ".kiro" / "steering" / "project.md").symlink_to("../../AGENTS.md")
 
+    def test_no_old_name_passes(self):
+        self.assertEqual(check_setup.check_old_names(self.root, environ={})[0], "PASS")
+
+    def test_an_old_variable_still_set_warns_with_its_new_name_and_never_its_value(self):
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "secret-ish"})
+        self.assertEqual(status, "WARN")
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+        self.assertNotIn("secret-ish", line + fix)
+
+    def test_an_old_state_folder_still_here_warns(self):
+        (self.root / ".harness").mkdir()
+        status, line, _ = check_setup.check_old_names(self.root, environ={})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+
+    def test_an_old_folder_and_an_old_variable_are_both_named(self):
+        (self.root / ".harness").mkdir()
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "on"})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+
+    def test_the_check_runs_with_the_others(self):
+        self.assertIn("names:", " ".join(line for _, line, _ in check_setup.run(self.root)))
+
     def test_python_39_passes_and_38_fails(self):
         self.assertEqual(check_setup.check_python((3, 9, 0))[0], "PASS")
         self.assertEqual(check_setup.check_python((3, 8, 18))[0], "FAIL")
@@ -76,12 +103,18 @@ class SetupCheck(unittest.TestCase):
     def test_no_remote_passes(self):
         self.assertEqual(check_setup.check_remote(self.root)[0], "PASS")
 
-    def test_the_public_starter_as_origin_warns(self):
-        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-harness-starter.git")
+    def test_the_public_factory_as_origin_warns(self):
+        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-factory.git")
         status, line, fix = check_setup.check_remote(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("public starter", line)
+        self.assertIn("public Sanvio Factory", line)
         self.assertIn("private copy", fix)
+
+    def test_its_old_address_is_not_recognised(self):
+        # A clone still on the address from before the GitHub rename is told to set the new one by the upgrade page.
+        self.git("remote", "add", "origin", "https://github.com/SanvioLabs/sanvio-harness-starter")
+        status, line, _ = check_setup.check_remote(self.root)
+        self.assertNotIn("public Sanvio Factory", line)
 
     def test_a_token_in_the_remote_url_is_never_printed(self):
         self.git("remote", "add", "origin", "https://someone:ghp_notarealtoken@github.com/acme/harness.git")
@@ -226,7 +259,7 @@ class SetupCheck(unittest.TestCase):
         self.git("add", "company/COMPANY.md")
         status, line, fix = check_setup.check_company(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("committed in this harness", line)
+        self.assertIn("committed in this repo", line)
         self.assertIn("gh repo view --json visibility", fix)
 
     def test_the_company_record_never_gets_committed(self):

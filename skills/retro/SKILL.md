@@ -1,7 +1,7 @@
 ---
 name: retro
 description: Find out why the agent got something wrong in an ordinary session, from that session's own log, and queue the answer for learn. Use when someone says "retro", "run a retro", "why did that go wrong", or asks which sessions the retro hook kept.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Session retro
@@ -13,7 +13,7 @@ opposite, or nothing could have. Each points at a different fix, and
 this for loop runs; this does it for ordinary sessions, with the same digest,
 causes and checks from [`scripts/loop.py`](../../scripts/loop.py).
 
-With `HARNESS_RETRO=on`, [`.claude/hooks/session_retro.py`](../../.claude/hooks/session_retro.py)
+With `SANVIO_RETRO=on`, [`.claude/hooks/session_retro.py`](../../.claude/hooks/session_retro.py)
 keeps a copy of each session's log where the person corrected the agent, or
 one file was edited three or more times, in `local-data/retro/`. Off, nothing
 is kept, and this skill reads the current session only.

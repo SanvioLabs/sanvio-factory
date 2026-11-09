@@ -4,7 +4,7 @@ export type Hit = { name: string; turn: number }
 export type GateHit = Hit & { ok: boolean }
 
 // The harness's declared scope for this session: a client its guard enforces, or a project or area it
-// only names. Read from the files `scope` lists in .claude/harness-lens.json; the starter declares none.
+// only names. Read from the files `scope` lists in .claude/harness-lens.json; this repo declares none.
 export type Scope = { kind: string; name: string }
 
 // One of the harness's agents the main session sent to work, by the subagent id its spawn answered.

@@ -1,9 +1,9 @@
 {
-  "name": "sanvio-harness-starter",
+  "name": "sanvio-factory",
   "owner": {
     "name": "Sanvio Labs"
   },
-  "description": "Mods that ship with the harness starter, and the Stelliad plugin pinned to a commit",
+  "description": "Mods that ship with Sanvio Factory, and the Stelliad plugin pinned to a commit",
   "plugins": [
     {
       "name": "harness-lens",
@@ -11,24 +11,19 @@
       "description": "A line above the prompt showing which part of the harness just acted"
     },
     {
-      "name": "loop-pane",
-      "source": "./examples/mods/loop-pane",
-      "description": "A pane beside the conversation showing the loop: what's waiting, what each issue is on, and its pull request"
-    },
-    {
       "name": "github-status",
       "source": "./examples/mods/github-status",
       "description": "A line above the prompt with the repo's running actions, open pull requests and open issues"
     },
     {
-      "name": "harness-dashboard",
-      "source": "./examples/mods/harness-dashboard",
-      "description": "A pane with the harness's numbers: what's waiting on you, the loop's spend and rework, evals and tokens"
+      "name": "factory-dashboard",
+      "source": "./examples/mods/factory-dashboard",
+      "description": "A pane with the factory's numbers: what's waiting on you, the loop's spend and rework, evals and tokens"
     },
     {
-      "name": "loop-crew",
-      "source": "./examples/mods/loop-crew",
-      "description": "A pane with a lane for each issue the loop is working on, its steps left to right, and a figure running to its step and working there"
+      "name": "factory-floor",
+      "source": "./examples/mods/factory-floor",
+      "description": "A pane showing the loop in focus: what's waiting, what each issue is on, and its pull request"
     },
     {
       "name": "stelliad",

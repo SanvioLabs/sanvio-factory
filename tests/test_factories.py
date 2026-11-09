@@ -633,8 +633,8 @@ class Guards(FakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn(says, err)
         self.assertEqual(self.writes(), [])
-        self.assertEqual(list((self.root / ".harness" / "factories").glob("run-*.json"))
-                         if (self.root / ".harness" / "factories").exists() else [], [])
+        self.assertEqual(list((self.root / ".sanvio" / "factories").glob("run-*.json"))
+                         if (self.root / ".sanvio" / "factories").exists() else [], [])
 
     def test_a_project_s_own_ready_label_is_refused(self):
         app = self.root / "projects" / "app"
@@ -661,7 +661,7 @@ class Guards(FakeGh):
         self.assertNotEqual(code, 0)
         self.assertIn("already", err)
         self.assertEqual(self.writes(), before)
-        self.assertEqual(len(list((self.root / ".harness" / "factories").glob("run-*.json"))), 1)
+        self.assertEqual(len(list((self.root / ".sanvio" / "factories").glob("run-*.json"))), 1)
 
     def test_an_issue_the_factory_stopped_on_is_refused(self):
         self.issue(labels=["factory:blocked"])
@@ -677,7 +677,7 @@ class Guards(FakeGh):
         code, out, _ = self.run_cli("dispatch", "12", "--yes")
         self.assertEqual(code, 0)
         self.assertIn("Repo:    o/r", out)
-        record, = [json.loads(p.read_text()) for p in (self.root / ".harness" / "factories").glob("run-*.json")]
+        record, = [json.loads(p.read_text()) for p in (self.root / ".sanvio" / "factories").glob("run-*.json")]
         self.assertEqual(record["repo"], "o/r")
 
     def test_a_local_checkout_with_uncommitted_changes_is_flagged_before_the_yes(self):
@@ -691,7 +691,7 @@ class Guards(FakeGh):
         self.assertEqual(code, 0)
         self.assertIn("uncommitted changes", out)
         self.assertLess(out.index("uncommitted changes"), out.index("Submitted"))
-        record, = [json.loads(p.read_text()) for p in (self.root / ".harness" / "factories").glob("run-*.json")]
+        record, = [json.loads(p.read_text()) for p in (self.root / ".sanvio" / "factories").glob("run-*.json")]
         self.assertTrue(record["dirty"])
 
 
@@ -795,7 +795,7 @@ class Notice(FakeGh):
 
 class Record(FakeGh):
     def records(self):
-        folder = self.root / ".harness" / "factories"
+        folder = self.root / ".sanvio" / "factories"
         return [json.loads(path.read_text()) for path in sorted(folder.glob("run-*.json"))] if folder.exists() else []
 
     def test_a_factory_login_s_account_id_is_recorded_and_one_unreadable_is_refused(self):
@@ -869,7 +869,7 @@ class Record(FakeGh):
     def test_the_record_is_never_half_written(self):
         self.issue()
         self.run_cli("dispatch", "12", "--repo", "o/r", "--yes")
-        folder = self.root / ".harness" / "factories"
+        folder = self.root / ".sanvio" / "factories"
         self.assertEqual(list(folder.glob("*.part")), [])
 
 
@@ -881,7 +881,7 @@ class Running(FakeGh):
         self.issue()
         code, _, err = self.run_cli("dispatch", "12", "--repo", "o/r", "--yes")
         self.assertEqual(code, 0, err)
-        self.run_path, = (self.root / ".harness" / "factories").glob("run-*.json")
+        self.run_path, = (self.root / ".sanvio" / "factories").glob("run-*.json")
         record = self.record()
         record["factory_login"] = "factory-bot"  # its pull requests come from factory-bot's fork
         record["factory_id"] = "ID_factory-bot"
@@ -1151,7 +1151,7 @@ class Review(Running):
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertEqual(self.loop_calls(), [])
-        self.assertIn("this harness: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
+        self.assertIn("this repo: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
 
     def test_a_review_of_an_older_head_says_github_may_be_behind(self):
         # Before T074 it said "see the loop's log", which says only skipped (review after Phase 12, live).
@@ -1388,6 +1388,19 @@ class Rounds(Reviewing):
 
     def test_the_verdict_is_the_trailer_s_never_the_report_s_first_line(self):
         self.verdict(None, report="Ready, at first sight.\n\nThen the export drops a row.\n\nVERDICT: changes needed")
+        self.linked(prs=[31])
+        self.review()
+        self.assertEqual(self.record()["review"]["verdict"], "changes needed")
+
+    def test_a_graded_trailer_reads_the_verdict_it_read_before_grades(self):
+        # Since #443 the trailer carries a grade after its verdict: what this script reads is the same.
+        for grade in ((8, "ready with nits, checks passing"), (None, loop.PENDING), (0, "ready with nits, a check failed")):
+            with self.subTest(grade=grade):
+                body = loop.review_comment("The report.\n\nVERDICT: ready with nits", self.head, grade=grade)
+                self.assertEqual(loop.review_verdict(body), loop.review_verdict(
+                    loop.review_comment("The report.\n\nVERDICT: ready with nits", self.head)))
+        self.comment_rows(("pat", loop.review_comment("The report.\n\nVERDICT: changes needed", self.head,
+                                                      grade=(3, "changes needed, checks passing"))))
         self.linked(prs=[31])
         self.review()
         self.assertEqual(self.record()["review"]["verdict"], "changes needed")
@@ -2865,6 +2878,18 @@ class List(Running):
                      record["started"]):
             self.assertIn(part, line)
 
+    def test_a_run_left_under_the_old_folder_is_not_listed(self):
+        # Nothing reads .harness/ now: the next session moves it to .sanvio/ (review the rename).
+        old = self.root / ".harness"
+        (self.root / ".sanvio").rename(old)
+        code, out, _ = self.run_cli("list")
+        self.assertEqual(code, 0)
+        self.assertNotIn(self.record_at(old)["run"], out)
+
+    def record_at(self, folder):
+        path, = (folder / "factories").glob("run-*.json")
+        return json.loads(path.read_text())
+
     def test_an_ended_run_says_why(self):
         record = self.record()
         record.update(state="stopped", why="no pull request after 24 hours", ended="2026-11-07T10:00:00+00:00")
@@ -3232,7 +3257,7 @@ class Boundaries(FakeGh):
         with mock.patch.object(factories, "LOOP", other / "scripts" / "loop.py"):
             code, _, err = self.run_cli("review", "run-12-x")
         self.assertEqual(code, 1)
-        self.assertIn("isn't the harness", err)
+        self.assertIn("isn't the repo", err)
         self.assertEqual((self.calls(), self.loop_calls()), ([], []))
 
 
@@ -3424,7 +3449,7 @@ class OnePass(unittest.TestCase):
                                check=True)
             with mock.patch.object(loop, "origin", wraps=loop.origin) as read:
                 found = factories.unnamed_clones(root)
-            self.assertEqual([where for where, _ in found], ["this harness", "projects/elsewhere"])
+            self.assertEqual([where for where, _ in found], ["this repo", "projects/elsewhere"])
             self.assertEqual(read.call_count, 2)
 
 

@@ -26,7 +26,7 @@ LEAK = "sentinel-zq7"  # put in every field the output must never carry
 NOW = datetime.datetime(2026, 10, 27, 12, 0, tzinfo=datetime.timezone.utc)
 SYSTEM_PATH = "/usr/bin:/bin"  # for the fake gh's own commands; the real gh isn't on it
 # A real run of build(), kept in the dashboard mod for its tests to draw. Sample checks it and rewrites it.
-SAMPLE = ROOT / "examples" / "mods" / "harness-dashboard" / "hooks" / "sample.ts"
+SAMPLE = ROOT / "examples" / "mods" / "factory-dashboard" / "hooks" / "sample.ts"
 UPDATE_SAMPLE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample"
 SAMPLE_HEAD = ("// What scripts/dashboard_data.py's build() printed in tests/test_dashboard_data.py's Sample. Don't edit it:\n"
                "// " + UPDATE_SAMPLE + " writes it again.\n"
@@ -107,7 +107,7 @@ def write(folder, relative, content):
     return path
 
 
-class Harness(unittest.TestCase):
+class Factory(unittest.TestCase):
     """A temporary harness root, empty until a test fills it."""
 
     def setUp(self):
@@ -164,18 +164,18 @@ class Harness(unittest.TestCase):
         write(log_path(self.root).parent, log_path(self.root).name,
               "\n".join(json.dumps(l) for l in lines) + "\nnot json\n")
         saved = {"agent": "claude --" + LEAK, "folder": str(self.root / LEAK)}
-        write(self.root, ".harness/evals/2026-10-20T0900-reviewer.json",
+        write(self.root, ".sanvio/evals/2026-10-20T0900-reviewer.json",
               dict(saved, reviewer="reviewer", saved="2026-10-20T09:00:00+00:00",
                    cases={"01-a": {"status": "failing", "reasons": ["missed: " + LEAK]}}))
-        write(self.root, ".harness/evals/2026-10-25T0900-reviewer.json",
+        write(self.root, ".sanvio/evals/2026-10-25T0900-reviewer.json",
               dict(saved, reviewer="reviewer", saved="2026-10-25T09:00:00+00:00",
                    cases={"01-a": {"status": "stable", "reasons": []},
                           "02-b": {"status": "flaky", "reasons": ["missed: " + LEAK]},
                           "03-c": {"status": "failing", "reasons": ["missed: " + LEAK]}}))
-        write(self.root, ".harness/evals/2026-10-26T0900-security-reviewer.json",
+        write(self.root, ".sanvio/evals/2026-10-26T0900-security-reviewer.json",
               dict(saved, reviewer="security-reviewer", saved="2026-10-26T09:00:00+00:00",
                    cases={"01-x": {"status": "stable", "reasons": []}}))
-        write(self.root, ".harness/evals/2026-10-27T0900-broken.json", "not json")
+        write(self.root, ".sanvio/evals/2026-10-27T0900-broken.json", "not json")
 
     def build(self, since=SINCE):
         return dashboard_data.build(self.root, since, TODAY, NOW, projects_dir=self.transcripts)
@@ -188,7 +188,7 @@ class Harness(unittest.TestCase):
         return code, out.getvalue()
 
 
-class Layout(Harness):
+class Layout(Factory):
     def test_the_top_level_keys(self):
         self.fill()
         code, out = self.main()
@@ -206,10 +206,10 @@ class Layout(Harness):
         self.assertIn("It goes up when a section's shape changes", doc)
 
     def test_the_activity_docs_say_which_sessions_count(self):
-        readme = (ROOT / "examples/mods/harness-dashboard/README.md").read_text(encoding="utf-8")
+        readme = (ROOT / "examples/mods/factory-dashboard/README.md").read_text(encoding="utf-8")
         doc = dashboard_data.__doc__
-        self.assertNotIn("conversations at the harness's root", doc)
-        self.assertNotIn("conversations at the harness's root", readme)
+        self.assertNotIn("conversations at the factory's root", doc)
+        self.assertNotIn("conversations at the factory's root", readme)
         self.assertIn("including after they move into", doc)
 
     def test_without_json_it_refuses(self):
@@ -218,7 +218,7 @@ class Layout(Harness):
         self.assertEqual(raised.exception.code, 2)
 
 
-class Spend(Harness):
+class Spend(Factory):
     def test_today_the_last_7_days_and_since(self):
         self.fill()
         spend = self.build()["loop_spend"]
@@ -253,7 +253,7 @@ class Spend(Harness):
         self.assertEqual(self.build()["loop_spend"]["today"], {"tokens": 15, "cost_usd": None})
 
 
-class SpendByDay(Harness):
+class SpendByDay(Factory):
     def test_every_day_from_since_to_today_with_zero_on_a_day_without_a_run(self):
         self.fill()
         spend = self.build()["loop_spend"]
@@ -293,7 +293,7 @@ class SpendByDay(Harness):
         self.assertTrue(all((d["tokens"], d["cost_usd"]) == (0, 0.0) for d in spend["by_day"]))
 
 
-class CostPerPr(Harness):
+class CostPerPr(Factory):
     def test_the_since_cost_over_the_issues_with_a_pull_request(self):
         self.fill()
         self.assertEqual(self.build()["loop_spend"]["cost_per_pr"], 2.0)
@@ -323,7 +323,7 @@ class CostPerPr(Harness):
         self.assertIsNone(spend["cost_per_pr"])
 
 
-class Throughput(Harness):
+class Throughput(Factory):
     def test_states_rounds_and_repeats_across_the_harness_and_projects(self):
         self.fill()
         self.assertEqual(self.build()["loop_throughput"], {
@@ -332,7 +332,7 @@ class Throughput(Harness):
             "more_than_one_round": 2})
 
 
-class Activity(Harness):
+class Activity(Factory):
     def test_counts_by_name_rule_and_asks_since_the_date(self):
         self.fill()
         self.assertEqual(self.build()["activity"], {
@@ -340,7 +340,7 @@ class Activity(Harness):
             "guard_refusals": {"credential-file": 2}, "asks": 1})
 
 
-class Evals(Harness):
+class Evals(Factory):
     def test_the_newest_file_for_each_reviewer(self):
         self.fill()
         gone = {"stale": True, "changed": [], "newest_change": None, "why": "folder missing"}
@@ -351,7 +351,7 @@ class Evals(Harness):
                                       failing_cases=[])})
 
 
-class GitHarness(Harness):
+class GitHarness(Factory):
     """A harness root that is a git repo, with git's own settings and the machine's left out."""
 
     def setUp(self):
@@ -395,7 +395,7 @@ class StaleEvals(GitHarness):
 
     def save(self, reviewer, **fields):
         result = {"reviewer": reviewer, "folder": "evals", "saved": self.SAVED, "cases": {"01-x": {"status": "stable"}}}
-        write(self.root, ".harness/evals/2026-10-25T0900-{}.json".format(reviewer), dict(result, **fields))
+        write(self.root, ".sanvio/evals/2026-10-25T0900-{}.json".format(reviewer), dict(result, **fields))
 
     def stale(self, reviewer="reviewer"):
         found = self.build()["evals"][reviewer]
@@ -472,7 +472,7 @@ class When(unittest.TestCase):
             self.assertIsNone(dashboard_data.when(text), text)
 
 
-class PullRequests(Harness):
+class PullRequests(Factory):
     def test_each_open_pull_request_with_its_wait_branch_draft_checks_and_conflicts(self):
         self.gh(PRS)
         found = self.build()["waiting"]["pull_requests"]
@@ -497,7 +497,7 @@ class PullRequests(Harness):
         self.assertEqual(self.build()["waiting"]["pull_requests"], [])
 
 
-class Blocked(Harness):
+class Blocked(Factory):
     def test_blocked_issues_with_title_note_and_update(self):
         self.fill()
         self.assertEqual(self.build()["waiting"]["blocked"], [
@@ -515,7 +515,7 @@ class Blocked(Harness):
             {"issue": "issue-9", "number": 9, "title": LEAK, "note": LEAK, "updated": None}])
 
 
-class GhUnavailable(Harness):
+class GhUnavailable(Factory):
     def assert_unavailable_but_blocked_filled(self):
         found = self.build()["waiting"]
         self.assertEqual(found["pull_requests"], {"value": None, "why": "gh unavailable"})
@@ -552,7 +552,7 @@ def commit(message, parents=1):
             "parents": [{"sha": "p{}".format(i)} for i in range(parents)]}
 
 
-class Rework(Harness):
+class Rework(Factory):
     def setUp(self):
         super().setUp()
         self.answer_gh()
@@ -581,7 +581,7 @@ class Rework(Harness):
         self.assertEqual(first, second)
         calls = [c for c in (self.bin / "calls").read_text().splitlines() if "/commits" in c]
         self.assertEqual(sorted(c.split("/")[-2] for c in calls), ["101", "102"])
-        cache = (self.root / ".harness" / "cache" / "loop_rework.json").read_text()
+        cache = (self.root / ".sanvio" / "cache" / "loop_rework.json").read_text()
         self.assertEqual(sorted(json.loads(cache)), ["101", "102"])
         self.assertNotIn(LEAK, cache)
 
@@ -590,7 +590,7 @@ class Rework(Harness):
         del commits["102"]  # the fake gh fails on 102, after reading 101
         write(self.bin, "commits.json", commits)
         self.assertEqual(self.build()["loop_rework"], {"value": None, "why": "gh failed"})
-        cache = json.loads((self.root / ".harness" / "cache" / "loop_rework.json").read_text())
+        cache = json.loads((self.root / ".sanvio" / "cache" / "loop_rework.json").read_text())
         self.assertEqual(sorted(cache), ["101"])
 
     def test_gh_failing_gives_null_and_why_and_exits_0(self):
@@ -600,7 +600,7 @@ class Rework(Harness):
         self.assertEqual(json.loads(out)["loop_rework"], {"value": None, "why": "gh failed"})
 
 
-class MissingOrCorrupt(Harness):
+class MissingOrCorrupt(Factory):
     def test_every_source_missing_gives_null_and_why_and_exits_0(self):
         code, out = self.main()
         self.assertEqual(code, 0)
@@ -622,8 +622,8 @@ class MissingOrCorrupt(Harness):
         write(self.root, ".loop/status.json", "not json")
         write(self.root, ".loop/projects/app/status.json", ["not", "an", "object"])
         write(log_path(self.root).parent, log_path(self.root).name, "not json\n[1, 2]\n")
-        write(self.root, ".harness/evals/2026-10-25T0900-reviewer.json", "not json")
-        write(self.root, ".harness/evals/2026-10-26T0900-reviewer.json", {"reviewer": "reviewer"})
+        write(self.root, ".sanvio/evals/2026-10-25T0900-reviewer.json", "not json")
+        write(self.root, ".sanvio/evals/2026-10-26T0900-reviewer.json", {"reviewer": "reviewer"})
         (self.root / ".loop" / "history.jsonl").mkdir()
         (self.root / ".loop" / "projects" / "app" / "history.jsonl").write_bytes(b"\xff\xfe not utf-8\n")
         code, out = self.main()
@@ -657,8 +657,8 @@ class Stop(Exception):
     """Stands in for a read stopped part way, as when the pane's timeout kills it."""
 
 
-class Conversations(Harness):
-    """Transcripts beside the harness, and the loop's worktrees in a folder set by loop.json."""
+class Conversations(Factory):
+    """Transcripts beside the factory, and the loop's worktrees in a folder set by loop.json."""
 
     def setUp(self):
         super().setUp()
@@ -670,7 +670,7 @@ class Conversations(Harness):
         self.addCleanup(lambda: os.environ.pop("TZ", None) if zone is None else os.environ.__setitem__("TZ", zone))
         self.loop = self.root.parent / "loop-checkouts"
         write(self.root, "loop.json", {"worktree_dir": str(self.loop)})
-        self.cache = self.root / ".harness" / "cache" / "conversations.json"
+        self.cache = self.root / ".sanvio" / "cache" / "conversations.json"
         prompt = {"type": "user", "cwd": str(self.root), "sessionId": "s1", "timestamp": "2026-10-20T11:00:00Z",
                   "message": {"role": "user", "content": "prompt " + LEAK}}
         first = reply(self.root, 1, "1", "s1")
@@ -688,13 +688,13 @@ class Conversations(Harness):
 
     def from_token_report(self):
         """What token_report.read() and group() make of the same transcripts, in the same shape."""
-        by_model, sessions = {"harness": {}, "loop": {}}, {"harness": set(), "loop": set()}
+        by_model, sessions = {"factory": {}, "loop": {}}, {"factory": set(), "loop": set()}
         by_day = {side: dict.fromkeys(dashboard_data.days(SINCE, TODAY), 0) for side in by_model}
         for entry in token_report.read(self.transcripts, SINCE):
             found = token_report.group(entry, self.root, self.loop)
             if found is None:
                 continue
-            side = "loop" if found[0] == "Loop" else "harness"
+            side = "loop" if found[0] == "Loop" else "factory"
             model = entry["message"]["model"]
             by_model[side][model] = [a + b for a, b in zip(by_model[side].get(model, [0, 0, 0, 0]),
                                                            token_report.tokens(entry))]
@@ -714,7 +714,7 @@ class Conversations(Harness):
             return [{"day": d, "tokens": tokens if d == "2026-10-20" else 0} for d in dashboard_data.days(SINCE, TODAY)]
 
         self.assertEqual(found, {
-            "harness": {"by_model": {"m-a": {"input": 101, "output": 202, "cache_writes": 303, "cache_reads": 404,
+            "factory": {"by_model": {"m-a": {"input": 101, "output": 202, "cache_writes": 303, "cache_reads": 404,
                                              "total": 1010},
                                      "m-b": {"input": 10, "output": 20, "cache_writes": 30, "cache_reads": 40,
                                              "total": 100}},
@@ -790,31 +790,31 @@ class Conversations(Harness):
     def test_tokens_by_day_count_a_copied_reply_once_and_add_up_to_the_models(self):
         lines(self.transcripts, "c/s4.jsonl", [reply(self.root, 2, "5", "s4", ts="2026-10-25T08:00:00Z")])
         found = self.conversations()
-        for side in ("harness", "loop"):
+        for side in ("factory", "loop"):
             self.assertEqual([d["day"] for d in found[side]["by_day"]], dashboard_data.days(SINCE, TODAY))
             self.assertEqual(sum(d["tokens"] for d in found[side]["by_day"]),
                              sum(m["total"] for m in found[side]["by_model"].values()), side)
-        harness = {d["day"]: d["tokens"] for d in found["harness"]["by_day"]}
+        factory = {d["day"]: d["tokens"] for d in found["factory"]["by_day"]}
         # Reply 1 is in a/s1.jsonl twice and b/s2.jsonl once: 10 tokens, counted once.
-        self.assertEqual(harness["2026-10-20"], 10 + 100 + 1000)
-        self.assertEqual(harness["2026-10-25"], 20)
-        self.assertEqual(harness["2026-10-21"], 0)
-        self.assertEqual(harness["2026-10-15"], 0)
+        self.assertEqual(factory["2026-10-20"], 10 + 100 + 1000)
+        self.assertEqual(factory["2026-10-25"], 20)
+        self.assertEqual(factory["2026-10-21"], 0)
+        self.assertEqual(factory["2026-10-15"], 0)
         self.assertEqual(found, self.from_token_report())
 
     def test_an_evening_reply_west_of_utc_counts_on_its_own_local_day(self):
         # 02:00 UTC on the 28th is 19:00 on the 27th in Los Angeles: today's last bar, not off the end.
         lines(self.transcripts, "c/s4.jsonl", [reply(self.root, 2, "5", "s4", ts="2026-10-28T02:00:00Z")])
         found = self.conversations()
-        for side in ("harness", "loop"):
+        for side in ("factory", "loop"):
             self.assertEqual([d["day"] for d in found[side]["by_day"]], dashboard_data.days(SINCE, TODAY), side)
             self.assertEqual(sum(d["tokens"] for d in found[side]["by_day"]),
                              sum(m["total"] for m in found[side]["by_model"].values()), side)
-        self.assertEqual(found["harness"]["by_day"][-1], {"day": "2026-10-27", "tokens": 20})
+        self.assertEqual(found["factory"]["by_day"][-1], {"day": "2026-10-27", "tokens": 20})
         self.assertEqual(found, self.from_token_report())
 
     def test_a_cache_from_before_local_days_is_read_again(self):
-        old = [["1", "r", "2026-10-28", "harness", "m-a", "s1", 1, 2, 3, 4]]  # no local day
+        old = [["1", "r", "2026-10-28", "factory", "m-a", "s1", 1, 2, 3, 4]]  # no local day
         stat = self.other.stat()
         write(self.cache.parent, self.cache.name,
               {str(self.other): {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "replies": old}})
@@ -825,7 +825,7 @@ class Conversations(Harness):
         write(self.root, ".loop/issue-7/usage.json", [run("2026-10-22T09:00:00", "plan", "m", 10, 1.0)])
         found = self.build()
         spend = [d["day"] for d in found["loop_spend"]["by_day"]]
-        for side in ("harness", "loop"):
+        for side in ("factory", "loop"):
             self.assertEqual([d["day"] for d in found["conversations"][side]["by_day"]], spend, side)
 
     def test_a_missing_transcripts_folder_gives_null_and_why(self):
@@ -852,7 +852,7 @@ USAGE_COUNTS = {"skills": {"review-pr": 2, "learn": 1}, "agents": {"reviewer": 1
                 "guard_refusals": {"credential-file": 2}, "asks": 1}
 
 
-class ActivitySpend(Harness):
+class ActivitySpend(Factory):
     """A usage log and a transcripts folder, with token_report.activity() canned unless a test writes transcripts."""
 
     def setUp(self):
@@ -861,7 +861,7 @@ class ActivitySpend(Harness):
         self.transcripts.mkdir()
 
     def prices(self, models=None, **fields):
-        write(self.root, ".harness/prices.json", dict(fields, models={"m-a": PRICE_A} if models is None else models))
+        write(self.root, ".sanvio/prices.json", dict(fields, models={"m-a": PRICE_A} if models is None else models))
 
     def canned(self, result=CANNED):
         patcher = mock.patch.object(token_report, "activity", return_value=result)
@@ -880,7 +880,7 @@ class ActivitySpend(Harness):
             agent_spend={"reviewer": {"tokens": 600, "cost_usd": 0.0011}},
             command_spend={"standup": {"tokens": 0, "cost_usd": 0.0}},
             unpriced={}, prices_checked="2026-10-20", spend_at=NOW.isoformat(timespec="seconds")))
-        reading.assert_called_once_with(self.transcripts, SINCE, self.root, dashboard_data.loop_dir(self.root))
+        reading.assert_called_once_with(self.transcripts, SINCE, self.root, dashboard_data.loop_dirs(self.root))
 
     def test_a_section_thats_missing_adds_nothing_and_reads_nothing(self):
         log_path(self.root).unlink()
@@ -891,7 +891,7 @@ class ActivitySpend(Harness):
     def test_no_transcripts_folder_leaves_the_counts_without_empty_spend(self):
         self.transcripts.rmdir()
         self.assertEqual(self.activity(), USAGE_COUNTS)
-        self.assertFalse((self.root / dashboard_data.ACTIVITY_CACHE).exists())
+        self.assertFalse((self.root / ".sanvio" / dashboard_data.ACTIVITY_CACHE).exists())
 
     def test_a_loop_json_that_stops_the_read_leaves_the_counts_without_empty_spend(self):
         write(self.root, "loop.json", "not json")
@@ -927,7 +927,7 @@ class ActivitySpend(Harness):
         self.assertEqual(found["agent_spend"]["reviewer"]["tokens"], 70)
         self.assertEqual(found["command_spend"]["standup"]["tokens"], 50)
         # The reply that calls the skill stays with what came before it, a typed prompt, so with nobody.
-        split = token_report.activity(self.transcripts, SINCE, self.root, dashboard_data.loop_dir(self.root))
+        split = token_report.activity(self.transcripts, SINCE, self.root, dashboard_data.loop_dirs(self.root))
         for kind, field in dashboard_data.SPEND_FIELDS.items():
             self.assertEqual({name: row["tokens"] for name, row in found[field].items()},
                              {name: sum(map(sum, row["models"].values())) for name, row in split[kind].items()}, kind)
@@ -938,7 +938,7 @@ class ActivitySpend(Harness):
         self.real_transcripts()
         self.prices(source=LEAK, checked=LEAK)
         found = json.dumps(self.activity())
-        kept = (self.root / dashboard_data.ACTIVITY_CACHE).read_text()
+        kept = (self.root / ".sanvio" / dashboard_data.ACTIVITY_CACHE).read_text()
         for text in (found, kept):
             for leak in (LEAK, str(self.root), "prompt"):
                 self.assertNotIn(leak, text)
@@ -973,7 +973,7 @@ class ActivitySpend(Harness):
                      {"at": at, "since": SINCE, "result": dict(CANNED, skills={"a": {"runs": 1, "models": {"m": [1]}}})},
                      {"at": at, "since": SINCE, "result": dict(CANNED, skills={"a": {"runs": "1", "models": {}}})}):
             with self.subTest(junk=junk):
-                write(self.root, dashboard_data.ACTIVITY_CACHE, junk)
+                write(self.root, Path(".sanvio") / dashboard_data.ACTIVITY_CACHE, junk)
                 reading = self.canned()
                 self.assertEqual(self.activity()["skill_spend"]["review-pr"]["tokens"], 10000)
                 reading.assert_called_once()
@@ -998,7 +998,7 @@ class ActivitySpend(Harness):
         self.canned()
         for junk in ("not json", "[1, 2]", {"models": ["m-a"]}, {"checked": "2026-10-20"}):
             with self.subTest(junk=junk):
-                write(self.root, ".harness/prices.json", junk)
+                write(self.root, ".sanvio/prices.json", junk)
                 found = self.activity()
                 self.assertEqual(found["unpriced"], {"m-a": "unreadable", "m-b": "unreadable"})
                 self.assertIsNone(found["prices_checked"])
@@ -1030,7 +1030,7 @@ class ActivitySpend(Harness):
                     '{"input": 1, "output": 2, "cache_writes": 3, "cache_reads": "4"}',
                     '{"input": 1, "output": 2, "cache_writes": 3, "cache_reads": 1' + "0" * 400 + '}', '[1, 2, 3, 4]'):
             with self.subTest(bad=bad):
-                write(self.root, ".harness/prices.json", '{"models": {"m-a": ' + bad + '}}')
+                write(self.root, ".sanvio/prices.json", '{"models": {"m-a": ' + bad + '}}')
                 found = self.activity()
                 self.assertEqual(found["unpriced"]["m-a"], "unreadable")
                 self.assertIsNone(found["skill_spend"]["review-pr"]["cost_usd"])
@@ -1064,7 +1064,7 @@ class ActivitySpend(Harness):
                          ["example-model"])
 
     def prices_path(self):
-        path = self.root / dashboard_data.PRICES
+        path = self.root / ".sanvio" / dashboard_data.PRICES
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -1108,7 +1108,7 @@ class Sample(GitHarness):
     """build() with every section filled, which must match the sample the dashboard's tests draw.
 
     Its inputs are its own, not fill()'s: the dashboard README's picture is drawn from this sample, so its
-    titles, models and token counts read like a harness at work, a few weeks in. All of it is made up."""
+    titles, models and token counts read like a factory at work, a few weeks in. All of it is made up."""
 
     def setUp(self):
         super().setUp()
@@ -1196,7 +1196,7 @@ class Sample(GitHarness):
                       **{"10": {"status": "flaky", "reasons": ["missed: the fee total"]}})),
                 ("2026-10-26T0900-security-reviewer", "security-reviewer", "2026-10-26T09:00:00+00:00",
                  {"{:02}".format(i): stable for i in range(1, 9)})):
-            write(self.root, ".harness/evals/{}.json".format(name),
+            write(self.root, ".sanvio/evals/{}.json".format(name),
                   {"agent": "claude", "reviewer": reviewer, "saved": saved, "cases": cases,
                    "folder": "reviewer-cases" if reviewer == "reviewer" else "security-cases"})
         write(self.root, "agents/reviewer.md", "the reviewer\n")
@@ -1235,9 +1235,9 @@ class Sample(GitHarness):
         # Replies at noon UTC fall on the same day in UTC and in Los Angeles. reply() gives 10n tokens a reply.
         checkouts = self.root.parent / "loop-checkouts"
         write(self.root, "loop.json", {"worktree_dir": str(checkouts)})
-        harness = {"15": 150_000, "16": 420_000, "19": 380_000, "20": 610_000, "21": 520_000, "22": 700_000,
+        factory = {"15": 150_000, "16": 420_000, "19": 380_000, "20": 610_000, "21": 520_000, "22": 700_000,
                    "23": 450_000, "24": 90_000, "26": 820_000, "27": 560_000}
-        for day, n in harness.items():
+        for day, n in factory.items():
             ts = "2026-10-{}T12:00:00Z".format(day)
             entries = [reply(self.root, n, "h" + day, "s" + day, model=OPUS, ts=ts),
                        reply(self.root, n // 20, "k" + day, "s" + day, model=HAIKU, ts=ts)]
@@ -1250,7 +1250,7 @@ class Sample(GitHarness):
                 entries.insert(0, {"type": "user", "cwd": str(self.root), "sessionId": "s26", "timestamp": ts, "uuid": "u26",
                                    "message": {"role": "user", "content": "<command-name>/standup</command-name>"}})
             lines(self.transcripts, "harness/s{}.jsonl".format(day), entries)
-        write(self.root, ".harness/prices.json", {
+        write(self.root, ".sanvio/prices.json", {
             "checked": "2026-10-01",
             "models": {OPUS: {"input": 5, "output": 25, "cache_writes": 6.25, "cache_reads": 0.5},
                        HAIKU: {"input": 1, "output": 5, "cache_writes": 1.2, "cache_reads": 0.1}}})
@@ -1261,7 +1261,7 @@ class Sample(GitHarness):
 
     def build_afresh(self):
         # The cache keeps each reply's local day, so a second zone would read the first zone's days.
-        (self.root / dashboard_data.CACHE).unlink(missing_ok=True)
+        (self.root / ".sanvio" / dashboard_data.CACHE).unlink(missing_ok=True)
         return self.build()
 
     def test_the_sample_is_what_build_prints(self):
@@ -1289,8 +1289,8 @@ class Sample(GitHarness):
             self.assertIsNotNone(found["activity"][field][name]["cost_usd"], field)
 
 
-class LoopHistory(Harness):
-    """Runs from the harness and project app, over several days, one before SINCE and one of each outcome."""
+class LoopHistory(Factory):
+    """Runs from the factory and project app, over several days, one before SINCE and one of each outcome."""
 
     def setUp(self):
         super().setUp()
@@ -1463,7 +1463,7 @@ class LoopHistory(Harness):
                          "`by_outcome` has `pr`, `blocked`, `stopped` and `skipped`, every key always present.",
                          "Run fields: `issue`, `started`, `ended`, `outcome`, `rounds`, `tests`, `verdicts`, `tokens` "
                          "and `cost_usd`. Nothing else goes in.",
-                         "Issue names: `issue-N` for the harness and `<name>/issue-N` for a project.",
+                         "Issue names: `issue-N` for this repo and `<name>/issue-N` for a project.",
                          'Why values: `{"value": null, "why": "no run history"}` and `"unreadable"`.'):
             self.assertIn(sentence, doc)
 
@@ -1525,7 +1525,7 @@ class LoopHistory(Harness):
         self.assertEqual(before, after)
 
 
-class Privacy(Harness):
+class Privacy(Factory):
     def test_titles_and_notes_only_under_waiting_and_no_address_prompt_reason_or_path_anywhere(self):
         self.fill()
         self.gh(PRS)

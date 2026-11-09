@@ -1,0 +1,20 @@
+# The only tools a skill marked headless: true may list in headless-tools, one per line.
+# bin/factory refuses a skill whose list names anything else, and tests/test_skills.py
+# checks every entry here only reads. Only bin/factory reads headless-tools: Claude Code's
+# own allowed-tools would apply in every session the skill runs in, so a skill never puts a
+# Bash rule there. An entry belongs here only if it can't run a program, write a file or
+# reach a host of its own choosing, whatever flags follow it, in a run the guard holds.
+# Adding one is a reviewed change to this file.
+#
+# No Bash rule is safe on its own: `gh pr view -R <host>/...` reaches any host, checked
+# 2026-10-25, and with Bash among a run's tools a person's own Bash allow rules apply too.
+# The Bash entries below are safe headless because .claude/hooks/guard.py refuses every
+# command in a headless run except `gh pr view <n>`, `gh pr diff <n>` and `gh issue view <n>`.
+# Read, Grep and Glob are safe headless because the guard holds their paths, and a Glob's
+# pattern, inside the harness root.
+Read
+Grep
+Glob
+Bash(gh pr view:*)
+Bash(gh pr diff:*)
+Bash(gh issue view:*)

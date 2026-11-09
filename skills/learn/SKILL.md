@@ -1,7 +1,7 @@
 ---
 name: learn
 description: Turn a mistake the agent just made into a written rule, in the file that governs it, so the next session doesn't repeat it. Use when someone says "learn from that", "don't do that again", "make that a rule", or corrects the agent and wants the correction to stick. A note just for this person belongs in their memory, not a rule.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Learn from a mistake
@@ -30,7 +30,7 @@ person's answer.
 
 1. **Say the mistake back** in one line: what the agent did, and what it
    should have done.
-2. **Ask who the rule applies to:** everyone using the harness, one project, or
+2. **Ask who the rule applies to:** everyone using the factory, one project, or
    only this person. For one project or only this person, it goes in the last
    two rows below, whatever it's about. For everyone, pick the one file that
    governs it from the rest. Strongest first, and stop at the first that fits:

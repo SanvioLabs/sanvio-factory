@@ -12,7 +12,7 @@ Usage:
     python3 scripts/factories.py list [--root PATH]
 
 A factory is any system that takes work in and puts checked work out: another team's delivery
-system, or another harness. factories.json at the harness root names one, as a single step:
+system, or another copy of this repo. factories.json at the harness root names one, as a single step:
 
     {"steps": [{"factory": "build-team", "where": "local", "commit": "<sha>",
                 "submit_label": "factory-ready", "stopped_label": "factory:blocked",
@@ -39,7 +39,7 @@ branch requires no status check, branch protection or ruleset, dispatch says so 
 nothing independent would check what the factory returns.
 
 The first time anything goes to a factory, dispatch says what submitting sends, before the yes.
-Each submission writes one run record to .harness/factories/run-<issue>-<time>.json, which git
+Each submission writes one run record to .sanvio/factories/run-<issue>-<time>.json, which git
 ignores. A factory's tokens and cost aren't visible from here, so they read "not reported".
 
 status reads GitHub and moves each run on, and writes nothing to GitHub. A pull request linked to
@@ -78,7 +78,7 @@ status prints, which checks the base first: nothing here does.
 
 Python 3.9 or newer, standard library only.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import argparse
 import contextlib
@@ -93,7 +93,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # factory_checks and loop, beside this file
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # factory_checks, forge and names, beside this file
+import names  # noqa: E402 (the state folder)
 from factory_checks import (CI_PATHS, check_report, checks_line, default_branch, not_factory_fork,  # noqa: E402
                             required_checks)
 from forge import LOGIN, cant_use, gh, gh_json, one_line, printable, read_only, repo_args, said, shown, skipped  # noqa: E402
@@ -113,7 +114,7 @@ class StepError(Exception):
 def read_steps(root):
     """The configured steps, checked. [] when there's no factories.json or no step in it.
 
-    Reads one file and starts no process, so a harness with no factory pays nothing for this."""
+    Reads one file and starts no process, so a copy of this repo with no factory pays nothing for this."""
     path = Path(root) / "factories.json"
     if not path.exists():
         return []
@@ -201,7 +202,7 @@ def resolve_commit(step):
             step["factory"], done.stderr.strip() or "git exited {}".format(done.returncode)))
     top, head = lines
     if Path(top).resolve() != Path(step["folder"]).resolve():
-        # git walked up to a checkout around it, such as this harness's own: that commit isn't the factory's.
+        # git walked up to a checkout around it, such as this repo's own: that commit isn't the factory's.
         raise StepError("factories/{} isn't its own git checkout: clone the factory there".format(step["factory"]))
     if pin and not (len(pin) >= 7 and head.startswith(pin)):
         raise StepError("step {} is pinned to {}, and factories/{} is at {}: check out the pin, "
@@ -228,7 +229,7 @@ def uncommitted(folder):
 
 def runs_dir(root):
     """Each run's record, and which factories have been told what submitting sends."""
-    return Path(root) / ".harness" / "factories"
+    return names.state_dir(root) / "factories"
 
 
 def write_json(path, data):
@@ -487,7 +488,7 @@ def slug(folder):
 
 
 def clone_here(root, repo):
-    """Where repo is cloned here: the harness itself (None), a folder under projects/, or False for nowhere."""
+    """Where repo is cloned here: this repo itself (None), a folder under projects/, or False for nowhere."""
     wanted = (repo or "").lower()
     if slug(root) == wanted:
         return None
@@ -505,11 +506,11 @@ def origin_why(folder):
 
 
 def unnamed_clones(root):
-    """(where, why) for this harness and each clone under projects/ whose origin names no repo on github.com, as
+    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
     loop.py reads it: one of them may be the clone a review was wanted from. Each origin is read once."""
     import loop  # noqa: E402  beside this file
     projects = Path(root) / "projects"
-    folders = [("this harness", root)] + [("projects/" + folder.name, folder) for folder in (
+    folders = [("this repo", root)] + [("projects/" + folder.name, folder) for folder in (
         sorted(projects.iterdir()) if projects.is_dir() else []) if (folder / ".git").exists()]
     found = []
     for where, folder in folders:
@@ -528,8 +529,8 @@ def review_target(root, repo):
 
 
 def ready_labels(root, repo):
-    """The ready labels of the loop that would build repo's issues: the harness's own, a projects/ clone's
-    as its loop resolves it, or with no clone here both the harness's and the default."""
+    """The ready labels of the loop that would build repo's issues: this repo's own, a projects/ clone's
+    as its loop resolves it, or with no clone here both this repo's and the default."""
     import loop  # noqa: E402
     folder = clone_here(root, repo)
     try:
@@ -850,9 +851,9 @@ def review_argv(pr, target):
     return ["review", "--pr", str(int(pr))] + list(target)
 
 
-def this_harness(root):
-    """Whether root is the harness this script, and the loop.py it runs, are in. loop.py reviews from its own
-    harness, so a review run for another's would read that one's clones and post from this one."""
+def this_factory(root):
+    """Whether root is the repo this script, and the loop.py it runs, are in. loop.py reviews from its own
+    repo, so a review run for another's would read that one's clones and post from this one."""
     return Path(root).resolve() == LOOP.resolve().parent.parent
 
 
@@ -979,7 +980,7 @@ def move_runs(args, run_review):
 
 
 def cmd_list(args):
-    """Each run as its record has it. Reads .harness/factories/ alone: no gh call, no review."""
+    """Each run as its record has it. Reads .sanvio/factories/ alone: no gh call, no review."""
     unreadable = []
     runs = load_runs(args.root, unreadable=unreadable)
     for line in unreadable:
@@ -1017,8 +1018,8 @@ def cmd_status(args):
 
 def cmd_review(args):
     """Have the loop review the run's pull request, posting its comment on your login, then move it on."""
-    if not this_harness(args.root):
-        print("{} isn't the harness this script is in, {}: run review from there.".format(
+    if not this_factory(args.root):
+        print("{} isn't the repo this script is in, {}: run review from there.".format(
             args.root, LOOP.resolve().parent.parent), file=sys.stderr)
         return 1
     return move_runs(args, run_review=True)
@@ -1341,7 +1342,7 @@ def cmd_steps(args):
         print(err, file=sys.stderr)
         return 1
     if slug(args.root) is None:
-        print("Warning: this harness's {}. Factories read pull requests and checks from github.com only: "
+        print("Warning: this repo's {}. Factories read pull requests and checks from github.com only: "
               "factories/README.md's *github.com only* says which origins count.".format(origin_why(args.root)))
     if not steps:
         print("No factory is configured: nothing to do.")

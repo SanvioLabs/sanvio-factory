@@ -1,7 +1,7 @@
 ---
 name: review-skill
 description: Review someone else's skill before it enters this harness, and adopt only what fills a gap. Use when asked to install, add, try, import or review a skill or plugin from outside this repo.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Review an outside skill
@@ -10,8 +10,8 @@ Someone else's skill is someone else's instructions, running with your
 permissions. Read it the way you'd read a stranger's shell script before piping
 it to `sh`. Most are fine. Some aren't, and the bad ones don't look bad.
 
-Changes from the public starter's own `main` aren't outside skills: this copy
-came from there. [`starter-updates`](../starter-updates/SKILL.md) reads those. A fork, another branch or
+Changes from the public Sanvio Factory's own `main` aren't outside skills:
+this copy came from there. [`starter-updates`](../starter-updates/SKILL.md) reads those. A fork, another branch or
 anything else gets the full review below.
 
 ## Inputs

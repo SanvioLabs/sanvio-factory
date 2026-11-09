@@ -5,7 +5,7 @@ changes, what it adds, the files it touched, and **Do:** what you need to do to
 take it. Ask the agent "what's new" and [`skills/whats-new/`](skills/whats-new/) reads this, and your
 remote's copy, and tells you what you don't have yet.
 
-Changing your own harness? Any noticeable change gets an entry at the top, in
+Changing your own factory? Any noticeable change gets an entry at the top, in
 the same change, not later. Then "what's new" works for your team too.
 Noticeable means:
 
@@ -18,7 +18,7 @@ Noticeable means:
   take it, it needs an entry whatever its size
 
 Typo fixes, rewording, tests on their own and tidying inside a file don't. The
-test: would someone who copied the harness last week want to know, or need to
+test: would someone who copied the factory last week want to know, or need to
 act? If you're unsure, write the entry.
 
 One entry per change someone would name, not per commit: three files that add
@@ -27,6 +27,109 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Factory floor
+
+The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
+both. Until a later release, `/loop-pane` opens the `/factory-floor` pane in
+its List view and `/loop-crew` opens it in its Crew view. Each shows a notice
+with the new name, and neither closes the pane. A new test fails if a tracked
+file outside this changelog, [`docs/specs/`](docs/specs/) and factory-floor names either old
+mod again.
+
+Files: `examples/mods/loop-pane/` and `examples/mods/loop-crew/` (removed), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/register.tsx`, `hooks/alias.test.ts` new, its [`README.md`](examples/mods/factory-floor/README.md); version 0.4.0), [`examples/mods/github-status/hooks/command.test.ts`](examples/mods/github-status/hooks/command.test.ts) (version 0.5.2), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_mods.py`](tests/test_mods.py), [`tests/test_plugin_report.py`](tests/test_plugin_report.py), [`tests/test_retired_mods.py`](tests/test_retired_mods.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that has them, add `"factory-floor@sanvio-factory": true`
+to `enabledPlugins` and remove `loop-pane@sanvio-factory` and
+`loop-crew@sanvio-factory`. Then `/reload-plugins` or a new session.
+
+## 2026-11-09: factory-floor is on, loop-pane and loop-crew are off
+
+[`.claude/settings.json`](.claude/settings.json) switches on `factory-floor` in place of `loop-pane`
+and `loop-crew`. `/factory-floor` shows the loop as a list or as the Crew's
+lanes, in one pane. Until the next change retires them, `/loop-pane` and
+`/loop-crew` aren't there unless you switch them back on.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md) (version 0.3.1), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that set its own `enabledPlugins`, add
+`"factory-floor@sanvio-factory": true` and take out `loop-pane` and
+`loop-crew`. Then `/reload-plugins` or a new session.
+
+## 2026-11-09: factory-floor reads loops once
+
+The `/factory-floor` pane's List and Crew views now read loops through one
+copy of the code: how the status file is parsed, what the loop picker says,
+and how the session's focus is read. The Crew's copies and its own types are
+gone, so a fix to how a loop is read lands in both views. What each view draws
+is unchanged. A new test fails if a second copy comes back.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/logic.ts`, `hooks/crew-logic.ts`, `hooks/crew.tsx`, `types/index.d.ts`, its [`README.md`](examples/mods/factory-floor/README.md), `hooks/crew-logic.test.ts`, `hooks/shared.test.ts` new; version 0.3.0), [`tests/test_factory_floor.py`](tests/test_factory_floor.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-09: Crew view in factory-floor
+
+The `/factory-floor` pane has a **Crew** button. It switches the same pane to
+the lanes `/loop-crew` draws, on the loop the list had on screen, and **List**
+switches back. Neither closes the pane, writes the session's focus or changes
+the loop. A terminal pane under 42 columns shows the list until it's widened.
+`/factory-floor` always opens on the list. The `loop-pane` and `loop-crew`
+mods are unchanged.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (`hooks/crew.tsx`, `hooks/crew-logic.ts` and their tests new, the Crew types added to `types/index.d.ts`; version 0.2.0), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, add `"factory-floor@sanvio-factory": true` to
+[`.claude/settings.json`](.claude/settings.json)'s `enabledPlugins`.
+
+## 2026-11-09: Factory floor mod
+
+A new mod, off by default. `/factory-floor` opens the loop pane as
+`/loop-pane` shows it: the queue, what each issue is on, and its pull request.
+A Crew view, the lanes `/loop-crew` draws, follows in this same pane. The
+`loop-pane` and `loop-crew` mods stay as they are. A new test checks that
+every mod has a marketplace entry for its folder, keeps its saved state under
+its own name, and has a pane id no other mod uses.
+
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_mods.py`](tests/test_mods.py).
+
+**Do:** add `"factory-floor@sanvio-factory": true` to [`.claude/settings.json`](.claude/settings.json)'s
+`enabledPlugins` to try it.
+
+## 2026-11-09: Review pull requests that carry a label
+
+Two new keys in the factory's `loop.json`, both off by default. With
+`review_label` set, `loop.py review` also takes every open pull request that
+has that label, as well as the ones `review_query` finds, and reviews each
+one once per head commit. `review --pr` doesn't change. With `label_own_prs`
+true as well, `run` adds the label to each pull request it opens or pushes to.
+If the label can't be added, the log gets an `ERROR` line and the issue isn't
+blocked. Only the factory's `loop.json` or its `projects` entry can set these
+keys. A project's own `loop.json` that sets one is refused.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To use it, set `review_label` in the factory's `loop.json`,
+plus `label_own_prs: true` if you want the loop's own pull requests labelled,
+and create the label on GitHub.
+
+## 2026-11-09: Every posted review carries a grade
+
+`loop.py review` now ends each review comment's trailer with a grade out of
+10, after the verdict on the same line, such as
+`Grade 8/10: ready with nits, checks passing.` The grade comes from the new
+[`review-rubric.json`](review-rubric.json) at the root, using the verdict and the reviewed commit's
+check runs. A failing check or an
+unreadable verdict gives that key's grade, 0 in the shipped file. While checks
+are still running, the grade reads `pending`, and a later poll edits it into
+the same comment with no agent. A missing or invalid rubric grades 0 and names
+the file. A project sets its own with `review_rubric` in the factory
+`loop.json`'s `projects` entry. Comments written without a grade, and the
+verdict `factories.py` reads, are unchanged.
+
+Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_factories.py`](tests/test_factories.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To grade differently, edit [`review-rubric.json`](review-rubric.json).
+
 ## 2026-11-08: A hand-edited record that hides what it merges no longer reads
 
 `checked()` in [`scripts/factories.py`](scripts/factories.py) now reads only a record whose `repo` is `OWNER/NAME` and whose reviewed commit is 40 hex characters, the shapes GitHub itself writes, so a record edited by hand can't put a control character into the merge command a ready run prints or hide which repo it merges: `list` names such a record unreadable with the reason, as every other reader already does. `list` also prints each run's base now, and marks what it prints of a record — its run, repo, factory and base — through `one_line`, so nothing a record holds can start a line of its own in what it says.
@@ -34,6 +137,88 @@ fine).
 Files: [`scripts/factories.py`](scripts/factories.py), [`tests/test_factories.py`](tests/test_factories.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
+
+## 2026-11-08: Standup remembers what you already settled
+
+[`skills/standup/`](skills/standup/) now keeps its answers in a gitignored
+`reports/standup/answers.jsonl` on your machine: the item, the date and the pick,
+for GitHub and loop items only. An item you marked `Done already` or `Drop it`
+that is still open is listed with the command that closes it, not asked again.
+A day's pick, such as `Later today`, is still asked each morning, with what you
+picked last time in the question.
+
+Files: [`skills/standup/SKILL.md`](skills/standup/SKILL.md), [`reports/standup/README.md`](reports/standup/README.md), [`.gitignore`](.gitignore), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add these two lines to your [`.gitignore`](.gitignore), so your answers never get committed:
+`reports/standup/*` and `!reports/standup/README.md`.
+
+## 2026-11-08: The old names stop working
+
+The names from before Sanvio Factory no longer work, a release earlier than the first rename entry said. Nothing reads `.harness/`, `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_EVALS_HOME`, or `HARNESS_USAGE_LOG` set to anything but off, or looks in `~/.harness-loop/` or `~/.harness-evals/`. `bin/harness` is gone. The three mods that read a `/project` focus no longer look under `.harness/project/`. The factory-trends skill no longer answers to "harness trends" or "my harness report", and its sprint report no longer looks for the pulse's old `Harness` heading. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo only by `SanvioLabs/sanvio-factory`. Two things stay, because they move you across rather than read the old names: the next session still moves a leftover `.harness/` to `.sanvio/`, and the setup check still names any old variable that's set, since it now does nothing. Two old switches still count, because each only ever makes things stricter: `HARNESS_HEADLESS=1` still makes a run headless, and `HARNESS_USAGE_LOG=off` still keeps the usage log off. The loop also still sets `HARNESS_RETRO=off` for its agents, so a project's hook from before the rename never keeps their sessions. [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) is rewritten for this.
+
+Files: [`scripts/names.py`](scripts/names.py), [`tests/test_names.py`](tests/test_names.py), `bin/harness`, [`bin/factory`](bin/factory), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`scripts/loop.py`](scripts/loop.py), [`scripts/pulse.py`](scripts/pulse.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/factories.py`](scripts/factories.py), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md), [`examples/mods/github-status/`](examples/mods/github-status/), [`examples/mods/loop-crew/`](examples/mods/loop-crew/), [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md), and the tests for each.
+
+**Do:** taking the rename now? Follow [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md): every step in it is needed now. Already took the earlier rename entries? Stop the loop and wait for it to exit, and finish or end any eval run, before you pull. Then rename any `HARNESS_` variable still in your shell profile, and point anything that runs `bin/harness` at [`bin/factory`](bin/factory). Remove each checkout in `~/.harness-loop/<this folder's name>/` with `git worktree remove` from its clone, then that folder; delete `~/.harness-loop/` and `~/.harness-evals` once every clone on the machine has upgraded. `claude plugin update` each of `github-status`, `loop-crew` and `loop-pane` `@sanvio-factory`, `/reload-plugins`, and start the loop again.
+
+## 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory
+
+The rest of the names that meant the whole factory. `docs/harness-in-ci.md` is [`docs/factory-in-ci.md`](docs/factory-in-ci.md) and `docs/harness-evals.md` is [`docs/factory-evals.md`](docs/factory-evals.md), each with its GIF, and the evals GIF is redrawn as *Measuring a factory*. `scripts/eval_harness.py` is [`scripts/eval_factory.py`](scripts/eval_factory.py): its `--harness` option is `--factory`, its scorecard's `Harness` row is `Factory`, a run's record names `factory_commit`, and runs are kept in `.sanvio/factory-evals/`. The factory dashboard's Conversations table and chart call the root's side `Factory`, and [`scripts/dashboard_data.py`](scripts/dashboard_data.py) writes it under the key `factory`. `/github all` labels the factory's own line `factory:`. The loop-crew and loop-pane mods, [`scripts/factories.py`](scripts/factories.py) and [`steering/operating.md`](steering/operating.md) say factory where they meant the repo. The harness root, harness-lens and what the guard and skills did in a session keep "harness".
+
+Files: [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`docs/factory-in-ci.gif`](docs/factory-in-ci.gif), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/factory-evals.gif`](docs/factory-evals.gif), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`examples/eval-suite/`](examples/eval-suite/), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), [`examples/mods/github-status/`](examples/mods/github-status/), [`examples/mods/loop-crew/`](examples/mods/loop-crew/), [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`scripts/factories.py`](scripts/factories.py), [`steering/operating.md`](steering/operating.md), [`steering/project-setup.md`](steering/project-setup.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `claude plugin update` each of `github-status`, `loop-crew`, `loop-pane` and, if you have it, `factory-dashboard`, all `@sanvio-factory`, then `/reload-plugins`. The dashboard mod and [`scripts/dashboard_data.py`](scripts/dashboard_data.py) change together, so update the mod when you pull. Change any command that runs `eval_harness.py` to `eval_factory.py`, and `--harness` to `--factory`. Finish or end any eval run (`resume --end`) before you take this: runs made before it stay in `.sanvio/harness-evals/`, where `resume` and `compare` can't reach them, and a run's sealed copy from before it is refused, so rerun any you need.
+
+## 2026-11-08: One page for upgrading to Sanvio Factory
+
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) puts the 2026-11-08 rename entries into one order, for a copy taken before the rename that takes them together. It lists every old name with its new one, says what is already broken (a CI caller of the public repo's review workflow), gives separate steps for a copy that pulls Sanvio Factory's `main` and one that takes changes with "check the starter", and covers the old home folders. *The old names stop working*, above, rewrote it for a rename with no grace period. [`README.md`](README.md) links it from *Set up*.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** copied before 2026-11-08? Follow the page instead of the rename entries one by one.
+
+## 2026-11-08: Every link points at SanvioLabs/sanvio-factory
+
+The last part of the rename to Sanvio Factory, after the GitHub repo became `SanvioLabs/sanvio-factory`. Every address in the docs, the skills and the scripts points at the new name: [`CITATION.cff`](CITATION.cff), the talk slides' link, the address drawn in [`docs/harness-anatomy.png`](docs/harness-anatomy.png), and the line at the top of each skill and script, which now reads "From Sanvio Factory by Sanvio Labs, MIT". Where the docs said "the starter" for the public repo, they say Sanvio Factory. The starter-updates skill keeps its name and every phrase that reaches it, "check the starter" included. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo by either address, since a clone taken before the rename keeps the old one and GitHub redirects it.
+
+Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`tests/test_skills.py`](tests/test_skills.py), [`CITATION.cff`](CITATION.cff), [`README.md`](README.md), [`docs/harness-anatomy.png`](docs/harness-anatomy.png), [`skills/starter-updates/`](skills/starter-updates/), [`CHANGELOG.md`](CHANGELOG.md), and every skill, script, hook and doc that named the old address or called the repo "the starter".
+
+**Do:** nothing is urgent: the old address redirects. When it suits you, point any remote that names it at the new one, for example `git remote set-url upstream https://github.com/SanvioLabs/sanvio-factory`, and change any product repo's caller that says `uses: SanvioLabs/sanvio-harness-starter/...` to `uses: SanvioLabs/sanvio-factory/...`.
+
+## 2026-11-08: The CI review takes factory-repo and FACTORY_DEPLOY_KEY
+
+The fourth part of the rename to Sanvio Factory. The review workflow product repos call, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), now takes the input `factory-repo` and the secret `FACTORY_DEPLOY_KEY`, in place of `harness-repo` and `HARNESS_DEPLOY_KEY`. Unlike the earlier parts, the old names don't keep working: a caller that passes them fails. The caller in [`examples/ci/README.md`](examples/ci/README.md) uses the new names and `your-org/factory`, and its sections *A private factory repo* and *Protecting the factory repo* are renamed. The job still checks the rules out into `harness/`, since what it checks out is the harness.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/harness-in-ci.md`](docs/harness-in-ci.md), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless a product repo calls this workflow. Then update each caller in the same sitting as you take this, because the caller runs whatever your factory's `main` holds: in its workflow file, change `harness-repo:` to `factory-repo:` and the secret line to `FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}`. Then store the same deploy key's private half under the new name, `gh secret set FACTORY_DEPLOY_KEY --repo your-org/product < review-pr-deploy-key`, and delete `HARNESS_DEPLOY_KEY`. Set once for the organisation? Then `gh secret set FACTORY_DEPLOY_KEY --org your-org --repos product-a,product-b < review-pr-deploy-key` and `gh secret delete HARNESS_DEPLOY_KEY --org your-org`. A caller pinned to `review-pr.yml@<sha>` keeps working on the old names until you move the pin, so change its names when you do. If you no longer have the key file, add a new read-only deploy key as *The secret* in [`examples/ci/README.md`](examples/ci/README.md) says, and remove the old one from your factory's repo.
+
+## 2026-11-08: The docs and pictures call it Sanvio Factory
+
+The third part of the rename to Sanvio Factory. README.md now opens with what it is: issues go in, reviewed pull requests come out, and a person decides what merges. HOW-IT-WORKS.md gains *What makes it a factory*. The two words now mean different things across the docs. The **harness** is what one agent session works inside: the steering, skills, hooks, guard, gates and review agents. The **factory** is the repo you clone and own, plus everything between sessions: the queue, the loop, the review and the gates. Docs, skills, mod READMEs and script messages use the words that way, so "your harness" becomes "your factory" where it means the repo, and the harness-lens mod and the harness root keep their names.
+
+Five pictures are redrawn: the factories chain GIF, with a new last caption; the CI GIF, titled *Your factory in CI*, with `your-org/factory`; the two folder pictures, with `my-factory/`; and the factory dashboard picture, titled *Factory*. The github-status mod's `/project off` message says the factory's repo. A few script messages changed wording: [`scripts/token_report.py`](scripts/token_report.py) labels the root's own row `This repo` where it said `This harness`.
+
+Still to come: the file names [`docs/harness-in-ci.md`](docs/harness-in-ci.md) and [`docs/harness-evals.md`](docs/harness-evals.md), the CI workflow's `harness-repo` input and `HARNESS_DEPLOY_KEY` secret, and every link to `sanvio-harness-starter`, which changes after the GitHub repo is renamed.
+
+Files: [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md), [`CITATION.cff`](CITATION.cff), [`docs/factories-chain.gif`](docs/factories-chain.gif), [`docs/harness-in-ci.gif`](docs/harness-in-ci.gif), [`docs/projects-layout.png`](docs/projects-layout.png), [`docs/where-things-live.png`](docs/where-things-live.png), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`scripts/draw_dashboard.py`](scripts/draw_dashboard.py), [`examples/mods/github-status/`](examples/mods/github-status/), [`scripts/check_setup.py`](scripts/check_setup.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/plugin_report.py`](scripts/plugin_report.py), [`scripts/loop.py`](scripts/loop.py), [`scripts/factories.py`](scripts/factories.py), [`CHANGELOG.md`](CHANGELOG.md), and the docs, skills, READMEs, script messages and tests that used the words the old way.
+
+**Do:** `claude plugin update github-status@sanvio-factory`, then `/reload-plugins`, for its new message. Taking all three 2026-11-08 rename entries at once? Do the first one's steps except its plugin updates, then the second one's remove, add and install, which installs every mod at its current version, and skip this update. If anything of yours reads [`scripts/token_report.py`](scripts/token_report.py)'s output, its root row is now `This repo`.
+
+## 2026-11-08: The marketplace, the dashboard and the trends skill take factory names
+
+The second part of the rename to Sanvio Factory. The plugin marketplace in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) is now `sanvio-factory`, so every plugin this repo turns on in [`.claude/settings.json`](.claude/settings.json) is `<name>@sanvio-factory`. The dashboard mod is [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), opened with `/factory-dashboard`, and its picture is [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg). The trends skill is [`skills/factory-trends/`](skills/factory-trends/SKILL.md), and "harness trends" and "my harness report" still reach it. Its daily question goes to pulse under the chip `Factory`, and the sprint report finds the team's votes under the old `Harness` chip too, so a question already asked isn't lost. A marketplace's name can't keep an old one, so this is the one part of the rename with no fallback. The harness-lens mod keeps its name: it shows the session layer, which is still the harness.
+
+Files: [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`.claude/settings.json`](.claude/settings.json), [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md), [`scripts/draw_dashboard.py`](scripts/draw_dashboard.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_factory_names.py`](tests/test_factory_names.py), [`tests/test_skills.py`](tests/test_skills.py), [`.gitignore`](.gitignore), [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`reports/trends/README.md`](reports/trends/README.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md), and the docs and scripts that named the old ones.
+
+**Do:** in this order, because while this folder is still registered as `sanvio-harness-starter`, adding it again keeps that name and nothing installs from `sanvio-factory`. First `/plugin marketplace remove sanvio-harness-starter`, which takes its plugins with it. Then, from this repo's root, `/plugin marketplace add ./`, or start a session there and accept `sanvio-factory` when Claude Code offers it, and accept the mods it turns on; any it doesn't offer, `/plugin install <name>@sanvio-factory`. If you used the dashboard, `/plugin install factory-dashboard@sanvio-factory`: it's `/factory-dashboard` from now on. Claude Code may write [`.claude/settings.json`](.claude/settings.json) back with its keys in another order; `git checkout .claude/settings.json` puts it back.
+
+## 2026-11-08: New names for the state folder, the variables and bin/harness
+
+The first part of the rename to Sanvio Factory. This repo's own state folder is now `.sanvio/`, its variables are `SANVIO_*` (`SANVIO_PULSE_FOLDER`, `SANVIO_RETRO`, `SANVIO_USAGE_LOG`, `SANVIO_EVALS_HOME`, and `SANVIO_HEADLESS`, which [`bin/factory`](bin/factory) sets), the loop's checkouts go in `~/.sanvio-loop/` and sealed eval copies in `~/.sanvio-evals/`, and [`bin/harness`](bin/harness) is [`bin/factory`](bin/factory), with its list of approved headless tools in [`bin/factory-tools`](bin/factory-tools). Each old name keeps working until a later release, except `bin/harness-tools`, which moved: [`scripts/names.py`](scripts/names.py) reads `.harness/` while `.sanvio/` is missing, a `HARNESS_*` variable where its `SANVIO_*` one isn't set, and an old home folder while the new one is missing; the token reports count loop checkouts in both home folders; and [`bin/harness`](bin/harness) says it's the old name and runs [`bin/factory`](bin/factory). Either headless variable makes a run headless, so the guard is as strict as before, and anything this repo starts for a child process sets both names. The next Claude Code session started at the root moves `.harness/` to `.sanvio/`, with any live factory runs in it, and says so in that session's setup message; [`scripts/check_setup.py`](scripts/check_setup.py) names any old variable still set and any `.harness/` still there. The github-status, loop-pane and loop-crew mods keep a session's `/project` focus in `.sanvio/project/` and still read one under `.harness/project/`, and the dashboard asks for `.sanvio/prices.json`.
+
+Files: [`scripts/names.py`](scripts/names.py), [`tests/test_names.py`](tests/test_names.py), [`bin/factory`](bin/factory), [`bin/factory-tools`](bin/factory-tools), [`bin/harness`](bin/harness), [`tests/test_factory_cli.py`](tests/test_factory_cli.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`scripts/loop.py`](scripts/loop.py), [`scripts/factories.py`](scripts/factories.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`scripts/eval_agents.py`](scripts/eval_agents.py), [`scripts/eval_harness.py`](scripts/eval_harness.py), [`scripts/pulse.py`](scripts/pulse.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`.gitignore`](.gitignore), [`examples/mods/github-status/`](examples/mods/github-status/), [`examples/mods/loop-pane/`](examples/mods/loop-pane/), [`examples/mods/loop-crew/`](examples/mods/loop-crew/), [`examples/mods/harness-dashboard/`](examples/mods/harness-dashboard/), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md), and the docs, skills and tests that named the old ones.
+
+**Do:** in this order. Start one Claude Code session at this repo's root, so it moves `.harness/` across. Then update the four mods whose versions went up, so none writes to the old folder again: `claude plugin update github-status@sanvio-harness-starter`, the same for `loop-pane` and `loop-crew`, and for `harness-dashboard` if you have it, then `/reload-plugins` or start a new session. Rename any `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_USAGE_LOG` or `HARNESS_EVALS_HOME` in your shell profile to its `SANVIO_` name, on each machine you use, and open a new shell; if `company/DATA.md`'s `Pulse folder` row names the old variable, change its text too. Point any alias or script at [`bin/factory`](bin/factory), and if you added lines to `bin/harness-tools`, check they're in [`bin/factory-tools`](bin/factory-tools). If the loop or its review watcher is running, stop it before you take this (`python3 scripts/loop.py stop`, with the same `--project projects/<name>` for one started on a project), then start it as you did. The old home folders can wait until the release that drops them: the loop keeps using `~/.harness-loop/` while it's there, for every clone on this machine. When you do move off it, remove each checkout in it with `git worktree remove` from the clone or project it belongs to, which refuses one with uncommitted changes, then delete the folder, and the loop makes new checkouts in `~/.sanvio-loop/`. `~/.harness-evals` holds only results: rename it to `~/.sanvio-evals` whenever you like.
 
 ## 2026-11-08: A headless search leaves out company/ and factories/
 
@@ -58,6 +243,22 @@ An issue put back on the loop while its pull request is still open is now a roun
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** push or save any commits you made by hand on a `loop/issue-N` branch whose pull request is still open, before the loop runs again: a round starts from `origin`'s branch and drops local commits that aren't there, and the loop's log names how many. `git reflog loop/issue-N` still has them. And if this harness takes issues from someone else's as a factory, set `review_logins` in its `loop.json` to the login that reviews your pull requests, so a round reads that review. If the loop or its review watcher is running, restart it so it runs this version: `python3 scripts/loop.py stop`, with the same `--project projects/<name>` for one started on a project, since each one watches for its own stop, then start it as you did. One started before this keeps the old `post_review`, which can edit a person's send-back.
+
+## 2026-11-07: The build agent can run the tests itself
+
+A new loop setting, `builder_runs_tests`, off by default. Turned on, a `claude` build agent may run the project's `test_command` inside its round and is asked to fix what fails before it finishes, instead of learning about a failure only in the next round. Nothing else it may run changes, and the loop still runs the tests and the review after it. On a local model it took fewer rounds and about a quarter less time for the same eval scores.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To try it, add `"builder_runs_tests": true` to `loop.json`.
+
+## 2026-11-07: The loop's reviewer checks every reader of a new state
+
+The loop's reviewer is now told that when a change adds a state, status or kind, it should search the whole worktree for everything that reads or filters on that field, code the diff doesn't touch included, and say FIX for any place that doesn't handle the new value. A new status that slips past an old filter passes every visible test, so only a search finds it. On a local model it took the starter from missing these to catching all of them in most runs, with no extra rounds on work that adds no state.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
 
 ## 2026-11-07: Review on a Claude subscription
 The reusable pull request review, [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), takes

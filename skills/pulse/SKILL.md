@@ -1,7 +1,7 @@
 ---
 name: pulse
 description: Ask the team's daily multiple-choice question from a shared folder, record this person's answer under their login, then show how the team answered yesterday as counts. Also writes a summary of a period's answers for leadership, which the person reads and sends. Use when someone runs /pulse or says "pulse", "daily question" or "answer the team's question", asks how the team answered yesterday, or asks to summarise the pulse for leadership.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Pulse
