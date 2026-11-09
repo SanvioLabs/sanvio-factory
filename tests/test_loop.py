@@ -343,6 +343,14 @@ class TestPureParts(unittest.TestCase):
         for text in (build, again, review, loop.shape_prompt(issue(4))):
             self.assertNotIn(EM_DASH, text)
 
+    def test_the_reviewer_checks_every_reader_of_a_new_state(self):
+        review = loop.review_prompt("Plan.", "+++ orders.py", "ok", 0)
+        self.assertIn("If the change adds a value to a state, status or kind", review)
+        self.assertIn("including code the diff doesn't touch", review)
+        self.assertIn("Any such place is a FIX.", review)
+        self.assertLess(review.index("Any such place is a FIX."), review.index("VERDICT: PASS or VERDICT: FIX"))
+        self.assertNotIn(EM_DASH, review)
+
     def test_the_planner_is_told_the_build_agent_gets_only_the_plan(self):
         # This checks the prompt's wording; it can't prove what a planner writes.
         prompt = loop.shape_prompt(issue(4))
