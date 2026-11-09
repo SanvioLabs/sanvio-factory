@@ -3,10 +3,14 @@
 [`scripts/loop.py`](../../../scripts/loop.py) works without you, which also means you can't see it
 work. This mod opens a pane beside the conversation that shows it.
 
-The pane has two views. **List** shows the loop as a list, the same one
-`/loop-pane` shows. **Crew** shows the lanes `/loop-crew` draws, a figure
-working at each issue's step. The two buttons at the top of the pane switch
-between them. [`loop-pane`](../loop-pane/) and [`loop-crew`](../loop-crew/) stay as they are.
+The pane has two views. **List** shows the loop as a list. **Crew** shows a
+lane for each issue being worked on, with a figure working at its step. The
+two buttons at the top of the pane switch between them.
+
+It replaces the `loop-pane` and `loop-crew` mods, which are gone. Until a later
+release their commands still work here: `/loop-pane` opens this pane in the
+List view and `/loop-crew` opens it in the Crew view. Each one says the new
+name in a notice, and neither closes the pane.
 
 The list looks like this:
 
@@ -160,12 +164,30 @@ with `Loop:`.
 
 ## Crew view
 
-Press **Crew** and the same pane shows the loop on screen as `/loop-crew`
-draws it: a lane for each issue being worked, the steps left to right, each
-step's time and spend under it. [`loop-crew`'s README](../loop-crew/README.md) says how to read a
-lane. **List** goes back to the list, on the loop the Crew had on screen.
+Press **Crew** and the same pane shows the loop on screen as lanes: one for
+each issue being worked, the steps left to right, each step's time and spend
+under it. **List** goes back to the list, on the loop the Crew had on screen.
 Neither button closes the pane, writes the session's focus or changes the
 loop.
+
+A lane's figure runs to its step's station when the step changes and works
+there:
+
+| Station | Step | The figure | The work beside it | The words |
+|---|---|---|---|---|
+| `start` | No step yet, or any other step | Standing | Three dots taking turns | `starting`, or the step lowercased |
+| `plan` | `SHAPE` | Holding a pen | Two lines being ruled | `planning` |
+| `test` | `TEST` | Raising and lowering a pen | Four checks turning green | `writing tests` |
+| `build` | `BUILD` | Swinging a hammer | Bricks dropping into a stack | `building` |
+| `check` | `VALIDATE` | Holding something up to read | A bar reading across a page | `checking` |
+| `ship` | `SCALE` | Stepping with a parcel | A parcel sliding off along the rail | `opening the pull request` |
+
+Over the lanes, a header names the stations, each in its colour while an issue
+is working there and dim otherwise. Each lane has a line of words,
+`#<n> <title> · <step's words>, round <r>`, with the round left off at 0, then
+the rail, lit up to the figure and dotted beyond it. Under it, one row gives
+how long the issue has spent at each step, and one what each step cost and how
+many tokens it used, from `.loop/issue-N/usage.json`. A dash means none yet.
 
 ```
 [ List ] [ Crew ]
@@ -176,9 +198,7 @@ loop.
 
 With more than one loop, the Crew view has its own loop picker under the
 buttons. It follows the
-session's focus as the list does. It keeps what it shows under factory-floor's
-own name, so `/loop-crew` in the same session shows its own loop, not this
-one's.
+session's focus as the list does.
 
 A terminal pane needs 42 columns for the Crew's board. Narrower, the pane
 shows the list until it's widened, then the Crew comes back with no press.
@@ -218,13 +238,12 @@ at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the proje
 
 [`hooks/logic.ts`](hooks/logic.ts) holds the decisions as plain functions, so they can be tested.
 [`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. The Crew view is
-[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), copies of `loop-crew`'s `register.tsx` and
-`logic.ts`, since one installed mod can't import from another. Both views read
+[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), brought over from the retired `loop-crew` mod. Both views read
 loops through one copy: the Crew imports `parseStatus`, the picker's labels and
 the focus rules from [`hooks/logic.ts`](hooks/logic.ts), and takes a loop as the same `Seen` and `Row`
 in [`types/index.d.ts`](types/index.d.ts). [`tests/test_factory_floor.py`](../../../tests/test_factory_floor.py) fails if a second copy comes back.
-A fix to the Crew's drawing goes in both mods until `loop-crew` is retired. From
-[`examples/mods/`](../):
+The two old commands are aliases in [`hooks/register.tsx`](hooks/register.tsx), tested in
+[`hooks/alias.test.ts`](hooks/alias.test.ts). From [`examples/mods/`](../):
 
 ```bash
 claude plugin validate factory-floor

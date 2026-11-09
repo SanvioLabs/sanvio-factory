@@ -117,10 +117,10 @@ class ModsStayApart(unittest.TestCase):
         self.assertEqual(missing_from_marketplace(MODS, market), [])
 
     def test_a_mod_with_no_entry_or_a_wrong_source_is_caught(self):
-        market = {"plugins": [{"name": "loop-pane", "source": "./examples/mods/loop-pane"},
+        market = {"plugins": [{"name": "tide-pane", "source": "./examples/mods/tide-pane"},
                               {"name": "factory-floor", "source": "./examples/mods/factory-flor"}]}
-        folders = [MODS_DIR / "loop-pane", MODS_DIR / "factory-floor", MODS_DIR / "loop-crew"]
-        self.assertEqual(missing_from_marketplace(folders, market), ["factory-floor", "loop-crew"])
+        folders = [MODS_DIR / "tide-pane", MODS_DIR / "factory-floor", MODS_DIR / "tide-crew"]
+        self.assertEqual(missing_from_marketplace(folders, market), ["factory-floor", "tide-crew"])
 
     def test_every_plugin_json_names_its_folder(self):
         for folder in MODS:
@@ -137,8 +137,8 @@ class ModsStayApart(unittest.TestCase):
 
     def test_an_atom_under_another_mods_name_is_caught(self):
         source = ("const a = atom({ plugin: 'factory-floor', key: 'view' } as const, null)\n"
-                  "const b = atom({ plugin: 'loop-pane', key: 'picked' } as const, null)\n")
-        self.assertEqual(foreign_atoms("factory-floor", source), ["loop-pane"])
+                  "const b = atom({ plugin: 'tide-pane', key: 'picked' } as const, null)\n")
+        self.assertEqual(foreign_atoms("factory-floor", source), ["tide-pane"])
 
     def test_no_two_mods_share_a_pane(self):
         # A shared pane id lets one mod's command find and close the other's pane.

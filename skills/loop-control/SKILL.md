@@ -108,7 +108,7 @@ it gets read before it's labelled.
    the tmux session (none without tmux), an `UNTIL` line with `--for`'s end
    time, then `DISCOVER`, `IDLE` or `HOURS`. Then say
    how to watch it: `tmux attach -t <name>` (`Ctrl-b d` leaves it
-   running), `/loop-pane` in Claude Code, or `tail -f .loop/loop.log`.
+   running), `/factory-floor` in Claude Code, or `tail -f .loop/loop.log`.
 
 `max_workers` in `loop.json` (default 1) is how many issues `run` works at
 once. Each worker runs its own agent sessions, so say that usage grows with the

@@ -145,8 +145,8 @@ the current run only and starts empty on each new run, unlike `tokens` and
 has started since, has neither.
 It's rewritten whole at each step, so a reader never sees half of it.
 
-In Claude Code, `/loop-pane` draws it in a pane beside the conversation
-([`examples/mods/loop-pane/`](examples/mods/loop-pane/)). On a Mac, a run inside tmux also writes
+In Claude Code, `/factory-floor` draws it in a pane beside the conversation, in
+its List view ([`examples/mods/factory-floor/`](examples/mods/factory-floor/)). On a Mac, a run inside tmux also writes
 `.loop/watch.command`, and the pane's **Watch it** button opens it: a new
 Terminal window attached to the session, read-only.
 
@@ -641,7 +641,7 @@ the plan, the test output and the review outlive the runner.
 
 - A run that iterates for an hour spends an hour of runner minutes. Five rounds
   of a slow test command is a long job, and it's billed like one.
-- `/loop-pane` and `tmux attach` don't reach a runner. You read the job log and
+- `/factory-floor` and `tmux attach` don't reach a runner. You read the job log and
   the artifact, not the pane.
 - A job that commits back puts building into a pipeline that is otherwise only
   checks. Everything else in [`.github/workflows/`](.github/workflows/) reads the repo; this one writes

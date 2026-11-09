@@ -112,14 +112,14 @@ extension in VS Code 1.143.0, and Claude Desktop 3.6556.2 on macOS:
 | Where | What works |
 |---|---|
 | Terminal | Everything: the setup message, the guard, the skills, Stelliad and the mods. It's where this factory was built |
-| VS Code extension | The setup message, the guard, the skills and the three mods: the lens and GitHub status lines above the prompt, and `/loop-pane`'s pane. Open the repo's root as the folder, as in the terminal |
-| Claude Desktop, Code tab | The same: the trust prompt, the setup message, the guard, `/whats-new`, the plugins in `/plugin`, both lines above the prompt and `/loop-pane`. Pick the repo's root under **Local**, then **Open folder…** |
+| VS Code extension | The setup message, the guard, the skills and the three mods: the lens and GitHub status lines above the prompt, and the loop's pane, which is now [`/factory-floor`](examples/mods/factory-floor/)'s List view and hasn't been tried here under that name. Open the repo's root as the folder, as in the terminal |
+| Claude Desktop, Code tab | The same: the trust prompt, the setup message, the guard, `/whats-new`, the plugins in `/plugin`, both lines above the prompt and the loop's pane, now `/factory-floor`'s List view. Pick the repo's root under **Local**, then **Open folder…** |
 | Claude Desktop, chat | None of it. Chat opens no folder, so no hooks, guard, skills, mods or `company/` load. Asked, it can read this repo's [`AGENTS.md`](AGENTS.md) as text, but nothing enforces it. Use the Code tab |
 
 [`/factory-dashboard`](examples/mods/factory-dashboard/) came after those tries. It's off by default and has only been
 seen in the terminal.
 
-[`/loop-crew`](examples/mods/loop-crew/) came after those tries too. It's on by default and has only been seen in Claude Code run in VS Code's integrated terminal, against a pretend loop.
+[`/factory-floor`](examples/mods/factory-floor/)'s Crew view came after those tries too. It's on by default, and its drawing has only been seen in Claude Code run in VS Code's integrated terminal, against a pretend loop.
 
 Two clones of this repo on one machine share one set of mods: the
 marketplace is registered under one name for the whole machine, so the mods
