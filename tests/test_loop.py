@@ -6549,8 +6549,9 @@ class TestLabelOwnPrs(unittest.TestCase):
     """label_own_prs: run puts review_label on each pull request it opens or pushes to, and a label that isn't
     added never blocks the issue."""
 
-    setUp, tearDown, lines, status, calls, go = (
-        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.status, TestAPass.calls, TestAPass.go)
+    setUp, tearDown, lines, raw_lines, status, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.status,
+        TestAPass.calls, TestAPass.go)
     other, push_from_other, pr, open_pr, origin_head = (
         TestRoundOnOpenPullRequest.other, TestRoundOnOpenPullRequest.push_from_other, TestRoundOnOpenPullRequest.pr,
         TestRoundOnOpenPullRequest.open_pr, TestRoundOnOpenPullRequest.origin_head)
@@ -6589,7 +6590,7 @@ class TestLabelOwnPrs(unittest.TestCase):
         self.cfg.update(review_label="needs-review", label_own_prs=True)
         (self.state / "pr-edit-fails").write_text("")
         self.assertEqual(self.go(), 0)
-        self.assertEqual(self.status()["issues"]["12"]["state"], "pr")
+        self.assertEqual(self.status()["issues"][0]["state"], "pr")
         failed = [l for l in self.lines() if l.split()[2] == "ERROR"]
         self.assertEqual(len(failed), 1, self.lines())
         self.assertIn("label needs-review was not added to {}: could not add label".format(self.OPENED), failed[0])
