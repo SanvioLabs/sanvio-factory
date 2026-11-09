@@ -103,9 +103,8 @@ class Grouping(Harness):
     def test_without_worktree_dir_the_loop_folder_is_beside_home(self):
         self.assertEqual(token_report.loop_dir(self.root), names.loop_home() / "harness")
 
-    def test_without_worktree_dir_both_home_folders_count_for_a_release(self):
-        self.assertEqual(token_report.loop_dirs(self.root),
-                         [home / "harness" for home in names.loop_homes()])
+    def test_without_worktree_dir_only_the_home_folder_counts(self):
+        self.assertEqual(token_report.loop_dirs(self.root), [names.loop_home() / "harness"])
         new, old = self.root.parent / "new-loop", self.root.parent / "old-loop"
         both = [new, old]
         self.assertEqual(token_report.group(entry(old / "issue-7"), self.root, both), ("Loop", "issue-7"))

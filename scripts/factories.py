@@ -93,7 +93,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # factory_checks, forge and names, beside this file
-import names  # noqa: E402 (the state folder, and the old one for a release)
+import names  # noqa: E402 (the state folder)
 from factory_checks import (CI_PATHS, check_report, checks_line, default_branch, not_factory_fork,  # noqa: E402
                             required_checks)
 from forge import LOGIN, cant_use, gh, gh_json, one_line, printable, read_only, repo_args, said, shown, skipped  # noqa: E402

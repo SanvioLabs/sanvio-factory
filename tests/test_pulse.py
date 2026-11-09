@@ -145,10 +145,11 @@ class Folder(PulseCase):
                 self.assertEqual(len(result.stderr.strip().splitlines()), 1)
                 self.assertFalse(missing.exists())
 
-    def test_the_old_variable_still_names_the_folder_for_a_release(self):
+    def test_the_old_variable_no_longer_names_the_folder(self):
         self.bank()
         result = self.pulse("question", "--json", old_name=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SANVIO_PULSE_FOLDER isn't set", self.said(result))
 
     def test_the_folder_is_checked_before_the_command(self):
         result = self.pulse("question", "--date", "not-a-date", unset=True)

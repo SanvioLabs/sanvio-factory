@@ -26,7 +26,7 @@ HOOKS = Path(__file__).resolve().parent
 sys.path.insert(0, str(HOOKS))
 import guard  # noqa: E402 (the guard's own verdict, so there's one copy of the rules)
 sys.path.insert(0, str(HOOKS.parent.parent / "scripts"))
-import names  # noqa: E402 (the state folder and the variables, old names included for a release)
+import names  # noqa: E402 (the state folder and the variables)
 
 FILE_TOOLS = guard.FILE_TOOLS + ("Grep", "Glob")
 COMMAND = re.compile(r"^/([A-Za-z0-9][A-Za-z0-9:_-]*)(\s|$)")
@@ -97,7 +97,7 @@ def record(root, line, session_id="", now=None):
 
 
 def main():
-    if names.env("USAGE_LOG").strip().lower() in ("off", "0", "false", "no"):
+    if names.logging_off():
         return 0
     try:
         event = json.load(sys.stdin)

@@ -8,7 +8,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "bin" / "factory"
-OLD_NAME = ROOT / "bin" / "harness"
 APPROVED = "# approved\nRead\nGrep\nBash(gh pr view:*)\n"
 TOOLS = "Read, Grep, Bash(gh pr view:*)"
 PASSED = "Read,Grep,Bash(gh pr view:*)"  # the checked entries, as bin/factory passes them on
@@ -33,9 +32,8 @@ class FactoryCli(unittest.TestCase):
         tmp = Path(self.dir.name).resolve()
         self.root = tmp / "harness"
         (self.root / "bin").mkdir(parents=True)
-        for script in (SCRIPT, OLD_NAME):
-            shutil.copy2(script, self.root / "bin" / script.name)
-            (self.root / "bin" / script.name).chmod(0o755)  # test_the_script_is_executable checks the real bits
+        shutil.copy2(SCRIPT, self.root / "bin" / SCRIPT.name)
+        (self.root / "bin" / SCRIPT.name).chmod(0o755)  # test_the_script_is_executable checks the real bits
         (self.root / "bin" / "factory-tools").write_text(APPROVED)
         skill(self.root, "x", "headless: true\nheadless-tools: {}\n".format(TOOLS))
         skill(self.root, "plain", "headless-tools: Read\n")
@@ -48,7 +46,7 @@ class FactoryCli(unittest.TestCase):
         self.record = tmp / "record"
         self.env = dict(os.environ, PATH="{}{}{}".format(fake, os.pathsep, os.environ["PATH"]), RECORD=str(self.record))
         self.env.pop("SANVIO_HEADLESS", None)
-        self.env.pop("HARNESS_HEADLESS", None)
+        self.env.pop("HARNESS_HEADLESS", None)  # the guard still reads it, so the fake must not inherit it
 
     def tearDown(self):
         self.dir.cleanup()
@@ -61,25 +59,8 @@ class FactoryCli(unittest.TestCase):
         return self.record.read_text().splitlines()
 
     def test_the_script_is_executable(self):
-        for script in (SCRIPT, OLD_NAME):
-            self.assertTrue(os.access(script, os.X_OK), "chmod +x bin/" + script.name)
-
-    def test_the_old_name_says_so_and_runs_the_same_skill(self):
-        result = self.run_harness("--json", "x", name="harness")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("bin/harness is now bin/factory", result.stderr)
-        self.assertEqual(result.stdout, "")
-        cwd, headless, *argv = self.recorded()
-        self.assertEqual((cwd, headless), (str(self.root), "1"))
-        self.assertEqual(argv[:4], ["-p", "/x", "--output-format", "json"])
-        linked = self.root.parent / "elsewhere" / "harness"
-        linked.symlink_to(self.root / "bin" / "harness")
-        through_link = subprocess.run([str(linked), "x"], cwd=self.elsewhere, env=self.env, capture_output=True,
-                                      text=True, timeout=30)
-        self.assertEqual(through_link.returncode, 2, "a link elsewhere finds no root, and refuses as before")
-        refused = self.run_harness("plain", name="harness")
-        self.assertEqual(refused.returncode, 2)
-        self.assertIn("factory: plain isn't marked headless", refused.stderr)
+        self.assertTrue(os.access(SCRIPT, os.X_OK), "chmod +x bin/factory")
+        self.assertFalse((ROOT / "bin" / "harness").exists(), "bin/harness went with the old names")
 
     def test_a_headless_skill_runs_from_the_root_with_only_its_tools(self):
         result = self.run_harness("x", "a", "b")

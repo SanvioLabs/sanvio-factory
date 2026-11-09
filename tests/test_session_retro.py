@@ -102,11 +102,9 @@ class Capture(Base):
         with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
             self.assertEqual(session_retro.capture(self.root, self.event(path)), SESSION)
 
-    def test_the_old_switch_still_works_and_the_new_one_wins(self):
+    def test_the_old_switch_does_nothing(self):
         with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on"}):
             os.environ.pop("SANVIO_RETRO", None)
-            self.assertTrue(session_retro.switched_on())
-        with mock.patch.dict(os.environ, {"HARNESS_RETRO": "on", "SANVIO_RETRO": "off"}):
             self.assertFalse(session_retro.switched_on())
 
     def test_no_signal_is_not_copied(self):
@@ -319,8 +317,6 @@ class Classify(Kept):
         self.assertEqual(cmd, ["claude", "-p"] + loop.UNTRUSTED_CLAUDE)
         self.assertEqual(kwargs["input"], (self.folder / (SESSION + ".prompt.md")).read_text())
         self.assertEqual((kwargs["env"]["SANVIO_RETRO"], kwargs["env"]["SANVIO_HEADLESS"]), ("off", "1"))
-        # And the old names, so a hook from before the rename reads the same (security review).
-        self.assertEqual((kwargs["env"]["HARNESS_RETRO"], kwargs["env"]["HARNESS_HEADLESS"]), ("off", "1"))
         self.assertNotIn("CLAUDE_CODE_SESSION_ID", kwargs["env"])
         reply = self.folder / (SESSION + ".reply.txt")
         self.assertIn("ABSENT", reply.read_text())

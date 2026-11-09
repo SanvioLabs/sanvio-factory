@@ -1187,13 +1187,13 @@ group('project loops', () => {
     await ui.unmount()
     await close()
   })
-  test('a focus a mod from before the rename wrote under .harness/ still counts', async ($, on) => {
+  test('a focus left under .harness/ from before the rename no longer counts', async ($, on) => {
     const files = betaRunning()
     files.set(`${ROOT}/.harness/project/${A}`, 'alpha\n')
     const { close } = world(on, files, { session: { id: A }, projects: FOLDERS })
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
-    expect(await pickValue(ui)).toBe('alpha')
+    expect(await pickValue(ui)).not.toBe('alpha')
     await ui.unmount()
     await close()
   })

@@ -110,12 +110,11 @@ class SetupCheck(unittest.TestCase):
         self.assertIn("public Sanvio Factory", line)
         self.assertIn("private copy", fix)
 
-    def test_its_old_address_warns_the_same(self):
-        # A clone taken before the GitHub rename keeps the old address, which redirects.
+    def test_its_old_address_is_not_recognised(self):
+        # A clone still on the address from before the GitHub rename is told to set the new one by the upgrade page.
         self.git("remote", "add", "origin", "https://github.com/SanvioLabs/sanvio-harness-starter")
         status, line, _ = check_setup.check_remote(self.root)
-        self.assertEqual(status, "WARN")
-        self.assertIn("public Sanvio Factory", line)
+        self.assertNotIn("public Sanvio Factory", line)
 
     def test_a_token_in_the_remote_url_is_never_printed(self):
         self.git("remote", "add", "origin", "https://someone:ghp_notarealtoken@github.com/acme/harness.git")

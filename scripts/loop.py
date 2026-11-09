@@ -66,7 +66,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import names  # noqa: E402 (beside this file: the home folder, and the old one for a release)
+import names  # noqa: E402 (beside this file: the state and home folders)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
@@ -331,12 +331,12 @@ def next_start(hours, ts):
 
 # This repo's own generated files: the dashboard's sample, then the picture drawn from it. A project doesn't get this.
 # Joined with ; because the sample's first test reads the old sample, so it can exit 1 on a run that rewrites it.
-HARNESS_GENERATE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py"
+FACTORY_GENERATE = "UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py"
 
 
 def load_config(root):
     """The defaults and this repo's generate command, overlaid with loop.json at the repo root if there is one."""
-    cfg = dict(DEFAULTS, generate_command=HARNESS_GENERATE)
+    cfg = dict(DEFAULTS, generate_command=FACTORY_GENERATE)
     path = Path(root) / "loop.json"
     if path.exists():
         cfg.update(json.loads(path.read_text()))
@@ -1942,6 +1942,8 @@ class Loop:
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
                                     text=True, errors="replace", start_new_session=True,
+                                    # The old name too: a project's hook from before the rename reads it,
+                                    # and off only ever records less.
                                     env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)

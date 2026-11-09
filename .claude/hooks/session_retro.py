@@ -64,7 +64,7 @@ def loop():
 
 
 def names():
-    """scripts/names.py: the switch's name, and the old one for a release."""
+    """scripts/names.py: the switch's name."""
     sys.path.insert(0, str(ROOT / "scripts"))
     import names as module
     return module
@@ -309,7 +309,7 @@ def classify(root, session, out=sys.stdout, run=subprocess.run):
     reply = folder / (session + ".reply.txt")
     # A session of its own, not attached to the one running this command.
     env = {key: value for key, value in os.environ.items() if key not in OWN_SESSION}
-    env.update(SANVIO_RETRO="off", SANVIO_HEADLESS="1", HARNESS_RETRO="off", HARNESS_HEADLESS="1")  # old names too, for a release
+    env.update(SANVIO_RETRO="off", SANVIO_HEADLESS="1")
     try:
         done = run(loop().confined(["claude", "-p"]), input=asked.read_text(), capture_output=True, text=True,
                    errors="replace", cwd=str(root), env=env, timeout=CLASSIFY_SECONDS)

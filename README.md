@@ -144,8 +144,7 @@ asking. That's a key of the harness's own: Claude Code's `allowed-tools` would
 grant the same tools in every session the skill runs in, where the guard below
 doesn't apply. Every entry on that list has to be in [`bin/factory-tools`](bin/factory-tools), or the
 skill doesn't start, and the wrapper sets the permission mode and the tools
-itself. Any other name stops with exit code 2 before Claude starts. Its old name,
-[`bin/harness`](bin/harness), still works until a later release, and says so.
+itself. Any other name stops with exit code 2 before Claude starts.
 
 One skill is marked: `review-pr`. No Bash allow rule is safe on its own, since
 `gh pr view -R <host>/...` reaches any host and your own Bash allow rules apply

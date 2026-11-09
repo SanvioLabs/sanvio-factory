@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import names  # noqa: E402 (beside this file: the old names, and the new ones)
 
 ROOT = Path(__file__).resolve().parent.parent
-# The public repo, by its name since the GitHub rename or the old one a clone taken before it keeps.
-STARTER = re.compile(r"[/:]SanvioLabs/sanvio-(factory|harness-starter)(\.git)?/?$", re.I)
+# The public repo.
+STARTER = re.compile(r"[/:]SanvioLabs/sanvio-factory(\.git)?/?$", re.I)
 
 
 def git(root, *args):
@@ -263,15 +263,15 @@ def check_security_levels(root):
 
 
 def check_old_names(root, environ=None):
-    """The names this repo had before Sanvio Factory, still in use. They work for one more release."""
+    """The names this repo had before Sanvio Factory, still in use. Nothing reads them now."""
     said, fixes = [], []
     if (Path(root) / names.OLD_STATE).exists():
         said.append("both .harness/ and .sanvio/ are here, and only .sanvio/ is read"
-                    if (Path(root) / names.STATE).exists() else ".harness/ is still read, because .sanvio/ isn't here")
+                    if (Path(root) / names.STATE).exists() else ".harness/ is still here, and nothing reads it")
         fixes.append("move what you need from .harness/ into .sanvio/, then delete .harness/")
     found = names.old_variables(environ)
     if found:
-        said.append("{} still set under the old name, which goes in a later release".format(", ".join(found)))
+        said.append("{} still set under the old name, which does nothing now".format(", ".join(found)))
         fixes.append("rename it in your shell profile: " + ", ".join(
             names.PREFIX + name[len(names.OLD_PREFIX):] for name in found))
     if said:

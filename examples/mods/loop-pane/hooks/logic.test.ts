@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { FINISHED_MS, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, oldFocusFile, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
+import { FINISHED_MS, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
 import type { Row, Seen, Status } from '../types'
 
 const ROW: Row = {
@@ -497,7 +497,6 @@ group('the project in focus', () => {
   })
   test('an id matching the pattern names a file under .sanvio/project', () => {
     expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.sanvio/project/aaaaaaaa-1111')
-    expect(oldFocusFile('/h/.sanvio/project/aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
   })
   test('anything else names none', () => {
     for (const id of [null, '', 'abc', '../../etc/passwd', 'aaaaaaaa/1111', 'g'.repeat(8), 'a'.repeat(65)]) {

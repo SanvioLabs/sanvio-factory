@@ -1,11 +1,11 @@
-"""The names this repo took when it became Sanvio Factory, and the old ones it still reads for a release.
+"""The names this repo took when it became Sanvio Factory, and the old ones it still recognises.
 
 The state folder is .sanvio/, the variables are SANVIO_*, and the home folders are ~/.sanvio-loop and
-~/.sanvio-evals. Until the release that removes them, each old name still works: .harness/ is read while
-.sanvio/ is missing, a HARNESS_* variable counts where its SANVIO_* one isn't set, and the old home folders
-are read while the new ones are missing. .claude/hooks/session_start.py moves .harness/ across once and
-names any old variable still set, so the warning comes once a session and never from a hook that runs on
-every tool call.
+~/.sanvio-evals. Nothing reads the old names any more, with two exceptions that only ever make things
+stricter: HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=off still turns the usage log
+off. The old names are kept here so
+.claude/hooks/session_start.py can move a leftover .harness/ across once, and scripts/check_setup.py can
+name any old variable still set, which now does nothing.
 
 Standard library only: the hooks and the loop import it, and so does a fresh clone before setup.
 """
@@ -18,26 +18,15 @@ PREFIX, OLD_PREFIX = "SANVIO_", "HARNESS_"
 PERSONAL = ("PULSE_FOLDER", "RETRO", "USAGE_LOG", "EVALS_HOME")
 
 
-def either(new, old):
-    """The new folder, unless it's missing and the old one is there."""
-    new, old = Path(new), Path(old)
-    return old if not new.exists() and old.exists() else new
-
-
 def state_dir(root):
-    """The repo's own state folder: .sanvio/, or .harness/ while that's all there is."""
-    return either(Path(root) / STATE, Path(root) / OLD_STATE)
-
-
-def loop_homes(home=None):
-    """Both home folders the loop's checkouts can be in, the new one first."""
-    home = Path(home) if home else Path.home()
-    return home / ".sanvio-loop", home / ".harness-loop"
+    """The repo's own state folder."""
+    return Path(root) / STATE
 
 
 def loop_home(home=None):
     """Where the loop keeps its checkouts when loop.json names no worktree_dir."""
-    return either(*loop_homes(home))
+    home = Path(home) if home else Path.home()
+    return home / ".sanvio-loop"
 
 
 def evals_home(home=None, environ=None):
@@ -46,27 +35,33 @@ def evals_home(home=None, environ=None):
     if named:
         return Path(named)
     home = Path(home) if home else Path.home()
-    return either(home / ".sanvio-evals", home / ".harness-evals")
+    return home / ".sanvio-evals"
 
 
 def env(name, default="", environ=None):
-    """SANVIO_<name> if it's set, else HARNESS_<name>, else the default."""
+    """SANVIO_<name> if it's set, else the default."""
     environ = os.environ if environ is None else environ
-    for prefix in (PREFIX, OLD_PREFIX):
-        if prefix + name in environ:
-            return environ[prefix + name]
-    return default
+    return environ.get(PREFIX + name, default)
 
 
 def headless(environ=None):
-    """Either name says this run is headless. The stricter reading always wins, so a run bin/harness
-    started stays headless under a guard that only knows the new name, and the other way round."""
+    """Either name says this run is headless. The old one is still read because the stricter reading
+    always wins: a script that sets only HARNESS_HEADLESS keeps the guard as strict as it was."""
     environ = os.environ if environ is None else environ
     return environ.get(PREFIX + "HEADLESS") == "1" or environ.get(OLD_PREFIX + "HEADLESS") == "1"
 
 
+def logging_off(environ=None):
+    """The usage log is switched off. The old name's off still counts: like headless, it only ever means
+    less is recorded, so someone who opted out stays opted out."""
+    environ = os.environ if environ is None else environ
+    return any(environ.get(prefix + "USAGE_LOG", "").strip().lower() in ("off", "0", "false", "no")
+               for prefix in (PREFIX, OLD_PREFIX))
+
+
 def old_variables(environ=None):
-    """The old names of a person's own variables still set without the new one beside them."""
+    """The old names of a person's own variables still set without the new one beside them. They do
+    nothing now, so the setup check names them."""
     environ = os.environ if environ is None else environ
     return [OLD_PREFIX + name for name in PERSONAL if OLD_PREFIX + name in environ and PREFIX + name not in environ]
 
@@ -108,6 +103,6 @@ def move_old_state(root):
     try:
         os.rename(old, new)
     except OSError as error:
-        return "couldn't move .harness/ to .sanvio/ ({}), so .harness/ is still read. Move it by hand".format(
+        return "couldn't move .harness/ to .sanvio/ ({}), and nothing reads .harness/ now. Move it by hand".format(
             error.strerror or error)
     return "moved .harness/ to .sanvio/, the new name for this repo's own state, with everything in it"

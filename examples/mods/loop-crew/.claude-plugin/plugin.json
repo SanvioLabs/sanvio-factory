@@ -1,6 +1,6 @@
 {
   "name": "loop-crew",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "A pane with a lane for each issue the loop is working on, its steps left to right, and a figure running to its step and working there",
   "types": "./types/index.d.ts"
 }
