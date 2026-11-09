@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-08: Standup remembers what you already settled
+
+[`skills/standup/`](skills/standup/) now keeps its answers in a gitignored
+`reports/standup/answers.jsonl` on your machine: the item, the date and the pick,
+for GitHub and loop items only. An item you marked `Done already` or `Drop it`
+that is still open is listed with the command that closes it, not asked again.
+A day's pick, such as `Later today`, is still asked each morning, with what you
+picked last time in the question.
+
+Files: [`skills/standup/SKILL.md`](skills/standup/SKILL.md), [`reports/standup/README.md`](reports/standup/README.md), [`.gitignore`](.gitignore), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add these two lines to your [`.gitignore`](.gitignore), so your answers never get committed:
+`reports/standup/*` and `!reports/standup/README.md`.
+
 ## 2026-11-08: The old names stop working
 
 The names from before Sanvio Factory no longer work, a release earlier than the first rename entry said. Nothing reads `.harness/`, `HARNESS_PULSE_FOLDER`, `HARNESS_RETRO`, `HARNESS_EVALS_HOME`, or `HARNESS_USAGE_LOG` set to anything but off, or looks in `~/.harness-loop/` or `~/.harness-evals/`. `bin/harness` is gone. The three mods that read a `/project` focus no longer look under `.harness/project/`. The factory-trends skill no longer answers to "harness trends" or "my harness report", and its sprint report no longer looks for the pulse's old `Harness` heading. [`scripts/check_setup.py`](scripts/check_setup.py) recognises the public repo only by `SanvioLabs/sanvio-factory`. Two things stay, because they move you across rather than read the old names: the next session still moves a leftover `.harness/` to `.sanvio/`, and the setup check still names any old variable that's set, since it now does nothing. Two old switches still count, because each only ever makes things stricter: `HARNESS_HEADLESS=1` still makes a run headless, and `HARNESS_USAGE_LOG=off` still keeps the usage log off. The loop also still sets `HARNESS_RETRO=off` for its agents, so a project's hook from before the rename never keeps their sessions. [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) is rewritten for this.
