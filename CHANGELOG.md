@@ -32,9 +32,11 @@ fine).
 A new mod, off by default. `/factory-floor` opens the loop pane as
 `/loop-pane` shows it: the queue, what each issue is on, and its pull request.
 A Crew view, the lanes `/loop-crew` draws, follows in this same pane. The
-`loop-pane` and `loop-crew` mods stay as they are.
+`loop-pane` and `loop-crew` mods stay as they are. A new test checks that
+every mod has a marketplace entry for its folder, keeps its saved state under
+its own name, and has a pane id no other mod uses.
 
-Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md).
+Files: [`examples/mods/factory-floor/`](examples/mods/factory-floor/) (new), [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`tests/test_mods.py`](tests/test_mods.py).
 
 **Do:** add `"factory-floor@sanvio-factory": true` to [`.claude/settings.json`](.claude/settings.json)'s
 `enabledPlugins` to try it.
