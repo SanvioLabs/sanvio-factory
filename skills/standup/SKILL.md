@@ -1,7 +1,7 @@
 ---
 name: standup
 description: One morning read of what's on this person, from the sources the harness can reach, then a multiple-choice question on each item with a recommended next step, and a suggested order for the day. Reads only, changes nothing. Use when someone says "standup", "morning check", "what's on me today", "what's on my plate", "what do I need to do first", or "start my day".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Standup

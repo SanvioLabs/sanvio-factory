@@ -90,21 +90,21 @@ In fullscreen, from 110 columns, the pane docks beside the conversation.
 Narrower, it sits above the prompt. While it's showing, the `×` in its corner
 or `/loop-pane` closes it.
 
-It loads by itself, the same way as the [harness lens](../harness-lens/): the harness's
+It loads by itself, the same way as the [harness lens](../harness-lens/): the factory's
 [`.claude/settings.json`](../../../.claude/settings.json) turns it on. Don't see `/loop-pane`? Install it from
 inside a session, at the root:
 
 ```
 /plugin marketplace add ./
-/plugin install loop-pane@sanvio-harness-starter
+/plugin install loop-pane@sanvio-factory
 ```
 
 Or load it for one session with `claude --plugin-dir examples/mods/loop-pane`.
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), because `/plugin update` keeps an installed copy whose version hasn't changed, and CI checks this on every pull request with [`scripts/check_mod_versions.py`](../../../scripts/check_mod_versions.py).
 
-On a machine that already knew this marketplace from another copy of the
-harness, the first session in a new copy can miss it: Claude Code installs
+On a machine that already knew this marketplace from another copy of this
+factory, the first session in a new copy can miss it: Claude Code installs
 the enabled mods before it re-reads the marketplace. The second session has
 it.
 
@@ -112,10 +112,10 @@ it.
 
 | Line | Shows |
 |---|---|
-| The header | The loop's name on the left: the project's, or the harness's folder. On the right, **Running** while a live loop holds its lock and works a job (**Running 2** for two), **Idle** in dim green while it holds the lock with nothing to work, **Stopping after this step** after `loop.py stop`, **Not running** otherwise, with how long a live loop has been up. Red when the last run was killed: its lock is still there but its process isn't, and the next run replaces it. A loop.py older than this one writes no start, so no uptime |
+| The header | The loop's name on the left: the project's, or the factory's folder. On the right, **Running** while a live loop holds its lock and works a job (**Running 2** for two), **Idle** in dim green while it holds the lock with nothing to work, **Stopping after this step** after `loop.py stop`, **Not running** otherwise, with how long a live loop has been up. Red when the last run was killed: its lock is still there but its process isn't, and the next run replaces it. A loop.py older than this one writes no start, so no uptime |
 | **Copy attach command** | While a loop started in tmux is running, copies the command that opens its session. `loop-control` starts the loop that way when tmux is installed |
 | **Watch it** | On a Mac, opens a new Terminal window attached to that session, read-only: you see the loop work and can't type into it. Close the window and the loop keeps running. If the window can't open, it copies the read-only attach command instead. It shows only while the loop runs in tmux on macOS |
-| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the harness and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. The mobile app draws no dropdown, so it shows a button for each loop instead, the harness then the projects by name, and pressing one shows that loop |
+| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
 | **Queue** | Ready issues the loop will take next, lowest first. One that depends on an open issue says **waiting on** and which |
 | **Active** | Issues being worked: what each is on (planning, building, checking, opening the pull request) with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
 | **Finished** | Issues that reached an end in the last 24 hours: a pull request, blocked, stopped or skipped. Older ones drop off; `.loop/status.json` still has them |
@@ -133,23 +133,23 @@ through the rest, a job at a time on a job list and a line at a time on
 
 `/loop-pane` opens on the session's project in focus, the one `/project <name>`
 sets, when that project has a loop listed. Otherwise it opens on the first loop
-running, the harness before the projects, else on the harness. While it's open
+running, the factory's before any project's, else on the factory's. While it's open
 it follows a change of focus: within two seconds it moves to the project now in
-focus, or to the harness when `/project off` clears it. A focus on a project
+focus, or to the factory's loop when `/project off` clears it. A focus on a project
 with no loop listed leaves the pane where it is, even once that loop appears.
 Otherwise the loop you're on stays, even when another one starts, until you pick
 another, the focus changes, or you close and reopen the pane. If a project's
-folder goes while you're on it, the pane falls back to the harness.
+folder goes while you're on it, the pane falls back to the factory's loop.
 
 A pick in the pane sets the focus too: picking a project puts it in focus,
-picking the harness clears it. Opening the pane never changes the focus. The
-focus is shared with the GitHub line only in a session started at the harness
+picking the factory's loop clears it. Opening the pane never changes the focus. The
+focus is shared with the GitHub line only in a session started at the factory
 root: the pane keeps it under the folder holding [`scripts/loop.py`](../../../scripts/loop.py), the GitHub
 line under the folder the session started in.
 
 While the pane is open, an issue that reaches an end in any loop, on screen or
 not, also pops up a short notice, so you hear about it without reading the pane.
-A project's starts with its name (`app: #14 has a pull request`), the harness's
+A project's starts with its name (`app: #14 has a pull request`), the factory's
 with `Loop:`.
 
 ## What it doesn't do
@@ -166,13 +166,13 @@ rewrites at every step, and checks `.loop/STOP` and `.loop/lock`, with
 same in each project's folder, so a project's `.loop/projects/<name>/` stands in
 for `.loop/` in every path above.
 
-The one file it writes is the session's focus, `.harness/project/<id>`, and only
-when you pick a loop in the pane: the project's name, or nothing for the
-harness. At every read it reads that file back and checks that the project it
+The one file it writes is the session's focus, `.sanvio/project/<id>`, and only
+when you pick a loop in the pane: the project's name, or nothing for this
+repo. At every read it reads that file back and checks that the project it
 names is a folder directly under [`projects/`](../../../projects/).
 
-It shows the loops of the harness the session started in: the nearest folder
-at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the projects that harness has run with
+It shows the loops of the factory the session started in: the nearest folder
+at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the projects that factory has run with
 `--project`.
 
 ## Changing it

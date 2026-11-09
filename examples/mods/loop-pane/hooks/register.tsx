@@ -178,14 +178,14 @@ async function refresh($: EngineInterface): Promise<void> {
   if (!root) return
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`))
-  const harness = await look($, root)
-  const loops = [harness, ...(await Promise.all(names.map(name => look($, root, name))))]
+  const factory = await look($, root)
+  const loops = [factory, ...(await Promise.all(names.map(name => look($, root, name))))]
   const was = (await read($, loopsAtom)) ?? []
   const before = await read($, seenAtom)
   const stored = await read($, pickedAtom)
   let picked = stored
   // Once a loop is on screen, a change in the session's focus moves the pane: to the project now in
-  // focus when it has a loop listed, to the harness when the focus is cleared. A focus on a project
+  // focus when it has a loop listed, to the factory when the focus is cleared. A focus on a project
   // with no loop listed is remembered and moves nothing, so the loop appearing later doesn't either.
   // A read that overlaps a pick's save is left alone: the save sets the remembered focus itself.
   if (picked !== null) {
@@ -199,9 +199,9 @@ async function refresh($: EngineInterface): Promise<void> {
     }
   }
   // No pick yet is an opening, on the focus read as the pane opened. A pick whose project has gone
-  // falls back to the harness.
+  // falls back to the factory.
   const shown =
-    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => (l.project ?? '') === picked)) ?? harness
+    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => (l.project ?? '') === picked)) ?? factory
   const pick = shown.project ?? ''
   if (stored !== pick) await update($, pickedAtom, () => pick)
   if (sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops)) return
@@ -299,7 +299,7 @@ export const register: Register = on => {
       const root = await rootOf($)
       if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.` }
       // Opening picks again: the project in focus when it has a loop, else the first loop running, else
-      // the harness. The focus read here is remembered, so it isn't a change, and opening writes nothing.
+      // the factory. The focus read here is remembered, so it isn't a change, and opening writes nothing.
       await update($, pickedAtom, () => null)
       const focus = await readFocus($, root)
       await update($, focusAtom, () => focus)

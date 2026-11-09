@@ -3,23 +3,23 @@ import { describe, expect, test } from 'claude-code/testing'
 import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
 import type { Counts } from '../types'
 
-const REPO = 'SanvioLabs/sanvio-harness-starter'
+const REPO = 'SanvioLabs/sanvio-factory'
 const NOW = 1_800_000_000_000
 const COUNTS: Counts = { running: 2, queued: 0, pulls: 3, issues: 5 }
 
 describe('the remote', () => {
   test('SSH remotes, with and without .git', () => {
-    expect(parseRemote('git@github.com:SanvioLabs/sanvio-harness-starter.git\n')).toBe(REPO)
-    expect(parseRemote('git@github.com:SanvioLabs/sanvio-harness-starter')).toBe(REPO)
-    expect(parseRemote('ssh://git@github.com/SanvioLabs/sanvio-harness-starter.git')).toBe(REPO)
+    expect(parseRemote('git@github.com:SanvioLabs/sanvio-factory.git\n')).toBe(REPO)
+    expect(parseRemote('git@github.com:SanvioLabs/sanvio-factory')).toBe(REPO)
+    expect(parseRemote('ssh://git@github.com/SanvioLabs/sanvio-factory.git')).toBe(REPO)
   })
   test('HTTPS remotes, with and without .git', () => {
-    expect(parseRemote('https://github.com/SanvioLabs/sanvio-harness-starter')).toBe(REPO)
-    expect(parseRemote('https://github.com/SanvioLabs/sanvio-harness-starter.git')).toBe(REPO)
+    expect(parseRemote('https://github.com/SanvioLabs/sanvio-factory')).toBe(REPO)
+    expect(parseRemote('https://github.com/SanvioLabs/sanvio-factory.git')).toBe(REPO)
   })
   test('a remote that is not GitHub is none, so gh is never called', () => {
-    expect(parseRemote('git@gitlab.com:SanvioLabs/sanvio-harness-starter.git')).toBeNull()
-    expect(parseRemote('https://github.com.evil.example/SanvioLabs/sanvio-harness-starter')).toBeNull()
+    expect(parseRemote('git@gitlab.com:SanvioLabs/sanvio-factory.git')).toBeNull()
+    expect(parseRemote('https://github.com.evil.example/SanvioLabs/sanvio-factory')).toBeNull()
     expect(parseRemote('/Users/someone/repos/starter')).toBeNull()
     expect(parseRemote('')).toBeNull()
   })
@@ -107,20 +107,20 @@ describe('a project name', () => {
 })
 
 describe('/github all', () => {
-  test('the harness first, then each project, then the folders without a remote', () => {
+  test('the factory first, then each project, then the folders without a remote', () => {
     expect(allText('h/r · 0 actions running', [{ name: 'acme', text: 'a/b · 1 action running' }], 2, 3)).toBe(
-      'harness: h/r · 0 actions running\nacme: a/b · 1 action running\n2 folders under projects/ have no GitHub remote.')
+      'factory: h/r · 0 actions running\nacme: a/b · 1 action running\n2 folders under projects/ have no GitHub remote.')
   })
   test('one folder without a remote, and none under projects/', () => {
-    expect(allText('x', [], 1, 1)).toBe('harness: x\n1 folder under projects/ has no GitHub remote.')
-    expect(allText('x', [], 0, 0)).toBe('harness: x\nNo folders under projects/.')
+    expect(allText('x', [], 1, 1)).toBe('factory: x\n1 folder under projects/ has no GitHub remote.')
+    expect(allText('x', [], 0, 0)).toBe('factory: x\nNo folders under projects/.')
   })
 })
 
 describe('the focus file', () => {
-  test('an id matching the pattern names a file under .harness/project', () => {
-    expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.harness/project/aaaaaaaa-1111')
-    expect(focusFile('/h', 'A'.repeat(64))).toBe(`/h/.harness/project/${'A'.repeat(64)}`)
+  test('an id matching the pattern names a file under .sanvio/project', () => {
+    expect(focusFile('/h', 'aaaaaaaa-1111')).toBe('/h/.sanvio/project/aaaaaaaa-1111')
+    expect(focusFile('/h', 'A'.repeat(64))).toBe(`/h/.sanvio/project/${'A'.repeat(64)}`)
   })
   test('anything else names none', () => {
     for (const id of [null, '', 'abc', '../../etc/passwd', 'aaaaaaaa/1111', 'g'.repeat(8), 'a'.repeat(65)]) {

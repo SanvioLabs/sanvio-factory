@@ -114,7 +114,7 @@ export const SESSION = /^[0-9a-fA-F-]{8,64}$/
 
 // This session's focus file under the harness root, or null for an id that can't name one.
 export function focusFile(root: string, id: string | null): string | null {
-  return id !== null && SESSION.test(id) ? `${root}/.harness/project/${id}` : null
+  return id !== null && SESSION.test(id) ? `${root}/.sanvio/project/${id}` : null
 }
 
 // The project a focus file's text names, before the folder is checked, or null.
@@ -133,9 +133,9 @@ export function sectionText(name: string): string {
   return `The person has put projects/${name} in focus. When they ask about the project, its pull requests, its issues or its loop without naming one, they mean projects/${name}.`
 }
 
-// What /github all prints: the harness's line, each project's in name order, then the folders it couldn't read.
-export function allText(harness: string, projects: { name: string; text: string }[], withoutRemote: number, folders: number): string {
-  const lines = [`harness: ${harness}`, ...projects.map(p => `${p.name}: ${p.text}`)]
+// What /github all prints: the factory's line, each project's in name order, then the folders it couldn't read.
+export function allText(factory: string, projects: { name: string; text: string }[], withoutRemote: number, folders: number): string {
+  const lines = [`factory: ${factory}`, ...projects.map(p => `${p.name}: ${p.text}`)]
   if (folders === 0) lines.push('No folders under projects/.')
   else if (withoutRemote > 0) {
     lines.push(`${withoutRemote} ${withoutRemote === 1 ? 'folder' : 'folders'} under projects/ ${withoutRemote === 1 ? 'has' : 'have'} no GitHub remote.`)

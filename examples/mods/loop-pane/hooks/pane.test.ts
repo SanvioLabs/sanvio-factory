@@ -602,7 +602,7 @@ group('project loops', () => {
     JSON.stringify({ running: false, tmux: null, queue: [{ number: 30, title }], issues: [], ...extra })
   const JOB = { number: 12, title: 'Gate', step: 'BUILD', state: 'working', round: 1, tests: null, review: null, pr: null, note: '', window: 'issue-12' }
 
-  // What fs.stat finds directly under the harness's projects/, by name. Anything not named isn't there.
+  // What fs.stat finds directly under the factory's projects/, by name. Anything not named isn't there.
   type Kinds = Record<string, 'dir' | 'file' | 'link'>
   type Focus = {
     // This session's id, from a variable the test can change. Null is an id the engine refuses, the default.
@@ -610,7 +610,7 @@ group('project loops', () => {
     projects?: Kinds
   }
 
-  // The engine beneath the plugin: a harness whose loop files are `files`, by path, and an open pane.
+  // The engine beneath the plugin: a factory whose loop files are `files`, by path, and an open pane.
   // The folders under .loop/projects come from those paths. The test changes `files` between polls,
   // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away, refuse
   // every write or hold one open. fs.read records each path it reads, and fs.write each path and text, storing the text
@@ -699,11 +699,11 @@ group('project loops', () => {
   const POLL = 2000
 
   const twoLoops = () => new Map([
-    [`${HARNESS}/status.json`, statusText('harness job')],
+    [`${HARNESS}/status.json`, statusText('factory job')],
     [`${ALPHA}/status.json`, statusText('alpha job')],
   ])
   const threeLoops = () => new Map([
-    [`${HARNESS}/status.json`, statusText('harness job')],
+    [`${HARNESS}/status.json`, statusText('factory job')],
     [`${ALPHA}/status.json`, statusText('alpha job')],
     [`${BETA}/status.json`, statusText('beta job')],
     [`${ROOT}/.loop/projects/never-ran/notes`, 'a clone with no status file'],
@@ -714,7 +714,7 @@ group('project loops', () => {
     ((await ui.find({ key: 'loop-pick' })) as { props: { options: { value: string; label: string }[] } }).props.options
 
   test('there is no row without projects', async ($, on) => {
-    const { close } = world(on, new Map([[`${HARNESS}/status.json`, statusText('harness job')]]))
+    const { close } = world(on, new Map([[`${HARNESS}/status.json`, statusText('factory job')]]))
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
     expect(await ui.find({ key: 'loops' })).toBeUndefined()
@@ -723,7 +723,7 @@ group('project loops', () => {
     await ui.unmount()
     await close()
   })
-  test('with projects, the row names the harness then each project in order, above the tabs', async ($, on) => {
+  test('with projects, the row names the factory then each project in order, above the tabs', async ($, on) => {
     const { close } = world(on, threeLoops())
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
@@ -797,7 +797,7 @@ group('project loops', () => {
     const { close } = world(on, files)
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     await ui.select({ key: 'loop-pick', value: 'alpha' })
     await drain()
     expect(await titles(ui)).toEqual(['#30 alpha job'])
@@ -829,7 +829,7 @@ group('project loops', () => {
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
     expect(await titles(ui)).toEqual(['#30 beta job'])
-    // The harness starts: it comes first when opening, but the pane doesn't jump to it.
+    // The factory starts: it comes first when opening, but the pane doesn't jump to it.
     files.set(`${HARNESS}/lock`, '4242')
     await clock.advance(POLL)
     expect(await titles(ui)).toEqual(['#30 beta job'])
@@ -838,7 +838,7 @@ group('project loops', () => {
     expect(await titles(ui)).toEqual(['#30 beta job'])
     await clock.advance(500)
     await open($ as unknown as Dollar)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     await ui.unmount()
     await close()
   })
@@ -898,13 +898,13 @@ group('project loops', () => {
     await clock.advance(500)
     expect(await say($ as unknown as Dollar)).toBe('Loop pane opened.')
     const ui = await $.ui.mount(PANE)
-    files.set(`${HARNESS}/status.json`, statusText('harness changed'))
+    files.set(`${HARNESS}/status.json`, statusText('factory changed'))
     await clock.advance(POLL)
-    expect(await titles(ui)).toEqual(['#30 harness changed'])
+    expect(await titles(ui)).toEqual(['#30 factory changed'])
     await ui.unmount()
     await close()
   })
-  test("a picked project whose folder has gone falls back to the harness, on the harness's busiest tab", async ($, on) => {
+  test("a picked project whose folder has gone falls back to the factory, on the factory's busiest tab", async ($, on) => {
     const files = threeLoops()
     const { clock, close } = world(on, files)
     await open($ as unknown as Dollar)
@@ -915,7 +915,7 @@ group('project loops', () => {
     await drain()
     files.delete(`${ALPHA}/status.json`)
     await clock.advance(POLL)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     expect((await pickOptions(ui)).map(o => o.value)).toEqual(['', 'beta'])
     expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('')
     await ui.unmount()
@@ -924,7 +924,7 @@ group('project loops', () => {
   test('switching loops raises no toast, and a change in a loop off screen raises one with its name', async ($, on) => {
     const files = threeLoops()
     const issues = [{ ...JOB, state: 'working' }]
-    files.set(`${HARNESS}/status.json`, statusText('harness job', { issues }))
+    files.set(`${HARNESS}/status.json`, statusText('factory job', { issues }))
     files.set(`${BETA}/status.json`, statusText('beta job', { issues }))
     const { clock, toasts, close } = world(on, files)
     await open($ as unknown as Dollar)
@@ -943,7 +943,7 @@ group('project loops', () => {
     await close()
   })
 
-  // The harness and four projects, by name alpha, beta, delta, gamma.
+  // The factory and four projects, by name alpha, beta, delta, gamma.
   const project = (name: string) => `${ROOT}/.loop/projects/${name}`
   const fiveLoops = () => new Map<string, string>([
     ...threeLoops(),
@@ -1008,7 +1008,7 @@ group('project loops', () => {
       await close()
     })
   }
-  test('picking a project shows it, and picking the harness comes back', async ($, on) => {
+  test('picking a project shows it, and picking the factory comes back', async ($, on) => {
     const { close } = world(on, fiveLoops())
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
@@ -1018,7 +1018,7 @@ group('project loops', () => {
     expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('alpha')
     await ui.select({ key: 'loop-pick', value: '' })
     await drain()
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('')
     await ui.unmount()
     await close()
@@ -1153,11 +1153,11 @@ group('project loops', () => {
     await tall.unmount()
   })
 
-  // The session's project focus, the file /project and the GitHub line keep at .harness/project/<id>.
+  // The session's project focus, the file /project and the GitHub line keep at .sanvio/project/<id>.
   const A = 'aaaaaaaa-1111'
   const B = 'bbbbbbbb-2222'
-  const FOCUS = (id: string) => `${ROOT}/.harness/project/${id}`
-  const underFocus = (path: string) => path.includes('/.harness/project/')
+  const FOCUS = (id: string) => `${ROOT}/.sanvio/project/${id}`
+  const underFocus = (path: string) => path.includes('/.sanvio/project/')
   // A pick switches, then writes and reads the focus back: several engine calls, so wait out more turns.
   const settle = async () => {
     for (let i = 0; i < 10; i++) await drain()
@@ -1184,6 +1184,16 @@ group('project loops', () => {
     expect(await titles(ui)).toEqual(['#30 alpha job'])
     expect(files.get(FOCUS(A))).toBe('alpha\n')
     expect(writes).toEqual([])
+    await ui.unmount()
+    await close()
+  })
+  test('a focus left under .harness/ from before the rename no longer counts', async ($, on) => {
+    const files = betaRunning()
+    files.set(`${ROOT}/.harness/project/${A}`, 'alpha\n')
+    const { close } = world(on, files, { session: { id: A }, projects: FOLDERS })
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    expect(await pickValue(ui)).not.toBe('alpha')
     await ui.unmount()
     await close()
   })
@@ -1216,7 +1226,7 @@ group('project loops', () => {
       const { clock, reads, writes, idsAsked, close } = world(on, files, { session: { id }, projects: FOLDERS })
       await open($ as unknown as Dollar)
       const ui = await $.ui.mount(PANE)
-      expect(await titles(ui)).toEqual(['#30 harness job'])
+      expect(await titles(ui)).toEqual(['#30 factory job'])
       await ui.select({ key: 'loop-pick', value: 'alpha' })
       await settle()
       expect(await titles(ui)).toEqual(['#30 alpha job'])
@@ -1229,7 +1239,7 @@ group('project loops', () => {
       await close()
     })
   }
-  test('a change of focus moves the pane at the next read, and a cleared focus moves it to the harness', async ($, on) => {
+  test('a change of focus moves the pane at the next read, and a cleared focus moves it to the factory', async ($, on) => {
     const files = threeLoops()
     files.set(FOCUS(A), 'alpha\n')
     const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
@@ -1242,7 +1252,7 @@ group('project loops', () => {
     expect(await pickValue(ui)).toBe('beta')
     files.set(FOCUS(A), '')
     await clock.advance(POLL)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     expect(await pickValue(ui)).toBe('')
     expect(writes).toEqual([])
     await ui.unmount()
@@ -1286,7 +1296,7 @@ group('project loops', () => {
     await ui.unmount()
     await close()
   })
-  test('a pick in the dropdown or on a mobile button writes the focus, and the harness writes it empty', async ($, on) => {
+  test('a pick in the dropdown or on a mobile button writes the focus, and the factory writes it empty', async ($, on) => {
     const { writes, close } = world(on, threeLoops(), { session: { id: A }, projects: FOLDERS })
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
@@ -1380,7 +1390,7 @@ group('project loops', () => {
     await ui.unmount()
     await close()
   })
-  test('a picked loop that disappears falls back to the harness and writes nothing', async ($, on) => {
+  test('a picked loop that disappears falls back to the factory and writes nothing', async ($, on) => {
     const files = threeLoops()
     const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS })
     await open($ as unknown as Dollar)
@@ -1390,9 +1400,9 @@ group('project loops', () => {
     expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
     files.delete(`${ALPHA}/status.json`)
     await clock.advance(POLL)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     await clock.advance(POLL)
-    expect(await titles(ui)).toEqual(['#30 harness job'])
+    expect(await titles(ui)).toEqual(['#30 factory job'])
     expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
     await ui.unmount()
     await close()

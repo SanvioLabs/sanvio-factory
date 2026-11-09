@@ -1,6 +1,6 @@
 # Reporting a vulnerability
 
-Please don't open a public issue for a security problem in this harness. That
+Please don't open a public issue for a security problem in this factory. That
 includes the API security tool under [`tools/api-security/`](../tools/api-security/), its approval check,
 its workflows and the hooks.
 
@@ -12,5 +12,5 @@ can send.
 You'll get an acknowledgement, and the fix lands with a changelog entry. Its
 **Do:** line says what anyone using a copy needs to do to take it.
 
-If you've copied this harness into your own repo, report problems in your own
+If you've copied this factory into your own repo, report problems in your own
 code to whoever maintains that copy, not here.

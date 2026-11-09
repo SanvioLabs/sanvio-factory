@@ -1,7 +1,7 @@
 ---
 name: whats-new
-description: Say what's changed in this harness, and what this copy's own remote has that it doesn't yet, from CHANGELOG.md and `origin`, with what to do to take each one. Reports only, never pulls, merges or checks out. Use when someone asks "what's new", "what changed", "am I up to date", "what did I miss", or "what's changed since <date>".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+description: Say what's changed in this factory, and what this copy's own remote has that it doesn't yet, from CHANGELOG.md and `origin`, with what to do to take each one. Reports only, never pulls, merges or checks out. Use when someone asks "what's new", "what changed", "am I up to date", "what did I miss", or "what's changed since <date>".
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # What's new
@@ -93,8 +93,8 @@ for them.
   list's length. To be brief, shorten each line, never drop an entry.
 - Never call a copy up to date when step 2 failed or `origin/HEAD` didn't
   resolve. Say the remote couldn't be read.
-- Asked what the public starter has that this copy doesn't, say that's the
-  starter check, a separate skill, and don't answer it here.
+- Asked what the public Sanvio Factory has that this copy doesn't, say that's
+  [`starter-updates`](../starter-updates/SKILL.md), a separate skill, and don't answer it here.
 
 ## Output
 

@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -192,13 +193,23 @@ class SecurityReviewerShell(unittest.TestCase):
 
 
 def headless(tool, _cwd=guard.ROOT, **tool_input):
-    """The guard's verdict in a run bin/harness started, which it starts at the root."""
-    with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+    """The guard's verdict in a run bin/factory started, which it starts at the root."""
+    with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
         return guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": _cwd})
 
 
 class HeadlessRun(unittest.TestCase):
-    """A session bin/harness started: nobody watches, and what it reads was written by someone else."""
+    """A session bin/factory started: nobody watches, and what it reads was written by someone else."""
+
+    def test_the_old_name_still_makes_a_run_headless_for_a_release(self):
+        with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+            os.environ.pop("SANVIO_HEADLESS", None)
+            self.assertEqual(guard.decide({"tool_name": "Bash", "tool_input": {"command": "npm test"},
+                                           "cwd": guard.ROOT}), ("deny", guard.HEADLESS_SHELL))
+            self.assertIsNotNone(guard.headless_rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x"}}))
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "0", "HARNESS_HEADLESS": "1"}):
+            self.assertEqual(guard.decide({"tool_name": "Bash", "tool_input": {"command": "npm test"},
+                                           "cwd": guard.ROOT})[0], "deny")
 
     def test_an_exact_read_of_a_pull_request_or_issue_passes(self):
         for command in ("gh pr view 12", "gh pr view 12 --comments", "gh pr diff 12", "gh issue view 7",
@@ -219,17 +230,17 @@ class HeadlessRun(unittest.TestCase):
             self.assertIn("headless", verdict[1], command)
 
     def test_the_security_reviewers_audit_list_doesnt_open_a_headless_run(self):
-        with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
             verdict = guard.decide({"tool_name": "Bash", "tool_input": {"command": "osv-scanner scan source -r ."},
                                     "agent_type": "security-reviewer"})
         self.assertEqual(verdict, ("deny", guard.HEADLESS_SHELL))
 
     def test_a_call_the_guard_cant_read_is_refused_headless_and_let_through_otherwise(self):
         hook = [sys.executable, str(HOOKS / "guard.py")]
-        env = dict(os.environ, HARNESS_HEADLESS="1")
+        env = dict(os.environ, SANVIO_HEADLESS="1")
         result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
-        env.pop("HARNESS_HEADLESS")
+        env.pop("SANVIO_HEADLESS")
         result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30)
         self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"])
 
@@ -242,6 +253,7 @@ class HeadlessRun(unittest.TestCase):
 
     def test_outside_a_headless_run_nothing_changes(self):
         with mock.patch.dict(os.environ):
+            os.environ.pop("SANVIO_HEADLESS", None)
             os.environ.pop("HARNESS_HEADLESS", None)
             self.assertIsNone(call("Bash", command="npm test"))
             self.assertIsNone(call("Bash", command="gh pr view -R example.invalid/o/r 1"))
@@ -455,6 +467,16 @@ class HeadlessPrivate(unittest.TestCase):
         self.assertEqual(headless("Glob", pattern=".inbox/*"), denied)
         self.assertEqual(headless("Glob", pattern="**/.inbox/*"), denied)
 
+    def test_a_factory_s_folder_is_private(self):
+        # Another factory's code, cloned for its commit: a headless reader never reads, searches or lists it.
+        denied = ("deny", guard.HEADLESS_PRIVATE)
+        self.assertEqual(headless("Read", file_path="factories/build-team/run.py"), denied)
+        self.assertEqual(headless("Grep", pattern="x", path="factories"), denied)
+        self.assertEqual(headless("Grep", pattern="x", glob="{factories,*.md}"), denied)
+        self.assertEqual(headless("Glob", pattern="factories/*"), denied)
+        self.assertEqual(headless("Glob", pattern="**/factories/*"), denied)
+        self.assertIsNone(call("Read", file_path=os.path.join(guard.ROOT, "factories", "README.md")))
+
     def test_a_bare_repo_is_private_like_a_git_folder(self):
         denied = ("deny", guard.HEADLESS_PRIVATE)
         for path in ("projects/mirror.git/config", "projects/mirror.git/packed-refs", "projects/app/vendor/lib.git/config"):
@@ -476,36 +498,77 @@ class HeadlessPrivate(unittest.TestCase):
                                      ("deny", guard.HEADLESS_PRIVATE), glob)
                 self.assertIsNone(headless("Grep", _cwd=str(root), pattern="x", glob="*.md"))
 
+    def test_every_private_folder_reaches_each_list_the_guard_keeps(self):
+        # Load the guard with one more private folder: each list built from PRIVATE_FOLDERS takes it in,
+        # so a folder added in one place can't be left out of the search exclude or the refusals.
+        source = (HOOKS / "guard.py").read_text()
+        line = "PRIVATE_FOLDERS = ({})".format(", ".join('"{}"'.format(f) for f in guard.PRIVATE_FOLDERS))
+        self.assertEqual(source.count(line), 1)
+        probe = {"__name__": "guard_probe", "__file__": str(HOOKS / "guard.py")}
+        exec(compile(source.replace(line, line[:-1] + ', "vault")'), "guard.py", "exec"), probe)
+        for folder in guard.PRIVATE_FOLDERS + ("vault",):
+            self.assertIn(folder, probe["EXCLUDE_PRIVATE"].strip("!/{}").split(","), folder)
+            self.assertIn(folder, probe["PRIVATE_NAMES"], folder)
+            self.assertIn(folder, probe["PRIVATE_ENTRIES"], folder)
+            self.assertIn(folder + "/x", probe["PRIVATE_ENTRIES"], folder)
+            self.assertIn(folder + "/", probe["HEADLESS_PRIVATE"], folder)
+        self.assertEqual(guard.EXCLUDE_PRIVATE, "!/{company,local-data,.inbox,factories}")
+
     def test_a_headless_search_leaves_out_bare_repos_at_any_depth(self):
-        with mock.patch.dict(os.environ, {"HARNESS_HEADLESS": "1"}):
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
             rewrite = guard.headless_rewrite
             self.assertEqual(rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x", "path": "projects/app"}}),
-                             {"pattern": "x", "path": "projects/app", "glob": "!*.[gG][iI][tT]"})
+                             {"pattern": "x", "path": "projects/app", "glob": "!/{company,local-data,.inbox,factories} !*.[gG][iI][tT]"})
             self.assertEqual(rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x", "glob": "*.ts",
                                                                         "output_mode": "content"}}),
-                             {"pattern": "x", "glob": "*.ts !*.[gG][iI][tT]", "output_mode": "content"})
+                             {"pattern": "x", "glob": "*.ts !/{company,local-data,.inbox,factories} !*.[gG][iI][tT]", "output_mode": "content"})
             self.assertIsNone(rewrite({"tool_name": "Read", "tool_input": {"file_path": "README.md"}}))
         with mock.patch.dict(os.environ):
+            os.environ.pop("SANVIO_HEADLESS", None)
             os.environ.pop("HARNESS_HEADLESS", None)
             self.assertIsNone(guard.headless_rewrite({"tool_name": "Grep", "tool_input": {"pattern": "x"}}))
 
     def test_the_hook_passes_a_headless_search_on_changed_and_refuses_as_before(self):
         def hook(tool_input, headless_run=True):
             env = dict(os.environ)
+            env.pop("SANVIO_HEADLESS", None)
             env.pop("HARNESS_HEADLESS", None)
             if headless_run:
-                env["HARNESS_HEADLESS"] = "1"
+                env["SANVIO_HEADLESS"] = "1"
             event = {"tool_name": "Grep", "tool_input": tool_input, "cwd": guard.ROOT}
             out = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input=json.dumps(event),
                                  capture_output=True, text=True, env=env, timeout=30).stdout
             return json.loads(out)["hookSpecificOutput"] if out.strip() else None
         changed = hook({"pattern": "x", "path": "projects/app", "glob": "*.ts"})
-        self.assertEqual(changed["updatedInput"]["glob"], "*.ts !*.[gG][iI][tT]")
+        self.assertEqual(changed["updatedInput"]["glob"], "*.ts !/{company,local-data,.inbox,factories} !*.[gG][iI][tT]")
         self.assertNotIn("permissionDecision", changed)
         refused = hook({"pattern": "x", "glob": "{company,*.md}"})
         self.assertEqual(refused["permissionDecision"], "deny")
         self.assertNotIn("updatedInput", refused)
         self.assertIsNone(hook({"pattern": "x", "glob": "*.ts"}, headless_run=False))
+
+    @unittest.skipUnless(shutil.which("rg"), "ripgrep isn't installed")
+    def test_a_headless_search_of_the_root_leaves_out_the_private_folders_that_ignore_lets_back_in(self):
+        # .ignore re-includes company/ and factories/ so an ordinary session can search them, and Claude
+        # Code's Grep runs ripgrep with --hidden and --glob '!.git': measured, that searches both.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            for name in (".gitignore", ".ignore"):
+                (root / name).write_text((ROOT / name).read_text())
+            for path in ("company/COMPANY.md", "factories/build-team/app.py", "local-data/x.md", ".inbox/x.md",
+                         "steering/keep.md"):
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text("PROBEWORD\n")
+            with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
+                glob = guard.headless_rewrite({"tool_name": "Grep", "tool_input": {"pattern": "PROBEWORD"}})["glob"]
+            args = ["rg", "-l", "--hidden", "--glob", "!.git"]
+            for part in glob.split():
+                args += ["--glob", part]
+            found = subprocess.run(args + ["PROBEWORD", "."], cwd=root, capture_output=True, text=True).stdout
+            self.assertIn("./steering/keep.md", found.split())
+            for private in ("company/", "factories/", "local-data/", ".inbox/"):
+                self.assertFalse([path for path in found.split() if path.startswith("./" + private)], found)
 
     def test_the_root_ignores_bare_repos(self):
         self.assertIn("*.git/", (ROOT / ".gitignore").read_text().splitlines())
@@ -525,6 +588,24 @@ class SessionStart(unittest.TestCase):
         context = payload["hookSpecificOutput"]["additionalContext"]
         self.assertIn("git config core.hooksPath .githooks", context)
         self.assertEqual(payload["hookSpecificOutput"]["hookEventName"], "SessionStart")
+
+    def test_an_old_state_folder_is_moved_and_said_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".harness" / "factories").mkdir(parents=True)
+            first = session_start.startup(Path(tmp))
+            self.assertTrue((Path(tmp) / ".sanvio" / "factories").is_dir())
+            self.assertFalse((Path(tmp) / ".harness").exists())
+            self.assertIn("moved .harness/ to .sanvio/", first["hookSpecificOutput"]["additionalContext"])
+            again = session_start.startup(Path(tmp)) or {}
+            self.assertNotIn("moved .harness/", json.dumps(again))
+
+    def test_a_move_that_fails_is_said_with_its_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".harness").mkdir()
+            with mock.patch("os.rename", side_effect=PermissionError(13, "Permission denied")):
+                payload = session_start.startup(Path(tmp))
+            self.assertIn("couldn't move .harness/ to .sanvio/ (Permission denied)",
+                          payload["hookSpecificOutput"]["additionalContext"])
 
     def test_the_hook_runs_and_prints_json_or_nothing(self):
         out = subprocess.run([sys.executable, str(HOOKS / "session_start.py")],

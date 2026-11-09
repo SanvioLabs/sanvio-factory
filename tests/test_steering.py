@@ -32,7 +32,7 @@ class Steering(unittest.TestCase):
             self.assertEqual(link.resolve(), (ROOT / "steering" / name).resolve(), name)
 
 
-# What the starter ships. Your own files (AGENTS.md, your skills, gates and briefs)
+# What Sanvio Factory ships. Your own files (AGENTS.md, your skills, gates and briefs)
 # aren't held to the house style: an agent's em dash shouldn't fail your suite.
 SHIPPED = ["steering/*.md", "examples/**/*", "skills/orientation/*", "skills/learn/*",
            "skills/review-pr/*", "skills/review-tests/*", "skills/review-skill/*",
@@ -56,7 +56,7 @@ def ignored_by_git(paths):
 
 
 class HouseStyle(unittest.TestCase):
-    def test_no_em_dashes_in_what_the_starter_ships(self):
+    def test_no_em_dashes_in_what_sanvio_factory_ships(self):
         found = []
         paths = sorted({p for pattern in SHIPPED for p in ROOT.glob(pattern)})
         self.assertTrue(paths)

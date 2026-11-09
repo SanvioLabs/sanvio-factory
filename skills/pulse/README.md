@@ -22,15 +22,15 @@ counts only.
 ## Setting it up
 
 One person does the first two steps for the team. Everyone does the rest on each
-machine they answer from, because answering needs this harness and the folder
+machine they answer from, because answering needs this factory and the folder
 synced on that machine.
 
 1. Make a folder your team syncs, such as a shared drive folder.
 2. Copy [`questions.example.md`](questions.example.md) into it as `questions.md`, and edit it for your team.
-3. Point this harness at the folder in your shell profile, then open a new shell:
+3. Point this factory at the folder in your shell profile, then open a new shell:
 
    ```bash
-   export HARNESS_PULSE_FOLDER="/path/to/the/shared/folder"
+   export SANVIO_PULSE_FOLDER="/path/to/the/shared/folder"
    ```
 
 4. Add a `Pulse folder` row to `company/DATA.md`, with its `Cleared for this tool`
@@ -39,7 +39,7 @@ synced on that machine.
    the harness never does.
 
    ```
-   | Pulse folder | The team's daily question and everyone's answers | The synced folder HARNESS_PULSE_FOLDER names | yes |
+   | Pulse folder | The team's daily question and everyone's answers | The synced folder SANVIO_PULSE_FOLDER names | yes |
    ```
 
 5. Run `python3 scripts/pulse.py check`. It prints how many questions the bank has,

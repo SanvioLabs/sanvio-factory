@@ -38,16 +38,16 @@ Every run starts a real agent session, so a run of ten cases costs twenty. --age
 codex like loop.json's reader_agent, or any command line that reads the prompt on standard input.
 The agent is given the work's path, not its text, so it has to be able to read files: ollama can't.
 Only claude is held to read tools. --save writes the results as JSON, with the reviewer, the folder and
-when it was saved: to FILE, or with no FILE to .harness/evals/<YYYY-MM-DDTHHMM>-<reviewer>.json, with
+when it was saved: to FILE, or with no FILE to .sanvio/evals/<YYYY-MM-DDTHHMM>-<reviewer>.json, with
 a skill's colon as a hyphen, so skill:review-pr saves as ...-skill-review-pr.json. --baseline
 lists the cases whose status differs from a file saved earlier: FILE, or with latest the newest file in
-.harness/evals/ whose "reviewer" is this run's. Both defaults need every case to name the same agent or
+.sanvio/evals/ whose "reviewer" is this run's. Both defaults need every case to name the same agent or
 skill.
 
 Exits 0 when no case is failing, 1 when one is, 2 when the folder has no cases or a default is asked of
 cases for more than one reviewer. A case that names both agent and skill, or neither, raises ValueError.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import argparse
 import json
@@ -59,10 +59,11 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from loop import command, confined, result_line  # noqa: E402
+from loop import command, confined, result_line  # noqa: E402 (beside this file)
+import names  # noqa: E402 (beside this file)
 
 ROOT = Path(__file__).resolve().parent.parent
-SAVED = ROOT / ".harness" / "evals"  # where --save with no file writes, and --baseline latest reads
+SAVED = names.state_dir(ROOT) / "evals"  # where --save with no file writes, and --baseline latest reads
 TIMEOUT = 900  # seconds one agent session may take
 WHERE = re.compile(r"^\s*(?:[-*]\s+|\d+[.)]\s+)?\*\*Where:\*\*", re.M)
 CLOSING = re.compile(r"^(?:#+ |\s*(?:[-*]\s+|\d+[.)]\s+)?\*\*(?:Recommendations|Not checked|Summary):\*\*)", re.M)

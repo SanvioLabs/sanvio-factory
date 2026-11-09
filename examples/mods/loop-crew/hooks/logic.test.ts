@@ -825,15 +825,15 @@ group('the loop picker', () => {
     const entries = [{ name: 'gamma', kind: 'dir' }, { name: 'beta', kind: 'dir' }, { name: 'alpha', kind: 'dir' }, { name: 'a-file', kind: 'file' }]
     expect(await projectNames(entries, async name => name !== 'gamma')).toEqual(['alpha', 'beta'])
   })
-  test('the loops on a job come first, the harness is named by its folder, and a loop with no live lock counts none', () => {
-    const harness = loop({ status: { issues: [row({ number: 12, state: 'pr' })] } })
+  test('the loops on a job come first, the factory is named by its folder, and a loop with no live lock counts none', () => {
+    const factory = loop({ status: { issues: [row({ number: 12, state: 'pr' })] } })
     const alpha = loop({ project: 'alpha', status: { issues: [row({ number: 30 }), row({ number: 31 })] } })
     const beta = loop({ project: 'beta', isLocked: false, status: { issues: [row({ number: 40 })] } })
-    const options = loopOptions([harness, alpha, beta])
+    const options = loopOptions([factory, alpha, beta])
     expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
     expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
   })
-  test('only a listed loop is a pick: the harness by an empty value, a project by its name', () => {
+  test('only a listed loop is a pick: the factory by an empty value, a project by its name', () => {
     const loops = [loop({}), loop({ project: 'alpha' })]
     expect(isListed(loops, '')).toBe(true)
     expect(isListed(loops, 'alpha')).toBe(true)
@@ -857,8 +857,8 @@ group('the project in focus', () => {
       expect(focusName(arg)).toBeNull()
     }
   })
-  test("the focus file sits under .harness/project/, and an id SESSION refuses gives none", () => {
-    expect(focusFile('/h/starter', '0123abcd-4567')).toBe('/h/starter/.harness/project/0123abcd-4567')
+  test("the focus file sits under .sanvio/project/, and an id SESSION refuses gives none", () => {
+    expect(focusFile('/h/starter', '0123abcd-4567')).toBe('/h/starter/.sanvio/project/0123abcd-4567')
     for (const id of [null, 'short', '../../etc/passwd', 'not-hex-zzzzzzzz', '0'.repeat(65)]) {
       if (id !== null) expect(SESSION.test(id)).toBe(false)
       expect(focusFile('/h/starter', id)).toBeNull()

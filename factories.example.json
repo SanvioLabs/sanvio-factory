@@ -1,0 +1,16 @@
+{
+  "steps": [
+    {
+      "factory": "example-factory",
+      "where": "remote",
+      "commit": "0000000000000000000000000000000000000000",
+      "submit_label": "factory-ready",
+      "stopped_label": "factory:blocked",
+      "factory_login": "example-factory-bot",
+      "ci_paths": [],
+      "merge_method": "squash",
+      "time_limit_hours": 24,
+      "max_rounds": 3
+    }
+  ]
+}

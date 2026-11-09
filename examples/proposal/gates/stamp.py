@@ -11,7 +11,7 @@ frontmatter) on its `stamps:` line. Edit the text and every stamp goes stale, so
 the checks run again, in the same order. A stamp is only written when every
 check before it is fresh. `status` exits 0 only when all of them are.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 """
 import hashlib
 import json

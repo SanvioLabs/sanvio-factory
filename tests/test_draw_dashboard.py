@@ -27,7 +27,7 @@ class Picture(unittest.TestCase):
 
     def test_the_svg_is_current(self):
         self.assertTrue(draw_dashboard.SVG.read_text() == self.svg,
-                        "docs/harness-dashboard.svg isn't what the pane draws; " + RUN)
+                        "docs/factory-dashboard.svg isn't what the pane draws; " + RUN)
 
     def test_the_readme_text_is_current(self):
         self.assertTrue(draw_dashboard.details(draw_dashboard.README.read_text()) == self.text,
@@ -35,7 +35,7 @@ class Picture(unittest.TestCase):
 
     def test_the_svg_holds_no_path_or_user(self):
         for leak in (str(ROOT), str(Path.home()), getpass.getuser(), "/Users/", "/home/"):
-            self.assertNotIn(leak, self.svg, "docs/harness-dashboard.svg names a path or user: " + leak)
+            self.assertNotIn(leak, self.svg, "docs/factory-dashboard.svg names a path or user: " + leak)
 
 
 class OwnTest(unittest.TestCase):
