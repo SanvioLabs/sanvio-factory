@@ -93,6 +93,9 @@ For what the public Sanvio Factory has shipped since you copied it, ask "check
 the starter": [`skills/starter-updates/`](skills/starter-updates/) asks what you want to bring over, then lists
 each commit and says which to take.
 
+Copied before 2026-11-08, when this repo was `sanvio-harness-starter`?
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) has the steps to take the rename, in order.
+
 `python3 scripts/check_setup.py` runs the setup check on its own: Python, the
 hook, the links below, and whether `origin` is still this public repo. Make
 your own private copy before any company material goes in.

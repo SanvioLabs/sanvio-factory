@@ -422,7 +422,8 @@ class FactoryTrendsRename(unittest.TestCase):
             path = ROOT / name
             for old in self.OLD:
                 self.assertNotIn(old, name)
-                if name in ("CHANGELOG.md", "tests/test_skills.py") or not path.is_file():
+                if name in ("CHANGELOG.md", "docs/upgrading-to-sanvio-factory.md", "tests/test_skills.py") \
+                        or not path.is_file():
                     continue
                 self.assertEqual(path.read_text(errors="replace").count(old), 0, (name, old))
 

@@ -12,7 +12,7 @@ MARKET = "sanvio-factory"
 DASHBOARD = ROOT / "examples" / "mods" / "factory-dashboard"
 # The names that went, and the files allowed to keep saying them: history, and the tests that pin it.
 OLD = ("harness-dashboard", "@sanvio-harness-starter")
-HISTORY = ("CHANGELOG.md", "tests/test_factory_names.py")
+HISTORY = ("CHANGELOG.md", "docs/upgrading-to-sanvio-factory.md", "tests/test_factory_names.py")
 
 
 def tracked():
