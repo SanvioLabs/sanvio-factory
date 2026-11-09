@@ -1,8 +1,8 @@
 # Runs one pass of the loop, scripts/loop.py, on a GitHub Actions runner: one
 # ready issue, taken through plan, build, test and review, and a pull request
 # it doesn't merge. Copy it into the repo that has the issues as
-# .github/workflows/loop.yml. It lives under examples/ so it never runs in the
-# starter's own CI.
+# .github/workflows/loop.yml. It lives under examples/ so it never runs in
+# Sanvio Factory's own CI.
 #
 # Secret it needs, by name: ANTHROPIC_API_KEY, added under Settings, Secrets and
 # variables, Actions. Nothing here holds a key, and nothing should.

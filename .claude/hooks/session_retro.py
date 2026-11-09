@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Session retro: keeps the log of a session where the agent got corrected, for skills/retro/ to read.
 
-From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
-Wired in .claude/settings.json on SessionEnd and PreCompact. Off unless HARNESS_RETRO=on, because it
+Wired in .claude/settings.json on SessionEnd and PreCompact. Off unless SANVIO_RETRO=on, because it
 keeps a copy of a whole session log: everything said in it and every file it read. A session counts
 when a message the person wrote opens with "no," or carries a phrase in CORRECTIONS, or one file was
 edited EDITS_FOR_SIGNAL or more times. Its log is copied to local-data/retro/, readable by its owner
 alone, and its id listed once in local-data/retro/candidates.txt. It copies nothing unless git says
 that folder is ignored, so a .gitignore that lost the line can't put a session in a commit. A later
-run copies it again, so a session that compacted and then ended keeps all of it. A run bin/harness
+run copies it again, so a session that compacted and then ended keeps all of it. A run bin/factory
 or scripts/loop.py started is never copied: nobody corrected it. Nothing here leaves this machine.
 
 Each run also deletes whatever in local-data/retro/ is older than KEEP_DAYS, on or off, so turning it
@@ -63,8 +63,15 @@ def loop():
     return module
 
 
+def names():
+    """scripts/names.py: the switch's name."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import names as module
+    return module
+
+
 def switched_on():
-    return os.environ.get("HARNESS_RETRO", "").strip().lower() in ("on", "1", "true", "yes")
+    return names().env("RETRO").strip().lower() in ("on", "1", "true", "yes")
 
 
 def person_words(entry):
@@ -191,7 +198,7 @@ def capture(root, event, now=None):
     deadline = time.monotonic() + SCAN_SECONDS
     folder = retro_folder(root)
     prune(folder, now)
-    if not switched_on() or os.environ.get("HARNESS_HEADLESS") == "1":
+    if not switched_on() or names().headless():
         return None
     session, path = event.get("session_id"), event.get("transcript_path")
     if not isinstance(session, str) or not SESSION_ID.fullmatch(session):
@@ -302,7 +309,7 @@ def classify(root, session, out=sys.stdout, run=subprocess.run):
     reply = folder / (session + ".reply.txt")
     # A session of its own, not attached to the one running this command.
     env = {key: value for key, value in os.environ.items() if key not in OWN_SESSION}
-    env.update(HARNESS_RETRO="off", HARNESS_HEADLESS="1")
+    env.update(SANVIO_RETRO="off", SANVIO_HEADLESS="1")
     try:
         done = run(loop().confined(["claude", "-p"]), input=asked.read_text(), capture_output=True, text=True,
                    errors="replace", cwd=str(root), env=env, timeout=CLASSIFY_SECONDS)

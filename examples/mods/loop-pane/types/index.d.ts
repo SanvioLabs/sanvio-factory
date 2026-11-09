@@ -40,7 +40,7 @@ export type Status = {
 // What the pane draws from: the status file, plus whether the lock and a stop request are there.
 export type Seen = {
   root: string
-  // The project under .loop/projects/ this loop belongs to. Unset for the harness's own.
+  // The project under .loop/projects/ this loop belongs to. Unset for the factory's own.
   project?: string
   status: Status | null
   // A lock whose process is alive: the loop is running.
@@ -58,9 +58,9 @@ export type View = { tab: Tab; start: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    // seen: the loop on screen. loops: every loop's last look, the harness first. picked: the loop to
-    // show, a project's name or '' for the harness, null until the pane has opened on one. focus: the
-    // project last read from this session's .harness/project/<id>, or null, so a read can see it change.
+    // seen: the loop on screen. loops: every loop's last look, the factory first. picked: the loop to
+    // show, a project's name or '' for the factory, null until the pane has opened on one. focus: the
+    // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
     'loop-pane': { launch: string | null; seen: Seen | null; view: View | null; loops: Seen[] | null; picked: string | null; focus: string | null }
   }
 }

@@ -91,7 +91,7 @@
     ]
   },
   "extraKnownMarketplaces": {
-    "sanvio-harness-starter": {
+    "sanvio-factory": {
       "source": {
         "source": "directory",
         "path": "./"
@@ -99,10 +99,10 @@
     }
   },
   "enabledPlugins": {
-    "harness-lens@sanvio-harness-starter": true,
-    "loop-pane@sanvio-harness-starter": true,
-    "github-status@sanvio-harness-starter": true,
-    "loop-crew@sanvio-harness-starter": true,
-    "stelliad@sanvio-harness-starter": true
+    "harness-lens@sanvio-factory": true,
+    "loop-pane@sanvio-factory": true,
+    "github-status@sanvio-factory": true,
+    "loop-crew@sanvio-factory": true,
+    "stelliad@sanvio-factory": true
   }
 }

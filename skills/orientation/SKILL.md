@@ -1,7 +1,7 @@
 ---
 name: orientation
-description: Get someone ready to use this harness. Checks the clone, asks what job they want to hand to an agent, which tool they drive it with and where their company's data lives, maps how the agent can reach that data, interviews them for a short company record, then walks them through the five layers around their job, one drafted file at a time. Use when someone runs /orientation, says "get me started", "orient me", "how do I use this", "new here", "set this up for my job", or asks where to begin.
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+description: Get someone ready to use this factory. Checks the clone, asks what job they want to hand to an agent, which tool they drive it with and where their company's data lives, maps how the agent can reach that data, interviews them for a short company record, then walks them through the five layers around their job, one drafted file at a time. Use when someone runs /orientation, says "get me started", "orient me", "how do I use this", "new here", "set this up for my job", or asks where to begin.
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Orientation
@@ -61,7 +61,7 @@ Say these out loud when they show up:
 
 - **Hook FAIL.** Every check in the hook silently does nothing until they run
   the fix. Don't run it for them.
-- **Remote WARN on the public starter.** Everything in `company/` is
+- **Remote WARN on the public Sanvio Factory.** Everything in `company/` is
   gitignored, so the company record and the data map stay on their machine
   either way. Their own job's files (the five layers) are tracked, though, and
   before they push those anywhere they need their own private copy. On GitHub

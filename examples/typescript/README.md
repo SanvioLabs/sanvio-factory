@@ -54,7 +54,7 @@ runs every round and needs the network to reach the npm registry. A type error
 fails the round as surely as a failing test. [`HOW-IT-WORKS.md`](../../HOW-IT-WORKS.md) has the
 rest of the loop's settings.
 
-## How the harness checks it
+## How this repo checks it
 
 The `typescript` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs the three commands
 above on Node 22.18.0, then runs [`tests/test_typescript_example.py`](../../tests/test_typescript_example.py). That

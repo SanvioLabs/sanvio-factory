@@ -1,6 +1,7 @@
 # Search tools (ripgrep, and Claude Code's Grep, which uses it) skip anything in
-# .gitignore. projects/ and company/ are gitignored so the harness never commits
-# them, but the agent still has to search them. This file lets it. Each project's
+# .gitignore. projects/ and company/ are gitignored so this repo never commits them, but
+# the agent still has to search them. This file lets it. factories/ stays out: the harness
+# never reads a factory's checkout. Each project's
 # own .gitignore still applies inside it, so node_modules and builds stay out.
 !/projects/
 !/projects/*

@@ -41,6 +41,33 @@ class SetupCheck(unittest.TestCase):
         (self.root / ".kiro" / "steering").mkdir(parents=True)
         (self.root / ".kiro" / "steering" / "project.md").symlink_to("../../AGENTS.md")
 
+    def test_no_old_name_passes(self):
+        self.assertEqual(check_setup.check_old_names(self.root, environ={})[0], "PASS")
+
+    def test_an_old_variable_still_set_warns_with_its_new_name_and_never_its_value(self):
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "secret-ish"})
+        self.assertEqual(status, "WARN")
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+        self.assertNotIn("secret-ish", line + fix)
+
+    def test_an_old_state_folder_still_here_warns(self):
+        (self.root / ".harness").mkdir()
+        status, line, _ = check_setup.check_old_names(self.root, environ={})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+
+    def test_an_old_folder_and_an_old_variable_are_both_named(self):
+        (self.root / ".harness").mkdir()
+        status, line, fix = check_setup.check_old_names(self.root, environ={"HARNESS_RETRO": "on"})
+        self.assertEqual(status, "WARN")
+        self.assertIn(".harness/", line)
+        self.assertIn("HARNESS_RETRO", line)
+        self.assertIn("SANVIO_RETRO", fix)
+
+    def test_the_check_runs_with_the_others(self):
+        self.assertIn("names:", " ".join(line for _, line, _ in check_setup.run(self.root)))
+
     def test_python_39_passes_and_38_fails(self):
         self.assertEqual(check_setup.check_python((3, 9, 0))[0], "PASS")
         self.assertEqual(check_setup.check_python((3, 8, 18))[0], "FAIL")
@@ -76,18 +103,32 @@ class SetupCheck(unittest.TestCase):
     def test_no_remote_passes(self):
         self.assertEqual(check_setup.check_remote(self.root)[0], "PASS")
 
-    def test_the_public_starter_as_origin_warns(self):
-        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-harness-starter.git")
+    def test_the_public_factory_as_origin_warns(self):
+        self.git("remote", "add", "origin", "git@github.com:SanvioLabs/sanvio-factory.git")
         status, line, fix = check_setup.check_remote(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("public starter", line)
+        self.assertIn("public Sanvio Factory", line)
         self.assertIn("private copy", fix)
+
+    def test_its_old_address_is_not_recognised(self):
+        # A clone still on the address from before the GitHub rename is told to set the new one by the upgrade page.
+        self.git("remote", "add", "origin", "https://github.com/SanvioLabs/sanvio-harness-starter")
+        status, line, _ = check_setup.check_remote(self.root)
+        self.assertNotIn("public Sanvio Factory", line)
 
     def test_a_token_in_the_remote_url_is_never_printed(self):
         self.git("remote", "add", "origin", "https://someone:ghp_notarealtoken@github.com/acme/harness.git")
         _, line, _ = check_setup.check_remote(self.root)
         self.assertNotIn("ghp_notarealtoken", line)
         self.assertIn("https://github.com/acme/harness.git", line)
+
+    def test_a_remote_s_control_characters_print_marked(self):
+        # Before T076 a newline in origin printed a line of its own (review after Phase 13, security).
+        self.git("remote", "add", "origin", "https://gitlab.example/o/r\n- forged \x1b[2J")
+        _, line, _ = check_setup.check_remote(self.root)
+        self.assertNotIn("\n", line)
+        self.assertNotIn("\x1b", line)
+        self.assertIn("r?- forged ?[2J", line)
 
     def test_the_example_proposal_passes_the_gate_in_this_repo(self):
         self.assertEqual(check_setup.check_gate(ROOT)[0], "PASS")
@@ -138,6 +179,37 @@ class SetupCheck(unittest.TestCase):
         self.assertEqual(status, "FAIL")
         self.assertIn("https://github.com/acme/company", line)
 
+    def test_a_remote_that_isn_t_a_plain_url_prints_as_a_placeholder_in_the_command(self):
+        # Before T076 it printed the remote as it came, so a ; or $( in it ran as a command (review after
+        # Phase 13, security). Before T080 it was quoted, which fish reads otherwise, and cut after quoting
+        # (review after Phase 14, security).
+        self.fake_gh()
+        for origin in ("https://github.com/acme/co;touch x", "https://github.com/acme/co\\'\";touch pwned;#",
+                       "https://github.com/acme/" + "a" * 300):
+            with self.subTest(origin=origin[:40]):
+                shutil.rmtree(self.root / "company", ignore_errors=True)
+                self.company_repo(origin=origin)
+                _, _, fix = check_setup.check_company(self.root)
+                self.assertIn("gh repo view <company/'s origin URL> --json visibility", fix)
+                self.assertNotIn("touch", fix)
+
+    def test_a_plain_remote_prints_as_it_is_in_the_command(self):
+        self.company_repo(origin="https://github.com/acme/company.git")
+        self.fake_gh()
+        _, _, fix = check_setup.check_company(self.root)
+        self.assertIn("gh repo view https://github.com/acme/company --json visibility", fix)
+
+    def test_a_remote_starting_with_a_dash_never_reaches_gh(self):
+        # Before T080 it went to gh as a flag, --web opening a browser (review after Phase 14, security).
+        self.company_repo(origin=None)
+        with open(self.root / "company" / ".git" / "config", "a") as config:
+            config.write('[remote "origin"]\n\turl = --web\n')
+        self.fake_gh("echo PRIVATE")
+        status, _, fix = check_setup.check_company(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertFalse((self.root / "gh.args").exists())
+        self.assertIn("<company/'s origin URL>", fix)
+
     def test_a_private_company_repo_passes(self):
         self.company_repo()
         self.fake_gh("echo PRIVATE")
@@ -187,7 +259,7 @@ class SetupCheck(unittest.TestCase):
         self.git("add", "company/COMPANY.md")
         status, line, fix = check_setup.check_company(self.root)
         self.assertEqual(status, "WARN")
-        self.assertIn("committed in this harness", line)
+        self.assertIn("committed in this repo", line)
         self.assertIn("gh repo view --json visibility", fix)
 
     def test_the_company_record_never_gets_committed(self):
@@ -248,6 +320,46 @@ def run_script(*args):
 def check_lines(result):
     return [line for line in (result.stdout + result.stderr).splitlines()
             if line.startswith(("PASS", "WARN", "FAIL"))]
+
+
+class SafeUrl(unittest.TestCase):
+    def test_a_password_holding_an_at_is_never_printed(self):
+        # Before T072 the cut stopped at the first @, and the password's tail printed (review after Phase 12).
+        token = "made" + "up" + "tok" + "en42"
+        self.assertEqual(check_setup.safe_url("https://u:p@" + token + "@github.com/o/r"), "https://github.com/o/r")
+        self.assertEqual(check_setup.safe_url("git@github.com:o/r.git"), "git@github.com:o/r.git")
+
+
+# Each scrub's cases, one table for both: check_setup.py keeps its own, since it runs before the harness is
+# set up, and the two mustn't drift (review after Phase 13).
+TOKEN = "made" + "up" + "tok" + "en42"
+SCRUBS = (("https://u:p@" + TOKEN + "@github.com/o/r", "https://github.com/o/r"),
+          ("https://someone:" + TOKEN + "@gitlab.example/o/r.git", "https://gitlab.example/o/r.git"),
+          ("HTTPS://x:" + TOKEN + "@github.com/o/r", "HTTPS://github.com/o/r"),
+          ("git@github.com:o/r.git", "git@github.com:o/r.git"),
+          ("https://github.com/o/r", "https://github.com/o/r"),
+          # Before T080 a quote in a password ended the user part, and the password printed (review after
+          # Phase 14, security).
+          ("https://u:pa'ss" + TOKEN + "@github.com/o/r", "https://github.com/o/r"))
+
+
+class Scrubs(unittest.TestCase):
+    def test_a_url_on_its_own_is_cut_whatever_its_password_holds(self):
+        # A URL alone has no JSON around it, so nothing in its password ends the user part (review after
+        # Phase 14, security).
+        import loop  # noqa: E402  scripts/ is on the path
+        for held in "'\"<>":
+            url = "https://u:a" + held + TOKEN + "@github.com/o/r"
+            with self.subTest(held=held):
+                self.assertEqual(check_setup.safe_url(url), "https://github.com/o/r")
+                self.assertEqual(loop.url_alone(url), "https://github.com/o/r")
+
+    def test_both_scripts_cut_a_url_alike(self):
+        import loop  # noqa: E402  scripts/ is on the path
+        for url, want in SCRUBS:
+            with self.subTest(url=url):
+                self.assertEqual(check_setup.safe_url(url), want)
+                self.assertEqual(loop.shown_url(url), want)
 
 
 class Arguments(unittest.TestCase):

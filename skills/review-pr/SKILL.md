@@ -1,7 +1,7 @@
 ---
 name: review-pr
 description: Review a pull request against this harness's rules and the project's own standards, and return findings ranked by cost with a verdict. Reports only, never approves, merges or posts. Use when asked to review a PR, a branch or a diff, "look at PR 42", "is this ready to merge", or "what would you flag in this change".
-license: MIT. From the Sanvio Labs harness starter, https://github.com/SanvioLabs/sanvio-harness-starter
+license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 headless: true
 headless-tools: Read, Grep, Glob, Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh issue view:*)
 ---
@@ -47,7 +47,7 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
    - Tests: is the new behaviour tested, and would the test fail if it broke?
      [`skills/review-tests/`](../review-tests/) goes deeper
    - Standards: where it departs from a written standard, quote the standard
-   - The harness itself: a noticeable change with no new entry in
+   - This factory itself: a noticeable change with no new entry in
      [`CHANGELOG.md`](../../CHANGELOG.md). Its header says what counts
 5. **Decide.** **Ready**, **ready with nits**, or **changes needed**. Changes
    needed means at least one finding that would cost something real if it
@@ -68,7 +68,7 @@ To run this skill on every pull request without anyone asking,
 [`.github/workflows/`](../../.github/workflows/). It runs the skill headlessly and posts the report as one
 comment. The workflow posts; the skill still doesn't. It runs on Claude, Codex
 or a local Ollama model, chosen with the `REVIEWER` repository variable. To
-review many product repos from one harness repo instead, with no copy of the
+review many product repos from one factory repo instead, with no copy of the
 skill in each, follow [`examples/ci/README.md`](../../examples/ci/README.md).
 
 ## Rules

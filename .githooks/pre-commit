@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs before every commit, whichever agent or human is committing.
 # Git only runs it after: git config core.hooksPath .githooks
-# From the Sanvio Labs harness starter, MIT: https://github.com/SanvioLabs/sanvio-harness-starter
+# From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
 status=0
 # One name per line. R lists a renamed file under its new name, T a file whose

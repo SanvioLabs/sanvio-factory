@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize the Claude Code tokens spent under this harness, as Markdown.
+"""Summarize the Claude Code tokens spent under this repo, as Markdown.
 
     python3 scripts/token_report.py                    # the last 14 days
     python3 scripts/token_report.py --since 2026-10-01
@@ -7,7 +7,7 @@
 
 Reads Claude Code's own transcripts, ~/.claude/projects/**/*.jsonl, subagents
 included, and counts the tokens on each reply whose working folder is this
-harness: conversations at its root, each repo under projects/, and each issue
+repo: conversations at its root, each repo under projects/, and each issue
 the loop built in its worktrees. Nothing it prints holds a prompt, a reply, a
 file path or a line of code: counts, model names, session ids, issue names,
 and for the loop, estimated dollars. Claude Code only: Codex, Kiro and other
@@ -16,7 +16,7 @@ run recorded in .loop/**/usage.json, not what was billed; a conversation's
 transcript carries no cost, so it stays in tokens. A last section splits the
 sessions started at the root, including after they move into projects/, by
 subagent type, skill and slash command, a skill's or command's share attributed
-from where it started to the next prompt. The skills/harness-trends/ skill runs
+from where it started to the next prompt. The skills/factory-trends/ skill runs
 this next to usage_report.py.
 """
 import argparse
@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from loop import load_config, usage_totals  # noqa: E402 (needs scripts/ on the path first)
 from usage_report import since_date  # noqa: E402 (same reason)
+import names  # noqa: E402 (same reason)
 
 # The four counts on a reply's message.usage, with the names the tables give them.
 FIELDS = (("input_tokens", "Input"), ("output_tokens", "Output"),
@@ -43,15 +44,23 @@ ATTRIBUTED = ("Attributed from where each started to the next prompt, not measur
 
 
 def loop_dir(root):
-    """Where the loop puts its worktrees: worktree_dir from loop.json, or ~/.harness-loop/<root's name>."""
+    """Where the loop puts its worktrees: worktree_dir from loop.json, or ~/.sanvio-loop/<root's name>."""
     configured = load_config(root).get("worktree_dir")
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".harness-loop" / Path(root).name
+    return names.loop_home() / Path(root).name
+
+
+def loop_dirs(root):
+    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or the home folder."""
+    configured = load_config(root).get("worktree_dir")
+    if configured:
+        return [Path(configured).expanduser()]
+    return [names.loop_home() / Path(root).name]
 
 
 def usage_files(root):
-    """(issue, path) for every usage.json the loop wrote: issue-N for the harness, <name>/issue-N for a project."""
+    """(issue, path) for every usage.json the loop wrote: issue-N for this repo, <name>/issue-N for a project."""
     state = Path(root) / ".loop"
     paths = [(p.parent.name, p) for p in state.glob("issue-*/usage.json")]
     paths += [("{}/{}".format(p.parent.parent.name, p.parent.name), p) for p in state.glob("projects/*/issue-*/usage.json")]
@@ -165,25 +174,27 @@ def read_file(path, nested):
 
 
 def group(entry, root, loop_dir):
-    """(group, row) for the folder this reply ran in, or None when it ran outside the harness.
+    """(group, row) for the folder this reply ran in, or None when it ran outside this repo.
 
-    The loop's folder is checked first, because a worktree_dir set in loop.json can sit inside
-    the root.
+    loop_dir is one folder or a list of them. The loop's folders are checked first, because a
+    worktree_dir set in loop.json can sit inside the root.
     """
     cwd = entry.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         return None
     try:
         here = Path(cwd).resolve()
-        root, loop_dir = Path(root).resolve(), Path(loop_dir).resolve()
+        root = Path(root).resolve()
+        loops = [Path(one).resolve() for one in (loop_dir if isinstance(loop_dir, (list, tuple)) else [loop_dir])]
     except (OSError, RuntimeError, ValueError):
         return None
-    if here != loop_dir and here.is_relative_to(loop_dir):
-        parts = here.relative_to(loop_dir).parts
-        # A project's worktrees sit one folder down, in <project>/issue-N.
-        if not parts[0].startswith("issue-") and len(parts) > 1:
-            return ("Loop", "{}/{}".format(parts[0], parts[1]))
-        return ("Loop", parts[0])
+    for loop in loops:
+        if here != loop and here.is_relative_to(loop):
+            parts = here.relative_to(loop).parts
+            # A project's worktrees sit one folder down, in <project>/issue-N.
+            if not parts[0].startswith("issue-") and len(parts) > 1:
+                return ("Loop", "{}/{}".format(parts[0], parts[1]))
+            return ("Loop", parts[0])
     projects = root / "projects"
     if here != projects and here.is_relative_to(projects):
         return ("projects/", here.relative_to(projects).parts[0])
@@ -473,7 +484,7 @@ def report(entries, since, until, root, loop_dir, costs=None, activity=None):
         n = sum(values)
         name, row = found
         rows = groups[name]
-        row = row or "This harness"
+        row = row or "This repo"
         rows[row] = [a + b for a, b in zip(rows.get(row, [0] * len(FIELDS)), values)]
         total += n
         model = entry["message"].get("model")
@@ -489,7 +500,7 @@ def report(entries, since, until, root, loop_dir, costs=None, activity=None):
             issues[row] += n
 
     if not any(groups.values()) and not costs:
-        return "No Claude Code usage under this harness since {}.".format(since)
+        return "No Claude Code usage under this repo since {}.".format(since)
 
     out = ["# Claude Code tokens, {} to {}".format(since, until), "",
            "Total: {:,} tokens across {} sessions.".format(total, len(sessions)), ""]
@@ -518,7 +529,7 @@ def main(argv=None):
     parser.add_argument("--projects", default=str(Path.home() / ".claude" / "projects"),
                         help="Claude Code's transcripts folder, if not ~/.claude/projects")
     args = parser.parse_args(argv)
-    projects, loops = Path(args.projects).expanduser(), loop_dir(ROOT)
+    projects, loops = Path(args.projects).expanduser(), loop_dirs(ROOT)
     entries = read(projects, args.since)
     print(report(entries, args.since, today.isoformat(), ROOT, loops, loop_costs(ROOT, args.since),
                  activity(projects, args.since, ROOT, loops)))
