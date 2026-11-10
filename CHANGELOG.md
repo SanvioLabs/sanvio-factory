@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Upgrading with your own marketplace
+
+The upgrade guide's step 4 now covers a copy that publishes its mods under its
+own marketplace name: it keeps that name and runs `claude plugin update` for
+each mod instead of removing and adding a marketplace. A new section says a
+copy that changes a mod bumps that mod's version, or installed copies can stay
+on the old code.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy publishes its mods under its own marketplace name and has
+taken the rename, run `claude plugin update <mod>@<your marketplace>` for each
+installed mod. If your copy changed a mod, bump its version.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
