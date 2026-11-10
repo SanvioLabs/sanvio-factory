@@ -100,6 +100,15 @@ person decides and runs every command that changes a file here.
    git -C "$clone" show --format= "$sha"
    ```
 
+   For one file, set `path` to it and run:
+
+   ```bash
+   git -C "$clone" log --format='%H %s' "$base"..origin/main -- "$path"
+   ```
+
+   It lists every commit since the baseline that touches one file. Step 9
+   uses it.
+
    An empty list means upstream has shipped nothing since the baseline.
    Say so, with the baseline, and go on to step 6, so a copy level with
    upstream is still offered what it lacks. Stop there only if no capability has
@@ -243,6 +252,13 @@ person decides and runs every command that changes a file here.
      window is treated the same way.
    - **A yes on a path here that didn't exist at the baseline:** step 8, never
      a `cp`.
+   - **A file named as part of a named change,** such as an update window's
+     updates, or a change the person names, such as "the rename": run step 4's
+     command for that one file. Each commit it lists that isn't part of that
+     change rides along when the file is taken. Name each one under the file,
+     by its [`CHANGELOG.md`](../../CHANGELOG.md) entry name, or by its subject if it has none, as
+     `also brings: <name>`. Don't leave the file out for it: the person
+     decides.
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      upstream: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
@@ -280,6 +296,8 @@ The baseline and how it was found. Then, leaving out any with nothing in it:
   with what it gives and the commands for its missing paths.
 - **Updates to what you have:** each yes, with its commands from step 9.
 - What `cp` doesn't bring, for anything taken in those two.
+- Under each file taken as part of a named change, what else it brings, as
+  step 9 says: one `also brings: <name>` line for each.
 - One line each for what they said no to and what's undecided.
 
 Then each commit, oldest first: its subject, its changelog entry name and

@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Say what else the rename's files bring
+
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) gains *What else the rename's files carry*: a table of the other 2026-11-08 changes that come with the rename's files, such as dispatch in [`scripts/factories.py`](scripts/factories.py) and standup's saved answers, each named by its entry here. A copy that takes the rename with "check the starter" sees what it's taking. The starter-updates skill now runs one `git log` for each file it names as part of a change, and lists every other commit on that file as "also brings". A new test fails if the table names an entry that isn't a heading here, or links a file that doesn't exist.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
