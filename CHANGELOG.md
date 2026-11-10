@@ -44,6 +44,17 @@ Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`HOW-IT-WORKS.
 
 **Do:** nothing.
 
+## 2026-11-10: Starter updates fit on one screen
+
+`starter-updates` keeps each question window to at most 60 words, and an
+update window names its updates only, 8 at most, with the rest behind *Show me
+the changes*. The commit list is one line per commit. The windows, options,
+recommendations and rules are unchanged.
+
+Files: [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-10: CI's checks run on Ubuntu 24.04
 
 GitHub's `ubuntu-latest` runner moved to Ubuntu 26.04, which has no Python
