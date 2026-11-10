@@ -127,6 +127,36 @@ one. In place of step 2, and for item 6 also step 11:
    still counts. If `env` prints `HARNESS_USAGE_LOG=off`, rename it anyway,
    as step 5 says.
 
+### What else the rename's files carry
+
+Some of the rename's files also carry changes from other features. Taking
+those files brings these changes too. The table covers changes whose
+[`CHANGELOG.md`](../CHANGELOG.md) heading is dated 2026-11-08 or 2026-11-09, each
+named by its entry so you can read its **Do:** line. For anything later, the
+starter-updates skill lists each other commit on a file it names as "also
+brings".
+
+| File | Also brings | Entry |
+|---|---|---|
+| [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) | A headless run is kept out of [`factories/`](../factories/), as it is `company/` | `2026-11-08: Hand an issue to another factory` |
+| [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) | A headless `Grep` leaves out `company/`, `local-data/`, `.inbox/` and [`factories/`](../factories/) | `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`.gitignore`](../.gitignore) | `factories.json` is ignored | `2026-11-08: Hand an issue to another factory` |
+| [`.gitignore`](../.gitignore) | `reports/standup/*` is ignored | `2026-11-08: Standup remembers what you already settled` |
+| [`scripts/factories.py`](../scripts/factories.py) | The whole dispatch feature, and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
+| [`scripts/loop.py`](../scripts/loop.py), [`scripts/check_setup.py`](../scripts/check_setup.py) | A round on an open pull request, and `review --pr N` | `2026-11-08: The loop takes a round on an open pull request` |
+| [`skills/starter-updates/capabilities.md`](../skills/starter-updates/capabilities.md) | The Factories row | `2026-11-08: Hand an issue to another factory` |
+| [`README.md`](../README.md), [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), [`AGENTS.md`](../AGENTS.md) | Text for dispatch and the headless search | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) | Text for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
+| [`skills/standup/SKILL.md`](../skills/standup/SKILL.md) | Standup keeps its answers in `reports/standup/answers.jsonl` and doesn't ask again about an item you settled | `2026-11-08: Standup remembers what you already settled` |
+| [`.gitignore`](../.gitignore) | [`factories/`](../factories/) is ignored apart from its README | `2026-11-08: Hand an issue to another factory` |
+| [`.ignore`](../.ignore) | A comment saying searches leave out [`factories/`](../factories/) | `2026-11-08: Hand an issue to another factory` |
+| [`skills/dispatch/SKILL.md`](../skills/dispatch/SKILL.md), [`docs/maintaining.md`](maintaining.md) | The whole file: each is new with dispatch | `2026-11-08: Hand an issue to another factory` |
+| [`factories/README.md`](../factories/README.md) | The whole page, new with dispatch, and its *What the factory must do* | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`tests/test_agent_hooks.py`](../tests/test_agent_hooks.py) | The tests for the guard's two changes above | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`tests/test_factories.py`](../tests/test_factories.py) | The tests for dispatch and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
+| [`tests/test_loop.py`](../tests/test_loop.py), [`tests/test_check_setup.py`](../tests/test_check_setup.py) | The tests for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
+| [`.claude/settings.json`](../.claude/settings.json), [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | factory-floor switched on, and the two loop mods it replaced switched off and no longer listed | `2026-11-09: Factory floor` |
+
 ## The steps
 
 1. **Stop what's running.** Stop the loop and its review watcher if they're

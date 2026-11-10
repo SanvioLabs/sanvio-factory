@@ -218,6 +218,18 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), ["adapted"])
         self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), ["same"])
 
+    def test_one_files_commits_leave_out_another_files(self):
+        found = {}
+        for name in ("one.md", "two.md"):
+            (self.starter / name).write_text(name + ", changed upstream\n")
+            self.git(self.starter, "add", name)
+            self.git(self.starter, "commit", "-q", "-m", "touch " + name)
+            found[name] = self.head(self.starter)
+        self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
+        cmd = self.command("git -C \"$clone\" log --format='%H %s' \"$base\"..origin/main --")
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), [found["two.md"] + " touch two.md"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), [found["one.md"] + " touch one.md"])
+
     CAPABILITIES = 'git -C "$clone" show origin/main:skills/starter-updates/capabilities.md'
 
     def test_the_capabilities_table_is_read_from_the_clone(self):

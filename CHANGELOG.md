@@ -108,6 +108,17 @@ Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.
 
 **Do:** nothing.
 
+## 2026-11-09: Say what else the rename's files bring
+
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) gains *What else the rename's files carry*:
+a table of the other changes dated 2026-11-08 or 2026-11-09 that come with the
+rename's files, each named by its entry here. The starter-updates skill now
+lists every other commit on a file it names as "also brings".
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
