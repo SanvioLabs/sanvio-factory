@@ -79,16 +79,22 @@ group('the document', () => {
 
 group('newer', () => {
   test('a document from a newer script says so in yellow', () => {
-    const found = newer({ ...DOC, schema: 2 })
+    const found = newer({ ...DOC, schema: 3 })
     expect(found?.tone).toBe('now')
     expect(found?.text).toContain('dashboard_data.py is newer')
   })
+  test('a document from an older script says so in yellow', () => {
+    const found = newer({ ...DOC, schema: 1 })
+    expect(found?.tone).toBe('now')
+    expect(found?.text).toContain('older than this pane')
+  })
   test('one with no schema, or the one this pane reads, says nothing', () => {
     expect(newer(DOC)).toBeNull()
-    expect(newer({ ...DOC, schema: 1 })).toBeNull()
+    expect(newer({ ...DOC, schema: 2 })).toBeNull()
   })
-  test('a newer document still draws every section', () => {
-    expect(sections({ ...DOC, schema: 2 })).toEqual(sections(DOC))
+  test('a newer or older document still draws every section', () => {
+    expect(sections({ ...DOC, schema: 1 })).toEqual(sections(DOC))
+    expect(sections({ ...DOC, schema: 3 })).toEqual(sections(DOC))
   })
 })
 
