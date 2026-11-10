@@ -100,6 +100,11 @@ person decides and runs every command that changes a file here.
    git -C "$clone" show --format= "$sha"
    ```
 
+   An empty list means upstream has shipped nothing since the baseline.
+   Say so, with the baseline, and go on to step 6, so a copy level with
+   upstream is still offered what it lacks. Stop there only if no capability has
+   a path missing, or the table isn't there to say.
+
    For one file, set `path` to it and run:
 
    ```bash
@@ -108,11 +113,6 @@ person decides and runs every command that changes a file here.
 
    It lists every commit since the baseline that touches one file. Step 9
    uses it.
-
-   An empty list means upstream has shipped nothing since the baseline.
-   Say so, with the baseline, and go on to step 6, so a copy level with
-   upstream is still offered what it lacks. Stop there only if no capability has
-   a path missing, or the table isn't there to say.
 5. **Find the files this copy adapted.** For each file a commit touches, set
    `path` to it and check, from the harness root:
    - Did it exist at the baseline? If not, it's new upstream. If a file

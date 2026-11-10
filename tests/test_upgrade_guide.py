@@ -18,7 +18,8 @@ def table_rows():
             break
         if line.startswith("|"):
             rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
-    return rows[2:]  # the header and the |---| line
+    # Drop the header and the |---| line by what they are, so a lost separator can't take a real row with it.
+    return [row for row in rows if row != ["File", "Also brings", "Entry"] and not all(set(cell) <= set("-:") for cell in row)]
 
 
 class WhatElseTheRenamesFilesCarry(unittest.TestCase):

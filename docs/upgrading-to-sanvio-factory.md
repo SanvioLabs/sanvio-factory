@@ -89,7 +89,7 @@ Some of the rename's files also carry changes from other features, made in the s
 | [`README.md`](../README.md), [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), [`AGENTS.md`](../AGENTS.md) | Text for dispatch and the headless search | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
 | [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) | Text for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
 | [`skills/standup/SKILL.md`](../skills/standup/SKILL.md) | Standup keeps its answers in `reports/standup/answers.jsonl` and doesn't ask again about an item you settled | `2026-11-08: Standup remembers what you already settled` |
-| [`.gitignore`](../.gitignore) | `factories/` is ignored apart from its README | `2026-11-08: Hand an issue to another factory` |
+| [`.gitignore`](../.gitignore) | [`factories/`](../factories/) is ignored apart from its README | `2026-11-08: Hand an issue to another factory` |
 | [`.ignore`](../.ignore) | A comment saying searches leave out [`factories/`](../factories/) | `2026-11-08: Hand an issue to another factory` |
 | [`skills/dispatch/SKILL.md`](../skills/dispatch/SKILL.md), [`docs/maintaining.md`](maintaining.md) | The whole file: each is new with dispatch | `2026-11-08: Hand an issue to another factory` |
 | [`factories/README.md`](../factories/README.md) | The whole page, new with dispatch, and its *What the factory must do* | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
