@@ -97,6 +97,17 @@ installed mod your `marketplace.json` still lists. If you used the dashboard,
 also `/plugin install factory-dashboard@<your marketplace>`, since it replaces
 `harness-dashboard`. If your copy changed a mod, bump its version.
 
+## 2026-11-09: Upgrade guide stays on GitHub
+
+The upgrade guide now says at the top that its links point at Sanvio
+Factory's own files and that it's read on GitHub, not copied. `starter-updates`
+no longer names a `cp` or a diff for it in step 9. It gives the guide's GitHub
+address instead, and the guide's commits still appear with their answers.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces

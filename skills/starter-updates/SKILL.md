@@ -243,6 +243,12 @@ person decides and runs every command that changes a file here.
      window is treated the same way.
    - **A yes on a path here that didn't exist at the baseline:** step 8, never
      a `cp`.
+   - **[`docs/upgrading-to-sanvio-factory.md`](https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md):** name no `cp` and no diff for it,
+     adapted or not, in place of the commands above. Its links point at Sanvio
+     Factory's own files, so it's read where it lives, at
+     `https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md`.
+     Give that address instead. Its commits stay on the list with their
+     answers from step 7.
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      upstream: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
