@@ -1,6 +1,8 @@
 """Run with: python3 -m unittest discover -s tests"""
 import ast
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -128,8 +130,8 @@ class Warning(unittest.TestCase):
         self.dir = Path(tmp.name)
         self.said = []
 
-    def warn(self, environ, session=101):
-        return names.warn_old_once(environ, marker_dir=self.dir, session=session, write=self.said.append)
+    def warn(self, environ, session=101, day="20261109"):
+        return names.warn_old_once(environ, marker_dir=self.dir, session=session, write=self.said.append, day=day)
 
     def test_an_old_name_alone_warns_once_naming_both(self):
         self.assertEqual(self.warn({"HARNESS_RETRO": "on"}), ["HARNESS_RETRO"])
@@ -178,6 +180,53 @@ class Warning(unittest.TestCase):
             names.logging_off()
         warn.assert_called_once_with()
 
+    def test_an_old_days_marker_does_not_silence_a_later_shell(self):
+        self.warn({"HARNESS_RETRO": "on"}, day="20261108")
+        self.warn({"HARNESS_RETRO": "on"}, day="20261109")
+        self.assertEqual(len(self.said), 2, "a reused session number on a later day is told again")
+
+    @unittest.skipUnless(hasattr(os, "getuid"), "no user ids here")
+    def test_another_users_marker_does_not_silence_this_shell(self):
+        (self.dir / "sanvio-old-names-101-20261109").touch()
+        with mock.patch.object(names.os, "getuid", return_value=os.getuid() + 1):
+            self.assertEqual(self.warn({"HARNESS_RETRO": "on"}), ["HARNESS_RETRO"])
+        self.assertEqual(len(self.said), 1)
+
+    def test_only_a_hook_counts_as_one(self):
+        hooks = ROOT / ".claude" / "hooks"
+        self.assertTrue(names.in_a_hook([str(hooks / "usage_log.py")]))
+        self.assertTrue(names.in_a_hook([str(hooks / "session_retro.py")]))
+        for argv in ([str(ROOT / "scripts" / "pulse.py")], [str(ROOT / "hooks" / "x.py")], [""], []):
+            with self.subTest(argv=argv):
+                self.assertFalse(names.in_a_hook(argv))
+
+    def test_a_hook_reads_without_checking(self):
+        with mock.patch.object(names, "_checked", False), mock.patch.object(names, "in_a_hook", return_value=True), \
+                mock.patch.object(names, "warn_old_once") as warn:
+            names.env("RETRO")
+            names.logging_off()
+        warn.assert_not_called()
+
+    def test_the_hooks_say_nothing_and_leave_the_marker_unwritten(self):
+        project = self.dir / "project"
+        project.mkdir()
+        markers = self.dir / "tmp"
+        markers.mkdir()
+        environ = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("SANVIO_", "HARNESS_"))}
+        environ.update(HARNESS_RETRO="on", HARNESS_PULSE_FOLDER="/p", SANVIO_USAGE_LOG="off",
+                       TMPDIR=str(markers), CLAUDE_PROJECT_DIR=str(project))
+        for hook, event in (("usage_log.py", {"hook_event_name": "PreToolUse", "tool_name": "Skill",
+                                              "tool_input": {"skill": "learn"}}),
+                            ("session_retro.py", {"hook_event_name": "SessionEnd", "session_id": "s1"})):
+            with self.subTest(hook=hook):
+                result = subprocess.run([sys.executable, str(ROOT / ".claude" / "hooks" / hook)],
+                                        input=json.dumps(event), capture_output=True, text=True,
+                                        env=environ, timeout=30)
+                self.assertEqual(result.returncode, 0)
+                self.assertNotIn("HARNESS_", result.stderr)
+                self.assertEqual(list(markers.glob("sanvio-old-names-*")), [])
+
 
 class TheModule(unittest.TestCase):
     def test_it_imports_the_standard_library_only(self):
@@ -188,7 +237,7 @@ class TheModule(unittest.TestCase):
                 found.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 found.add((node.module or "").split(".")[0])
-        self.assertLessEqual(found, {"os", "pathlib"})
+        self.assertLessEqual(found, {"os", "pathlib", "sys", "time"})
 
 
 if __name__ == "__main__":

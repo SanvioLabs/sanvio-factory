@@ -34,9 +34,11 @@ The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
 when only the old `HARNESS_` name is set, naming both. This works whether or not
 your copy has `check_setup.py`. `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
 still count, so they don't warn. `pulse.py` now reads its folder through the
-same names.
+same names. The hooks in `.claude/hooks/` never warn, because Claude Code
+doesn't show their stderr, so the warning comes from a script you run. A shell
+left open past midnight is told again the next day.
 
-Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** rename any old variable it names, in your shell profile: for example
 `HARNESS_RETRO` becomes `SANVIO_RETRO`.

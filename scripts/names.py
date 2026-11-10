@@ -6,11 +6,14 @@ stricter: HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=o
 off. The old names are kept here so
 .claude/hooks/session_start.py can move a leftover .harness/ across once, scripts/check_setup.py can
 name any old variable still set, which now does nothing, and the first script that reads a person's own
-variable can warn about one once per shell.
+variable can warn about one once per shell. The hooks in .claude/hooks/ never warn: Claude Code doesn't
+show a hook's stderr, so a warning there would use up the shell's one telling where nobody sees it.
 
 Standard library only: the hooks and the loop import it, and so does a fresh clone before setup.
 """
 import os
+import sys
+import time
 from pathlib import Path
 
 STATE, OLD_STATE = ".sanvio", ".harness"
@@ -80,7 +83,33 @@ def check_real_environment():
     if _checked:
         return
     _checked = True
-    warn_old_once()
+    if not in_a_hook():
+        warn_old_once()
+
+
+def in_a_hook(argv=None):
+    """The program running is one of the Claude Code hooks in a .claude/hooks/ folder. They read the
+    variables on every event, and Claude Code shows their stderr to nobody, so they stay silent and
+    leave the shell's marker for a script whose warning a person reads."""
+    argv = getattr(sys, "argv", None) if argv is None else argv
+    if not argv or not argv[0]:
+        return False
+    try:
+        folder = Path(argv[0]).resolve().parent
+    except (OSError, RuntimeError):
+        return False
+    return folder.name == "hooks" and folder.parent.name == ".claude"
+
+
+def mine(path):
+    """The file is this user's own. Where /tmp is shared, another user's file of the same name says
+    nothing about this shell."""
+    if not hasattr(os, "getuid"):
+        return True
+    try:
+        return os.lstat(path).st_uid == os.getuid()
+    except OSError:
+        return False
 
 
 def to_stderr(text):
@@ -90,11 +119,13 @@ def to_stderr(text):
         pass  # nowhere to say it: the script goes on as it would have
 
 
-def warn_old_once(environ=None, marker_dir=None, session=None, write=None):
+def warn_old_once(environ=None, marker_dir=None, session=None, write=None, day=None):
     """Say on stderr which old variables are set without their new names, once per shell, and return
     them. HARNESS_USAGE_LOG set to off isn't named: it still switches the log off. HARNESS_HEADLESS
     isn't a person's own variable, so it never is. A marker file named for the terminal session makes
-    it once per shell, because a script can't change its shell's environment."""
+    it once per shell, because a script can't change its shell's environment. The day is in its name
+    too: macOS seldom empties $TMPDIR, so a later shell given the same session number isn't silenced
+    by an old marker, and a shell left open overnight is told again the next day."""
     environ = os.environ if environ is None else environ
     old = [variable for variable in old_variables(environ)
            if not (variable == OLD_PREFIX + "USAGE_LOG" and environ[variable].strip().lower() in OFF)]
@@ -104,11 +135,15 @@ def warn_old_once(environ=None, marker_dir=None, session=None, write=None):
         marker_dir = os.environ.get("TMPDIR") or "/tmp"
     if session is None:
         session = os.getsid(0) if hasattr(os, "getsid") else os.getppid()
-    marker = os.path.join(str(marker_dir), "sanvio-old-names-{}".format(session))
+    if day is None:
+        day = time.strftime("%Y%m%d")
+    marker = os.path.join(str(marker_dir), "sanvio-old-names-{}-{}".format(session, day))
     try:
         os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
     except FileExistsError:
-        return []  # this shell has been told already
+        if mine(marker):
+            return []  # this shell has been told already
+        # someone else's file: it can't say this shell was told, so say it
     except OSError:
         pass  # no marker, so it may say it again: better than never saying it
     write = write or to_stderr
