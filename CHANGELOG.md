@@ -39,7 +39,9 @@ Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.
 
 **Do:** if your copy publishes its mods under its own marketplace name and has
 taken the rename, run `claude plugin update <mod>@<your marketplace>` for each
-installed mod. If your copy changed a mod, bump its version.
+installed mod your `marketplace.json` still lists. If you used the dashboard,
+also `/plugin install factory-dashboard@<your marketplace>`, since it replaces
+`harness-dashboard`. If your copy changed a mod, bump its version.
 
 ## 2026-11-09: Factory floor
 

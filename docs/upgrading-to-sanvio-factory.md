@@ -113,13 +113,20 @@ one. In place of step 2:
    `git checkout .claude/settings.json` puts it back.
 
    **Your copy publishes its mods under its own marketplace name?** Then it
-   has no `sanvio-harness-starter` to remove and no `sanvio-factory` to add.
-   Skip 4.1 to 4.3, and keep your own `name` in
-   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json). Because nothing is removed and
-   added again, the line above about skipping `claude plugin update` doesn't
-   apply to you: run `claude plugin update <mod>@<your marketplace>` for every
-   mod you have installed, then do 4.4. Wherever this page says
-   `@sanvio-factory`, use your own marketplace name.
+   has no `sanvio-harness-starter` to remove and no `sanvio-factory` to add,
+   so decline the session's offer to add `sanvio-factory`, now and later.
+   Skip 4.1 and 4.2, and keep your own `name` in
+   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json). Still do 4.3 if you used the
+   dashboard, with your own marketplace name:
+   `/plugin install factory-dashboard@<your marketplace>`. `factory-dashboard`
+   replaces `harness-dashboard`, which the marketplace no longer lists, so no
+   update moves you to it; `/plugin uninstall harness-dashboard@<your marketplace>`
+   then removes the old one, which still reads `.harness/`. Because nothing
+   is removed and added again, the line above about skipping
+   `claude plugin update` doesn't apply to you: run
+   `claude plugin update <mod>@<your marketplace>` for every mod you have
+   installed that your `marketplace.json` still lists, then do 4.4. Wherever
+   this page says `@sanvio-factory`, use your own marketplace name.
 5. **Rename your variables.** In your shell profile, on each machine you use,
    change each `HARNESS_` variable in the table to its `SANVIO_` name. The old
    ones do nothing now, except that `HARNESS_USAGE_LOG=off` still keeps the log
