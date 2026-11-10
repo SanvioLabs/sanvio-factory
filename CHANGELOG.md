@@ -36,7 +36,8 @@ your copy has [`scripts/check_setup.py`](scripts/check_setup.py). `HARNESS_HEADL
 still count, so they don't warn. [`scripts/pulse.py`](scripts/pulse.py) now reads its folder through the
 same names. The hooks in [`.claude/hooks/`](.claude/hooks/) never warn, because Claude Code
 doesn't show their stderr, so the warning comes from a script you run. A shell
-left open past midnight is told again the next day.
+left open past midnight is told again the next day. Under Claude Code, where
+each command runs in a shell of its own, it's once a day.
 
 Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 

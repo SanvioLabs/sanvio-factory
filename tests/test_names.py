@@ -145,6 +145,23 @@ class Warning(unittest.TestCase):
         self.assertEqual(len(self.said), 2)
         self.assertIn("SANVIO_EVALS_HOME", self.said[1])
 
+    def test_under_claude_code_each_command_is_not_told_again(self):
+        # Claude Code gives each Bash call a session of its own (review of #477), so the shell's session
+        # can't be what makes it once.
+        environ = {"HARNESS_RETRO": "on", "CLAUDECODE": "1"}
+        with mock.patch.object(names.os, "getsid", side_effect=[101, 202, 303], create=True), \
+                mock.patch.object(names.os, "getppid", side_effect=[101, 202, 303]):
+            for _ in range(3):
+                self.warn(environ, session=None)
+        self.assertEqual(len(self.said), 1)
+
+    def test_outside_claude_code_each_shell_is_told(self):
+        with mock.patch.object(names.os, "getsid", side_effect=[101, 202], create=True), \
+                mock.patch.object(names.os, "getppid", side_effect=[101, 202]):
+            self.warn({"HARNESS_RETRO": "on"}, session=None)
+            self.warn({"HARNESS_RETRO": "on"}, session=None)
+        self.assertEqual(len(self.said), 2)
+
     def test_the_two_that_still_count_do_not_warn(self):
         for environ in ({"HARNESS_HEADLESS": "1"}, {"HARNESS_USAGE_LOG": "off"}, {"HARNESS_USAGE_LOG": " No "}):
             with self.subTest(environ=environ):

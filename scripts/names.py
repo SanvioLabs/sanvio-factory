@@ -125,7 +125,9 @@ def warn_old_once(environ=None, marker_dir=None, session=None, write=None, day=N
     isn't a person's own variable, so it never is. A marker file named for the terminal session makes
     it once per shell, because a script can't change its shell's environment. The day is in its name
     too: macOS seldom empties $TMPDIR, so a later shell given the same session number isn't silenced
-    by an old marker, and a shell left open overnight is told again the next day."""
+    by an old marker, and a shell left open overnight is told again the next day. Under Claude Code
+    (CLAUDECODE set) each Bash call is a session of its own, so there the marker is named for Claude
+    Code instead, and a person is told once a day, not on every command."""
     environ = os.environ if environ is None else environ
     old = [variable for variable in old_variables(environ)
            if not (variable == OLD_PREFIX + "USAGE_LOG" and environ[variable].strip().lower() in OFF)]
@@ -133,6 +135,8 @@ def warn_old_once(environ=None, marker_dir=None, session=None, write=None, day=N
         return []
     if marker_dir is None:
         marker_dir = os.environ.get("TMPDIR") or "/tmp"
+    if session is None and environ.get("CLAUDECODE"):
+        session = "claude-code"  # every Bash call gets its own session: one telling a day, not one a command
     if session is None:
         session = os.getsid(0) if hasattr(os, "getsid") else os.getppid()
     if day is None:
