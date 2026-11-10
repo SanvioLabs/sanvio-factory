@@ -25,6 +25,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import names  # noqa: E402 (beside this file: warns once about an old HARNESS_ variable)
+
 BANK = "questions.md"
 ANSWERS = "answers"
 OTHER = "Other"
@@ -52,7 +55,7 @@ class Parser(argparse.ArgumentParser):
 
 def pulse_folder():
     name = "SANVIO_PULSE_FOLDER"
-    folder = os.environ.get(name, "")
+    folder = names.env("PULSE_FOLDER")
     if not folder:
         raise Refused("SANVIO_PULSE_FOLDER isn't set. " + HOW_TO_SET)
     if not os.path.isdir(folder):
