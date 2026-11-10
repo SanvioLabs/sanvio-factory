@@ -243,7 +243,7 @@ person decides and runs every command that changes a file here.
      window is treated the same way.
    - **A yes on a path here that didn't exist at the baseline:** step 8, never
      a `cp`.
-   - **[`docs/upgrading-to-sanvio-factory.md`](../../docs/upgrading-to-sanvio-factory.md):** name no `cp` and no diff for it,
+   - **[`docs/upgrading-to-sanvio-factory.md`](https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md):** name no `cp` and no diff for it,
      adapted or not, in place of the commands above. Its links point at Sanvio
      Factory's own files, so it's read where it lives, at
      `https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md`.

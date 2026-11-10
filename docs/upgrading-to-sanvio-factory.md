@@ -5,7 +5,7 @@ copy may not have them. Read this guide on GitHub, at
 [`https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md`](https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md),
 and don't copy it into your repo. A copy that takes changes file by file gets
 step 3's move only once it has the files named in *Which kind of copy you
-have*.
+have*, or makes it by hand, as that section says.
 
 For anyone whose copy was taken before 2026-11-08, when this repo was
 `SanvioLabs/sanvio-harness-starter`. It's now `SanvioLabs/sanvio-factory`, and
