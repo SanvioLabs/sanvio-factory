@@ -53,6 +53,23 @@ Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_da
 
 **Do:** update the factory-dashboard mod: /plugin update, then /reload-plugins or a new session. A 0.3.0 pane shows a line saying the data is newer until you update. One older than 0.3.0 shows no Factory tokens.
 
+## 2026-11-09: Old variable warning
+
+The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
+`SANVIO_EVALS_HOME` or `SANVIO_USAGE_LOG` now warns once per shell, on stderr,
+when only the old `HARNESS_` name is set, naming both. This works whether or not
+your copy has [`scripts/check_setup.py`](scripts/check_setup.py). `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
+still count, so they don't warn. [`scripts/pulse.py`](scripts/pulse.py) now reads its folder through the
+same names. The hooks in [`.claude/hooks/`](.claude/hooks/) never warn, because Claude Code
+doesn't show their stderr, so the warning comes from a script you run. A shell
+left open past midnight is told again the next day. Under Claude Code, where
+each command runs in a shell of its own, it's once a day.
+
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** rename any old variable it names, in your shell profile: for example
+`HARNESS_RETRO` becomes `SANVIO_RETRO`.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
