@@ -39,6 +39,20 @@ Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`CHANGELOG.md`](
 **Do:** if your copy's CI fails with "The version '3.9' ... was not found for
 Ubuntu 26.04", take this change.
 
+## 2026-11-09: Dashboard data schema 2
+
+[`scripts/dashboard_data.py`](scripts/dashboard_data.py)'s `schema` is now 2, because the `conversations`
+section's `harness` side is now called `factory`. Its docstring lists each
+schema version. The factory-dashboard pane now warns on a schema it doesn't
+know: a newer one says to run `/plugin update`, an older one says to update
+the factory. A document with no schema still draws without a warning. A
+factory that took the rename but not this change says schema 1, so its pane
+says to update the factory even though it reads fine.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/hooks/sample.ts`](examples/mods/factory-dashboard/hooks/sample.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json) (version 0.3.1), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** update the factory-dashboard mod: /plugin update, then /reload-plugins or a new session. A 0.3.0 pane shows a line saying the data is newer until you update. One older than 0.3.0 shows no Factory tokens.
+
 ## 2026-11-09: Old variable warning
 
 The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
