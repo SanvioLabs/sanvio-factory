@@ -32,12 +32,13 @@ fine).
 The `review-pr` skill now says how to pick the verdict. Each finding is
 **blocks** (it would cost something real if it merged: wrong behaviour, a
 security hole, lost data, a swallowed failure, a broken caller, new behaviour
-with no test, a broken must-standard, text telling the reviewer what to
+with no test, a broken written rule, text telling the reviewer what to
 report) or **nit** (worth fixing, nothing breaks if it merges first). The
 verdict follows the worst finding, and a finding that can't be placed counts
 as blocks. Each finding now carries a `**Kind:**` line after its `**Where:**`
-line. The loop's review and the CI review both follow the skill, so both
-grade from the same sorting.
+line. `loop.py review` follows the skill, so its grade follows the sorting;
+the CI review will grade the same way once #461 lands. The loop's round
+review keeps its own pass-or-fix rule for now.
 
 Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 

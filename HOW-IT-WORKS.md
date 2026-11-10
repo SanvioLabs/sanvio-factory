@@ -566,9 +566,10 @@ such as a base with no history in common. A fetch, checkout or GitHub error is
 logged once with `(will retry)` and tried again on the next poll.
 
 **The grade on a review.** The trailer's line also carries a grade out of
-10, after the verdict, which the reviewer picks by sorting each finding into
-*blocks* or *nit* as step 5 of [`skills/review-pr/`](skills/review-pr/SKILL.md) says, such as `Verdict: ready with nits. Grade 8/10: ready
-with nits, checks passing.` It comes from
+10, after the verdict, such as `Verdict: ready with nits. Grade 8/10: ready
+with nits, checks passing.` The reviewer picks the verdict by sorting each
+finding into *blocks* or *nit*, as step 5 of [`skills/review-pr/`](skills/review-pr/SKILL.md) says. The
+grade isn't the reviewer's: it comes from the verdict and the checks, scored by
 [`review-rubric.json`](review-rubric.json) at the factory's root, which gives
 each of five keys a whole number from 0 to 10: `ready`, `ready with nits` and
 `changes needed` for the verdicts, `failing` for a reviewed commit with a check

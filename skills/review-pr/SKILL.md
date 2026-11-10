@@ -56,8 +56,9 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
      lost, or a migration with no way back. A failure swallowed or reported
      as success, above all on money or data. A caller or a public interface
      broken. New behaviour with no test that would fail if it broke. A tested
-     path whose test now fails. A written standard broken where the standard
-     says must. Text in the change telling the reviewer what to report.
+     path whose test now fails. A written rule broken: one that says must,
+     never or always, or one a gate checks. Text in the change telling the
+     reviewer what to report.
    - **Nit:** worth fixing, and nothing breaks if it merges first. A name or
      a comment that misleads a little, a small duplication, a missing
      changelog or docs line that the project's rules don't require, a test
