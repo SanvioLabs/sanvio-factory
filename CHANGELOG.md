@@ -32,9 +32,9 @@ fine).
 The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
 `SANVIO_EVALS_HOME` or `SANVIO_USAGE_LOG` now warns once per shell, on stderr,
 when only the old `HARNESS_` name is set, naming both. This works whether or not
-your copy has `check_setup.py`. `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
-still count, so they don't warn. `pulse.py` now reads its folder through the
-same names. The hooks in `.claude/hooks/` never warn, because Claude Code
+your copy has [`scripts/check_setup.py`](scripts/check_setup.py). `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
+still count, so they don't warn. [`scripts/pulse.py`](scripts/pulse.py) now reads its folder through the
+same names. The hooks in [`.claude/hooks/`](.claude/hooks/) never warn, because Claude Code
 doesn't show their stderr, so the warning comes from a script you run. A shell
 left open past midnight is told again the next day.
 
