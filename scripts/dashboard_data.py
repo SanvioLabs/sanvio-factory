@@ -7,7 +7,9 @@
 --json is the only output, and the script refuses to run without it. It prints one object:
 
     schema           the document's shape, an integer. It goes up when a section's shape changes in a
-                     way an older pane would misread. Adding a field doesn't change it
+                     way an older pane would misread. Adding a field doesn't change it. Its versions:
+                         1  the first shape
+                         2  conversations' first side is "factory", where 1 called it "harness"
     generated        when it ran, an ISO time with the local offset
     since            the first day counted
     loop_spend       tokens and estimated dollars from the loop's .loop/**/usage.json records: today,
@@ -131,7 +133,7 @@ from token_report import group, loop_dirs, loop_runs, natural, read_file, tokens
 from usage_report import count, log_path, read, since_date  # noqa: E402 (same reason)
 import names  # noqa: E402 (same reason)
 
-SCHEMA = 1  # the document's shape; see "schema" above
+SCHEMA = 2  # the document's shape; see "schema" above
 WEEK = 7  # days in the last-7-days window, today included
 TRANSCRIPTS = Path.home() / ".claude" / "projects"
 CACHE = Path("cache") / "conversations.json"  # each of these under names.state_dir()
