@@ -75,7 +75,12 @@ one. In place of step 2:
 
 ### What else the rename's files carry
 
-Some of the rename's files also carry changes from other features, made in the same days. Taking those files brings these changes too. Each is named by its entry in [`CHANGELOG.md`](../CHANGELOG.md), so you can read its **Do:** line.
+Some of the rename's files also carry changes from other features. Taking
+those files brings these changes too. The table covers changes whose
+[`CHANGELOG.md`](../CHANGELOG.md) heading is dated 2026-11-08 or 2026-11-09, each
+named by its entry so you can read its **Do:** line. For anything later, the
+starter-updates skill lists each other commit on a file it names as "also
+brings".
 
 | File | Also brings | Entry |
 |---|---|---|
@@ -96,6 +101,7 @@ Some of the rename's files also carry changes from other features, made in the s
 | [`tests/test_agent_hooks.py`](../tests/test_agent_hooks.py) | The tests for the guard's two changes above | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
 | [`tests/test_factories.py`](../tests/test_factories.py) | The tests for dispatch and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
 | [`tests/test_loop.py`](../tests/test_loop.py), [`tests/test_check_setup.py`](../tests/test_check_setup.py) | The tests for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
+| [`.claude/settings.json`](../.claude/settings.json), [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | factory-floor switched on, and loop-pane and loop-crew switched off and no longer listed | `2026-11-09: factory-floor is on, loop-pane and loop-crew are off`, `2026-11-09: Factory floor` |
 
 ## The steps
 

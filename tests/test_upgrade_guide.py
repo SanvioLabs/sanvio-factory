@@ -1,11 +1,21 @@
 """Run with: python3 -m unittest discover -s tests"""
 import re
 import unittest
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 GUIDE = ROOT / "docs" / "upgrading-to-sanvio-factory.md"
 SECTION = "### What else the rename's files carry"
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import check_setup  # noqa: E402 (the import needs scripts/ on the path first)
+
+
+def a_copy():
+    """True unless origin is the public Sanvio Factory, as test_skills.skips_the_capabilities decides."""
+    url = check_setup.git(ROOT, "remote", "get-url", "origin")
+    return not url or not check_setup.STARTER.search(url)
 
 
 def table_rows():
@@ -23,6 +33,13 @@ def table_rows():
 
 
 class WhatElseTheRenamesFilesCarry(unittest.TestCase):
+    """Checked only in Sanvio Factory's own repo: a copy keeps its own CHANGELOG.md, which
+    starter-updates never copies, and may not have the guide at all."""
+
+    def setUp(self):
+        if a_copy():
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy's guide and changelog can differ")
+
     def test_the_section_has_a_table_with_rows(self):
         self.assertIn(SECTION, GUIDE.read_text().splitlines())
         rows = table_rows()
