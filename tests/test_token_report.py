@@ -103,14 +103,6 @@ class Grouping(Harness):
     def test_without_worktree_dir_the_loop_folder_is_beside_home(self):
         self.assertEqual(token_report.loop_dir(self.root), names.loop_home() / "harness")
 
-    def test_without_worktree_dir_only_the_home_folder_counts(self):
-        self.assertEqual(token_report.loop_dirs(self.root), [names.loop_home() / "harness"])
-        new, old = self.root.parent / "new-loop", self.root.parent / "old-loop"
-        both = [new, old]
-        self.assertEqual(token_report.group(entry(old / "issue-7"), self.root, both), ("Loop", "issue-7"))
-        self.assertEqual(token_report.group(entry(new / "app" / "issue-2"), self.root, both), ("Loop", "app/issue-2"))
-        self.assertEqual(token_report.group(entry(self.root), self.root, both), ("Conversations", ""))
-
     def test_worktree_dir_from_loop_json_is_used(self):
         (self.root / "loop.json").write_text(json.dumps({"worktree_dir": str(self.loop)}))
         self.assertEqual(token_report.loop_dir(self.root), self.loop)
@@ -122,6 +114,49 @@ class Grouping(Harness):
         loop = token_report.loop_dir(self.root)
         self.assertEqual(token_report.group(entry(inside / "issue-3"), self.root, loop), ("Loop", "issue-3"))
         self.assertEqual(token_report.group(entry(self.root), self.root, loop), ("Conversations", ""))
+
+
+class LoopFolders(Harness):
+    """Checkouts the loop made before the rename, in ~/.harness-loop, still count while that folder is there."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.root.parent / "home"
+        self.new = names.loop_home(self.home) / "harness"
+        self.old = names.old_loop_home(self.home) / "harness"
+        self.new.mkdir(parents=True)
+
+    def test_both_folders_count_new_one_first_when_the_old_one_is_there(self):
+        self.old.mkdir(parents=True)
+        self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.new, self.old])
+
+    def test_a_report_lists_runs_from_both_folders_under_loop_and_counts_both(self):
+        (self.old / "issue-3").mkdir(parents=True)
+        lines = [entry(self.old / "issue-3", session="a"), entry(self.new / "issue-7", session="b")]
+        out = token_report.report(lines, SINCE, "2026-10-22", self.root, token_report.loop_dirs(self.root, home=self.home))
+        loop = out[out.index("## Loop\n"):out.index("## By model")]
+        self.assertIn("| issue-3 | 10 | 20 | 30 | 40 | 100 |", loop)
+        self.assertIn("| issue-7 | 10 | 20 | 30 | 40 | 100 |", loop)
+        self.assertIn("Total: 200 tokens across 2 sessions.", out)
+
+    def test_without_the_old_folder_only_the_new_one_counts(self):
+        self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.new])
+
+    def test_a_worktree_dir_in_loop_json_is_the_only_folder_even_when_the_old_one_is_there(self):
+        self.old.mkdir(parents=True)
+        (self.root / "loop.json").write_text(json.dumps({"worktree_dir": str(self.loop)}))
+        self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.loop])
+
+    def test_another_clones_checkout_in_the_old_folder_is_outside(self):
+        self.old.mkdir(parents=True)
+        other = names.old_loop_home(self.home) / "other-name" / "issue-1"
+        other.mkdir(parents=True)
+        loops = token_report.loop_dirs(self.root, home=self.home)
+        self.assertIsNone(token_report.group(entry(other), self.root, loops))
+
+    def test_new_checkouts_still_go_in_the_new_folder(self):
+        self.old.mkdir(parents=True)
+        self.assertEqual(names.loop_home(self.home), self.home / ".sanvio-loop")
 
 
 class Repeats(Harness):

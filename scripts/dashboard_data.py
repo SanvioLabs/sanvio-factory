@@ -58,7 +58,7 @@
                      loop run's is, so the evening stays on its own day; --since and by_model go by
                      the transcript's UTC date, as token_report.py does, so west of UTC a reply on
                      the evening before --since counts in by_model but has no day. What each
-                     transcript held is kept in .sanvio/cache/conversations.json and read again
+                     transcript held is kept in .sanvio/cache/conversations-2.json and read again
                      only when the file's size or time changes: per reply, its message and request
                      ids, UTC day, side, model, session id, local day and counts, under the
                      transcript's path, and nothing else
@@ -134,7 +134,7 @@ import names  # noqa: E402 (same reason)
 SCHEMA = 1  # the document's shape; see "schema" above
 WEEK = 7  # days in the last-7-days window, today included
 TRANSCRIPTS = Path.home() / ".claude" / "projects"
-CACHE = Path("cache") / "conversations.json"  # each of these under names.state_dir()
+CACHE = Path("cache") / "conversations-2.json"  # each of these under names.state_dir()
 SAVE_EVERY = 50  # transcripts read between saves of the conversations cache
 SIDES = {"Conversations": "factory", "projects/": "factory", "Loop": "loop"}  # token_report's groups, two sides
 COUNTS = ("input", "output", "cache_writes", "cache_reads")  # token_report's FIELDS, in order

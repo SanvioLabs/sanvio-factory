@@ -51,12 +51,22 @@ def loop_dir(root):
     return names.loop_home() / Path(root).name
 
 
-def loop_dirs(root):
-    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or the home folder."""
+def loop_dirs(root, home=None):
+    """Every folder the loop's checkouts can be in, to count their tokens.
+
+    worktree_dir from loop.json when it's set, and nothing else. Otherwise ~/.sanvio-loop/<root's name>,
+    then ~/.harness-loop/<root's name> when that folder is there: checkouts the loop made before the
+    rename, counted for as long as they're kept. The loop itself never makes or reuses one there.
+    """
     configured = load_config(root).get("worktree_dir")
     if configured:
         return [Path(configured).expanduser()]
-    return [names.loop_home() / Path(root).name]
+    name = Path(root).name
+    found = [names.loop_home(home) / name]
+    old = names.old_loop_home(home) / name
+    if old.is_dir():
+        found.append(old)
+    return found
 
 
 def usage_files(root):
