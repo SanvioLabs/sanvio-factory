@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Dashboard data schema 2
+
+[`scripts/dashboard_data.py`](scripts/dashboard_data.py)'s `schema` is now 2, because the `conversations`
+section's `harness` side is now called `factory`. Its docstring lists each
+schema version. The factory-dashboard pane now warns on a schema it doesn't
+know: a newer one says to run `/plugin update`, an older one says to update
+the factory. A document with no schema still draws without a warning.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json) (version 0.3.1), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** update the factory-dashboard mod: /plugin update, then /reload-plugins or a new session. A pane older than 0.3.1 doesn't warn, and shows no Factory tokens.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces

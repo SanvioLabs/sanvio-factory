@@ -13,7 +13,7 @@ export type Section = { key: string; title: string; lines: Line[]; tables?: Tabl
 
 export const SCRIPT = 'scripts/dashboard_data.py'
 // The document's shape this pane reads: the script's SCHEMA when this pane was written.
-export const SCHEMA = 1
+export const SCHEMA = 2
 
 export const RANGES: Range[] = [7, 14, 30]
 export const DEFAULT_RANGE: Range = 14
@@ -110,13 +110,15 @@ export function state(seen: Seen | null): Line {
   return line('quiet', seen.readAt ? `Updated ${hhmm(seen.readAt)}` : 'Not read yet')
 }
 
-// A yellow line under the header when the script's document is a newer shape than this pane reads.
-// Null otherwise, an older script with no schema among them: those draw as they always have.
+// A yellow line under the header when the script's document is a shape this pane doesn't read: newer
+// says to update the pane, older to update the factory. Null for the shape it reads, and for a script
+// so old it gives no schema: those draw as they always have.
 export function newer(doc: Doc): Line | null {
   const schema = num(doc.schema)
-  return schema !== null && schema > SCHEMA
+  if (schema === null || schema === SCHEMA) return null
+  return schema > SCHEMA
     ? line('now', 'This dashboard_data.py is newer than this pane: run /plugin update. Sections it changed may not read')
-    : null
+    : line('now', 'This dashboard_data.py is older than this pane: update the factory. Sections it changed may not read')
 }
 
 // The why for a list the script didn't give: its own why, or that it's in a shape this pane can't
