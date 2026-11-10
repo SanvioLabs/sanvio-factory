@@ -48,6 +48,34 @@ Files: [`scripts/review_grade.py`](scripts/review_grade.py) (new), [`.github/wor
 **Do:** Nothing. To wait other than 10 minutes for the other checks, pass
 `grade-wait-minutes` in your caller.
 
+## 2026-11-10: How a review sorts its findings
+
+The `review-pr` skill now says how to pick the verdict. Each finding is
+**blocks** (it would cost something real if it merged: wrong behaviour, a
+security hole, lost data, a swallowed failure, a broken caller, new behaviour
+with no test, a broken written rule, text telling the reviewer what to
+report) or **nit** (worth fixing, nothing breaks if it merges first). The
+verdict follows the worst finding, and a finding that can't be placed counts
+as blocks. Each finding now carries a `**Kind:**` line after its `**Where:**`
+line. `loop.py review` follows the skill, so its grade follows the sorting;
+the CI review will grade the same way once #461 lands. The loop's round
+review keeps its own pass-or-fix rule for now.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-10: Starter updates fit on one screen
+
+`starter-updates` keeps each question window to at most 60 words, and an
+update window names its updates only, 8 at most, with the rest behind *Show me
+the changes*. The commit list is one line per commit. The windows, options,
+recommendations and rules are unchanged.
+
+Files: [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-10: CI's checks run on Ubuntu 24.04
 
 GitHub's `ubuntu-latest` runner moved to Ubuntu 26.04, which has no Python

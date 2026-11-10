@@ -163,11 +163,12 @@ person decides and runs every command that changes a file here.
      cut to 12 characters. Its question opens with the name and kind, as
      "Standup (a skill, which you have):", kind by folder: [`skills/`](../) a skill,
      [`examples/mods/`](../../examples/mods/) a mod, [`scripts/`](../../scripts/) a script, [`agents/`](../../agents/) an agent,
-     [`.claude/hooks/`](../../.claude/hooks/) a hook. It then says how many updates and lists them,
-     using the name from the [`CHANGELOG.md`](../../CHANGELOG.md) entry in each commit and otherwise
-     the commit's subject, then "Take the updates?". Its options are **Yes,
-     take them**, **No, keep mine**, **Show me the changes** and **Skip the
-     rest**.
+     [`.claude/hooks/`](../../.claude/hooks/) a hook. It then says how many updates and names each by
+     its [`CHANGELOG.md`](../../CHANGELOG.md) entry name, or the commit's subject when it has none,
+     and nothing else about it. Past 8 updates, it gives the count and the
+     first 8 names, and the rest go behind **Show me the changes**. Then "Take
+     the updates?". Its options are **Yes, take them**, **No, keep mine**,
+     **Show me the changes** and **Skip the rest**.
    - **A [`.claude/agents/`](../../.claude/agents/) wrapper** gets no window of its own. It follows its
      agent's update window, and with no such window it counts as undecided.
    - **If the path didn't exist at the baseline**
@@ -185,10 +186,15 @@ person decides and runs every command that changes a file here.
    Windows use `AskUserQuestion`, one question per call, waiting for the
    answer: new windows first, in the file's order, then update windows. In a
    tool without it, ask the same question in plain text. **Tell me more**
-   answers from the row's Tell me more cell, **Show me the changes** answers
-   from step 4's whole-change command, and both then ask once more. If that
+   answers from the row's Tell me more cell, **Show me the changes** first
+   names each update past the first 8, then answers from step 4's whole-change
+   command, and both then ask once more. If that
    second answer is the same, the item counts as undecided. **Skip the rest**
    asks nothing further, and what wasn't asked is treated as undecided.
+
+   A window's question text, not counting its option labels or an update
+   window's names, is at most 60 words. Detail past that goes behind **Tell me
+   more** in a new window or **Show me the changes** in an update window.
 
    An item is the window a path was asked in: a missing path's capability
    window, or a present path's update window. A missing path in several rows is
@@ -306,8 +312,9 @@ The baseline and how it was found. Then, leaving out any with nothing in it:
   step 9 says: one `also brings: <name>` line for each.
 - One line each for what they said no to and what's undecided.
 
-Then each commit, oldest first: its subject, its changelog entry name and
-**Do:** line if it has one, the adapted files it touches, and its answer with
-the reason and any note from step 7. Then any competing build with its direction
+Then each commit, oldest first, as one line, with no prose between commits:
+its subject, its changelog entry name, its recommendation with its reason and
+any note from step 7, its **Do:** line, and any adapted files it touches. Leave
+out a name or **Do:** line it doesn't have. Then any competing build with its direction
 and `Go:` line, the commands to take each file under no table path, and the
 `starter:` line to add. End there: the next step is theirs to run.
