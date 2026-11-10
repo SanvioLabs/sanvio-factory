@@ -388,9 +388,15 @@ class StarterUpdatesOneScreen(unittest.TestCase):
 
     def test_step_6_caps_the_question(self):
         step = self.step_6()
-        for words in ("is at most 60 words", "not counting its option labels",
-                      "**Tell me more**", "**Show me the changes**"):
-            self.assertIn(words, step)
+        flat = " ".join(step.split())
+        for words in ("is at most 60 words", "not counting its option labels or an update window's names",
+                      "Detail past that goes behind **Tell me more** in a new window or "
+                      "**Show me the changes** in an update window."):
+            self.assertIn(words, flat)
+
+    def test_show_me_the_changes_names_the_rest(self):
+        flat = " ".join(self.step_6().split())
+        self.assertIn("**Show me the changes** first names each update past the first 8", flat)
 
     def test_update_window_names_only(self):
         step = self.step_6()

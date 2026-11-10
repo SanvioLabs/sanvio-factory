@@ -186,14 +186,15 @@ person decides and runs every command that changes a file here.
    Windows use `AskUserQuestion`, one question per call, waiting for the
    answer: new windows first, in the file's order, then update windows. In a
    tool without it, ask the same question in plain text. **Tell me more**
-   answers from the row's Tell me more cell, **Show me the changes** answers
-   from step 4's whole-change command, and both then ask once more. If that
+   answers from the row's Tell me more cell, **Show me the changes** first
+   names each update past the first 8, then answers from step 4's whole-change
+   command, and both then ask once more. If that
    second answer is the same, the item counts as undecided. **Skip the rest**
    asks nothing further, and what wasn't asked is treated as undecided.
 
-   A window's question text, not counting its option labels, is at most 60
-   words. Detail past that goes behind **Tell me more** in a new window or
-   **Show me the changes** in an update window.
+   A window's question text, not counting its option labels or an update
+   window's names, is at most 60 words. Detail past that goes behind **Tell me
+   more** in a new window or **Show me the changes** in an update window.
 
    An item is the window a path was asked in: a missing path's capability
    window, or a present path's update window. A missing path in several rows is
