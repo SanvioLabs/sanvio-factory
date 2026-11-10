@@ -58,6 +58,29 @@ one. In place of step 2:
 1. Ask your agent to "check the starter", and take the rename's files.
 2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py) and
    [`.claude/hooks/session_start.py`](../.claude/hooks/session_start.py): they move `.harness/`.
+   If your copy doesn't take that hook, make step 3's move yourself, from the
+   repo root, once step 1 has stopped the loop. First see which of the two
+   folders exist:
+
+   ```bash
+   ls -A .harness .sanvio
+   ```
+
+   If only `.harness/` exists, rename it:
+
+   ```bash
+   mv .harness .sanvio
+   ```
+
+   If both exist, copy across anything `.sanvio/` doesn't already have. This
+   keeps `.sanvio/`'s own files:
+
+   ```bash
+   cp -Rn .harness/. .sanvio/
+   ```
+
+   Then look through `.sanvio/`, and only after that run `rm -r .harness`.
+   Nothing reads `.harness/` any more, only `.sanvio/`.
 3. Before step 4, make sure you've taken
    [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and the plugin lines of
    [`.claude/settings.json`](../.claude/settings.json), or step 4 registers the old name again.
@@ -72,6 +95,22 @@ one. In place of step 2:
      `docs/harness-evals.md` and `docs/harness-evals.gif`
 5. Commit, so step 4's `git checkout .claude/settings.json` can't undo what
    you copied.
+6. No [`scripts/check_setup.py`](../scripts/check_setup.py)? In place of step 11, check from a new
+   terminal, at the repo root:
+
+   ```bash
+   ls -d .harness
+   env | grep -E '^HARNESS_(PULSE_FOLDER|RETRO|USAGE_LOG|EVALS_HOME)='
+   git grep -n -e 'bin/harness' -e 'eval_harness' -- ':!CHANGELOG.md' ':!docs/upgrading-to-sanvio-factory.md' ':!docs/specs/'
+   grep -n 'bin/harness' ~/.zshrc ~/.bashrc ~/.profile 2>/dev/null
+   ```
+
+   The first should say there's no such file, and the other three should
+   print nothing, except that `git grep` may list a test that only checks
+   `bin/harness` is gone. That isn't a caller, so leave it. The search leaves
+   out the changelog, this guide and [`docs/specs/`](specs/), which name the old
+   files as history. `HARNESS_HEADLESS` is left out on purpose, because it
+   still counts.
 
 ## The steps
 
