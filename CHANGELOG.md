@@ -106,6 +106,8 @@ address instead, and the guide's commits still appear with their answers.
 
 Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
 
+**Do:** nothing.
+
 ## 2026-11-09: Say what else the rename's files bring
 
 [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) gains *What else the rename's files carry*:
