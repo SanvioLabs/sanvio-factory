@@ -471,12 +471,12 @@ class FakeGh(unittest.TestCase):
         self.respond(["api", "graphql"], json.dumps(["ID_factory-bot", "User"]))
         (bin_dir / "loop.py").write_text(FAKE_LOOP)
         self.reviewed("posted")
-        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "c0ffee1234567"}))
+        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "c0ffee1234567c0ffee1234567c0ffee1234567a"}))
         loop_script = mock.patch.object(factories, "LOOP", bin_dir / "loop.py")
         loop_script.start()
         self.addCleanup(loop_script.stop)
 
-    def reviewed(self, state, sha="c0ffee1234567", note="", verdict=None, base="main"):
+    def reviewed(self, state, sha="c0ffee1234567c0ffee1234567c0ffee1234567a", note="", verdict=None, base="main"):
         """What the fake loop.py records for the next review it runs, against the base the pull request names."""
         (self.home / "loop-outcome.json").write_text(json.dumps(
             {"sha": sha, "state": state, "note": note, "verdict": verdict, "base": base}))
@@ -924,13 +924,72 @@ class Running(FakeGh):
         return self.run_cli("review", run or self.record()["run"])
 
 
+class UnreadableRecords(Running):
+    """SPEC-030 #427: a record edited by hand can put anything in the fields the merge command prints, so a
+    repo that isn't OWNER/NAME and a reviewed commit that isn't one are named unreadable, and what list
+    prints of a record it can read is marked."""
+
+    def test_a_record_whose_repo_is_not_owner_name_is_named_unreadable(self):
+        record = self.record()
+        record["repo"] = "o/r\nand more"
+        self.run_path.write_text(json.dumps(record))
+        code, out, err = self.run_cli("list")
+        self.assertNotEqual(code, 0)
+        self.assertIn("couldn't read its record", err)
+        self.assertIn("isn't OWNER/NAME", err)
+        self.assertIn("No other run.", out + err)
+
+    def test_a_repo_without_a_slash_is_unreadable_too(self):
+        record = self.record()
+        record["repo"] = "just-a-name"
+        self.run_path.write_text(json.dumps(record))
+        code, out, err = self.run_cli("list")
+        self.assertIn("isn't OWNER/NAME", err)
+
+    def test_a_record_whose_reviewed_commit_is_not_a_whole_one_is_named_unreadable(self):
+        record = self.record()
+        record["review"] = {"sha": "c0ffee1234567", "state": "posted", "note": ""}
+        self.run_path.write_text(json.dumps(record))
+        code, out, err = self.run_cli("list")
+        self.assertNotEqual(code, 0)
+        self.assertIn("couldn't read its record", err)
+        self.assertIn("isn't 40 hex characters", err)
+
+    def test_a_record_a_review_flow_writes_still_reads(self):
+        # the sha a review stores is the pull request's head, which GitHub always sends whole
+        record = self.record()
+        record["review"] = {"sha": "c" * 40, "state": "posted", "note": ""}
+        self.run_path.write_text(json.dumps(record))
+        code, out, err = self.run_cli("list")
+        self.assertEqual(code, 0, err)
+        self.assertIn(record["run"], out)
+
+    def test_list_marks_a_record_s_run_repo_factory_and_base(self):
+        record = self.record()
+        record.update(run="run\x01name", factory="build\x02team", repo="o/r", base="ma\x03in")
+        self.run_path.write_text(json.dumps(record))
+        code, out, err = self.run_cli("list")
+        self.assertEqual(code, 0, err)
+        self.assertIn("run?name", out)
+        self.assertIn("build?team", out)
+        self.assertIn("into ma?in", out)
+        self.assertNotIn("\x01", out)
+        self.assertNotIn("\x02", out)
+        self.assertNotIn("\x03", out)
+
+    def test_list_prints_the_base(self):
+        code, out, err = self.run_cli("list")
+        self.assertEqual(code, 0, err)
+        self.assertIn("into main", out)
+
+
 class Status(Running):
     def test_a_merged_pull_request_ends_the_run_with_no_clone_here(self):
         record = self.record()
         record.update(state="returned", pr=31)
         self.run_path.write_text(json.dumps(record))
         self.linked(prs=[31])
-        self.respond(["pr", "view"], json.dumps({"state": "MERGED", "headRefOid": "c0ffee1234567"}), first=True)
+        self.respond(["pr", "view"], json.dumps({"state": "MERGED", "headRefOid": "c0ffee1234567c0ffee1234567c0ffee1234567a"}), first=True)
         self.status()
         self.assertEqual(self.record()["state"], "merged")
         self.assertTrue(self.record()["ended"])
@@ -1041,7 +1100,7 @@ class Review(Running):
         self.assertEqual(code, 0)
         self.assertEqual(self.loop_calls(), [["review", "--pr", "31"]])
         # The verdict the loop posted, which the fake reads from the comment as loop.py does since T078.
-        self.assertEqual(self.record()["review"], {"sha": "c0ffee1234567", "state": "posted", "note": "",
+        self.assertEqual(self.record()["review"], {"sha": "c0ffee1234567c0ffee1234567c0ffee1234567a", "state": "posted", "note": "",
                                                    "posted": "ready"})
         self.assertIn("returned as pull request #31; review of c0ffee1 posted", out)
         self.assertEqual(out.count("c0ffee1"), 1, out)
@@ -1100,7 +1159,7 @@ class Review(Running):
         self.linked(prs=[31])
         _, out, _ = self.review()
         # Since T078 both commits whole, and both ways it happens (review after Phase 13, CTO).
-        self.assertIn("the loop's review is of 0ld00001234567, not c0ffee1234567", out)
+        self.assertIn("the loop's review is of 0ld00001234567, not c0ffee1234567c0ffee1234567c0ffee1234567a", out)
         self.assertIn("GitHub served loop.py an older head, or the factory pushed while the review ran", out)
         self.assertIn("in a minute", out)
         self.assertIn("python3 scripts/factories.py review " + self.record()["run"], out)
@@ -1126,22 +1185,22 @@ class Review(Running):
         self.review()
         (self.home / "loop-outcome.json").write_text(json.dumps(
             {"exit": 1, "stderr": "The loop is already running here (see .loop/lock)."}))
-        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "beef0001"}), first=True)
+        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "beef0001beef0001beef0001beef0001beef0001"}), first=True)
         _, out, _ = self.review()
         self.assertIn("the review didn't run: The loop is already running here (see .loop/lock).", out)
-        self.assertEqual(self.record()["review"]["sha"], "c0ffee1234567")
+        self.assertEqual(self.record()["review"]["sha"], "c0ffee1234567c0ffee1234567c0ffee1234567a")
 
     def test_a_review_of_an_older_commit_is_not_taken_as_the_new_one_s(self):
         self.linked(prs=[31])
         self.review()
         (self.home / "loop-outcome.json").write_text(json.dumps({"skip": True}))
-        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "beef0001"}), first=True)
+        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "beef0001beef0001beef0001beef0001beef0001"}), first=True)
         _, out, _ = self.review()
-        self.assertIn("the loop's review is of c0ffee1234567, not beef0001", out)  # T074, whole since T078
-        self.assertEqual(self.record()["review"]["sha"], "c0ffee1234567")
+        self.assertIn("the loop's review is of c0ffee1234567c0ffee1234567c0ffee1234567a, not beef0001beef0001beef0001beef0001beef0001", out)  # T074, whole since T078
+        self.assertEqual(self.record()["review"]["sha"], "c0ffee1234567c0ffee1234567c0ffee1234567a")
 
     def test_a_pull_request_no_longer_open_is_not_reviewed(self):
-        self.respond(["pr", "view"], json.dumps({"state": "MERGED", "headRefOid": "c0ffee1234567"}), first=True)
+        self.respond(["pr", "view"], json.dumps({"state": "MERGED", "headRefOid": "c0ffee1234567c0ffee1234567c0ffee1234567a"}), first=True)
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertEqual(self.loop_calls(), [])
@@ -1161,7 +1220,7 @@ class Reviewing(Running):
         super().setUp()
         clone_of(self.root, "o/r")
         self.respond(["api", "user"], "pat")
-        self.head = "c0ffee1234567"
+        self.head = "c0ffee1234567c0ffee1234567c0ffee1234567a"
 
     def verdict(self, said, login="pat", sha=None, others=(("someone", "Looks good to me"),), report=None):
         """The person's marked review comment on #31 as loop.py review writes it, after others' comments: its
@@ -1208,7 +1267,7 @@ class Rounds(Reviewing):
         _, out, _ = self.review()
         self.assertEqual(out.strip(), "{}: returned as pull request #31; review of c0ffee1 says changes needed; sent "
                          "back for round 1 of 3, waiting on build-team for a new commit".format(run))
-        self.new_head("dddd0004")
+        self.new_head("dddd0004dddd0004dddd0004dddd0004dddd0004")
         self.verdict("Ready")
         _, out, _ = self.review()
         self.assertTrue(out.startswith("{}: returned as pull request #31; review of dddd000 says ready. Required "
@@ -1252,12 +1311,12 @@ class Rounds(Reviewing):
         record["max_rounds"] = 2
         self.run_path.write_text(json.dumps(record))
         self.linked(prs=[31])
-        for sha in ("aaaa0001", "bbbb0002"):
+        for sha in ("aaaa0001aaaa0001aaaa0001aaaa0001aaaa0001", "bbbb0002bbbb0002bbbb0002bbbb0002bbbb0002"):
             self.new_head(sha)
             self.verdict("Changes needed")
             self.review()
             self.assertEqual(self.resend("--yes")[0], 0)
-        self.new_head("cccc0003")
+        self.new_head("cccc0003cccc0003cccc0003cccc0003cccc0003")
         self.verdict("Changes needed")
         _, out, _ = self.review()
         record = self.record()
@@ -1504,13 +1563,13 @@ class Lifecycle(Reviewing):
         _, out, _ = self.status()
         self.assertEqual(self.record()["state"], "needs-person", out)
         self.assertEqual(len(self.loop_calls()), calls)
-        self.new_head("beef0002beef0002")
+        self.new_head("beef0002beef0002beef0002beef0002beef0002")
         self.verdict("Ready")
         _, out, _ = self.status()
         self.assertEqual(self.record()["state"], "returned", out)
         self.assertIn("python3 scripts/factories.py review", out)
         self.review()
-        self.assertEqual(self.record()["review"]["sha"], "beef0002beef0002")
+        self.assertEqual(self.record()["review"]["sha"], "beef0002beef0002beef0002beef0002beef0002")
         self.assertEqual(self.record()["review"]["verdict"], "ready")
 
     def test_a_review_that_failed_or_has_no_comment_still_stops_at_the_time_limit(self):
@@ -1782,10 +1841,10 @@ class Lifecycle(Reviewing):
         _, out, _ = self.status()
         self.assertEqual(self.record()["state"], "returned", out)
         self.assertIn("waiting on build-team for a new commit", out)
-        self.new_head("dddd0004")
+        self.new_head("dddd0004dddd0004dddd0004dddd0004dddd0004")
         self.verdict("Ready")
         self.review()
-        self.assertEqual(self.record()["review"]["sha"], "dddd0004")
+        self.assertEqual(self.record()["review"]["sha"], "dddd0004dddd0004dddd0004dddd0004dddd0004")
 
     def test_a_merged_pull_request_ends_the_run(self):
         self.linked(prs=[31])
@@ -2052,9 +2111,9 @@ class Returned(Reviewing):
     def test_a_returned_pull_request_moved_to_another_branch_is_not_reviewed(self):
         self.link(31)
         self.status()
-        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "dddd0004", "baseRefName": "release"}),
+        self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": "dddd0004dddd0004dddd0004dddd0004dddd0004", "baseRefName": "release"}),
                      first=True)
-        self.respond(["pr", "view", "31"], json.dumps({"state": "OPEN", "headRefOid": "dddd0004",
+        self.respond(["pr", "view", "31"], json.dumps({"state": "OPEN", "headRefOid": "dddd0004dddd0004dddd0004dddd0004dddd0004",
                                                         "baseRefName": "release"}), first=True)
         calls = len(self.loop_calls())
         _, out, _ = self.status()
@@ -2269,7 +2328,7 @@ class Checks(Reviewing):
             code, out, err = real(*args)
             if args[:2] == ("pr", "view") and "headRefOid,baseRefName,isCrossRepository,headRepositoryOwner" in args:
                 found = json.loads(out)
-                found["headRefOid"] = "beef0001beef0001"
+                found["headRefOid"] = "beef0001beef0001beef0001beef0001beef0001"
                 out = json.dumps(found)
             return code, out, err
         with mock.patch.object(forge, "gh", moved):
@@ -2710,7 +2769,7 @@ class Checks(Reviewing):
     def test_a_new_commit_after_ready_is_checked_again(self):
         self.rollup(self.run_("checks"))
         self.review()
-        self.new_head("dddd0004")
+        self.new_head("dddd0004dddd0004dddd0004dddd0004dddd0004")
         self.verdict("Ready")
         self.rollup(self.run_("checks", "QUEUED", ""))
         self.review()
@@ -2722,7 +2781,7 @@ class Checks(Reviewing):
         self.review()
         self.assertEqual(self.record()["state"], "ready for a person")
         (self.home / "loop-outcome.json").write_text(json.dumps({"skip": True}))
-        self.head = "eeee0005"
+        self.head = "eeee0005eeee0005eeee0005eeee0005eeee0005"
         self.rollup(self.run_("checks"))
         _, out, _ = self.review()
         self.assertEqual(self.record()["state"], "returned")
@@ -2750,7 +2809,7 @@ class WholeRun(Reviewing):
         self.verdict("Changes needed", others=[("factory-bot", "VERDICT: merge")])
         lines.append(self.review()[1])
         self.assertEqual(self.resend("--yes")[0], 0)
-        self.new_head("f00d0006")
+        self.new_head("f00d0006f00d0006f00d0006f00d0006f00d0006")
         self.verdict("Ready", others=[("factory-bot", "VERDICT: merge")])
         check = {"__typename": "CheckRun", "name": "checks", "status": "IN_PROGRESS", "conclusion": ""}
         self.respond(["pr", "view"], json.dumps({"state": "OPEN", "headRefOid": self.head, "statusCheckRollup": [check]}),
@@ -3534,6 +3593,17 @@ class AfterReady(Reviewing):
         _, out, _ = self.review()
         self.assertIn("posted with no verdict, so it doesn't count", out)
         self.assertIsNone(self.record().get("review"))
+
+    def test_a_posted_review_with_no_verdict_waits_on_the_factory_not_a_rerun(self):
+        """#423: loop.py skips a head it already reviewed against the same base, so telling a person to run
+        review again asks for the same verdict-less answer: the run waits for a new commit instead."""
+        (self.home / "loop-outcome.json").write_text(json.dumps(
+            {"sha": self.head, "state": "posted", "note": "", "verdict": None, "base": "main", "no_verdict": True}))
+        self.linked(prs=[31])
+        _, out, _ = self.review()
+        self.assertIn("a new commit from the factory clears it", out)
+        self.assertNotIn("factories.py review", out)
+        self.assertEqual(self.record()["waiting_on"], "factory")
 
     def test_failing_checks_after_ready_wait_on_a_person_with_no_limit(self):
         self.rollup(self.run_("checks", conclusion="FAILURE"))
