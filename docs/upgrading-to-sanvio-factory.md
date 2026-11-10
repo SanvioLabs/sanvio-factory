@@ -1,5 +1,12 @@
 # Upgrading to Sanvio Factory
 
+The links and paths on this page point at Sanvio Factory's own files, and your
+copy may not have them. Read this guide on GitHub, at
+[`https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md`](https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md),
+and don't copy it into your repo. A copy that takes changes file by file gets
+step 3's move only once it has the files named in *Which kind of copy you
+have*, or makes it by hand, as that section says.
+
 For anyone whose copy was taken before 2026-11-08, when this repo was
 `SanvioLabs/sanvio-harness-starter`. It's now `SanvioLabs/sanvio-factory`, and
 the names inside it changed with it. This page puts the 2026-11-08 rename
@@ -53,14 +60,44 @@ forked it, and pull its `main` into yours. Follow the steps below as written.
 you made it from the template or adapted it heavily. Its
 [`skills/starter-updates/`](../skills/starter-updates/) still reaches Sanvio Factory through GitHub's
 redirect, so leave its address as it is: taking this release brings the new
-one. In place of step 2:
+one. In place of step 2, and for item 6 also step 11:
 
 1. Ask your agent to "check the starter", and take the rename's files.
 2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py) and
    [`.claude/hooks/session_start.py`](../.claude/hooks/session_start.py): they move `.harness/`.
+   If your copy doesn't take that hook, make step 3's move yourself, from the
+   repo root, once step 1 has stopped the loop. First see which of the two
+   folders exist:
+
+   ```bash
+   ls -A .harness .sanvio
+   ```
+
+   If only `.harness/` exists, rename it:
+
+   ```bash
+   mv .harness .sanvio
+   ```
+
+   If only `.sanvio/` exists, or neither does, there's nothing to move.
+
+   If both exist, copy across anything `.sanvio/` doesn't already have. This
+   keeps `.sanvio/`'s own files:
+
+   ```bash
+   cp -Rn .harness/. .sanvio/
+   ```
+
+   Then look through `.sanvio/`, and only after that run `rm -r .harness`.
+   Nothing reads `.harness/` any more, only `.sanvio/`.
 3. Before step 4, make sure you've taken
    [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and the plugin lines of
    [`.claude/settings.json`](../.claude/settings.json), or step 4 registers the old name again.
+   If your copy publishes its mods under its own marketplace name, take the
+   new `marketplace.json` but keep your own `name` line in it, and in
+   `settings.json` keep your own name in the `extraKnownMarketplaces` key and
+   at the end of every `enabledPlugins` key, where the new lines say
+   `sanvio-factory`.
 4. Copying a file never deletes the old one, so remove what moved. Carry any
    lines you added to `bin/harness-tools` into [`bin/factory-tools`](../bin/factory-tools) first.
    - `bin/harness` and `bin/harness-tools`
@@ -72,6 +109,53 @@ one. In place of step 2:
      `docs/harness-evals.md` and `docs/harness-evals.gif`
 5. Commit, so step 4's `git checkout .claude/settings.json` can't undo what
    you copied.
+6. No [`scripts/check_setup.py`](../scripts/check_setup.py)? In place of step 11, check from a new
+   terminal, at the repo root:
+
+   ```bash
+   ls -d .harness
+   env | grep -E '^HARNESS_(PULSE_FOLDER|RETRO|USAGE_LOG|EVALS_HOME)='
+   git grep -n -e 'bin/harness' -e 'eval_harness' -- ':!CHANGELOG.md' ':!docs/upgrading-to-sanvio-factory.md' ':!docs/specs/'
+   grep -n 'bin/harness' ~/.zshrc ~/.bashrc ~/.profile 2>/dev/null
+   ```
+
+   The first should say there's no such file, and the other three should
+   print nothing, except that `git grep` may list a test that only checks
+   `bin/harness` is gone. That isn't a caller, so leave it. The search leaves
+   out the changelog, this guide and [`docs/specs/`](specs/), which name the old
+   files as history. `HARNESS_HEADLESS` is left out on purpose, because it
+   still counts. If `env` prints `HARNESS_USAGE_LOG=off`, rename it anyway,
+   as step 5 says.
+
+### What else the rename's files carry
+
+Some of the rename's files also carry changes from other features. Taking
+those files brings these changes too. The table covers changes whose
+[`CHANGELOG.md`](../CHANGELOG.md) heading is dated 2026-11-08 or 2026-11-09, each
+named by its entry so you can read its **Do:** line. For anything later, the
+starter-updates skill lists each other commit on a file it names as "also
+brings".
+
+| File | Also brings | Entry |
+|---|---|---|
+| [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) | A headless run is kept out of [`factories/`](../factories/), as it is `company/` | `2026-11-08: Hand an issue to another factory` |
+| [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) | A headless `Grep` leaves out `company/`, `local-data/`, `.inbox/` and [`factories/`](../factories/) | `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`.gitignore`](../.gitignore) | `factories.json` is ignored | `2026-11-08: Hand an issue to another factory` |
+| [`.gitignore`](../.gitignore) | `reports/standup/*` is ignored | `2026-11-08: Standup remembers what you already settled` |
+| [`scripts/factories.py`](../scripts/factories.py) | The whole dispatch feature, and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
+| [`scripts/loop.py`](../scripts/loop.py), [`scripts/check_setup.py`](../scripts/check_setup.py) | A round on an open pull request, and `review --pr N` | `2026-11-08: The loop takes a round on an open pull request` |
+| [`skills/starter-updates/capabilities.md`](../skills/starter-updates/capabilities.md) | The Factories row | `2026-11-08: Hand an issue to another factory` |
+| [`README.md`](../README.md), [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), [`AGENTS.md`](../AGENTS.md) | Text for dispatch and the headless search | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) | Text for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
+| [`skills/standup/SKILL.md`](../skills/standup/SKILL.md) | Standup keeps its answers in `reports/standup/answers.jsonl` and doesn't ask again about an item you settled | `2026-11-08: Standup remembers what you already settled` |
+| [`.gitignore`](../.gitignore) | [`factories/`](../factories/) is ignored apart from its README | `2026-11-08: Hand an issue to another factory` |
+| [`.ignore`](../.ignore) | A comment saying searches leave out [`factories/`](../factories/) | `2026-11-08: Hand an issue to another factory` |
+| [`skills/dispatch/SKILL.md`](../skills/dispatch/SKILL.md), [`docs/maintaining.md`](maintaining.md) | The whole file: each is new with dispatch | `2026-11-08: Hand an issue to another factory` |
+| [`factories/README.md`](../factories/README.md) | The whole page, new with dispatch, and its *What the factory must do* | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`tests/test_agent_hooks.py`](../tests/test_agent_hooks.py) | The tests for the guard's two changes above | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
+| [`tests/test_factories.py`](../tests/test_factories.py) | The tests for dispatch and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
+| [`tests/test_loop.py`](../tests/test_loop.py), [`tests/test_check_setup.py`](../tests/test_check_setup.py) | The tests for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
+| [`.claude/settings.json`](../.claude/settings.json), [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | factory-floor switched on, and the two loop mods it replaced switched off and no longer listed | `2026-11-09: Factory floor` |
 
 ## The steps
 
@@ -109,6 +193,24 @@ one. In place of step 2:
    `claude plugin update` lines in the rename entries. If Claude Code writes
    [`.claude/settings.json`](../.claude/settings.json) back in a different order,
    `git checkout .claude/settings.json` puts it back.
+
+   **Your copy publishes its mods under its own marketplace name?** Then it
+   has no `sanvio-harness-starter` to remove and no `sanvio-factory` to add,
+   so skip 4.1 and 4.2. With your own name kept in
+   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and in
+   [`.claude/settings.json`](../.claude/settings.json), as sub-step 3 says, no session offers to add
+   `sanvio-factory`; if one does, a `sanvio-factory` key is still in
+   `settings.json`, so rename it to yours. Still do 4.3 if you used the
+   dashboard, with your own marketplace name:
+   `/plugin install factory-dashboard@<your marketplace>`. `factory-dashboard`
+   replaces `harness-dashboard`, which the marketplace no longer lists, so no
+   update moves you to it; `/plugin uninstall harness-dashboard@<your marketplace>`
+   then removes the old one, which still reads `.harness/`. Because nothing
+   is removed and added again, the line above about skipping
+   `claude plugin update` doesn't apply to you: run
+   `claude plugin update <mod>@<your marketplace>` for every mod you have
+   installed that your `marketplace.json` still lists, then do 4.4. Wherever
+   this page says `@sanvio-factory`, use your own marketplace name.
 5. **Rename your variables.** In your shell profile, on each machine you use,
    change each `HARNESS_` variable in the table to its `SANVIO_` name. The old
    ones do nothing now, except that `HARNESS_USAGE_LOG=off` still keeps the log
@@ -165,6 +267,15 @@ one. In place of step 2:
     old variable still set and any `.harness/` still there. It doesn't check
     your mods, CI callers, scripts or home folders: those are steps 4, 9, 6
     and 7.
+
+## If your copy changes a mod
+
+A copy that changes what a mod does, including where it reads a file from,
+bumps `version` in that mod's `.claude-plugin/plugin.json` in the same change.
+If the version stays the same, installed copies can stay on the old code even
+after `claude plugin update`. That happened to a status-line mod reading a
+moved focus file: github-status still read `.harness/project/` after the
+move to `.sanvio/project/`.
 
 Stuck on a step? Run `python3 scripts/check_setup.py`, and check the step
 against its entry in [`CHANGELOG.md`](../CHANGELOG.md): each one has a **Do:** line.

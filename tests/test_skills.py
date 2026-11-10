@@ -370,6 +370,41 @@ class StarterUpdatesRename(unittest.TestCase):
             self.assertEqual(found, self.ALLOWED.get(name, 0), name)
 
 
+class UpgradeGuideStaysUpstream(unittest.TestCase):
+    """The upgrade guide's links point at Sanvio Factory's own files, so it's read on GitHub, and
+    starter-updates gives its address in place of a copy. Checked only in Sanvio Factory's own repo:
+    a copy that takes changes file by file doesn't have the guide."""
+
+    URL = "https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md"
+    GUIDE = ROOT / "docs" / "upgrading-to-sanvio-factory.md"
+    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+
+    def setUp(self):
+        if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy may not have the guide")
+
+    def test_the_guide_says_where_to_read_it_before_the_changes(self):
+        top = self.GUIDE.read_text().split("## What changed", 1)[0]
+        self.assertIn(self.URL, " ".join(top.split()))
+
+    def test_starter_updates_gives_the_address_for_the_guide(self):
+        skill = self.SKILL.read_text()
+        self.assertIn("docs/upgrading-to-sanvio-factory.md", skill)
+        self.assertIn(self.URL, " ".join(skill.split()))
+
+    def test_starter_updates_still_copies_other_files(self):
+        self.assertIn('cp "$clone/$path" "$path"', self.SKILL.read_text())
+
+    def test_the_guide_keeps_its_instructions_for_file_by_file_copies(self):
+        guide = self.GUIDE.read_text()
+        for kept in ("## Which kind of copy you have", "scripts/names.py", ".claude/hooks/session_start.py"):
+            self.assertIn(kept, guide)
+
+    def test_no_capability_window_asks_about_the_guide(self):
+        table = (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text()
+        self.assertNotIn("upgrading-to-sanvio-factory", table)
+
+
 class FactoryTrendsRename(unittest.TestCase):
     """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report
     and its scripts didn't. The old trigger phrases went with the other old names."""
