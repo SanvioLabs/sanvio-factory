@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-09: Old variable warning
+
+The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
+`SANVIO_EVALS_HOME` or `SANVIO_USAGE_LOG` now warns once per shell, on stderr,
+when only the old `HARNESS_` name is set, naming both. This works whether or not
+your copy has `check_setup.py`. `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
+still count, so they don't warn. `pulse.py` now reads its folder through the
+same names.
+
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** rename any old variable it names, in your shell profile: for example
+`HARNESS_RETRO` becomes `SANVIO_RETRO`.
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces

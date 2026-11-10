@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -118,6 +119,64 @@ class Variables(unittest.TestCase):
         environ = {"HARNESS_RETRO": "on", "HARNESS_PULSE_FOLDER": "/p", "SANVIO_PULSE_FOLDER": "/p",
                    "HARNESS_HEADLESS": "1", "HARNESS_OTHER": "x"}
         self.assertEqual(names.old_variables(environ), ["HARNESS_RETRO"])
+
+
+class Warning(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        self.said = []
+
+    def warn(self, environ, session=101):
+        return names.warn_old_once(environ, marker_dir=self.dir, session=session, write=self.said.append)
+
+    def test_an_old_name_alone_warns_once_naming_both(self):
+        self.assertEqual(self.warn({"HARNESS_RETRO": "on"}), ["HARNESS_RETRO"])
+        self.assertEqual(self.said, ["HARNESS_RETRO is set but does nothing now: set SANVIO_RETRO instead\n"])
+        self.assertEqual(self.warn({"HARNESS_RETRO": "on"}), [])
+        self.assertEqual(len(self.said), 1)
+
+    def test_another_shell_is_told_too(self):
+        self.warn({"HARNESS_EVALS_HOME": "/e"}, session=101)
+        self.warn({"HARNESS_EVALS_HOME": "/e"}, session=202)
+        self.assertEqual(len(self.said), 2)
+        self.assertIn("SANVIO_EVALS_HOME", self.said[1])
+
+    def test_the_two_that_still_count_do_not_warn(self):
+        for environ in ({"HARNESS_HEADLESS": "1"}, {"HARNESS_USAGE_LOG": "off"}, {"HARNESS_USAGE_LOG": " No "}):
+            with self.subTest(environ=environ):
+                self.assertEqual(self.warn(environ), [])
+        self.assertEqual(self.said, [])
+        self.assertEqual(list(self.dir.iterdir()), [], "nothing to say leaves no marker")
+
+    def test_the_usage_log_switched_on_by_the_old_name_warns(self):
+        self.warn({"HARNESS_USAGE_LOG": "on"})
+        self.assertEqual(self.said, ["HARNESS_USAGE_LOG is set but does nothing now: set SANVIO_USAGE_LOG instead\n"])
+
+    def test_no_warning_beside_the_new_name_or_for_other_names(self):
+        self.warn({"HARNESS_PULSE_FOLDER": "/p", "SANVIO_PULSE_FOLDER": "/p"})
+        self.warn({"HARNESS_OTHER": "x"})
+        self.assertEqual(self.said, [])
+
+    def test_a_marker_that_cannot_be_written_still_warns(self):
+        self.warn({"HARNESS_RETRO": "on"}, session="missing/folder")
+        self.assertEqual(len(self.said), 1)
+
+    def test_an_explicit_environment_stays_silent(self):
+        with mock.patch.dict(os.environ, {"TMPDIR": str(self.dir)}), \
+                mock.patch.object(names, "warn_old_once") as warn:
+            names.env("RETRO", environ={"HARNESS_RETRO": "on"})
+            names.logging_off({"HARNESS_USAGE_LOG": "on"})
+            names.evals_home(environ={"HARNESS_EVALS_HOME": "/e"})
+        warn.assert_not_called()
+        self.assertEqual(list(self.dir.iterdir()), [])
+
+    def test_the_real_environment_is_checked_once_per_process(self):
+        with mock.patch.object(names, "_checked", False), mock.patch.object(names, "warn_old_once") as warn:
+            names.env("RETRO")
+            names.logging_off()
+        warn.assert_called_once_with()
 
 
 class TheModule(unittest.TestCase):
