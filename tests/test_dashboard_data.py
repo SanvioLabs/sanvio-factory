@@ -196,14 +196,24 @@ class Layout(Factory):
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
                                        "evals", "conversations", "waiting", "loop_rework", "loop_history"])
-        self.assertEqual(found["schema"], 1)
+        self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
+
+    def test_the_conversations_sides_match_the_schema(self):
+        # The side names conversations prints, for each schema. SIDES' keys are token_report's group
+        # names and don't reach the document, so only its values are pinned.
+        SIDES_BY_SCHEMA = {2: ["factory", "loop"]}
+        self.assertEqual(sorted(set(dashboard_data.SIDES.values())), SIDES_BY_SCHEMA.get(dashboard_data.SCHEMA),
+                         "conversations' sides changed: raise SCHEMA and add a row to SIDES_BY_SCHEMA")
 
     def test_the_docstring_says_when_schema_goes_up(self):
         doc = dashboard_data.__doc__
         self.assertIn("schema", doc)
         self.assertIn("It goes up when a section's shape changes", doc)
+
+    def test_the_docstring_lists_the_schema_versions(self):
+        self.assertIn('where 1 called it "harness"', dashboard_data.__doc__)
 
     def test_the_activity_docs_say_which_sessions_count(self):
         readme = (ROOT / "examples/mods/factory-dashboard/README.md").read_text(encoding="utf-8")
