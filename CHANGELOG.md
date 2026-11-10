@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-10: CI's checks run on Ubuntu 24.04
+
+GitHub's `ubuntu-latest` runner moved to Ubuntu 26.04, which has no Python
+3.9, so the `checks (python 3.9)` job failed at setup on every pull request
+and the 3.13 job was cancelled with it. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) now runs
+that job on `ubuntu-24.04`.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy's CI fails with "The version '3.9' ... was not found for
+Ubuntu 26.04", take this change.
+
 ## 2026-11-09: Dashboard data schema 2
 
 [`scripts/dashboard_data.py`](scripts/dashboard_data.py)'s `schema` is now 2, because the `conversations`
