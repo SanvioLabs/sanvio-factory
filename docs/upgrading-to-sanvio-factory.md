@@ -53,7 +53,7 @@ forked it, and pull its `main` into yours. Follow the steps below as written.
 you made it from the template or adapted it heavily. Its
 [`skills/starter-updates/`](../skills/starter-updates/) still reaches Sanvio Factory through GitHub's
 redirect, so leave its address as it is: taking this release brings the new
-one. In place of step 2:
+one. In place of step 2, and for item 6 also step 11:
 
 1. Ask your agent to "check the starter", and take the rename's files.
 2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py) and
@@ -71,6 +71,8 @@ one. In place of step 2:
    ```bash
    mv .harness .sanvio
    ```
+
+   If only `.sanvio/` exists, or neither does, there's nothing to move.
 
    If both exist, copy across anything `.sanvio/` doesn't already have. This
    keeps `.sanvio/`'s own files:
@@ -110,7 +112,8 @@ one. In place of step 2:
    `bin/harness` is gone. That isn't a caller, so leave it. The search leaves
    out the changelog, this guide and [`docs/specs/`](specs/), which name the old
    files as history. `HARNESS_HEADLESS` is left out on purpose, because it
-   still counts.
+   still counts. If `env` prints `HARNESS_USAGE_LOG=off`, rename it anyway,
+   as step 5 says.
 
 ## The steps
 
