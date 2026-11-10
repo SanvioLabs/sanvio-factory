@@ -70,6 +70,17 @@ Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/puls
 **Do:** rename any old variable it names, in your shell profile: for example
 `HARNESS_RETRO` becomes `SANVIO_RETRO`.
 
+## 2026-11-09: A manual way through the rename
+
+The upgrade guide's file-by-file path now gives the hook's move of `.harness/`
+to `.sanvio/` as commands, including when both `.harness/` and `.sanvio/`
+exist, and a manual check for a copy without [`scripts/check_setup.py`](scripts/check_setup.py).
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless your copy didn't take the hook or the check. Then
+follow the file-by-file section of [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md).
+
 ## 2026-11-09: Factory floor
 
 The `loop-pane` and `loop-crew` mods are removed. `/factory-floor` replaces
