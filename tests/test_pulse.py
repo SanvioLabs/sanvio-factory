@@ -22,6 +22,9 @@ CLEARED = ("A source is cleared only when its `Cleared for this tool` cell in `c
            "`yes`, ignoring case and surrounding spaces. Anything else isn't cleared: `no`, `unconfirmed`, "
            "blank, `yes` followed by anything (such as `yes, summaries only`), or no row.")
 STDLIB = {"argparse", "collections", "datetime", "getpass", "json", "os", "re", "sys"}
+# scripts/names.py, beside pulse.py: tests/test_names.py holds it to the standard library too.
+SIBLINGS = {"names"}
+OLD_PERSONAL = ("HARNESS_PULSE_FOLDER", "HARNESS_RETRO", "HARNESS_USAGE_LOG", "HARNESS_EVALS_HOME")
 
 BANK = """# Team pulse
 
@@ -75,7 +78,9 @@ class PulseCase(unittest.TestCase):
     def pulse(self, *args, folder=None, unset=False, login="pat", old_name=False):
         env = dict(os.environ)
         env.pop("SANVIO_PULSE_FOLDER", None)
-        env.pop("HARNESS_PULSE_FOLDER", None)
+        for old in OLD_PERSONAL:
+            env.pop(old, None)  # one left in this shell would add its warning to every run's stderr
+        env["TMPDIR"] = str(self.tmp)  # the once-per-shell marker goes here, not in the real shell's
         if not unset:
             env[old_name and "HARNESS_PULSE_FOLDER" or "SANVIO_PULSE_FOLDER"] = str(folder or self.folder)
         env["LOGNAME"] = login
@@ -150,6 +155,8 @@ class Folder(PulseCase):
         result = self.pulse("question", "--json", old_name=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SANVIO_PULSE_FOLDER isn't set", self.said(result))
+        self.assertIn("HARNESS_PULSE_FOLDER is set but does nothing now: set SANVIO_PULSE_FOLDER instead",
+                      result.stderr)
 
     def test_the_folder_is_checked_before_the_command(self):
         result = self.pulse("question", "--date", "not-a-date", unset=True)
@@ -532,7 +539,7 @@ class TheScript(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 names.add((node.module or "").split(".")[0])
         self.assertTrue(names)
-        self.assertLessEqual(names, STDLIB)
+        self.assertLessEqual(names, STDLIB | SIBLINGS)
 
     def test_the_safe_name_pattern_is_copied_from_the_usage_log(self):
         pattern = 're.compile(r"[^A-Za-z0-9._-]")'
