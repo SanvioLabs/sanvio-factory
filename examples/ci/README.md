@@ -216,8 +216,8 @@ from the factory's default branch, never from the pull request.
 
 ## The grade
 
-The comment's last line gives the review's verdict and a grade out of 10, the
-same grade the loop gives its own reviews:
+The comment's last line gives the review's verdict and a grade out of 10, from
+the same rubric and code the loop grades its own reviews with:
 `Verdict: ready. Grade 10/10: ready, checks passing.` The grade comes from the
 factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scripts/loop.py`](../../scripts/loop.py), both read
 from the factory's default branch. A [`review-rubric.json`](../../review-rubric.json) in the product repo,
@@ -230,14 +230,20 @@ To change the grades, edit [`review-rubric.json`](../../review-rubric.json) in y
 product repo's next review uses the new numbers.
 
 The grade waits up to 10 minutes for the pull request's other checks to
-finish. It leaves out every job in the caller's own workflow run, so tests
-run from the same workflow file as the review don't count toward the grade:
-run them from a separate workflow if they should. To wait a different time,
-add `grade-wait-minutes: 5`, say, under `with:` in the caller. The job stops
-at 30 minutes, so a wait of more than about 15 risks the review never posting.
-A check still running when the wait ends leaves the grade pending, and nothing
-grades it later: the next push or a re-run grades it again. The run's summary
-says why, including when reading the checks failed.
+finish. It leaves out only the review's own job, so a test job beside it in
+the caller's workflow counts. To wait a different time, add
+`grade-wait-minutes: 5`, say, under `with:` in the caller. It waits at most 15
+minutes, so the review still posts inside the job's 30. A check still running
+when the wait ends leaves the grade pending, and nothing grades it later: the
+next push or a re-run grades it again. If GitHub refuses to list the checks
+(HTTP 403, a token without `checks: read`, as on a private repo), the grade is
+pending at once rather than after the wait. The run's summary says why.
+
+It can differ from the loop's grade for the same commit in three ways. The
+loop reads `review_rubric` from its `loop.json`, which can name another rubric
+for the whole factory or one project; CI always reads the root
+[`review-rubric.json`](../../review-rubric.json). The loop reads checks with your own login and leaves none
+out. And the loop grades a pending grade again on its next poll; CI doesn't.
 
 The grade is advisory. It sets no status and no required check, approves
 nothing and merges nothing. A person decides what happens to the pull request.

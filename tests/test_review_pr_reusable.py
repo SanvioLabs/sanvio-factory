@@ -1,4 +1,5 @@
 """Run with: python3 -m unittest discover -s tests"""
+import importlib.util
 import os
 import re
 import subprocess
@@ -482,15 +483,19 @@ NOT_LATER = "Nothing grades this review later"
 # runs.<n> on its nth call when that file exists, else runs.
 FAKE_GH = """#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE/args"
-if [ -n "$FAKE_GH_FAIL" ]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi
+if [ -n "$FAKE_GH_FAIL" ]; then echo "$FAKE_GH_FAIL" >&2; exit 1; fi
 n=$(( $(cat "$FAKE/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$FAKE/count"
 if [ -f "$FAKE/runs.$n" ]; then cat "$FAKE/runs.$n"; else cat "$FAKE/runs"; fi
 """
 
 
+REFUSED = "HTTP 403: Resource not accessible by integration"
+
+
 def tsv(runs):
-    return "".join("{}\t{}\t{}\n".format(*run) for run in runs)
+    """Each run as (status, conclusion, page) or (status, conclusion, page, check run id), id 0 if left out."""
+    return "".join("{}\t{}\t{}\t{}\n".format(*(tuple(run) + ("0",))[:4]) for run in runs)
 
 
 class GradeTheReview(unittest.TestCase):
@@ -504,7 +509,7 @@ class GradeTheReview(unittest.TestCase):
         self.helper = (ROOT / "scripts" / "review_grade.py").read_text()
 
     def grade(self, report, runs=(("completed", "success", OTHER),), rubric=RUBRIC, wait="0", later=None,
-              fail=False, base=None, head=None, loop=None):
+              fail=False, base=None, head=None, loop=None, own=None):
         """Run the grade step in a workspace whose harness/ is a copy of this factory's grading files. Returns
         the step's result, grade.txt or None, the step summary, and gh's argument lines."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -535,7 +540,9 @@ class GradeTheReview(unittest.TestCase):
                        GITHUB_STEP_SUMMARY=str(summary), GITHUB_RUN_ID=RUN_ID, REPO="o/r", HEAD_SHA="abc123",
                        GH_TOKEN="", GRADE_WAIT_MINUTES=wait, GRADE_POLL_SECONDS="0.05", FAKE=str(fake))
             if fail:
-                env["FAKE_GH_FAIL"] = "1"
+                env["FAKE_GH_FAIL"] = REFUSED if fail is True else fail
+            if own is not None:
+                env["OWN_CHECK_RUN_ID"] = own
             result = self.run_in(GRADE, ws, **env)
             grade = temp / "grade.txt"
             args = fake / "args"
@@ -603,9 +610,44 @@ class GradeTheReview(unittest.TestCase):
 
     def test_a_failed_read_counts_as_pending_and_says_why(self):
         result, summary = self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade pending: checks still running.",
-                                           fail=True)
-        self.assertIn("gh api exited 1: HTTP 403: Resource not accessible by integration", summary)
+                                           fail="HTTP 502: Bad Gateway")
+        self.assertIn("gh api exited 1: HTTP 502: Bad Gateway", summary)
         self.assertIn(NOT_LATER, summary)
+
+    def test_a_refused_read_stops_waiting_and_names_the_permission(self):
+        # A token without checks: read gets a 403 on every read, so waiting the whole time grades nothing more
+        # and posts the review late (review of #463).
+        result, grade, summary, args = self.grade("VERDICT: ready\n", fail=True, wait="0.05")
+        self.assertEqual(grade, "Verdict: ready. Grade pending: checks still running.\n", result.stdout)
+        self.assertEqual(len(args), 1, "a refusal is read once, not polled")
+        self.assertIn(REFUSED, summary)
+        self.assertIn("checks: read", summary)
+
+    def test_another_failure_is_read_again(self):
+        _, _, _, args = self.grade("VERDICT: ready\n", fail="HTTP 502: Bad Gateway", wait="0.05")
+        self.assertGreater(len(args), 1)
+
+    def test_a_sibling_job_in_its_own_run_counts(self):
+        # Only the review's own job is left out: a test job beside it in the caller's run still grades.
+        sibling = "https://github.com/o/r/actions/runs/{}/job/2".format(RUN_ID)
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 1/10: ready, a check failed.",
+                         runs=[("in_progress", "", OWN, "11"), ("completed", "failure", sibling, "12")], own="11")
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, no checks ran.",
+                         runs=[("in_progress", "", OWN, "11")], own="11")
+
+    def test_without_its_own_check_run_id_it_leaves_out_its_whole_run(self):
+        sibling = "https://github.com/o/r/actions/runs/{}/job/2".format(RUN_ID)
+        self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, no checks ran.",
+                         runs=[("in_progress", "", OWN, "11"), ("completed", "failure", sibling, "12")], own="")
+
+    def test_the_wait_is_capped_so_the_review_still_posts(self):
+        spec = importlib.util.spec_from_file_location("review_grade", ROOT / "scripts" / "review_grade.py")
+        grade = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(grade)
+        self.assertEqual(grade.wait_minutes({"GRADE_WAIT_MINUTES": "60"}), 15)
+        self.assertEqual(grade.wait_minutes({"GRADE_WAIT_MINUTES": "4"}), 4)
+        self.assertEqual(grade.wait_minutes({}), 10)
+        self.assertIn("OWN_CHECK_RUN_ID: ${{ job.check_run_id }}", self.text)
 
     def test_a_missing_or_invalid_rubric_grades_zero_and_names_the_file(self):
         self.assertGrade("VERDICT: ready\n", "Verdict: ready. Grade 0/10: review-rubric.json is missing.",
@@ -668,7 +710,8 @@ class GradeTheReview(unittest.TestCase):
         self.assertEqual(sorted(line.strip() for line in env.splitlines() if line.strip()), sorted([
             "GH_TOKEN: ${{ github.token }}", "REPO: ${{ github.repository }}",
             "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
-            "GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}"]))
+            "GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}",
+            "OWN_CHECK_RUN_ID: ${{ job.check_run_id }}"]))
         self.assertIn("python3 harness/scripts/review_grade.py", grade)
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertRegex(on, r"grade-wait-minutes:\n(?:\s+description: .*\n)\s+required: false\n"

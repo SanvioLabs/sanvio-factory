@@ -69,7 +69,7 @@ on:
         required: true
         type: string
       grade-wait-minutes:
-        description: "Minutes the grade waits for the pull request's other checks to finish."
+        description: "Minutes the grade waits for the pull request's other checks to finish, at most 15."
         required: false
         default: 10
         type: number
@@ -337,6 +337,7 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}
+          OWN_CHECK_RUN_ID: ${{ job.check_run_id }}
         run: |
           python3 harness/scripts/review_grade.py \
             || echo "::warning::The grade step failed, so the comment carries no grade."
