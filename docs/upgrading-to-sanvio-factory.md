@@ -62,7 +62,10 @@ one. In place of step 2:
    [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and the plugin lines of
    [`.claude/settings.json`](../.claude/settings.json), or step 4 registers the old name again.
    If your copy publishes its mods under its own marketplace name, take the
-   new `marketplace.json` but keep your own `name` line in it.
+   new `marketplace.json` but keep your own `name` line in it, and in
+   `settings.json` keep your own name in the `extraKnownMarketplaces` key and
+   at the end of every `enabledPlugins` key, where the new lines say
+   `sanvio-factory`.
 4. Copying a file never deletes the old one, so remove what moved. Carry any
    lines you added to `bin/harness-tools` into [`bin/factory-tools`](../bin/factory-tools) first.
    - `bin/harness` and `bin/harness-tools`
@@ -114,9 +117,11 @@ one. In place of step 2:
 
    **Your copy publishes its mods under its own marketplace name?** Then it
    has no `sanvio-harness-starter` to remove and no `sanvio-factory` to add,
-   so decline the session's offer to add `sanvio-factory`, now and later.
-   Skip 4.1 and 4.2, and keep your own `name` in
-   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json). Still do 4.3 if you used the
+   so skip 4.1 and 4.2. With your own name kept in
+   [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) and in
+   [`.claude/settings.json`](../.claude/settings.json), as sub-step 3 says, no session offers to add
+   `sanvio-factory`; if one does, a `sanvio-factory` key is still in
+   `settings.json`, so rename it to yours. Still do 4.3 if you used the
    dashboard, with your own marketplace name:
    `/plugin install factory-dashboard@<your marketplace>`. `factory-dashboard`
    replaces `harness-dashboard`, which the marketplace no longer lists, so no
