@@ -38,7 +38,7 @@ checkouts only in `~/.sanvio-loop/`. When `loop.json` sets `worktree_dir`, that
 folder is still the only one counted. Loop dollars were never affected. The dashboard's transcript cache moves to
 `.sanvio/cache/conversations-2.json`, so every transcript is read once more.
 
-Files: [`scripts/names.py`](scripts/names.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing; the dashboard reads every transcript once more.
 

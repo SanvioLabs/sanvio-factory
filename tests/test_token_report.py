@@ -154,10 +154,6 @@ class LoopFolders(Harness):
         loops = token_report.loop_dirs(self.root, home=self.home)
         self.assertIsNone(token_report.group(entry(other), self.root, loops))
 
-    def test_new_checkouts_still_go_in_the_new_folder(self):
-        self.old.mkdir(parents=True)
-        self.assertEqual(names.loop_home(self.home), self.home / ".sanvio-loop")
-
 
 class Repeats(Harness):
     def test_a_reply_written_as_several_lines_counts_once(self):

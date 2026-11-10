@@ -142,7 +142,7 @@ None identified for this spec. The reviewer is an agent, and its noise is an Ope
 ## Constraints
 
 - Agents in a worktree cannot read the loop's own folder, so everything an agent needs goes in its prompt.
-- A worktree nested inside the clone makes an agent load the clone's [`CLAUDE.md`](../../CLAUDE.md) as well, which tells it to stop. Checkouts live in `~/.harness-loop/`.
+- A worktree nested inside the clone makes an agent load the clone's [`CLAUDE.md`](../../CLAUDE.md) as well, which tells it to stop. Checkouts live in `~/.sanvio-loop/`; before the rename they were in `~/.harness-loop/`, which only the token reports still read.
 
 ## Dependencies
 

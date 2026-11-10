@@ -834,11 +834,18 @@ class Conversations(Factory):
         old = token_report.names.old_loop_home(home) / self.root.name / "issue-3"
         old.mkdir(parents=True)
         lines(self.transcripts, "c/s5.jsonl", [reply(old / "src", 50, "old-3", "s5")])
-        with mock.patch.object(dashboard_data, "loop_dirs", lambda root: token_report.loop_dirs(root, home=home)):
+        # Only the home folder is swapped, so the dashboard's own loop_dirs(root) call has to find the old folder.
+        with mock.patch.object(Path, "home", return_value=home):
             found = self.conversations()
         self.assertEqual(found["loop"]["by_model"],
                          {"m-a": {"input": 50, "output": 100, "cache_writes": 150, "cache_reads": 200, "total": 500}})
         self.assertEqual(found["loop"]["sessions"], 1)
+
+    def test_the_cache_has_a_new_name_so_every_transcript_is_read_again(self):
+        # conversations.json holds old-folder checkouts as outside the repo, and a finished checkout's
+        # transcript never changes size or time, so under that name they would never be counted.
+        self.assertNotEqual(dashboard_data.CACHE.name, "conversations.json")
+        self.assertEqual(dashboard_data.CACHE, Path("cache") / "conversations-2.json")
 
     def test_a_missing_transcripts_folder_gives_null_and_why(self):
         self.assertEqual(dashboard_data.conversations(self.root, SINCE, TODAY, self.transcripts / "missing",
