@@ -3395,6 +3395,23 @@ class OneHome(unittest.TestCase):
                 self.assertNotIn("only in those two forms", (ROOT / path).read_text())
         self.assertIn("*github.com only*", (ROOT / "docs/maintaining.md").read_text())
 
+    def maintaining(self):
+        """docs/maintaining.md with its whitespace collapsed, so a line wrap doesn't move a command."""
+        return " ".join((ROOT / "docs/maintaining.md").read_text().split())
+
+    def test_the_doc_s_send_back_uses_resend_s_header(self):
+        # Before #425 the live review check wrote resend's header out, and the two could drift apart.
+        text = self.maintaining()
+        self.assertIn("import loop, factories;", text)
+        self.assertIn("header=factories.SEND_BACK_HEADER", text)
+        self.assertNotIn(factories.SEND_BACK_HEADER, text)
+
+    def test_the_doc_s_head_command_prints_the_bare_commit(self):
+        # Before #425 step 3's command printed JSON, not the head step 4 takes.
+        text = self.maintaining()
+        self.assertIn("--json headRefOid -q .headRefOid", text)
+        self.assertEqual(text.count("--json headRefOid"), text.count("--json headRefOid -q .headRefOid"))
+
     def test_the_merge_method_and_the_gh_version_are_written_where_the_merge_is(self):
         # Before T079 the docs said to add the method to the command by hand, and nothing said which gh has
         # --match-head-commit (review after Phase 13, CTO).
@@ -3534,6 +3551,17 @@ class AfterReady(Reviewing):
         body = self.posted()
         self.assertIn("> A person sent this back", body)
         self.assertNotIn("Written by an agent", body)
+
+    def test_resend_posts_the_shared_header(self):
+        # Before #425 resend wrote its header out, and docs/maintaining.md's live check copied it: patched
+        # here, a copy left in resend would still post the old words.
+        self.rollup(self.run_("checks"))
+        self.review()
+        with mock.patch.object(factories, "SEND_BACK_HEADER", "Sentinel header for #425."):
+            self.resend("--yes", "--because", "The export drops the header row.")
+        body = self.posted()
+        self.assertIn("> Sentinel header for #425.", body)
+        self.assertNotIn("after reading the review.", body)
 
     def test_a_comment_that_may_have_posted_never_reads_as_someone_else_s_change(self):
         # Before T058 the record learned of the comment only after gh said it posted (review after Phase 8).

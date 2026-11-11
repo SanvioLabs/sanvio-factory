@@ -610,6 +610,7 @@ def whoami():
 
 
 READY = ("ready", "ready with nits")
+SEND_BACK_HEADER = "A person sent this back to the factory, after reading the review."  # resend's, and the doc's live check
 
 
 def read_verdict(record, sha):
@@ -1177,7 +1178,7 @@ def resend(args, path, record):
         import loop  # noqa: E402  the comment a factory's loop reads, built as the loop's review builds it
         body = loop.review_comment("A person sent this back after a review that said {}:\n\n{}\n\n"
                                    "VERDICT: changes needed".format(verdict, why), review["sha"],
-                                   header="A person sent this back to the factory, after reading the review.")
+                                   header=SEND_BACK_HEADER)
         # Written down first: if gh dies or times out after GitHub took it, status still knows it's ours.
         review["posting"] = "changes needed"
         if because:
