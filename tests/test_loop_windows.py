@@ -342,6 +342,103 @@ class FileLocks(unittest.TestCase):
         self.assertNotIn("msvcrt", names)
 
 
+class Multiplexer(Folder):
+    """The session and issue windows run in psmux on Windows when it's installed, and tmux everywhere else."""
+
+    def where(self, found):
+        """A stand-in for shutil.which that finds only the names in found."""
+        return lambda name: "/bin/" + name if name in found else None
+
+    def on(self, windows, found=("psmux",)):
+        return mock.patch.object(loop, "on_windows", return_value=windows), \
+            mock.patch.object(loop.shutil, "which", side_effect=self.where(found))
+
+    def pick(self, windows, found):
+        a, b = self.on(windows, found)
+        with a, b:
+            return loop.multiplexer()
+
+    def test_windows_with_psmux_installed_uses_psmux(self):
+        self.assertEqual(self.pick(True, ("psmux",)), "psmux")
+
+    def test_windows_without_psmux_uses_tmux(self):
+        self.assertEqual(self.pick(True, ()), "tmux")
+
+    def test_off_windows_it_is_tmux_even_when_psmux_is_found(self):
+        self.assertEqual(self.pick(False, ("psmux", "tmux")), "tmux")
+
+    def test_in_a_psmux_session_the_session_name_comes_from_psmux(self):
+        lp = self.loop()
+        seen = []
+
+        def sh(cmd, *args, **kwargs):
+            seen.append(cmd)
+            return 0, "loop-work\n"
+
+        a, b = self.on(True)
+        with a, b, mock.patch.dict(os.environ, {"TMUX": "psmux-socket,1,0", "TMUX_PANE": "%3"}), \
+                mock.patch.object(lp, "sh", side_effect=sh):
+            self.assertEqual(lp.tmux_session(), "loop-work")
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][:6], ["psmux", "display-message", "-p", "-t", "%3", "#S"])
+
+    def test_outside_a_session_nothing_is_run(self):
+        lp = self.loop()
+        a, b = self.on(True)
+        with a, b, mock.patch.dict(os.environ), mock.patch.object(lp, "sh") as sh:
+            os.environ.pop("TMUX", None)
+            os.environ.pop("TMUX_PANE", None)
+            self.assertIsNone(lp.tmux_session())
+        self.assertEqual(sh.call_count, 0)
+
+    def open(self, windows):
+        """open_window for issue 12 under a root whose path holds a ', and the argv it ran, and the log."""
+        root = self.root / "it's here"
+        root.mkdir()
+        lp = loop.Loop(root, dict(loop.DEFAULTS))
+        lp.session = "loop-work"
+        seen = []
+
+        def sh(cmd, *args, **kwargs):
+            seen.append(cmd)
+            return 0, ""
+
+        found = ("psmux",) if windows else ("tmux",)
+        a, b = self.on(windows, found)
+        with a, b, mock.patch.object(lp, "sh", side_effect=sh):
+            self.assertEqual(lp.open_window(12), "issue-12")
+        self.assertEqual(len(seen), 1)
+        return seen[0], lp.dir / "issue-12" / "agent.log"
+
+    def test_on_windows_an_issue_window_follows_its_log_with_powershell_in_psmux(self):
+        argv, log = self.open(True)
+        quoted = str(log).replace("'", "''")
+        self.assertIn("''", quoted)
+        self.assertEqual(argv, ["psmux", "new-window", "-d", "-t", "loop-work", "-n", "issue-12",
+                                "powershell -NoProfile -Command \"Get-Content -Wait -LiteralPath '{}'\"".format(quoted)])
+
+    def test_on_posix_an_issue_window_still_tails_its_log_in_tmux(self):
+        argv, log = self.open(False)
+        self.assertEqual(argv, ["tmux", "new-window", "-d", "-t", "loop-work", "-n", "issue-12",
+                                "tail -n +1 -f " + loop.shlex.quote(str(log))])
+
+    def test_on_windows_the_issue_window_is_closed_with_psmux(self):
+        lp = self.loop()
+        lp.session = "loop-work"
+        lp.windows[12] = "issue-12"
+        seen = []
+
+        def sh(cmd, *args, **kwargs):
+            seen.append(cmd)
+            return 0, ""
+
+        a, b = self.on(True)
+        with a, b, mock.patch.object(lp, "sh", side_effect=sh), mock.patch.object(lp, "process"):
+            lp.worker({"number": 12}, "issue-12")
+        self.assertIn(["psmux", "kill-window", "-t", "loop-work:issue-12"], seen)
+        self.assertNotIn(12, lp.windows)
+
+
 CHILD_PATH = "import sys; sys.path.insert(0, {!r}); ".format(str(SCRIPTS))
 
 
