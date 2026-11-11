@@ -391,6 +391,42 @@ class Multiplexer(Folder):
             self.assertIsNone(lp.tmux_session())
         self.assertEqual(sh.call_count, 0)
 
+    def start_line(self, windows, session):
+        """The START line a run logs inside the named session, with nothing to work."""
+        lp = self.loop()
+        a, b = self.on(windows)
+        with a, b, mock.patch.object(lp, "tmux_session", return_value=session), \
+                mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
+            self.assertEqual(lp.locked(lambda: None), 0)
+        lines = [line for line in (lp.dir / "loop.log").read_text().splitlines() if " START " in line]
+        self.assertEqual(len(lines), 1)
+        return lines[0]
+
+    def test_on_windows_in_psmux_the_start_line_says_to_attach_with_psmux(self):
+        line = self.start_line(True, "loop-work")
+        self.assertTrue(line.endswith(" START in psmux session loop-work: psmux attach -t loop-work"), line)
+
+    def test_on_windows_a_session_name_is_quoted_for_powershell_in_the_start_line(self):
+        line = self.start_line(True, "it's work")
+        self.assertTrue(line.endswith(": psmux attach -t 'it''s work'"), line)
+
+    def test_off_windows_the_start_line_still_says_tmux(self):
+        line = self.start_line(False, "loop-work")
+        self.assertTrue(line.endswith(" START in tmux session loop-work: tmux attach -t loop-work"), line)
+
+    def test_shell_quote_leaves_a_plain_word_alone_on_both(self):
+        for windows in (True, False):
+            with mock.patch.object(loop, "on_windows", return_value=windows):
+                self.assertEqual(loop.shell_quote("loop-sanvio-factory"), "loop-sanvio-factory")
+
+    def test_shell_quote_doubles_a_quote_for_powershell_and_quotes_posix_style_elsewhere(self):
+        with mock.patch.object(loop, "on_windows", return_value=True):
+            self.assertEqual(loop.shell_quote("it's"), "'it''s'")
+            self.assertEqual(loop.shell_quote("a,b"), "'a,b'")
+            self.assertEqual(loop.shell_quote("@x"), "'@x'")
+        with mock.patch.object(loop, "on_windows", return_value=False):
+            self.assertEqual(loop.shell_quote("it's"), loop.shlex.quote("it's"))
+
     def open(self, windows):
         """open_window for issue 12 under a root whose path holds a ', and the argv it ran, and the log."""
         root = self.root / "it's here"

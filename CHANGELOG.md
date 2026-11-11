@@ -30,7 +30,7 @@ fine).
 ## 2026-11-11: The loop's windows in psmux on Windows
 
 On Windows with psmux installed, [`scripts/loop.py`](scripts/loop.py) finds its session in psmux, names
-psmux in its `START` line's attach command, and opens and closes each issue's window
+psmux in its `START` line's attach command, quoted for PowerShell, and opens and closes each issue's window
 there, following `agent.log` with PowerShell's `Get-Content -Wait`. Everywhere else it
 still runs tmux and `tail -f`. The loop-control skill gives the psmux command to start
 the loop and to attach to it.
