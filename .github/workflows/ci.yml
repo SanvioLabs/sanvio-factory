@@ -50,6 +50,19 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python3 scripts/check_mod_versions.py "origin/${{ github.base_ref }}"
 
+  # The loop's lock, signals and agent stops on a real Windows (#480). The rest of
+  # the suite doesn't run there yet.
+  windows:
+    name: loop on windows (python 3.13)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - name: The loop's Windows tests
+        run: python -m unittest tests.test_loop_windows
+
   # The TypeScript example on the lowest Node it supports. The last step runs its
   # Python test here, where Node is new enough that the test can't skip.
   typescript:
