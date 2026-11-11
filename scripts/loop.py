@@ -131,6 +131,11 @@ DEFAULTS = {
     # to this loop as a factory. Empty means the login the loop runs as. A machine key: a clone anyone can
     # push to mustn't choose whose words reach the planner.
     "review_logins": [],
+    # Variables an agent keeps although their names look like a secret's, for a provider that signs in
+    # through them, such as AWS_PROFILE and AWS_REGION for Bedrock. Every agent the loop starts gets this
+    # environment less anything named like a secret, keeping only its own sign-in (AGENT_SIGN_IN) and these.
+    # A machine key: a clone anyone can push to mustn't hand an agent a token.
+    "agent_env": [],
     # The file that turns a posted review's verdict into a grade out of 10, from the factory's root. A machine
     # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
     # factory's projects[<name>] entry.
@@ -206,8 +211,9 @@ CLOSED_BY_QUERY = """query($owner: String!, $name: String!, $n: Int!) {
     }
   }
 }"""
-# Left out of the environment the test command runs in. It runs code the agent wrote, and the agent
-# wrote it from an issue. This keeps the easy reach to your accounts out of it; it's not a sandbox.
+# Left out of the environment the test command and every agent run in (env_for_tests, env_for_agents). The
+# tests run code an agent wrote, and the agent works from an issue. This keeps the easy reach to your accounts
+# out of both; it's not a sandbox.
 SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|^AWS_|^SSH_AUTH_SOCK$", re.I)
 DEPENDS_ON = re.compile(r"(?im)^\s*depends on\b.*$")
 SCOPE = re.compile(r"(?ims)^##[ \t]+scope[ \t]*$(.*?)(?=^#{1,2}\s|\Z)")  # a ticket's Scope section
@@ -811,6 +817,25 @@ def vouch(data, ready_label):
 def env_for_tests(environ):
     """The environment the test command gets: this one, less anything named like a secret."""
     return {k: v for k, v in environ.items() if not SECRET_ENV.search(k)}
+
+
+# What an agent signs in with, kept although SECRET_ENV matches each: without it, an agent run on an API key
+# or a token from `claude setup-token` couldn't start. A sign-in kept in the keychain needs none of them.
+AGENT_SIGN_IN = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY",
+                 "CODEX_API_KEY")
+
+
+def env_for_agents(environ, keep=()):
+    """The environment every agent the loop starts gets: the test command's, so no GitHub, cloud or SSH token
+    is in reach of an agent steered by an issue, plus its own sign-in and keep, the names loop.json's
+    agent_env gives, where each is set. SANVIO_UNATTENDED=1 tells .claude/hooks/guard.py nobody is watching, so
+    a call it can't check is refused rather than let through with a warning. The retro switch stays off: no
+    agent's session is kept for a session retro."""
+    keep = [name for name in keep if isinstance(name, str)] if isinstance(keep, (list, tuple)) else []
+    env = env_for_tests(environ)
+    env.update({k: environ[k] for k in list(AGENT_SIGN_IN) + keep if k in environ})
+    env.update(SANVIO_RETRO="off", HARNESS_RETRO="off", SANVIO_UNATTENDED="1")
+    return env
 
 
 def pick(issues, me, cfg, only=None):
@@ -2117,7 +2142,7 @@ class Loop:
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
+                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
@@ -2205,7 +2230,7 @@ class Loop:
                                     text=True, encoding="utf-8", errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
-                                    env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
+                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])

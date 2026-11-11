@@ -113,9 +113,44 @@ class Guard(unittest.TestCase):
 
     def test_garbage_input_lets_the_call_through_and_says_so(self):
         result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json",
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, env=interactive_env())
         self.assertEqual(result.returncode, 0)
         self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"])
+
+
+def interactive_env():
+    """This environment as a person's session has it: no switch that makes the guard stricter, so a test
+    reads the same whether a person runs it or a loop agent does."""
+    return {k: v for k, v in os.environ.items()
+            if k not in ("SANVIO_HEADLESS", "HARNESS_HEADLESS", "SANVIO_UNATTENDED")}
+
+
+class Unattended(unittest.TestCase):
+    """A loop agent's session: SANVIO_UNATTENDED=1. Nobody is there to read a warning, so a call the guard
+    can't check is refused, and nothing else changes."""
+
+    def test_a_call_the_guard_cant_read_is_refused(self):
+        env = dict(interactive_env(), SANVIO_UNATTENDED="1")
+        result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json",
+                                capture_output=True, text=True, env=env, timeout=30)
+        self.assertEqual(result.returncode, 0)
+        out = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertEqual(out["permissionDecisionReason"], guard.UNATTENDED_UNCHECKED)
+
+    def test_only_one_counts(self):
+        for value in ("0", "", "yes"):
+            env = dict(interactive_env(), SANVIO_UNATTENDED=value)
+            result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json",
+                                    capture_output=True, text=True, env=env, timeout=30)
+            self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"], value)
+
+    def test_it_adds_none_of_a_headless_runs_limits(self):
+        with mock.patch.dict(os.environ, interactive_env(), clear=True):
+            with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "1"}):
+                self.assertIsNone(guard.decide({"tool_name": "Bash", "tool_input": {"command": "git status"}}))
+                self.assertIsNone(guard.decide({"tool_name": "Read", "tool_input": {"file_path": "AGENTS.md"}}))
+                self.assertEqual(guard.decide({"tool_name": "Read", "tool_input": {"file_path": ".env"}})[0], "deny")
 
 
 def reviewer_runs(command, cwd=None):
@@ -237,7 +272,7 @@ class HeadlessRun(unittest.TestCase):
 
     def test_a_call_the_guard_cant_read_is_refused_headless_and_let_through_otherwise(self):
         hook = [sys.executable, str(HOOKS / "guard.py")]
-        env = dict(os.environ, SANVIO_HEADLESS="1")
+        env = dict(interactive_env(), SANVIO_HEADLESS="1")
         result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
         env.pop("SANVIO_HEADLESS")

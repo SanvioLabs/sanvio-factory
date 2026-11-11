@@ -27,6 +27,22 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them
+
+Every agent [`scripts/loop.py`](scripts/loop.py) starts (planner, tester, builder, reviewer) now gets the
+environment the test command already got: nothing named like a secret, so no `GH_TOKEN`, `AWS_*` or SSH
+agent, keeping only the agent's own sign-in. Before, an agent had your whole environment, and a build with
+`builder_runs_tests` on ran the tests through its own shell with it. Each agent's session also gets
+`SANVIO_UNATTENDED=1`, and [`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses a call it can't check there
+instead of letting it through with a warning nobody reads. A new machine key, `agent_env`, names
+variables to keep for a provider that signs in through them.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** restart the loop to take it. If your agents sign in to Bedrock or Vertex through environment
+variables, list them under `agent_env` in your `loop.json` first, such as
+`"agent_env": ["AWS_PROFILE", "AWS_REGION"]`, or they won't start.
+
 ## 2026-11-11: Weekly dependency scan
 
 Dependabot now opens a pull request each week for a newer GitHub Action or a newer
