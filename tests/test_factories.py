@@ -127,6 +127,15 @@ class Steps(unittest.TestCase):
         self.write({"steps": [dict(STEP, factory_login="factory-bot2")]})
         self.assertEqual(factories.read_steps(self.root)[0]["factory_login"], "factory-bot2")
 
+    def test_steps_reads_origin_once_to_warn(self):
+        # Before #458 the warning read origin twice: once for the name and once for why.
+        out = io.StringIO()
+        with mock.patch.object(loop, "origin", wraps=loop.origin) as read, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            factories.main(["steps", "--root", str(self.root)])
+        self.assertEqual(read.call_count, 1)
+        self.assertIn("origin couldn't be read", out.getvalue())
+
     def test_steps_warns_when_the_harness_isn_t_on_github_com(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -1152,6 +1161,40 @@ class Review(Running):
         _, out, _ = self.review()
         self.assertEqual(self.loop_calls(), [])
         self.assertIn("this repo: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
+
+    def test_with_no_clone_each_origin_is_read_once_and_another_repo_s_clone_is_left_out(self):
+        # Before #458 review_target and unnamed_clones each read every origin again.
+        aliased = self.root / "projects" / "aliased"
+        aliased.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(aliased)], check=True, env=ISOLATED)
+        subprocess.run(["git", "-C", str(aliased), "remote", "add", "origin", "git@github-work:o/elsewhere.git"],
+                       check=True, env=ISOLATED)
+        clone_of(self.root / "projects" / "other", "o/other")
+        record = self.record()
+        record["repo"] = "o/elsewhere"
+        self.run_path.write_text(json.dumps(record))
+        self.linked(prs=[31])
+        with mock.patch.object(loop, "origin", wraps=loop.origin) as read:
+            _, out, _ = self.review()
+        self.assertEqual(read.call_count, 3)  # this repo, projects/aliased and projects/other
+        self.assertEqual(self.loop_calls(), [])
+        self.assertIn("projects/aliased: origin, as git fetches it (git@github-work:o/elsewhere.git), isn't on "
+                      "github.com", out)
+        self.assertNotIn("projects/other", out)
+
+    def test_a_clone_beside_one_that_names_no_repo_is_still_reviewed(self):
+        aliased = self.root / "projects" / "aliased"
+        aliased.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(aliased)], check=True, env=ISOLATED)
+        subprocess.run(["git", "-C", str(aliased), "remote", "add", "origin", "git@github-work:o/app.git"],
+                       check=True, env=ISOLATED)
+        clone_of(self.root / "projects" / "app", "o/app")
+        record = self.record()
+        record["repo"] = "O/App"
+        self.run_path.write_text(json.dumps(record))
+        self.linked(prs=[31])
+        self.review()
+        self.assertEqual(self.loop_calls(), [["review", "--pr", "31", "--project", "projects/app"]])
 
     def test_a_review_of_an_older_head_says_github_may_be_behind(self):
         # Before T074 it said "see the loop's log", which says only skipped (review after Phase 12, live).
