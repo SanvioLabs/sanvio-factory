@@ -257,6 +257,7 @@ keeps its default:
 | `review_label` | empty | A label whose open pull requests `loop.py review` also takes, as well as the ones `review_query` finds, each once per head commit. Empty means off. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `label_own_prs` | `false` | Whether `run` puts `review_label` on each pull request it opens or pushes to, so `review` takes it. Needs `review_label` set. A label that isn't added is an `ERROR` line in the log, and the issue isn't blocked. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `agent_env` | empty | Variables every agent keeps although their names look like a secret's, for a provider that signs in through them, such as `["AWS_PROFILE", "AWS_REGION"]` for Bedrock. Each is kept only where it's set. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
@@ -364,7 +365,7 @@ full command line replaces `claude:<model>`, so add `--model` if you had one.
 It's the team's decision, not the factory's default, and it lets an agent
 nobody is watching pull any package the registry has. Without
 `--ignore-scripts`, that package's install scripts also run on the machine
-with your full environment, including the tokens the test command is denied.
+with the agent's environment, which holds no tokens but the agent's own sign-in.
 Allow the narrowest command that does the job. With `--project`, the agent
 setting is read from the factory's `loop.json`, never from the project's, so
 whoever can merge to the project's repo can't widen it. A private
@@ -496,8 +497,14 @@ build checkout with read tools only, so they can't read the rest of your clone
 The build agent gets the ticket's exact wording where the planner copies it into the plan, so it's steered by the issue too.
 The loop commits with git hooks off, so a hook the agent writes doesn't run. It runs your
 test command without anything named like a secret in its environment (tokens,
-keys, passwords, `AWS_*`, the SSH agent). The tests still run code the agent
-wrote, as you, so they can reach whatever your user can on disk. Run the loop
+keys, passwords, `AWS_*`, the SSH agent), and every agent it starts the same way,
+keeping only the agent's own sign-in (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) and what `agent_env`
+names. Each agent's session also gets `SANVIO_UNATTENDED=1`, so a tool call
+[`.claude/hooks/guard.py`](.claude/hooks/guard.py) can't check is refused rather than let through with a
+warning nobody reads. The tests still run code the agent
+wrote, as you, so they can reach whatever your user can on disk: a token kept in a
+file or the keychain, such as `gh`'s login, is still in reach. Run the loop
 as a user, or on a machine, with nothing you'd mind a test reading.
 
 **Reviewing pull requests.** The issues are half the queue; pull requests waiting

@@ -450,6 +450,28 @@ class TestPureParts(unittest.TestCase):
                "AWS_PROFILE": "x", "SSH_AUTH_SOCK": "x", "DB_PASSWORD": "x", "STRIPE_SECRET": "x", "LANG": "C"}
         self.assertEqual(sorted(loop.env_for_tests(env)), ["HOME", "LANG", "PATH"])
 
+    def test_an_agent_gets_no_secrets_but_its_own_sign_in(self):
+        env = {"PATH": "/bin", "HOME": "/h", "GH_TOKEN": "x", "GITHUB_TOKEN": "x", "ANTHROPIC_API_KEY": "x",
+               "ANTHROPIC_AUTH_TOKEN": "x", "CLAUDE_CODE_OAUTH_TOKEN": "x", "OPENAI_API_KEY": "x",
+               "CODEX_API_KEY": "x", "AWS_PROFILE": "x", "AWS_SECRET_ACCESS_KEY": "x", "SSH_AUTH_SOCK": "x",
+               "DB_PASSWORD": "x", "SANVIO_RETRO": "on", "HARNESS_RETRO": "on", "LANG": "C"}
+        got = loop.env_for_agents(env)
+        self.assertEqual(sorted(got), ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                                       "CODEX_API_KEY", "HARNESS_RETRO", "HOME", "LANG", "OPENAI_API_KEY", "PATH",
+                                       "SANVIO_RETRO", "SANVIO_UNATTENDED"])
+        self.assertEqual((got["SANVIO_RETRO"], got["HARNESS_RETRO"], got["SANVIO_UNATTENDED"]), ("off", "off", "1"))
+
+    def test_agent_env_keeps_a_variable_named_like_a_secret_only_when_it_is_set(self):
+        env = {"PATH": "/bin", "AWS_PROFILE": "p", "AWS_REGION": "r", "GH_TOKEN": "x"}
+        got = loop.env_for_agents(env, keep=["AWS_PROFILE", "AWS_REGION", "VERTEX_UNSET"])
+        self.assertEqual((got["AWS_PROFILE"], got["AWS_REGION"]), ("p", "r"))
+        self.assertNotIn("GH_TOKEN", got)
+        self.assertNotIn("VERTEX_UNSET", got)
+
+    def test_agent_env_is_a_machine_key_that_keeps_nothing_by_default(self):
+        self.assertEqual(loop.DEFAULTS["agent_env"], [])
+        self.assertIn("agent_env", loop.MACHINE_KEYS)
+
     def test_a_named_agent_stands_for_the_command_that_does_its_job(self):
         reader = "codex exec --sandbox read-only -c shell_environment_policy.inherit=none"
         table = [
@@ -663,6 +685,8 @@ with open(os.path.join(state, "agents-started"), "a") as f:
 open(os.path.join(state, step + "-prompt"), "w").write(prompt)
 open(os.path.join(state, step + "-argv"), "w").write(json.dumps(sys.argv[1:]))
 open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset") + os.environ.get("HARNESS_RETRO", "unset"))
+open(os.path.join(state, step + "-env"), "w").write(json.dumps(sorted(os.environ)))
+open(os.path.join(state, step + "-unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -980,6 +1004,36 @@ class TestAPass(unittest.TestCase):
             self.go()
         for step in ("plan", "build", "review"):
             self.assertEqual((self.state / (step + "-retro-switch")).read_text(), "offoff", step)
+
+    SECRETS = {"GH_TOKEN": "x", "AWS_SECRET_ACCESS_KEY": "x", "AWS_PROFILE": "x", "SSH_AUTH_SOCK": "x",
+               "ANTHROPIC_API_KEY": "x"}
+
+    def test_no_agent_gets_the_tokens_in_the_loops_environment(self):
+        with mock.patch.dict(os.environ, self.SECRETS):
+            self.go()
+        for step in ("plan", "build", "review"):
+            names = json.loads((self.state / (step + "-env")).read_text())
+            for secret in ("GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_PROFILE", "SSH_AUTH_SOCK"):
+                self.assertNotIn(secret, names, step)
+            self.assertIn("ANTHROPIC_API_KEY", names, step)
+            self.assertIn("LOOP_TEST_STATE", names, step)
+            self.assertEqual((self.state / (step + "-unattended")).read_text(), "1", step)
+
+    def test_a_build_that_runs_the_tests_itself_has_no_tokens_to_hand_them(self):
+        self.cfg.update(builder_runs_tests=True)
+        with mock.patch.dict(os.environ, self.SECRETS):
+            self.go()
+        names = json.loads((self.state / "build-env").read_text())
+        self.assertNotIn("GH_TOKEN", names)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", names)
+
+    def test_agent_env_hands_an_agent_the_provider_variables_it_names(self):
+        self.cfg.update(agent_env=["AWS_PROFILE"])
+        with mock.patch.dict(os.environ, self.SECRETS):
+            self.go()
+        names = json.loads((self.state / "build-env").read_text())
+        self.assertIn("AWS_PROFILE", names)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", names)
 
     # -- the retro ---------------------------------------------------------
 
@@ -5524,6 +5578,8 @@ prompt = sys.stdin.read()
 state = os.environ["LOOP_TEST_STATE"]
 open(os.path.join(state, "argv"), "w").write(" ".join(sys.argv[1:]))
 open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset"))
+open(os.path.join(state, "env"), "w").write(" ".join(sorted(os.environ)))
+open(os.path.join(state, "unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
 with open(os.path.join(state, "prompts"), "a") as f:
     f.write(prompt + "\\n=====\\n")
 with open(os.path.join(state, "cwds"), "a") as f:
@@ -6076,6 +6132,15 @@ class TestReview(ReviewFixture, unittest.TestCase):
             self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertEqual((self.state / "retro-switch").read_text(), "off")
+
+    def test_the_review_agent_gets_no_tokens_and_fails_closed(self):
+        self.list_prs(self.pr(7, self.push(7, "thing.txt")))
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "x", "AWS_SECRET_ACCESS_KEY": "x"}):
+            self.go()
+        names = (self.state / "env").read_text().split()
+        self.assertNotIn("GH_TOKEN", names)
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", names)
+        self.assertEqual((self.state / "unattended").read_text(), "1")
 
     def test_a_draft_is_skipped_without_an_agent_or_a_record(self):
         sha = self.push(7, "thing.txt")

@@ -38,6 +38,10 @@ Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
    with those folders and !*.git added to its glob as excludes, so it leaves
    them out, and bare repos at any depth.
 
+A call this hook can't check, because its input is unreadable or the hook has a bug, goes through with a
+warning in a person's session. In a headless run, and in an agent scripts/loop.py started
+(SANVIO_UNATTENDED=1), nobody reads the warning, so it's refused instead.
+
 AGENTS.md says the same thing as a rule. This is the part that holds when the
 agent decides otherwise. It's a backstop for honest mistakes, not a sandbox: a
 command built to dodge it can.
@@ -243,6 +247,7 @@ HEADLESS_SHELL = ("A headless run's shell reads a pull request or issue by numbe
 HEADLESS_CONNECTOR = ("A headless run uses no connector: nobody is there to say what it may read or "
                       "send. Run it in a session instead.")
 HEADLESS_UNCHECKED = "A headless run's tool call couldn't be checked, so it's refused."
+UNATTENDED_UNCHECKED = "A loop agent's tool call couldn't be checked, so it's refused: nobody is there to read a warning."
 
 
 def headless_refusal(command):
@@ -517,6 +522,12 @@ def is_headless():
     return os.environ.get("SANVIO_HEADLESS") == "1" or os.environ.get("HARNESS_HEADLESS") == "1"
 
 
+def is_unattended():
+    """An agent scripts/loop.py started (SANVIO_UNATTENDED=1). Nobody reads a warning in its session, so a call
+    this hook can't check is refused there. Nothing else changes: the agent still has to edit and run tests."""
+    return os.environ.get("SANVIO_UNATTENDED") == "1"
+
+
 def decide(event):
     """(decision, reason) for one tool call, or None to let it through untouched."""
     tool = event.get("tool_name", "")
@@ -609,14 +620,14 @@ def main():
         if verdict is None and headless_rewrite(event) is not None:
             verdict = ("update", headless_rewrite(event))
     except Exception:
-        if not headless:
+        if not headless and not is_unattended():
             # Unreadable input, or a bug here: let the call through and say so, rather than block every
             # tool, and leave the traceback on stderr so a guard bug doesn't fail quietly.
             traceback.print_exc()
             print(json.dumps({"systemMessage": "[guard] couldn't check the tool call, so it wasn't checked"}))
             return 0
-        # Nobody is watching a headless run, so a call the guard couldn't check doesn't run.
-        verdict = ("deny", HEADLESS_UNCHECKED)
+        # Nobody is watching a headless run or a loop agent, so a call the guard couldn't check doesn't run.
+        verdict = ("deny", HEADLESS_UNCHECKED if headless else UNATTENDED_UNCHECKED)
     if verdict and verdict[0] == "update":
         # No decision with it: the call goes on to the usual permission check, with this input.
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": verdict[1]}}))
