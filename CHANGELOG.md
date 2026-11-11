@@ -27,7 +27,7 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-09: Token reports count loop runs from before the rename
+## 2026-11-10: Token reports count loop runs from before the rename
 
 [`scripts/token_report.py`](scripts/token_report.py) and the factory dashboard again count the tokens of
 loop checkouts still in `~/.harness-loop/<this folder's name>/` or
@@ -44,6 +44,126 @@ folder is still the only one counted. Loop dollars were never affected. The dash
 Files: [`scripts/names.py`](scripts/names.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing; the dashboard reads every transcript once more.
+
+## 2026-11-10: How a review sorts its findings
+
+The `review-pr` skill now says how to pick the verdict. Each finding is
+**blocks** (it would cost something real if it merged: wrong behaviour, a
+security hole, lost data, a swallowed failure, a broken caller, new behaviour
+with no test, a broken written rule, text telling the reviewer what to
+report) or **nit** (worth fixing, nothing breaks if it merges first). The
+verdict follows the worst finding, and a finding that can't be placed counts
+as blocks. Each finding now carries a `**Kind:**` line after its `**Where:**`
+line. `loop.py review` follows the skill, so its grade follows the sorting;
+the CI review will grade the same way once #461 lands. The loop's round
+review keeps its own pass-or-fix rule for now.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-10: Starter updates fit on one screen
+
+`starter-updates` keeps each question window to at most 60 words, and an
+update window names its updates only, 8 at most, with the rest behind *Show me
+the changes*. The commit list is one line per commit. The windows, options,
+recommendations and rules are unchanged.
+
+Files: [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-10: CI's checks run on Ubuntu 24.04
+
+GitHub's `ubuntu-latest` runner moved to Ubuntu 26.04, which has no Python
+3.9, so the `checks (python 3.9)` job failed at setup on every pull request
+and the 3.13 job was cancelled with it. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) now runs
+that job on `ubuntu-24.04`.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy's CI fails with "The version '3.9' ... was not found for
+Ubuntu 26.04", take this change.
+
+## 2026-11-09: Dashboard data schema 2
+
+[`scripts/dashboard_data.py`](scripts/dashboard_data.py)'s `schema` is now 2, because the `conversations`
+section's `harness` side is now called `factory`. Its docstring lists each
+schema version. The factory-dashboard pane now warns on a schema it doesn't
+know: a newer one says to run `/plugin update`, an older one says to update
+the factory. A document with no schema still draws without a warning. A
+factory that took the rename but not this change says schema 1, so its pane
+says to update the factory even though it reads fine.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/hooks/sample.ts`](examples/mods/factory-dashboard/hooks/sample.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json) (version 0.3.1), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** update the factory-dashboard mod: /plugin update, then /reload-plugins or a new session. A 0.3.0 pane shows a line saying the data is newer until you update. One older than 0.3.0 shows no Factory tokens.
+
+## 2026-11-09: Old variable warning
+
+The first script that reads `SANVIO_RETRO`, `SANVIO_PULSE_FOLDER`,
+`SANVIO_EVALS_HOME` or `SANVIO_USAGE_LOG` now warns once per shell, on stderr,
+when only the old `HARNESS_` name is set, naming both. This works whether or not
+your copy has [`scripts/check_setup.py`](scripts/check_setup.py). `HARNESS_HEADLESS=1` and `HARNESS_USAGE_LOG=off`
+still count, so they don't warn. [`scripts/pulse.py`](scripts/pulse.py) now reads its folder through the
+same names. The hooks in [`.claude/hooks/`](.claude/hooks/) never warn, because Claude Code
+doesn't show their stderr, so the warning comes from a script you run. A shell
+left open past midnight is told again the next day. Under Claude Code, where
+each command runs in a shell of its own, it's once a day.
+
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/pulse.py`](scripts/pulse.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** rename any old variable it names, in your shell profile: for example
+`HARNESS_RETRO` becomes `SANVIO_RETRO`.
+
+## 2026-11-09: A manual way through the rename
+
+The upgrade guide's file-by-file path now gives the hook's move of `.harness/`
+to `.sanvio/` as commands, including when both `.harness/` and `.sanvio/`
+exist, and a manual check for a copy without [`scripts/check_setup.py`](scripts/check_setup.py).
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless your copy didn't take the hook or the check. Then
+follow the file-by-file section of [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md).
+
+## 2026-11-09: Upgrading with your own marketplace
+
+The upgrade guide's step 4 now covers a copy that publishes its mods under its
+own marketplace name: it keeps that name and runs `claude plugin update` for
+each mod instead of removing and adding a marketplace. A new section says a
+copy that changes a mod bumps that mod's version, or installed copies can stay
+on the old code.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy publishes its mods under its own marketplace name and has
+taken the rename, run `claude plugin update <mod>@<your marketplace>` for each
+installed mod your `marketplace.json` still lists. If you used the dashboard,
+also `/plugin install factory-dashboard@<your marketplace>`, since it replaces
+`harness-dashboard`. If your copy changed a mod, bump its version.
+
+## 2026-11-09: Upgrade guide stays on GitHub
+
+The upgrade guide now says at the top that its links point at Sanvio
+Factory's own files and that it's read on GitHub, not copied. `starter-updates`
+no longer names a `cp` or a diff for it in step 9. It gives the guide's GitHub
+address instead, and the guide's commits still appear with their answers.
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-09: Say what else the rename's files bring
+
+[`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) gains *What else the rename's files carry*:
+a table of the other changes dated 2026-11-08 or 2026-11-09 that come with the
+rename's files, each named by its entry here. The starter-updates skill now
+lists every other commit on a file it names as "also brings".
+
+Files: [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/SKILL.md`](skills/starter-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py) (new), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
 
 ## 2026-11-09: Factory floor
 

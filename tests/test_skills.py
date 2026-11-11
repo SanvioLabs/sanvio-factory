@@ -370,6 +370,99 @@ class StarterUpdatesRename(unittest.TestCase):
             self.assertEqual(found, self.ALLOWED.get(name, 0), name)
 
 
+class StarterUpdatesOneScreen(unittest.TestCase):
+    """Each starter-updates question fits on one screen, and the windows, answers and rules stay as they were."""
+
+    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+
+    def text(self):
+        return " ".join(self.SKILL.read_text().split())
+
+    def between(self, start, end=None):
+        text = self.text()
+        begin = text.index(start)
+        return text[begin:text.index(end, begin)] if end else text[begin:]
+
+    def step_6(self):
+        return self.between("6. **Ask", "7. **Recommend")
+
+    def test_step_6_caps_the_question(self):
+        step = self.step_6()
+        flat = " ".join(step.split())
+        for words in ("is at most 60 words", "not counting its option labels or an update window's names",
+                      "Detail past that goes behind **Tell me more** in a new window or "
+                      "**Show me the changes** in an update window."):
+            self.assertIn(words, flat)
+
+    def test_show_me_the_changes_names_the_rest(self):
+        flat = " ".join(self.step_6().split())
+        self.assertIn("**Show me the changes** first names each update past the first 8", flat)
+
+    def test_update_window_names_only(self):
+        step = self.step_6()
+        self.assertIn("or the commit's subject when it has none, and nothing else about it", step)
+        self.assertIn("Past 8 updates, it gives the count and the first 8 names", step)
+
+    def test_output_one_line_per_commit(self):
+        self.assertIn("as one line, with no prose between commits", self.between("## Output"))
+
+    def test_rules_unchanged(self):
+        rules = self.between("## Rules", "## Output")
+        self.assertIn("Never pull, merge, check out, copy or commit in this copy, and never offer to.", rules)
+        self.assertIn("Every commit on the list is in the answer, and the count you give is the list's length.",
+                      rules)
+
+    def test_windows_and_answers_unchanged(self):
+        step = self.step_6()
+        for label in ("**Yes, bring it over**", "**No, leave it**", "**Tell me more**", "**Skip the rest**",
+                      "**Yes, take them**", "**No, keep mine**", "**Show me the changes**",
+                      "**Yes, merge by hand**"):
+            self.assertIn(label, step)
+        recommend = self.between("7. **Recommend", "8. **Weigh")
+        for row in ("| **take** | None of the below |",
+                    "| **merge by hand** | It touches an adapted file |",
+                    "| **skip** | It changes something this copy removed |",
+                    "| **ask** | A line in it weakens a guard or a gate, sends data off the machine, "
+                    "or runs downloaded code. Quote that line |",
+                    "Every commit is still in the output."):
+            self.assertIn(row, recommend)
+
+
+class UpgradeGuideStaysUpstream(unittest.TestCase):
+    """The upgrade guide's links point at Sanvio Factory's own files, so it's read on GitHub, and
+    starter-updates gives its address in place of a copy. Checked only in Sanvio Factory's own repo:
+    a copy that takes changes file by file doesn't have the guide."""
+
+    URL = "https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md"
+    GUIDE = ROOT / "docs" / "upgrading-to-sanvio-factory.md"
+    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+
+    def setUp(self):
+        if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
+            self.skipTest("origin isn't the public Sanvio Factory, so this copy may not have the guide")
+
+    def test_the_guide_says_where_to_read_it_before_the_changes(self):
+        top = self.GUIDE.read_text().split("## What changed", 1)[0]
+        self.assertIn(self.URL, " ".join(top.split()))
+
+    def test_starter_updates_gives_the_address_for_the_guide(self):
+        skill = self.SKILL.read_text()
+        self.assertIn("docs/upgrading-to-sanvio-factory.md", skill)
+        self.assertIn(self.URL, " ".join(skill.split()))
+
+    def test_starter_updates_still_copies_other_files(self):
+        self.assertIn('cp "$clone/$path" "$path"', self.SKILL.read_text())
+
+    def test_the_guide_keeps_its_instructions_for_file_by_file_copies(self):
+        guide = self.GUIDE.read_text()
+        for kept in ("## Which kind of copy you have", "scripts/names.py", ".claude/hooks/session_start.py"):
+            self.assertIn(kept, guide)
+
+    def test_no_capability_window_asks_about_the_guide(self):
+        table = (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text()
+        self.assertNotIn("upgrading-to-sanvio-factory", table)
+
+
 class FactoryTrendsRename(unittest.TestCase):
     """harness-report became harness-trends, which is now factory-trends: the skill moved, and the report
     and its scripts didn't. The old trigger phrases went with the other old names."""

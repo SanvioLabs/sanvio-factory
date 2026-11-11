@@ -632,7 +632,7 @@ export const SAMPLE: Doc = {
       "issue-40": 1
     }
   },
-  "schema": 1,
+  "schema": 2,
   "since": "2026-10-15",
   "waiting": {
     "blocked": [
