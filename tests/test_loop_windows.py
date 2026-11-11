@@ -1,10 +1,17 @@
 """Run with: python3 -m unittest tests.test_loop_windows
 
-The loop's lock, signals and agent stops on Windows (#480). The patched tests run everywhere: each answers
-loop.on_windows itself and stands in for what Windows has. The real-Windows tests at the end skip elsewhere.
+The loop's lock, signals and agent stops on Windows (#480), and its files and guard under Windows' defaults
+(#482). The patched tests run everywhere: each answers loop.on_windows itself and stands in for what Windows
+has. The real-Windows tests at the end skip elsewhere.
 """
+import ast
 import builtins
+import contextlib
+import io
+import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -340,6 +347,147 @@ class FileLocks(unittest.TestCase):
         self.assertEqual(fcntl.calls, [Fcntl.LOCK_EX | Fcntl.LOCK_NB])
         self.assertIn("fcntl", names)
         self.assertNotIn("msvcrt", names)
+
+
+BINARY_MODE = re.compile(r"^[rwxat+]*b[rwxat+]*$")
+
+
+def missing_encoding(source):
+    """The line of each open, read_text or write_text call in source that doesn't pass encoding="utf-8".
+    An open in a binary mode can't take one, so it's left out."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+        if name not in ("open", "read_text", "write_text"):
+            continue
+        if name == "open":
+            given = node.args[1:] if isinstance(func, ast.Name) else node.args
+            modes = list(given) + [kw.value for kw in node.keywords if kw.arg == "mode"]
+            if any(isinstance(m, ast.Constant) and isinstance(m.value, str) and BINARY_MODE.match(m.value)
+                   for m in modes):
+                continue
+        encoding = next((kw.value for kw in node.keywords if kw.arg == "encoding"), None)
+        if not (isinstance(encoding, ast.Constant) and encoding.value == "utf-8"):
+            found.append(node.lineno)
+    return sorted(found)
+
+
+class Encodings(unittest.TestCase):
+    """Windows' default encoding isn't UTF-8, so every text file the loop opens names it."""
+
+    def test_every_text_file_call_in_loop_py_names_utf_8(self):
+        source = (SCRIPTS / "loop.py").read_text(encoding="utf-8")
+        self.assertEqual(missing_encoding(source), [], "scripts/loop.py lines without encoding=\"utf-8\"")
+
+    def test_the_check_reports_a_text_call_without_it_and_skips_a_binary_open(self):
+        self.assertEqual(missing_encoding('open(p, "w")\n'), [1])
+        self.assertEqual(missing_encoding('p.read_text()\nq.write_text("x")\n'), [1, 2])
+        self.assertEqual(missing_encoding('open(p, "rb")\nopen(p, mode="wb")\n'), [])
+        self.assertEqual(missing_encoding('open(p, "a", encoding="utf-8")\np.read_text(encoding="utf-8")\n'), [])
+        self.assertEqual(missing_encoding('p.read_text(encoding="latin-1")\n'), [1])
+
+
+class StatusReplace(Folder):
+    """save_status tries status.json's replace again while a reader holds it, as Windows refuses then."""
+
+    def setUp(self):
+        super().setUp()
+        self.lp = self.loop()
+        self.status = self.lp.dir / "status.json"
+        self.status.write_text(json.dumps({"updated": "before"}), encoding="utf-8")
+        self.real = os.replace
+        self.sleeps = []
+
+    def save(self, side_effect):
+        with mock.patch.object(loop.os, "replace", side_effect=side_effect) as replace, \
+                mock.patch.object(loop.time, "sleep", side_effect=self.sleeps.append), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.lp.save_status(queue=[5])
+        return replace
+
+    def warnings(self):
+        path = self.lp.dir / "loop.log"
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        return [line for line in text.splitlines() if "WARN" in line]
+
+    def written(self):
+        return json.loads(self.status.read_text(encoding="utf-8"))
+
+    def test_refused_twice_then_allowed_it_writes_status_json_and_warns_nothing(self):
+        tries = []
+
+        def replace(part, path):
+            tries.append(path)
+            if len(tries) < 3:
+                raise PermissionError(13, "The process cannot access the file")
+            self.real(part, path)
+
+        self.save(replace)
+        self.assertEqual(len(tries), 3)
+        self.assertEqual(self.written()["updated"], self.lp.status["updated"])
+        self.assertNotEqual(self.written()["updated"], "before")
+        self.assertEqual(self.written()["queue"], [5])
+        self.assertEqual(self.warnings(), [])
+
+    def test_refused_every_time_it_tries_five_times_warns_once_and_the_run_goes_on(self):
+        replace = self.save(PermissionError(13, "The process cannot access the file"))
+        self.assertEqual(replace.call_count, 5)
+        self.assertLessEqual(sum(self.sleeps), 1.0)
+        warned = self.warnings()
+        self.assertEqual(len(warned), 1)
+        self.assertIn("status.json", warned[0])
+        self.assertEqual(self.written()["updated"], "before")
+        self.save(self.real)  # the next save still runs, and writes it
+        self.assertEqual(self.written()["updated"], self.lp.status["updated"])
+        self.assertEqual(len(self.warnings()), 1)
+
+    def test_any_other_error_still_raises_at_once(self):
+        with mock.patch.object(loop.os, "replace", side_effect=FileNotFoundError(2, "No such file")) as replace, \
+                mock.patch.object(loop.time, "sleep", side_effect=self.sleeps.append):
+            with self.assertRaises(FileNotFoundError):
+                self.lp.save_status(queue=[5])
+        self.assertEqual(replace.call_count, 1)
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(self.warnings(), [])
+
+    def test_a_review_pr_write_still_replaces_once_and_isnt_retried(self):
+        self.lp.only_pr = 7
+        self.lp.status["reviews"]["7"] = {"verdict": "PASS"}
+        path = self.lp.pr_file(7, "json")
+        with mock.patch.object(loop.os, "replace", side_effect=PermissionError(13, "in use")) as refused, \
+                mock.patch.object(loop.time, "sleep", side_effect=self.sleeps.append):
+            with self.assertRaises(PermissionError):
+                self.lp.save_status()
+        self.assertEqual(refused.call_count, 1)
+        with mock.patch.object(loop.os, "replace", side_effect=self.real) as replace:
+            self.lp.save_status()
+        replace.assert_called_once_with(path.with_name(path.name + ".part"), path)
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"verdict": "PASS"})
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(self.warnings(), [])
+        self.assertEqual(self.written()["updated"], "before")  # status.json isn't touched under review --pr
+
+
+class GuardCommand(Folder):
+    """A project's build agent runs guard.py with the Python running the loop: Windows has no python3."""
+
+    def test_the_hook_runs_guard_py_with_this_python_and_keeps_the_rest(self):
+        hooks = self.root / ".claude"
+        hooks.mkdir()
+        (hooks / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+            {"matcher": "Read|Bash", "hooks": [{"type": "command", "command": "python3 .claude/hooks/guard.py"}]}]}}),
+            encoding="utf-8")
+        guard = self.root.absolute() / ".claude" / "hooks" / "guard.py"
+        with mock.patch.object(loop.sys, "executable", "/opt/My Python/python.exe"):
+            settings = json.loads(self.loop().guard_settings())
+        entries = settings["hooks"]["PreToolUse"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["matcher"], "Read|Bash")
+        self.assertEqual(entries[0]["hooks"], [{"type": "command", "timeout": 10,
+                                                "command": "'/opt/My Python/python.exe' " + shlex.quote(str(guard))}])
 
 
 CHILD_PATH = "import sys; sys.path.insert(0, {!r}); ".format(str(SCRIPTS))

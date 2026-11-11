@@ -416,7 +416,7 @@ def load_config(root):
     cfg = dict(DEFAULTS, generate_command=FACTORY_GENERATE)
     path = Path(root) / "loop.json"
     if path.exists():
-        cfg.update(json.loads(path.read_text()))
+        cfg.update(json.loads(path.read_text(encoding="utf-8")))
     return cfg
 
 
@@ -433,11 +433,11 @@ def load_project_config(root, project):
     project leaves out is the default, not the factory's: the factory's base or labels describe this repo."""
     cfg = dict(DEFAULTS)
     path = Path(root) / "loop.json"
-    harness = json.loads(path.read_text()) if path.exists() else {}
+    harness = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     cfg.update({k: v for k, v in harness.items() if k != "projects" and k not in PROJECT_KEYS})
     cfg.update((harness.get("projects") or {}).get(Path(project).name, {}))
     path = Path(project) / "loop.json"
-    own = json.loads(path.read_text()) if path.exists() else {}
+    own = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     cfg.update({k: v for k, v in own.items() if k in PROJECT_KEYS})
     return cfg
 
@@ -557,7 +557,7 @@ def project_root(path, root=None):
         # Off github.com, say why it matters here: the loop reads and writes its issues there.
         return refuse(why + (", and the loop finds its issues there" if rule == ORIGIN_OFF_GITHUB else ""))
     try:
-        cfg = json.loads((folder / "loop.json").read_text())
+        cfg = json.loads((folder / "loop.json").read_text(encoding="utf-8"))
     except OSError:
         cfg = {}
     except ValueError as err:
@@ -569,7 +569,7 @@ def project_root(path, root=None):
         return refuse('its loop.json sets {}, which only the factory\'s loop.json may set; move it there under '
                       '"projects": {{"{}": {{...}}}}'.format(", ".join(machine), folder.name))
     try:
-        harness = json.loads((projects.parent / "loop.json").read_text())
+        harness = json.loads((projects.parent / "loop.json").read_text(encoding="utf-8"))
     except OSError:
         harness = {}
     except ValueError as err:
@@ -591,12 +591,12 @@ def rules_preamble(root):
     """The harness's rules, for an agent in a project's checkout, which holds none of them: AGENTS.md
     and the steering files it loads every session, then how the project's own rules rank."""
     agents_file = Path(root) / "AGENTS.md"
-    agents = agents_file.read_text() if agents_file.exists() else ""
+    agents = agents_file.read_text(encoding="utf-8") if agents_file.exists() else ""
     parts = ["AGENTS.md:\n" + agents.strip()]
     for name in STEERING.findall(agents):
         path = Path(root) / name
         if path.exists():
-            parts.append("{}:\n{}".format(name, path.read_text().strip()))
+            parts.append("{}:\n{}".format(name, path.read_text(encoding="utf-8").strip()))
     return ("These are the rules of the harness this work runs under. The checkout you are in doesn't "
             "hold them, and they apply to everything below.\n\n{}\n\n{}\n\n").format(
         "\n\n".join(parts), NEVER_LOOSENS)
@@ -1448,7 +1448,7 @@ def load_rubric(path):
     JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10."""
     name = Path(path).name
     try:
-        rubric = json.loads(Path(path).read_text())
+        rubric = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None, "{} is missing".format(name)
     except OSError:
@@ -1675,10 +1675,31 @@ def issue_usage(root, project, number):
 
     project is the project's name, or None for the factory's own loop."""
     try:
-        found = json.loads((state_dir(root, project) / "issue-{}".format(number) / "usage.json").read_text())
+        path = state_dir(root, project) / "issue-{}".format(number) / "usage.json"
+        found = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
     return [e for e in found if isinstance(e, dict)] if isinstance(found, list) else []
+
+
+REPLACE_TRIES = 5  # a few, 0.2s apart: under a second all told
+REPLACE_WAIT = 0.2
+
+
+def replace_with_retry(part, path, log):
+    """os.replace(part, path), tried again while Windows refuses it because a reader has path open, as the
+    mods do status.json. If it's still refused after the last try, log says so once and the run goes on:
+    the next save writes it whole. Any other error raises at once."""
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(part, path)
+            return
+        except PermissionError as err:
+            if attempt == REPLACE_TRIES - 1:
+                log("WARN", "could not replace {} after {} tries: {}; the run goes on".format(
+                    path, REPLACE_TRIES, err))
+                return
+            time.sleep(REPLACE_WAIT)
 
 
 class FileLock:
@@ -1701,7 +1722,7 @@ class FileLock:
             fcntl = None
             import msvcrt
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(self.path, "a")
+        handle = open(self.path, "a", encoding="utf-8")
         try:
             if fcntl is not None:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1800,14 +1821,14 @@ class Loop:
         who = "#{}".format(number) if number else "-"
         line = "{} {} {} {}".format(datetime.now().isoformat(timespec="seconds"), who, step, text)
         with self.write_lock:
-            with open(self.dir / "loop.log", "a") as handle:
+            with open(self.dir / "loop.log", "a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
             # review --pr's stdout is its one JSON line, for the script that asked for it.
             print(line, flush=True, file=sys.stderr if getattr(self, "only_pr", None) is not None else sys.stdout)
 
     def read_status(self):
         try:
-            found = json.loads((self.dir / "status.json").read_text())
+            found = json.loads((self.dir / "status.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             found = {}
         found.setdefault("queue", [])
@@ -1826,7 +1847,7 @@ class Loop:
                 if found:
                     path = self.pr_file(self.only_pr, "json")
                     part = path.with_name(path.name + ".part")
-                    part.write_text(json.dumps(found, indent=2) + "\n")
+                    part.write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8")
                     os.replace(part, path)
             return
         with self.write_lock:
@@ -1838,8 +1859,9 @@ class Loop:
                 newest = sorted(reviews, key=lambda n: reviews[n].get("updated", ""), reverse=True)[:REVIEW_KEEP]
                 self.status["reviews"] = {n: reviews[n] for n in newest}
             part = self.dir / "status.json.part"
-            part.write_text(json.dumps(self.status, indent=2) + "\n")
-            os.replace(part, self.dir / "status.json")
+            part.write_text(json.dumps(self.status, indent=2) + "\n", encoding="utf-8")
+            # self.log takes write_lock too, which is an RLock, so it can log from here.
+            replace_with_retry(part, self.dir / "status.json", self.log)
 
     def mark(self, number, **fields):
         """Update one issue's entry and move it to the top: it's the one the loop is on."""
@@ -1910,7 +1932,7 @@ class Loop:
                         "tests": rounds["tests"], "verdicts": rounds["verdicts"], "tokens": tokens, "cost_usd": cost,
                         "agent": command_name(self.cfg.get("agent")),
                         "reviewer": command_name(self.cfg.get(self.reviewer()))}
-                with open(self.dir / "history.jsonl", "a") as handle:
+                with open(self.dir / "history.jsonl", "a", encoding="utf-8") as handle:
                     handle.write(json.dumps(line) + "\n")
             except (OSError, ValueError) as err:
                 self.log("ERROR", "could not write history.jsonl: {}".format(type(err).__name__), number)
@@ -2034,7 +2056,8 @@ class Loop:
         argv += ["attach", "-r", "-t"]
         quoted = "'=" + target.replace("'", "'\\''") + "'"
         try:
-            path.write_text("#!/bin/sh\nexec {} {}\n".format(" ".join(shlex.quote(a) for a in argv), quoted))
+            path.write_text("#!/bin/sh\nexec {} {}\n".format(" ".join(shlex.quote(a) for a in argv), quoted),
+                            encoding="utf-8")
             path.chmod(0o755)
         except OSError:
             path.unlink(missing_ok=True)  # the pane falls back to copying the attach command
@@ -2112,14 +2135,17 @@ class Loop:
         .claude/settings.json gives it. Another agent, such as codex, has nowhere to put it."""
         matcher = ""  # matches every tool, should settings.json not say
         try:
-            for entry in json.loads((self.root / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]:
+            settings = json.loads((self.root / ".claude" / "settings.json").read_text(encoding="utf-8"))
+            for entry in settings["hooks"]["PreToolUse"]:
                 if any("guard.py" in hook.get("command", "") for hook in entry.get("hooks", [])):
                     matcher = entry.get("matcher", "")
                     break
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         guard = self.root.absolute() / ".claude" / "hooks" / "guard.py"
-        hook = {"type": "command", "command": "python3 " + shlex.quote(str(guard)), "timeout": 10}
+        # The Python running the loop, not python3: Windows' installer puts python on PATH, not python3.
+        command = shlex.quote(sys.executable) + " " + shlex.quote(str(guard))
+        hook = {"type": "command", "command": command, "timeout": 10}
         return json.dumps({"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [hook]}]}})
 
     def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0):
@@ -2194,7 +2220,7 @@ class Loop:
             threading.Thread(target=feed, daemon=True).start()
             timer.start()
             try:
-                with open(path, "a") as handle:
+                with open(path, "a", encoding="utf-8") as handle:
                     handle.write("== {} {} ==\n".format(datetime.now().isoformat(timespec="seconds"), which))
                     handle.flush()
                     for line in proc.stdout:
@@ -2268,7 +2294,7 @@ class Loop:
             folder = self.dir / "issue-{}".format(number)
             folder.mkdir(exist_ok=True)
             part = folder / "usage.json.part"
-            part.write_text(json.dumps(entries, indent=2) + "\n")
+            part.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
             os.replace(part, folder / "usage.json")
             tokens, cost = usage_totals(entries)
             self.mark(number, tokens=tokens, cost_usd=cost)
@@ -2622,7 +2648,7 @@ class Loop:
             # Kept on this machine: an install's output can name paths, hosts or secrets, and a comment is public.
             folder = self.dir / "issue-{}".format(number)
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "setup-output.txt").write_text(out[-OUTPUT_CAP:])
+            (folder / "setup-output.txt").write_text(out[-OUTPUT_CAP:], encoding="utf-8")
             self.block(number, "setup failed (exit {}), and its output is in setup-output.txt".format(code))
             return False
         # A git that fails proves nothing.
@@ -2638,7 +2664,7 @@ class Loop:
                 "commit them. Make setup write only what git ignores, and clear them from the worktree"
             ).format(safe_to_post(", ".join(paths[:DIRTY_CAP])), " and {} more".format(more) if more > 0 else ""))
             return False
-        marker.write_text("")
+        marker.write_text("", encoding="utf-8")
         self.log("SETUP", "done", number)
         return True
 
@@ -2674,7 +2700,7 @@ class Loop:
         except Exception as err:
             self.log("RETRO", "unclassified: {}".format(type(err).__name__), number)
         finally:
-            with self.write_lock, open(self.dir / "lessons.md", "a") as handle:
+            with self.write_lock, open(self.dir / "lessons.md", "a", encoding="utf-8") as handle:
                 handle.write(entry + found + "\n")
 
     def retro(self, number, outcomes):
@@ -2693,8 +2719,8 @@ class Loop:
         digest = evidence_digest(rounds)
         logged = any(one.get("log") for row in rounds for one in row["sessions"])
         if logged:
-            (folder / "evidence.md").write_text(digest)
-        said = {name: (folder / name).read_text(errors="replace") if (folder / name).exists() else ""
+            (folder / "evidence.md").write_text(digest, encoding="utf-8")
+        said = {name: (folder / name).read_text(encoding="utf-8", errors="replace") if (folder / name).exists() else ""
                 for name in ("plan.md", "review.md", "diff.patch")}
         code, reply = self.agent("reader_agent", retro_prompt(digest, said["plan.md"], said["review.md"],
                                                               said["diff.patch"], self.rules),
@@ -2737,7 +2763,7 @@ class Loop:
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
         (folder / "ticket.md").write_text("# #{}: {}\n\n{}\n".format(
-            number, issue["title"], issue.get("body") or ""))
+            number, issue["title"], issue.get("body") or ""), encoding="utf-8")
         self.log("DISCOVER", 'picked "{}"'.format(issue["title"]), number)
         # started: when this run of the issue began, for the pane's clock. A relabelled issue starts again.
         # window: the tmux window following its agent.log, None outside tmux.
@@ -2773,7 +2799,7 @@ class Loop:
         self.discard_edits(tree, "SHAPE", "planner", number)
         if code != 0 or not plan.strip():
             return self.block(number, "shape failed (agent exit {})".format(code))
-        (folder / "plan.md").write_text(plan)
+        (folder / "plan.md").write_text(plan, encoding="utf-8")
         self.log("SHAPE", "done plan.md", number)
 
         # sha and fixed come from here, never from tests-first.json: a leftover file can't change a run with it off.
@@ -2794,8 +2820,8 @@ class Loop:
                 return self.block(number, why)
             self.mark(number, step="BUILD", round=round_no)
 
-            last_review = (folder / "review.md").read_text() if (folder / "review.md").exists() else ""
-            last_tests = (folder / "test-output.txt").read_text() if (folder / "test-output.txt").exists() else ""
+            last_review = (folder / "review.md").read_text(encoding="utf-8") if (folder / "review.md").exists() else ""
+            last_tests = (folder / "test-output.txt").read_text(encoding="utf-8") if (folder / "test-output.txt").exists() else ""
             code, said = self.agent("agent", build_prompt(number, plan, last_review, last_tests, self.rules, generate,
                                                           fixed, self.cfg["test_command"]
                                                           if self.builder_runs_tests() else ""),
@@ -2872,8 +2898,8 @@ class Loop:
 
             tcode, tout = self.sh(self.cfg["test_command"], cwd=tree, shell=True,
                                   timeout=self.cfg["test_timeout"], env=env_for_tests(os.environ))
-            (folder / "test-output.txt").write_text(tout[-OUTPUT_CAP:])
-            (folder / "diff.patch").write_text(diff[:OUTPUT_CAP])
+            (folder / "test-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
+            (folder / "diff.patch").write_text(diff[:OUTPUT_CAP], encoding="utf-8")
 
             why = self.over_budget(number)
             if why:
@@ -2884,7 +2910,7 @@ class Loop:
                                                      fixed),
                                        tree, confine=True, number=number, step="review", round_no=round_no)
             self.discard_edits(tree, "REVIEW", "reviewer", number)
-            (folder / "review.md").write_text(review)
+            (folder / "review.md").write_text(review, encoding="utf-8")
             verdict = parse_verdict(review) if rcode == 0 else "FIX"
 
             passed = tcode == 0 and verdict == "PASS"
@@ -2925,7 +2951,8 @@ class Loop:
                 self.block(number, "could not list the files of the tester's commit on loop/issue-{} (git exit {}), "
                                    "so no build ran".format(number, code))
                 return None
-            (folder / "tests-first.json").write_text(json.dumps({"commit": sha, "files": files}, indent=2) + "\n")
+            (folder / "tests-first.json").write_text(json.dumps({"commit": sha, "files": files}, indent=2) + "\n",
+                                                     encoding="utf-8")
             self.log("TEST", "{} {} file{}".format(how, len(files), "" if len(files) == 1 else "s"), number)
             return sha, files
 
@@ -2980,7 +3007,7 @@ class Loop:
         tcode, tout = self.sh(self.cfg["test_command"], cwd=tree, shell=True,
                               timeout=self.cfg["test_timeout"], env=env_for_tests(os.environ))
         self.halt_if_interrupted()  # a killed test command exits non-zero, which isn't a test that failed
-        (folder / "tester-output.txt").write_text(tout[-OUTPUT_CAP:])
+        (folder / "tester-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
         if tcode == 0:
             return reject("the tester's tests pass under test_command, so the tests don't fail without the change. "
                           "Output is in tester-output.txt")
@@ -3057,7 +3084,7 @@ class Loop:
         # In the clone, which shares the worktree's refs. A git that fails still opens the pull request.
         code, numstat = self.git("diff", "--numstat", "origin/{}...{}".format(self.cfg["base"], branch))
         folder = self.dir / "issue-{}".format(number)
-        saved = {name: (folder / name).read_text() if (folder / name).exists() else None
+        saved = {name: (folder / name).read_text(encoding="utf-8") if (folder / name).exists() else None
                  for name in ("plan.md", "review.md", "test-output.txt")}
         body = pr_body(number, rounds, numstat if code == 0 else None, self.cfg["test_command"],
                        saved["plan.md"], saved["review.md"], saved["test-output.txt"], self.usage(number), fixed)
@@ -3252,7 +3279,7 @@ class Loop:
             self.mark(number, update_tried=target)
             folder = self.dir / "issue-{}".format(number)
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "update-output.txt").write_text(out[-OUTPUT_CAP:])
+            (folder / "update-output.txt").write_text(out[-OUTPUT_CAP:], encoding="utf-8")
             if code != 0:
                 self.log("UPDATE", "kept: tests failed after merging {}".format(base), number)
                 last = [line for line in out.splitlines() if line.strip()][-PR_TEST_LINES:]
@@ -3297,13 +3324,13 @@ class Loop:
         lock = self.dir / "lock"
         if lock.exists():
             try:
-                pid = int(lock.read_text())
+                pid = int(lock.read_text(encoding="utf-8"))
             except (ValueError, OSError):
                 pid = None  # not a pid: stale
             if pid is not None and pid_alive(pid):
                 return False  # another loop holds it, maybe another user's
             lock.unlink()
-        lock.write_text(str(os.getpid()))
+        lock.write_text(str(os.getpid()), encoding="utf-8")
         return True
 
     def locked(self, work, until=None):
@@ -3491,7 +3518,7 @@ class Loop:
             except Exception as err:
                 folder = self.dir / "issue-{}".format(number)
                 folder.mkdir(exist_ok=True)
-                (folder / "worker-error.txt").write_text(traceback.format_exc())
+                (folder / "worker-error.txt").write_text(traceback.format_exc(), encoding="utf-8")
                 # The type only: the message can hold agent or GitHub text, and this lands on the issue.
                 self.block(number, "worker died: {}".format(type(err).__name__))
         except Interrupted:
@@ -3681,7 +3708,7 @@ class Loop:
         # status.json as it is now as well: the watcher may have written a review since this process read it.
         found = [self.status["reviews"].get(str(number)), self.read_status()["reviews"].get(str(number))]
         try:
-            found.append(json.loads(self.pr_file(number, "json").read_text()))
+            found.append(json.loads(self.pr_file(number, "json").read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
         found = [row for row in found if isinstance(row, dict)]
@@ -3759,7 +3786,7 @@ class Loop:
                 # Recorded: a base with no common history doesn't fix itself before a new commit.
                 return False, sha, "could not diff against {}".format(base), True
             skill_file = self.root / "skills" / "review-pr" / "SKILL.md"
-            skill = skill_file.read_text() if skill_file.exists() else ""
+            skill = skill_file.read_text(encoding="utf-8") if skill_file.exists() else ""
             prompt = pr_review_prompt(number, pr["title"], base, diff, commits, skill, self.rules)
             # stdout only: stderr is the agent's warnings and paths, and the report is posted publicly.
             who = self.reviewer()
@@ -3927,7 +3954,7 @@ def main(argv=None):
         # Checked by locked(), as loop.json's is, so a bad value is refused in the log, not by argparse.
         loop.cfg["hours"], loop.hours_from = args.hours, "--hours"
     if args.command == "stop":
-        (loop.dir / "STOP").write_text("")
+        (loop.dir / "STOP").write_text("", encoding="utf-8")
         print("Stop requested. The loop ends at its next step.")
         return 0
     if args.command == "review":
