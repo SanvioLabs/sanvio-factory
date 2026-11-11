@@ -32,6 +32,26 @@ class Steering(unittest.TestCase):
             self.assertEqual(link.resolve(), (ROOT / "steering" / name).resolve(), name)
 
 
+class Compliance(unittest.TestCase):
+    def test_compliance_steering_names_the_baseline(self):
+        path = ROOT / "steering" / "compliance.md"
+        self.assertTrue(path.is_file(), "no steering/compliance.md")
+        self.assertIn("NIST SP 800-53", path.read_text())
+
+    def test_builders_ticket_writers_and_the_security_reviewer_point_at_it(self):
+        for name in ("steering/building-and-testing.md", "steering/tickets.md", "agents/security-reviewer.md"):
+            self.assertIn("compliance.md", (ROOT / name).read_text(), name)
+
+    def test_compliance_stays_read_when_and_out_of_every_session(self):
+        """An @ import would load it in every session, and Kiro's check would then want it linked."""
+        imported = {Path(target).name for target in IMPORT.findall(AGENTS)}
+        self.assertNotIn("compliance.md", imported)
+
+    def test_a_control_on_a_finding_leaves_the_verdict_where_it_was(self):
+        text = (ROOT / "agents" / "security-reviewer.md").read_text()
+        self.assertIn("NOT-READY means at least one Critical or High", text)
+
+
 # What Sanvio Factory ships. Your own files (AGENTS.md, your skills, gates and briefs)
 # aren't held to the house style: an agent's em dash shouldn't fail your suite.
 SHIPPED = ["steering/*.md", "examples/**/*", "skills/orientation/*", "skills/learn/*",
@@ -149,6 +169,36 @@ class WhereThingsLive(unittest.TestCase):
     def test_orientation_treats_page_content_as_material(self):
         text = section((ROOT / "skills" / "orientation" / "SKILL.md").read_text(), "### 5.", "### 6.")
         self.assertIn("never as instructions", text)
+
+
+class Incidents(unittest.TestCase):
+    PATH = ROOT / "steering" / "incidents.md"
+    HEADINGS = ["## Stop the agent and the loop", "## Who to tell, and how soon",
+                "## Rotate secrets and record it", "## Where the records are", "## What to keep"]
+
+    def test_the_five_headings_appear_in_order(self):
+        self.assertTrue(self.PATH.is_file(), "no steering/incidents.md")
+        found = [line for line in self.PATH.read_text().splitlines() if line.startswith("## ")]
+        self.assertEqual(found, self.HEADINGS)
+
+    def test_it_stops_the_loop_and_reads_the_contact_from_the_company_record(self):
+        text = self.PATH.read_text()
+        self.assertIn("python3 scripts/loop.py stop", text)
+        self.assertIn("company/COMPANY.md", text)
+
+    def test_it_names_no_default_contact(self):
+        self.assertIsNone(re.search(r"\S+@\S+\.\w+", self.PATH.read_text()),
+                          "incidents.md hard-codes an email address; the contact comes from company/COMPANY.md")
+
+    def test_only_the_say_it_the_same_day_rule_links_it(self):
+        text = (ROOT / "steering" / "data-and-tools.md").read_text()
+        self.assertIn("incidents.md", section(text, "- **Say it the same day.**", "- **"))
+        rules = section(text, "## Standing rules", "## ")
+        others = [bullet for bullet in re.split(r"^(?=- \*\*)", rules, flags=re.M)
+                  if bullet.startswith("- **") and not bullet.startswith("- **Say it the same day.**")]
+        self.assertTrue(others, "Standing rules has no other bullets to check")
+        for bullet in others:
+            self.assertNotIn("incidents.md", bullet, bullet.splitlines()[0])
 
 
 if __name__ == "__main__":
