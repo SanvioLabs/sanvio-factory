@@ -18,7 +18,9 @@ certificate or connection string. That includes:
 Refer to secrets by name and let the runtime load them. Check that a secret
 exists without showing its value. In Claude Code, [`.claude/hooks/guard.py`](../.claude/hooks/guard.py)
 blocks the common cases of the first two: credential files by name and a few
-commands that print secrets.
+commands that print secrets. The `permissions.deny` list in
+[`.claude/settings.json`](../.claude/settings.json) refuses the same files again in Claude Code itself, so
+they stay refused if the guard doesn't run.
 
 If you come across a secret anyway, don't repeat it. Name the file, the line and
 the kind of secret, say it needs rotating, and say so in the same reply.
