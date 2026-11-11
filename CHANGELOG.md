@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The loop's lock and stops on Windows
+
+On Windows, [`scripts/loop.py`](scripts/loop.py) now checks whether the pid in its lock still runs, catches
+the signals Windows has, stops an agent and everything it started, and takes `FileLock`
+with Windows' own file lock, so `review --pr` and `factories.py` run there too. macOS and Linux make the same calls as before. A new
+`windows-latest` CI job runs these tests on a real Windows.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/factories.py`](scripts/factories.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing on macOS or Linux. A Windows copy still needs #481 (psmux) and #482
+(file encodings, `python3`) before it can run the loop end to end.
+
 ## 2026-11-11: Old names in their own module
 
 [`scripts/names.py`](scripts/names.py) now holds only the names every script uses: the state folder, the

@@ -238,6 +238,70 @@ def interrupt(signum, frame):
     raise KeyboardInterrupt()
 
 
+def on_windows():
+    """Whether this is Windows. Every Windows choice below asks this, so a test can answer it."""
+    return os.name == "nt"
+
+
+def kernel32():
+    """Windows' kernel32, with the types pid_alive passes it. Its own function, so a test can stand one in
+    where there's no ctypes.windll."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.windll.kernel32
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    return k32
+
+
+def pid_alive(pid):
+    """Whether a process with this pid is running. One we may not look at, another user's, counts as running.
+
+    On Windows it asks kernel32 and never calls os.kill, which there ends the process."""
+    if not on_windows():
+        try:
+            os.kill(pid, 0)  # looked up now, so a test can swap os.kill
+        except PermissionError:
+            return True  # it exists and belongs to someone else
+        except OSError:  # ProcessLookupError among them
+            return False
+        return True
+    import ctypes
+    k32 = kernel32()
+    handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return k32.GetLastError() == 5  # ERROR_ACCESS_DENIED: it exists and isn't ours
+    try:
+        code = ctypes.c_ulong()
+        k32.GetExitCodeProcess(handle, ctypes.byref(code))
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        k32.CloseHandle(handle)
+
+
+def kill_tree(proc):
+    """End an agent stream() started and everything it started. On Windows taskkill ends the tree; its
+    output is dropped and its exit code ignored, since a tree that already ended is the same outcome."""
+    if on_windows():
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    else:
+        os.killpg(proc.pid, signal.SIGKILL)
+
+
+def catch_signals(handler):
+    """handler for SIGTERM and SIGHUP, where this system has them (Windows has no SIGHUP).
+    Returns {signal: the handler it had}, to put back."""
+    caught = {}
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            caught[sig] = signal.signal(sig, handler)
+    return caught
+
+
 def now_stamp():
     """The time as status.json writes it. mark() reads it once a call, so a test can say what time it is."""
     return datetime.now().isoformat(timespec="seconds")
@@ -450,12 +514,17 @@ def origin_slug(folder):
 
 
 def file_locks():
-    """Whether this system has the file lock FileLock takes: fcntl, which Windows lacks."""
+    """Whether this system has a file lock FileLock can take: fcntl, or msvcrt on Windows."""
     try:
         import fcntl  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    try:
+        import msvcrt  # noqa: F401
+        return True
     except ImportError:
         return False
-    return True
 
 
 def project_root(path, root=None):
@@ -1615,28 +1684,46 @@ def issue_usage(root, project, number):
 class FileLock:
     """An exclusive lock on a file, for one process at a time. The OS holds it for this process and lets it go
     when the process ends, however it ends, so there's no pid to read and nothing stale to clear. The file
-    itself stays: it's only what the lock is taken on."""
+    itself stays: it's only what the lock is taken on. fcntl's flock where there is one; on Windows,
+    msvcrt's lock on the file's first byte."""
 
     def __init__(self, path):
         self.path, self.handle = Path(path), None
+        self.msvcrt = None  # the msvcrt module, while it holds this lock
 
     def acquire(self):
         """Whether this process now holds the lock: False, at once, while another holds it."""
-        import fcntl  # here, so loop.py still imports where there's no fcntl; only a lock needs it
+        # Imported here, so loop.py still imports where neither is; only a lock needs one.
+        try:
+            import fcntl
+            msvcrt = None
+        except ImportError:
+            fcntl = None
+            import msvcrt
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(self.path, "a")
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                handle.seek(0)  # the lock covers one byte from here
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         except OSError:
             handle.close()
             return False
-        self.handle = handle
+        self.handle, self.msvcrt = handle, msvcrt
         return True
 
     def release(self):
         if self.handle is not None:
+            if self.msvcrt is not None:
+                try:
+                    self.handle.seek(0)
+                    self.msvcrt.locking(self.handle.fileno(), self.msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass  # closing the file lets it go too
             self.handle.close()  # closing the file lets the lock go
-            self.handle = None
+            self.handle, self.msvcrt = None, None
 
     def __enter__(self):
         return self.acquire()
@@ -2060,10 +2147,12 @@ class Loop:
             # A session of its own: a timeout kills whatever it started too, which would otherwise hold
             # its output open, and a Ctrl-C meant for the loop's terminal doesn't reach it. Its session
             # log is never kept by .claude/hooks/session_retro.py, whatever SANVIO_RETRO says here:
-            # nobody corrected it, and a copy in a worktree is one commit from being pushed.
+            # nobody corrected it, and a copy in a worktree is one commit from being pushed. On Windows,
+            # a process group of its own (CREATE_NEW_PROCESS_GROUP), which a Ctrl-C doesn't reach either.
+            apart = {"creationflags": 0x200} if on_windows() else {"start_new_session": True}
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
-                                    text=True, errors="replace", start_new_session=True,
+                                    text=True, errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
                                     env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))
@@ -2087,7 +2176,7 @@ class Loop:
         def expire():
             expired.set()
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                kill_tree(proc)
             except (ProcessLookupError, PermissionError):
                 pass  # it ended on its own meanwhile
 
@@ -3208,12 +3297,12 @@ class Loop:
         lock = self.dir / "lock"
         if lock.exists():
             try:
-                os.kill(int(lock.read_text()), 0)
-                return False
-            except PermissionError:
-                return False  # the process exists and belongs to someone else
-            except (ValueError, ProcessLookupError, OSError):
-                lock.unlink()
+                pid = int(lock.read_text())
+            except (ValueError, OSError):
+                pid = None  # not a pid: stale
+            if pid is not None and pid_alive(pid):
+                return False  # another loop holds it, maybe another user's
+            lock.unlink()
         lock.write_text(str(os.getpid()))
         return True
 
@@ -3307,8 +3396,7 @@ class Loop:
         # kills them, rather than leaving them working an issue the next run may take again.
         caught = {}
         if threading.current_thread() is threading.main_thread():
-            for sig in (signal.SIGTERM, signal.SIGHUP):
-                caught[sig] = signal.signal(sig, interrupt)
+            caught = catch_signals(interrupt)
         try:
             while not self.stopped() and not self.expired():
                 self.reap(running)
@@ -3360,7 +3448,7 @@ class Loop:
             self.interrupted.set()
             for proc in list(self.agents):
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    kill_tree(proc)
                 except (ProcessLookupError, PermissionError):
                     pass  # it ended on its own meanwhile
             running.clear()
@@ -3467,7 +3555,7 @@ class Loop:
         self.only_pr, self.busy = int(pr), False
         self.started_with = fingerprint()
         if not file_locks():
-            self.log("ERROR", "this system has no file lock (fcntl), so review --pr can't run beside the loop: "
+            self.log("ERROR", "this system has no file lock (fcntl or msvcrt), so review --pr can't run beside the loop: "
                               "run review without --pr")
             return 1
         newest = self.last_review(self.only_pr)
