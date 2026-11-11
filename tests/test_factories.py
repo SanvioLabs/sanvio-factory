@@ -183,6 +183,23 @@ class Steps(unittest.TestCase):
             factories.main(["steps", "--root", str(self.root / "on-github")])
         self.assertNotIn("github.com", out.getvalue())
 
+    def test_a_merge_method_with_no_origin_to_check_it_against_says_so_and_calls_no_gh(self):
+        # #426: no origin counts as a method that couldn't be checked, never one skipped in silence.
+        self.write({"steps": [dict(STEP, merge_method="squash")]})
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        record = self.root / "gh-calls"
+        (bin_dir / "gh").write_text("#!/bin/sh\necho \"$@\" >> " + shlex.quote(str(record)) + "\nexit 1\n")
+        (bin_dir / "gh").chmod(0o755)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = factories.main(["steps", "--root", str(self.root)])
+        self.assertEqual(code, 0)
+        self.assertIn("Step build-team's merge_method squash wasn't checked against this repo: this repo has no "
+                      "origin on github.com.", out.getvalue())
+        self.assertFalse(record.exists(), "gh was called")
+
     def test_no_file_means_nothing_to_do_and_starts_no_process(self):
         with mock.patch("subprocess.run", side_effect=AssertionError("a process started")), \
                 mock.patch("subprocess.Popen", side_effect=AssertionError("a process started")):
@@ -579,6 +596,101 @@ class FakeGh(unittest.TestCase):
                 mock.patch("builtins.input", return_value=answer or ""):
             code = factories.main(list(args) + ["--root", str(self.root)])
         return code, out.getvalue(), err.getvalue()
+
+
+class MergeSettings(FakeGh):
+    """steps checks a step's merge_method against the settings of the repo origin names, and only reads (#426)."""
+
+    LINES = ("build-team: remote, submit label factory-ready, stopped label factory:blocked, 24 hours, 3 rounds\n"
+             "  commit none named (declared, unverified, unpinned)\n")
+
+    def setUp(self):
+        super().setUp()
+        for args in (["init", "-q"], ["remote", "add", "origin", "https://github.com/o/r.git"]):
+            subprocess.run(["git", "-C", str(self.root)] + args, check=True, env=ISOLATED)
+
+    def allow(self, merge=True, squash=True, rebase=True):
+        self.respond(["api", "repos/o/r"], json.dumps(
+            {"allow_merge_commit": merge, "allow_squash_merge": squash, "allow_rebase_merge": rebase}))
+
+    def not_checked(self, out):
+        return [line for line in out.splitlines() if "wasn't checked" in line]
+
+    def test_a_method_the_repo_doesn_t_allow_is_warned_of_and_only_read(self):
+        self.configure(merge_method="squash")
+        self.allow(squash=False)
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        warned = [line for line in out.splitlines() if line.startswith("Warning:")]
+        self.assertEqual(len(warned), 1, out)
+        self.assertIn("build-team", warned[0])
+        self.assertIn("o/r doesn't allow squash merges", warned[0])
+        self.assertEqual(self.calls(), [["api", "repos/o/r"]])
+        self.assertFalse([call for call in self.calls() if set(call) & set(WRITES)])
+        self.assertEqual(self.writes(), [])
+
+    def test_only_the_step_s_own_method_is_checked(self):
+        self.configure(merge_method="merge")
+        self.allow(squash=False)
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual((code, out), (0, self.LINES))
+
+    def test_a_failed_read_says_the_method_wasn_t_checked(self):
+        self.configure(merge_method="squash")
+        self.respond(["api", "repos/o/r"], json.dumps({"message": "Not Found", "status": "404"}), code=1)
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertIn("build-team", line)
+        self.assertIn("Not Found", line)
+
+    def test_no_gh_says_the_method_wasn_t_checked_and_exits_as_before(self):
+        # Review of #486: with no gh installed, steps raised FileNotFoundError and exited 1.
+        self.configure(merge_method="squash")
+        real = subprocess.run
+
+        def no_gh(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "gh":
+                raise FileNotFoundError(2, "No such file or directory", "gh")
+            return real(cmd, *args, **kwargs)
+
+        with mock.patch.object(forge.subprocess, "run", side_effect=no_gh):
+            code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertIn("gh couldn't run (No such file or directory)", line)
+
+    def test_a_long_error_from_gh_is_cut_to_one_short_line(self):
+        self.configure(merge_method="squash")
+        self.respond(["api", "repos/o/r"], json.dumps({"message": "x" * 300}), code=1)
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertLess(len(line), 200)
+        self.assertIn("\u2026", line)
+
+    def test_an_answer_with_no_setting_says_the_method_wasn_t_checked(self):
+        # GitHub leaves the allow_* fields out for some callers, depending on their access to the repo.
+        self.configure(merge_method="squash")
+        self.respond(["api", "repos/o/r"], "{}")
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertIn("allow_squash_merge", line)
+
+    def test_an_allowed_method_leaves_the_output_as_it_was(self):
+        self.configure(merge_method="squash")
+        self.allow()
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual((code, out), (0, self.LINES))
+
+    def test_no_method_leaves_the_output_as_it_was_and_reads_nothing(self):
+        self.configure()
+        self.allow()
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual((code, out), (0, self.LINES))
+        self.assertNotIn(["api", "repos/o/r"], self.calls())
+        self.assertEqual(self.calls(), [])
 
 
 class Dispatch(FakeGh):
@@ -3500,6 +3612,12 @@ class OneHome(unittest.TestCase):
         entry = self.entry(self.ENTRIES[1])
         if entry is not None:
             self.assertIn("`merge_method`", entry)
+
+    def test_when_a_run_takes_its_merge_method_is_written_where_the_merge_is(self):
+        # Before #426 nothing said a run keeps the method it was dispatched with, or that steps checks it.
+        how = " ".join((ROOT / "HOW-IT-WORKS.md").read_text().split())
+        self.assertIn("copied into the run's record", how)
+        self.assertIn("a later change to `factories.json` doesn't reach a live run", how)
 
     def test_the_origins_that_count_are_the_forms_the_code_takes(self):
         # Before T079 the README said "in whatever form the URL takes there", which the code doesn't take

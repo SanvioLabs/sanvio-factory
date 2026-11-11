@@ -734,7 +734,7 @@ nothing here runs. A chain of factories waits until one is proved.
 
 | Command | What it does | Writes to GitHub |
 |---|---|---|
-| `factories.py steps` | Reads `factories.json` and the factory's commit | Nothing |
+| `factories.py steps` | Reads `factories.json`, the factory's commit, and the merge settings of the repo this clone's origin names | Nothing |
 | `factories.py dispatch 12 --repo o/r` | Shows the factory, the repo, the issue and the label; warns when the branch requires no status check; says what goes to the factory the first time; then submits on `--yes` or a typed yes | The submit label on #12 |
 | `factories.py status` | Reads each run's issue and pull request, then the verdict and the required checks of a reviewed head, and names `review RUN` for a head not yet reviewed | Nothing |
 | `factories.py review RUN` | Has `loop.py review --pr N` review the run's pull request, spending model tokens, then moves the run on as `status` does. It runs while the loop runs and outside its hours, on a lock for that pull request alone, and only from the clone `factories.py` is in | The review's one comment, on your login |
@@ -781,7 +781,13 @@ A retarget between that check and the merge isn't caught, since GitHub's merge
 pins the head and not the base, so protect every branch a pull request could
 target. A step's `merge_method` in `factories.json`, `merge`, `squash` or
 `rebase`, goes into the command; without one gh asks which, and fails with no
-terminal. `--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
+terminal. A run takes its step's `merge_method` when it's dispatched: the
+method is copied into the run's record then, so a later change to
+`factories.json` doesn't reach a live run. `steps` checks the method against
+the settings of the repo this clone's origin names, and warns when that repo
+doesn't allow it. A run dispatched with `--repo` to another repo isn't checked
+against that one.
+`--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
 run `status` on the run right before merging. [`skills/dispatch/`](skills/dispatch/) is the conversation around it.
 
 ## Context: who remembers what
