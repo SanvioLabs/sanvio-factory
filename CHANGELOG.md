@@ -30,8 +30,11 @@ fine).
 ## 2026-11-09: Token reports count loop runs from before the rename
 
 [`scripts/token_report.py`](scripts/token_report.py) and the factory dashboard again count the tokens of
-loop checkouts still in `~/.harness-loop/<this folder's name>/`, for as long as
-that folder exists. Since the rename they had left them out. This corrects the
+loop checkouts still in `~/.harness-loop/<this folder's name>/` or
+`~/.harness-loop/sanvio-harness-starter/`, the repo's old name, for as long as
+each exists. The second covers a clone whose folder was renamed with the repo;
+a separate clone still named `sanvio-harness-starter` on the same machine is
+counted with it. Since the rename they had left them out. This corrects the
 2026-11-08 entry "The old names stop working" on one point: the token reports
 look in `~/.harness-loop/`, only to count what's there. The loop still makes new
 checkouts only in `~/.sanvio-loop/`. When `loop.json` sets `worktree_dir`, that

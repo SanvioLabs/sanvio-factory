@@ -147,6 +147,21 @@ class LoopFolders(Harness):
         (self.root / "loop.json").write_text(json.dumps({"worktree_dir": str(self.loop)}))
         self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.loop])
 
+    def test_a_renamed_clones_runs_under_the_repo_s_old_name_count(self):
+        # A clone made as sanvio-harness-starter and renamed with the repo kept its old runs under the old
+        # name, so looking only under the clone's name now finds none of them (review of #478).
+        before = names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
+        (before / "issue-61").mkdir(parents=True)
+        loops = token_report.loop_dirs(self.root, home=self.home)
+        self.assertEqual(loops, [self.new, before])
+        self.assertEqual(token_report.group(entry(before / "issue-61"), self.root, loops), ("Loop", "issue-61"))
+
+    def test_both_old_folders_count_once_each(self):
+        self.old.mkdir(parents=True)
+        before = names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
+        before.mkdir(parents=True)
+        self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.new, self.old, before])
+
     def test_another_clones_checkout_in_the_old_folder_is_outside(self):
         self.old.mkdir(parents=True)
         other = names.old_loop_home(self.home) / "other-name" / "issue-1"
