@@ -218,5 +218,89 @@ class EveryWorkflow(unittest.TestCase):
         self.assertEqual(unquoted_heredocs("cat > f <<'EOF'\n"), [])
 
 
+DEPS = ROOT / ".github" / "workflows" / "deps.yml"
+DEPENDABOT = ROOT / ".github" / "dependabot.yml"
+
+
+def code_lines(text):
+    """The text without its comment lines."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def write_grants(text):
+    """Every line that grants write, at any level, outside a comment."""
+    return re.findall(r"^.*\bwrite\b.*$", code_lines(text), re.M)
+
+
+def dependabot_updates(text):
+    """(ecosystem, directory, interval) for each entry under `updates:`."""
+    block = top_level_block(text, "updates") or ""
+    found = []
+    for entry in re.split(r"(?m)^  - ", block)[1:]:
+        fields = []
+        for key in ("package-ecosystem", "directory", "interval"):
+            match = re.search(r'(?m)^\s*{}:\s*"?([^"\s]+)"?\s*$'.format(key), entry)
+            fields.append(match.group(1) if match else None)
+        found.append(tuple(fields))
+    return found
+
+
+class DependencyScan(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(DEPS.exists(), ".github/workflows/deps.yml is missing")
+        self.assertTrue(DEPENDABOT.exists(), ".github/dependabot.yml is missing")
+        self.deps = DEPS.read_text()
+        self.dependabot = DEPENDABOT.read_text()
+
+    def test_its_actions_are_pinned_to_a_commit(self):
+        self.assertRegex(self.deps, r"(?m)^\s*(?:-\s*)?uses:\s*\S")
+        self.assertEqual(unpinned_actions(self.deps), [])
+
+    def test_it_can_only_read(self):
+        block = top_level_block(self.deps, "permissions")
+        self.assertIsNotNone(block, "no top-level permissions: block")
+        granted = dict(re.findall(r"^\s+([a-z-]+):\s*(\S+)\s*$", block, re.M))
+        self.assertEqual(granted, {"contents": "read"})
+        # A job-level grant would get past a check on the top-level block alone.
+        self.assertEqual(write_grants(self.deps), [])
+
+    def test_the_write_check_catches_a_job_level_grant(self):
+        job = "jobs:\n  scan:\n    permissions:\n      security-events: write\n"
+        self.assertEqual(len(write_grants(job)), 1)
+        self.assertEqual(write_grants("# a checksum written here\npermissions:\n  contents: read\n"), [])
+
+    def test_it_runs_weekly_and_on_lockfile_pull_requests_only(self):
+        triggers = top_level_block(self.deps, "on")
+        self.assertIsNotNone(triggers, "no on: block")
+        self.assertRegex(triggers, r"(?m)^\s+schedule:")
+        self.assertNotRegex(triggers, r"(?m)^\s+push:")
+        pull_request = re.search(r"(?m)^  pull_request:[ \t]*\n((?:    .*\n?)*)", triggers)
+        self.assertIsNotNone(pull_request, "no pull_request: trigger with paths")
+        self.assertRegex(pull_request.group(1), r"(?m)^\s+paths:")
+        self.assertIn("package-lock.json", pull_request.group(1))
+
+    def test_the_scanner_is_pinned_and_checked(self):
+        block = step_run_block(self.deps, "Install osv-scanner")
+        self.assertIsNotNone(block, "no Install osv-scanner step with a run: block")
+        install = "\n".join(block)
+        self.assertRegex(install, r"(?m)^\s*VERSION=2\.7\.0\s*$")
+        self.assertRegex(install, r"(?m)^\s*SHA256=160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b\s*$")
+        self.assertEqual(unchecked_downloads(self.deps), [])
+
+    def test_a_failure_says_what_to_do(self):
+        self.assertRegex(self.deps, r"(?m)^\s+if:\s*failure\(\) && steps\.scan\.outcome == 'failure'\s*$")
+        self.assertRegex(self.deps, r"(?m)^\s+if:\s*failure\(\) && steps\.install\.outcome == 'failure'\s*$")
+
+    def test_dependabot_watches_only_the_factorys_own_dependencies(self):
+        self.assertEqual(sorted(dependabot_updates(self.dependabot)), [
+            ("github-actions", "/", "weekly"),
+            ("npm", "/examples/typescript", "weekly"),
+        ])
+        # projects/ and a copy's own repos keep their own dependabot.yml.
+        code = code_lines(self.dependabot)
+        self.assertEqual(len(re.findall(r"(?m)^\s*directory:", code)), 2)
+        self.assertNotRegex(code, r"(?m)^\s*directories:")
+
+
 if __name__ == "__main__":
     unittest.main()
