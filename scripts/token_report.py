@@ -51,12 +51,29 @@ def loop_dir(root):
     return names.loop_home() / Path(root).name
 
 
-def loop_dirs(root):
-    """Every folder the loop's checkouts can be in: worktree_dir from loop.json, or the home folder."""
+# The repo's name before the rename: a clone made then and renamed since kept its old runs under it.
+OLD_REPO_NAME = "sanvio-harness-starter"
+
+
+def loop_dirs(root, home=None):
+    """Every folder the loop's checkouts can be in, to count their tokens.
+
+    worktree_dir from loop.json when it's set, and nothing else. Otherwise ~/.sanvio-loop/<root's name>,
+    then ~/.harness-loop/<root's name> and ~/.harness-loop/sanvio-harness-starter when each is there:
+    checkouts the loop made before the rename, counted for as long as they're kept. The second covers a
+    clone whose folder was renamed with the repo; a separate clone still named sanvio-harness-starter on
+    the same machine would be counted here too. The loop itself never makes or reuses one there.
+    """
     configured = load_config(root).get("worktree_dir")
     if configured:
         return [Path(configured).expanduser()]
-    return [names.loop_home() / Path(root).name]
+    name = Path(root).name
+    found = [names.loop_home(home) / name]
+    for old_name in (name, OLD_REPO_NAME):
+        old = names.old_loop_home(home) / old_name
+        if old.is_dir() and old not in found:
+            found.append(old)
+    return found
 
 
 def usage_files(root):
