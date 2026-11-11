@@ -680,7 +680,7 @@ class Conversations(Factory):
         self.addCleanup(lambda: os.environ.pop("TZ", None) if zone is None else os.environ.__setitem__("TZ", zone))
         self.loop = self.root.parent / "loop-checkouts"
         write(self.root, "loop.json", {"worktree_dir": str(self.loop)})
-        self.cache = self.root / ".sanvio" / "cache" / "conversations.json"
+        self.cache = self.root / ".sanvio" / dashboard_data.CACHE
         prompt = {"type": "user", "cwd": str(self.root), "sessionId": "s1", "timestamp": "2026-10-20T11:00:00Z",
                   "message": {"role": "user", "content": "prompt " + LEAK}}
         first = reply(self.root, 1, "1", "s1")
@@ -837,6 +837,25 @@ class Conversations(Factory):
         spend = [d["day"] for d in found["loop_spend"]["by_day"]]
         for side in ("factory", "loop"):
             self.assertEqual([d["day"] for d in found["conversations"][side]["by_day"]], spend, side)
+
+    def test_a_loop_checkout_from_before_the_rename_counts_on_the_loop_side(self):
+        write(self.root, "loop.json", {})  # no worktree_dir, so the home folders are where the loop worked
+        home = self.root.parent / "home"
+        old = token_report.names.old_loop_home(home) / self.root.name / "issue-3"
+        old.mkdir(parents=True)
+        lines(self.transcripts, "c/s5.jsonl", [reply(old / "src", 50, "old-3", "s5")])
+        # Only the home folder is swapped, so the dashboard's own loop_dirs(root) call has to find the old folder.
+        with mock.patch.object(Path, "home", return_value=home):
+            found = self.conversations()
+        self.assertEqual(found["loop"]["by_model"],
+                         {"m-a": {"input": 50, "output": 100, "cache_writes": 150, "cache_reads": 200, "total": 500}})
+        self.assertEqual(found["loop"]["sessions"], 1)
+
+    def test_the_cache_has_a_new_name_so_every_transcript_is_read_again(self):
+        # conversations.json holds old-folder checkouts as outside the repo, and a finished checkout's
+        # transcript never changes size or time, so under that name they would never be counted.
+        self.assertNotEqual(dashboard_data.CACHE.name, "conversations.json")
+        self.assertEqual(dashboard_data.CACHE, Path("cache") / "conversations-2.json")
 
     def test_a_missing_transcripts_folder_gives_null_and_why(self):
         self.assertEqual(dashboard_data.conversations(self.root, SINCE, TODAY, self.transcripts / "missing",
