@@ -36,6 +36,9 @@ class Folders(unittest.TestCase):
         self.assertEqual(names.loop_home(self.tmp), self.tmp / ".sanvio-loop")
         self.assertEqual(names.evals_home(self.tmp, environ={}), self.tmp / ".sanvio-evals")
 
+    def test_the_old_loop_folder_is_named_for_the_token_reports(self):
+        self.assertEqual(names.old_loop_home(self.tmp), self.tmp / ".harness-loop")
+
     def test_the_evals_home_variable_beats_the_folder_and_its_old_name_does_nothing(self):
         self.assertEqual(names.evals_home(self.tmp, environ={"SANVIO_EVALS_HOME": "/new"}), Path("/new"))
         self.assertEqual(names.evals_home(self.tmp, environ={"HARNESS_EVALS_HOME": "/old"}), self.tmp / ".sanvio-evals")

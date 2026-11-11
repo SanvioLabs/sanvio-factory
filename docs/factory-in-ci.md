@@ -128,6 +128,25 @@ them against the skill on your machine, which spends model tokens.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
   So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's.
 
+### The grade
+
+The comment's last line gives the verdict and a grade out of 10, such as
+`Verdict: ready with nits. Grade 8/10: ready with nits, checks passing.`
+
+- **Where it comes from:** your factory repo's [`review-rubric.json`](../review-rubric.json), worked
+  out by [`scripts/loop.py`](../scripts/loop.py), both read from the factory's default branch, so
+  it's graded the way the loop grades. A product repo or a pull request can't
+  change it. [`examples/ci/README.md`](../examples/ci/README.md) (*The grade*) says where the two can
+  still differ. A failed check, or a report with no verdict on its last line,
+  takes the rubric's `failing` or `unreadable` grade.
+- **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo.
+- **How long it waits:** up to 10 minutes for the pull request's other checks,
+  leaving out every job in the caller's own workflow run. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
+  stops at 30 minutes, so keep it under about 15. A check still running at the
+  end leaves the grade pending until the next push or a re-run.
+- **What it does:** nothing but say it. It sets no status, approves nothing
+  and merges nothing. [The grade](../examples/ci/README.md#the-grade) has the detail.
+
 ## The loop on a runner
 
 Optional, and for the factory's own issues. [`examples/ci/loop.yml`](../examples/ci/loop.yml) runs
