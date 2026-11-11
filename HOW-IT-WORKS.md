@@ -781,7 +781,11 @@ A retarget between that check and the merge isn't caught, since GitHub's merge
 pins the head and not the base, so protect every branch a pull request could
 target. A step's `merge_method` in `factories.json`, `merge`, `squash` or
 `rebase`, goes into the command; without one gh asks which, and fails with no
-terminal. `--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
+terminal. A run takes its step's `merge_method` when it's dispatched: the
+method is copied into the run's record then, so a later change to
+`factories.json` doesn't reach a live run. `steps` checks the method against
+the repo's settings on GitHub and warns when the repo doesn't allow it.
+`--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
 run `status` on the run right before merging. [`skills/dispatch/`](skills/dispatch/) is the conversation around it.
 
 ## Context: who remembers what

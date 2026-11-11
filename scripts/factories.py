@@ -1337,6 +1337,35 @@ def dispatch_refusal(root, step, repo, issue):
     return None
 
 
+MERGE_SETTINGS = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
+
+
+def merge_method_line(repo, step):
+    """What steps says of step's merge_method against repo's settings on GitHub, or None when there's nothing
+    to say: the step names no method, or repo allows it. A read only, and no gh call with no method or no repo:
+    a method that couldn't be checked says so, so a configured one is never skipped in silence."""
+    method = step.get("merge_method")
+    if not method:
+        return None
+    field = MERGE_SETTINGS[method]
+    if repo is None:
+        why = "this repo has no origin on github.com"
+    else:
+        found, why = gh_json("api", "repos/" + repo)
+        if not why:
+            allowed = found.get(field)
+            if allowed is True:
+                return None
+            if allowed is False:
+                return ("Warning: step {factory}'s merge_method is {method}, and {repo} doesn't allow {method} "
+                        "merges, so its merge will fail: change merge_method or the repo's "
+                        "settings.".format(factory=step["factory"], method=method, repo=repo))
+            # GitHub leaves the allow_* fields out for some callers, depending on their access to the repo.
+            why = "GitHub's answer has no {}".format(field)
+    return "Step {}'s merge_method {} wasn't checked against {}: {}.".format(
+        step["factory"], method, repo or "this repo", why)
+
+
 def cmd_steps(args):
     try:
         steps = read_steps(args.root)
@@ -1344,7 +1373,8 @@ def cmd_steps(args):
     except StepError as err:
         print(err, file=sys.stderr)
         return 1
-    if slug(args.root) is None:
+    repo = slug(args.root)
+    if repo is None:
         print("Warning: this repo's {}. Factories read pull requests and checks from github.com only: "
               "factories/README.md's *github.com only* says which origins count.".format(origin_why(args.root)))
     if not steps:
@@ -1356,6 +1386,9 @@ def cmd_steps(args):
               "{time_limit_hours} hours, {max_rounds} rounds".format(**step))
         print("  commit {} ({}{})".format(found["commit"] or "none named", state,
                                           "" if found["pinned"] else ", unpinned"))
+        line = merge_method_line(repo, step)
+        if line:
+            print(line)
     return 0
 
 

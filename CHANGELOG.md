@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-10: steps checks a step's merge_method
+
+`factories.py steps` now checks a step's `merge_method` against the settings
+of the repo this one's origin names on GitHub. It warns when the repo doesn't
+allow that method, since the merge would fail, and says so when it couldn't
+check. It still exits 0. A run takes its step's `merge_method` when it's
+dispatched, so a later change to `factories.json` doesn't reach a live run;
+[`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says so.
+
+Files: [`scripts/factories.py`](scripts/factories.py), [`tests/test_factories.py`](tests/test_factories.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-10: How a review sorts its findings
 
 The `review-pr` skill now says how to pick the verdict. Each finding is
