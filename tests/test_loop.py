@@ -5397,9 +5397,9 @@ class TestProject(unittest.TestCase):
         self.go()
         built = json.loads((self.state / "build-argv").read_text())
         guard = self.harness.absolute() / ".claude" / "hooks" / "guard.py"
+        command = shlex.quote(sys.executable) + " " + shlex.quote(str(guard))
         self.assertEqual(json.loads(built[built.index("--settings") + 1]), {"hooks": {"PreToolUse": [
-            {"matcher": "Read|Bash",
-             "hooks": [{"type": "command", "command": "python3 " + shlex.quote(str(guard)), "timeout": 10}]}]}})
+            {"matcher": "Read|Bash", "hooks": [{"type": "command", "command": command, "timeout": 10}]}]}})
         for step in ("plan", "review"):
             self.assertNotIn("--settings", json.loads((self.state / (step + "-argv")).read_text()), step)
         cfg = dict(loop.load_config(self.project), agent="codex", generate_command="")
