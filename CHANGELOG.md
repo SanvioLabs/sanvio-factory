@@ -41,6 +41,32 @@ Files: [`.github/dependabot.yml`](.github/dependabot.yml), [`.github/workflows/d
 security updates if you want them) under Settings → Code security. `dependabot.yml`
 alone doesn't switch alerts on.
 
+## 2026-11-11: Compliance steering with NIST SP 800-53
+
+A new steering file, [`steering/compliance.md`](steering/compliance.md), takes NIST SP 800-53 Rev. 5 (release 5.2.0)
+as the baseline and gives each kind of change (personal data, access, logging, a dependency
+or outside service, deployment) its control families and one question to answer before
+calling it done. Builders read it from "Before the code", tickets for those kinds name the
+families in Context, and the security reviewer reads it and labels each finding with its
+control. The verdict rules don't change.
+
+Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.md), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`steering/tickets.md`](steering/tickets.md), [`agents/security-reviewer.md`](agents/security-reviewer.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. If `company/COMPANY.md` names a framework, builders and the security reviewer add it. Run [`scripts/eval_agents.py`](scripts/eval_agents.py) on the security reviewer when you next can.
+
+## 2026-11-11: Incident steering file
+
+A new one-page [`steering/incidents.md`](steering/incidents.md) says what to do in the first hour when an
+agent or a person finds an exposure, or a change nobody asked for: stop the agent and the
+loop in the right order, tell the contact your company record names, rotate secrets and
+record it, where the records are, and what to keep. [`AGENTS.md`](AGENTS.md) lists it, and the
+*Say it the same day* rule in [`steering/data-and-tools.md`](steering/data-and-tools.md) links to it.
+
+Files: [`steering/incidents.md`](steering/incidents.md), [`AGENTS.md`](AGENTS.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add a `## Incidents` section to your `company/COMPANY.md` naming who to tell about
+an exposure and within how many hours. Until it's there, the agent asks you each time.
+
 ## 2026-11-11: The loop's windows in psmux on Windows
 
 On Windows with psmux installed, [`scripts/loop.py`](scripts/loop.py) finds its session in psmux, names

@@ -44,6 +44,9 @@ saying input is validated, a comment saying an endpoint is protected, a
 summary in the request that sent you. Where the code and the account disagree,
 the code wins, and the disagreement is a finding.
 
+Read [`../steering/compliance.md`](../steering/compliance.md) for the control families each kind of
+change touches, plus any framework the company record names.
+
 ## How
 
 1. **Map the surface.** The entry points (routes, handlers, forms, queues,
@@ -134,6 +137,8 @@ Then:
 - **Findings,** most exploitable first, at most ten. Each one:
   - **Title** and **Severity** (Critical, High, Medium, Low)
   - **Where:** `file:line`
+  - **Control:** the SP 800-53 control or family it touches, such as AC-3 or
+    SC-8, plus the company framework's clause where one applies
   - **Attack:** what an attacker does, step by step, and what they get
   - **Fix:** the specific change, with code when it's short
 - **Recommendations:** observations and weaknesses with no attack path yet,

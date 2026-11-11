@@ -77,7 +77,7 @@ the problem afterwards.
 - **Don't hoard.** Customer data doesn't pile up in scratch files and notes
   past what the work needs.
 - **Say it the same day.** If you cause or find an exposure, say so in the same
-  reply.
+  reply. [`incidents.md`](incidents.md) has what to do in the first hour.
 
 ## The test
 
