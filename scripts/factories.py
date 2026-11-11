@@ -916,7 +916,7 @@ class Busy(Exception):
     """Another factories.py command holds the run's lock."""
 
 
-NO_LOCKS = ("factories need a file lock, which this system doesn't have (fcntl, on macOS and Linux): nothing was "
+NO_LOCKS = ("factories need a file lock, which this system doesn't have (fcntl on macOS and Linux, msvcrt on Windows): nothing was "
             "read or changed")
 
 

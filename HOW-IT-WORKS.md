@@ -554,7 +554,7 @@ diff was read against. While another
 review of it is running, the line's `state` is `not reviewed` and its `note`
 says so. Each pull request `--pr` or the watcher reviews keeps a
 `.loop/review-pr-N.lock` beside its result, one pair per pull request, never
-cleared; on a system with no file lock (Windows), `--pr` refuses and the
+cleared; on a system with no file lock (neither fcntl nor Windows' msvcrt), `--pr` refuses and the
 watcher reviews without one. Each review fetches the pull request's head into
 `refs/loop/review-pr-N` and its base into `refs/loop/review-base-N`, refs of
 their own in the clone, kept like the lock and replaced on the next review.
