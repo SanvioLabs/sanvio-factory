@@ -492,7 +492,8 @@ def origin(folder):
     urls = []
     for args in (("config", "--get", "remote.origin.url"), ("remote", "get-url", "origin")):
         try:
-            done = subprocess.run(["git", "-C", str(folder)] + list(args), capture_output=True, text=True)
+            done = subprocess.run(["git", "-C", str(folder)] + list(args), capture_output=True, text=True,
+                                  encoding="utf-8")
         except OSError:
             return None, "origin couldn't be read", ORIGIN_UNREAD
         if done.returncode != 0:
@@ -542,7 +543,8 @@ def project_root(path, root=None):
 
     def git(*args):
         try:
-            done = subprocess.run(["git", "-C", str(folder)] + list(args), capture_output=True, text=True)
+            done = subprocess.run(["git", "-C", str(folder)] + list(args), capture_output=True, text=True,
+                                  encoding="utf-8")
         except OSError:
             return ""
         return done.stdout.strip() if done.returncode == 0 else ""
@@ -1951,9 +1953,10 @@ class Loop:
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial):
         """sh's command, its output as it came."""
         try:
-            # errors="replace": a pull request's diff or commit message needn't be UTF-8.
+            # UTF-8 whatever the system's default, as git, gh and the agents write it. errors="replace": a pull
+            # request's diff or commit message needn't be UTF-8.
             done = subprocess.run(cmd, cwd=str(cwd or self.root), input=stdin, shell=shell, env=env,
-                                  capture_output=True, text=True, errors="replace", timeout=timeout)
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         except FileNotFoundError:
             return 127, "command not found: {}".format(cmd if shell else cmd[0])
         except subprocess.TimeoutExpired as err:
@@ -2178,7 +2181,7 @@ class Loop:
             apart = {"creationflags": 0x200} if on_windows() else {"start_new_session": True}
             proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT if stderr else subprocess.DEVNULL,
-                                    text=True, errors="replace", **apart,
+                                    text=True, encoding="utf-8", errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
                                     env=dict(os.environ, SANVIO_RETRO="off", HARNESS_RETRO="off"))

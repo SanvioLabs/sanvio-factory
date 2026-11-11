@@ -30,7 +30,8 @@ fine).
 ## 2026-11-11: The loop's files and guard on Windows
 
 [`scripts/loop.py`](scripts/loop.py) now reads and writes every text file as UTF-8, whatever the
-system's default encoding. While a reader such as one of the mods holds `status.json` open, it tries the
+system's default encoding, and reads what git, gh and the agents print, and writes an agent's prompt, as
+UTF-8 too. While a reader such as one of the mods holds `status.json` open, it tries the
 write up to five times, 0.2s apart, then logs a `WARN` line and goes on. A project's build agent
 runs `guard.py` with the Python running the loop, not `python3`, which Windows doesn't have.
 

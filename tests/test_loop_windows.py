@@ -390,6 +390,40 @@ class Encodings(unittest.TestCase):
         self.assertEqual(missing_encoding('p.read_text(encoding="latin-1")\n'), [1])
 
 
+def pipes_without_encoding(source):
+    """The line of each subprocess.run or Popen call in source that decodes text (text=True) without
+    encoding="utf-8"."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("run", "Popen", "check_output")
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"):
+            continue
+        given = {kw.arg: kw.value for kw in node.keywords}
+        text = given.get("text")
+        if not (isinstance(text, ast.Constant) and text.value is True):
+            continue
+        encoding = given.get("encoding")
+        if not (isinstance(encoding, ast.Constant) and encoding.value == "utf-8"):
+            found.append(node.lineno)
+    return sorted(found)
+
+
+class PipeEncodings(unittest.TestCase):
+    """What git, gh and the agents print is UTF-8, and so is the prompt an agent reads: Windows' default
+    code page would turn a character outside it into ? or worse."""
+
+    def test_every_text_pipe_in_loop_py_names_utf_8(self):
+        source = (SCRIPTS / "loop.py").read_text(encoding="utf-8")
+        self.assertEqual(pipes_without_encoding(source), [], "scripts/loop.py lines decoding a pipe without utf-8")
+
+    def test_the_check_reports_a_text_pipe_without_it_and_skips_bytes(self):
+        self.assertEqual(pipes_without_encoding('subprocess.run(c, text=True)\n'), [1])
+        self.assertEqual(pipes_without_encoding('subprocess.Popen(c, text=True, errors="replace")\n'), [1])
+        self.assertEqual(pipes_without_encoding('subprocess.run(c, text=True, encoding="utf-8")\n'), [])
+        self.assertEqual(pipes_without_encoding('subprocess.run(c, capture_output=True)\n'), [])
+
+
 class StatusReplace(Folder):
     """save_status tries status.json's replace again while a reader holds it, as Windows refuses then."""
 
