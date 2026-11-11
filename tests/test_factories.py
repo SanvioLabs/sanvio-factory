@@ -3146,6 +3146,22 @@ class Doctor(Reviewing):
         self.assertEqual([ch for ch in out + err if not ch.isprintable() and ch != "\n"], [])
         self.assertIn("it's into dev?[2Jel?op, not main", out)
 
+    def test_its_head_line_prints_the_base_shown(self):
+        # #424: a base padded so the text after it would print on a row of its own.
+        pad = "start" + " " * 280 + "end"
+        real = forge.gh
+
+        def padded(*args):  # only the head read: the follow check reads main, so doctor gets as far as the head
+            code, out, err = real(*args)
+            if args[:2] == ("pr", "view") and "state,isDraft,baseRefName,headRefOid,isCrossRepository,headRepositoryOwner" in args:
+                out = json.dumps(dict(json.loads(out), baseRefName=pad))
+            return code, out, err
+        with mock.patch.object(forge, "gh", padded):
+            _, out, _, _ = self.doctor()
+        line, = [line for line in out.splitlines() if line.startswith("- its head: ")]
+        self.assertIn("into " + forge.shown(pad), line)
+        self.assertNotIn(pad, line)
+
     def run_record(self):
         return {"run": "r", "repo": "o/r", "pr": 31, "issue": 12, "factory": "build-team", "factory_login": "factory-bot",
                 "factory_id": "ID_factory-bot", "ci_paths": [], "base": "main"}
@@ -3279,6 +3295,12 @@ class Marking(unittest.TestCase):
             with self.subTest(blank=hex(ord(blank))):
                 self.assertEqual(forge.shown("a" + blank * 300 + " b"), "a b")
                 self.assertEqual(forge.one_line("a" + blank + "b"), "a" + blank + "b")
+
+    def test_loop_py_marks_as_forge_does(self):
+        # #424: loop.py doesn't import forge, so this is what keeps its marked() the same as forge's printable.
+        for text in ("start" + " " * 280 + "end", "a\nb\tc\x1b[2J", "​ ‮", "x" * 500, "ㅤ" * 300):
+            with self.subTest(text=text[:20]):
+                self.assertEqual(loop.marked(text), forge.printable(text)[:200])
 
 
 class OneHome(unittest.TestCase):
@@ -3584,6 +3606,46 @@ class AfterReady(Reviewing):
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertIn("loop.py says: GitHub showed 0ld0000", out)
+
+    PAD = "start" + " " * 280 + "end"  # #424: a note padded so its end would print on a row of its own
+
+    def assert_shown(self, out, text):
+        self.assertIn(forge.shown(text), out)
+        self.assertNotIn(text, out)
+
+    def test_no_review_of_the_head_yet_prints_loop_py_s_note_shown(self):
+        self.reviewed("not reviewed", sha="", note=self.PAD)
+        _, out, _ = self.review()
+        self.assertIn("no review of " + self.head[:7] + " yet: " + forge.shown(self.PAD), out)
+        self.assert_shown(out, self.PAD)
+
+    def test_no_review_of_the_head_yet_prints_a_plain_note_as_it_is(self):
+        self.reviewed("not reviewed", sha="", note="GitHub showed 0ld0000")
+        _, out, _ = self.review()
+        self.assertIn("no review of " + self.head[:7] + " yet: GitHub showed 0ld0000", out)
+
+    def test_status_prints_a_recorded_review_s_note_shown(self):
+        self.reviewed("failed", note=self.PAD)
+        self.review()
+        _, out, _ = self.status()  # status runs no review: the recorded one's note
+        self.assertIn("review of {} failed: {}. Review it again".format(self.head[:7], forge.shown(self.PAD)), out)
+        self.assert_shown(out, self.PAD)
+
+    def test_a_review_not_posted_prints_its_note_shown_and_keeps_it_whole(self):
+        self.reviewed("failed", note=self.PAD)
+        _, out, _ = self.review()
+        self.assertIn("review of {} failed: {}. Review it again".format(self.head[:7], forge.shown(self.PAD)), out)
+        self.assert_shown(out, self.PAD)
+        self.assertEqual(self.record()["review"]["note"], self.PAD)  # only the printing is shortened
+
+    def test_a_review_that_didn_t_run_prints_loop_py_s_last_line_shown(self):
+        last = "start" + " " * 200 + "x" * 92 + "end"
+        self.assertEqual(len(last), 300)
+        (self.home / "loop-outcome.json").write_text(json.dumps({"exit": 1, "stderr": last}))
+        _, out, _ = self.review()
+        self.assertIn("the review didn't run: " + forge.shown(last), out)
+        self.assert_shown(out, last)
+        self.assertNotIn("a first line", out)
 
     def test_a_posted_review_with_no_verdict_doesn_t_count(self):
         # Before T078 it was taken, with no verdict to check GitHub's against (review after Phase 13, correctness).
