@@ -11,6 +11,7 @@ SCRIPT = ROOT / "scripts" / "token_report.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 import token_report  # noqa: E402 (needs scripts/ on the path first)
 import names  # noqa: E402 (same reason)
+import old_names  # noqa: E402 (same reason)
 
 SINCE = "2026-10-01"
 USAGE = {"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 30, "cache_read_input_tokens": 40}
@@ -123,7 +124,7 @@ class LoopFolders(Harness):
         super().setUp()
         self.home = self.root.parent / "home"
         self.new = names.loop_home(self.home) / "harness"
-        self.old = names.old_loop_home(self.home) / "harness"
+        self.old = old_names.old_loop_home(self.home) / "harness"
         self.new.mkdir(parents=True)
 
     def test_both_folders_count_new_one_first_when_the_old_one_is_there(self):
@@ -150,7 +151,7 @@ class LoopFolders(Harness):
     def test_a_renamed_clones_runs_under_the_repo_s_old_name_count(self):
         # A clone made as sanvio-harness-starter and renamed with the repo kept its old runs under the old
         # name, so looking only under the clone's name now finds none of them (review of #478).
-        before = names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
+        before = old_names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
         (before / "issue-61").mkdir(parents=True)
         loops = token_report.loop_dirs(self.root, home=self.home)
         self.assertEqual(loops, [self.new, before])
@@ -158,13 +159,13 @@ class LoopFolders(Harness):
 
     def test_both_old_folders_count_once_each(self):
         self.old.mkdir(parents=True)
-        before = names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
+        before = old_names.old_loop_home(self.home) / token_report.OLD_REPO_NAME
         before.mkdir(parents=True)
         self.assertEqual(token_report.loop_dirs(self.root, home=self.home), [self.new, self.old, before])
 
     def test_another_clones_checkout_in_the_old_folder_is_outside(self):
         self.old.mkdir(parents=True)
-        other = names.old_loop_home(self.home) / "other-name" / "issue-1"
+        other = old_names.old_loop_home(self.home) / "other-name" / "issue-1"
         other.mkdir(parents=True)
         loops = token_report.loop_dirs(self.root, home=self.home)
         self.assertIsNone(token_report.group(entry(other), self.root, loops))

@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from loop import load_config, usage_totals  # noqa: E402 (needs scripts/ on the path first)
 from usage_report import since_date  # noqa: E402 (same reason)
 import names  # noqa: E402 (same reason)
+import old_names  # noqa: E402 (same reason: the loop's home before the rename)
 
 # The four counts on a reply's message.usage, with the names the tables give them.
 FIELDS = (("input_tokens", "Input"), ("output_tokens", "Output"),
@@ -70,7 +71,7 @@ def loop_dirs(root, home=None):
     name = Path(root).name
     found = [names.loop_home(home) / name]
     for old_name in (name, OLD_REPO_NAME):
-        old = names.old_loop_home(home) / old_name
+        old = old_names.old_loop_home(home) / old_name
         if old.is_dir() and old not in found:
             found.append(old)
     return found

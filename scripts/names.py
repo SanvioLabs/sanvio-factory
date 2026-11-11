@@ -1,25 +1,20 @@
-"""The names this repo took when it became Sanvio Factory, and the old ones it still recognises.
+"""The names this repo uses: its state folder, its variables and its home folders.
 
 The state folder is .sanvio/, the variables are SANVIO_*, and the home folders are ~/.sanvio-loop and
-~/.sanvio-evals. Nothing reads the old names any more, with two exceptions that only ever make things
-stricter: HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=off still turns the usage log
-off. A third exception only reads: token_report.py and the factory dashboard still count the tokens of
-loop checkouts left in ~/.harness-loop, for as long as that folder is there, and nothing else looks in it.
-The old names are kept here so .claude/hooks/session_start.py can move a leftover .harness/ across once,
-scripts/check_setup.py can name any old variable still set, which now does nothing, and the first script
-that reads a person's own variable can warn about one once per shell. The hooks in .claude/hooks/ never
-warn: Claude Code doesn't show a hook's stderr, so a warning there would use up the shell's one telling
-where nobody sees it.
+~/.sanvio-evals. Two old switches still count, because they only ever make things stricter:
+HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=off still turns the usage log off.
+The first read of the real environment also warns once about an old variable still set, where
+old_names.py is beside this file to do it. Without it, only the new names are read and nothing warns.
 
-Standard library only: the hooks and the loop import it, and so does a fresh clone before setup.
+Standard library only: everything here imports it, a fresh clone included, before any setup.
 """
 import os
-import sys
-import time
 from pathlib import Path
 
-STATE, OLD_STATE = ".sanvio", ".harness"
-PREFIX, OLD_PREFIX = "SANVIO_", "HARNESS_"
+STATE = ".sanvio"
+PREFIX = "SANVIO_"
+# The old prefix, read here only for the two switches above.
+_STRICTER = "HARNESS_"
 # The variables a person sets themselves. SANVIO_HEADLESS isn't one: bin/factory sets it for the run.
 PERSONAL = ("PULSE_FOLDER", "RETRO", "USAGE_LOG", "EVALS_HOME")
 # The values that switch the usage log off, under either name.
@@ -39,14 +34,8 @@ def loop_home(home=None):
     return home / ".sanvio-loop"
 
 
-def old_loop_home(home=None):
-    """Where the loop kept its checkouts before the rename. Only the token reports read it, to count them."""
-    home = Path(home) if home else Path.home()
-    return home / ".harness-loop"
-
-
 def evals_home(home=None, environ=None):
-    """Where eval_factory.py keeps each run's sealed copy: SANVIO_EVALS_HOME, else the home folder."""
+    """Where each eval run keeps its sealed copy: SANVIO_EVALS_HOME, else the home folder."""
     named = env("EVALS_HOME", environ=environ)
     if named:
         return Path(named)
@@ -66,7 +55,7 @@ def headless(environ=None):
     """Either name says this run is headless. The old one is still read because the stricter reading
     always wins: a script that sets only HARNESS_HEADLESS keeps the guard as strict as it was."""
     environ = os.environ if environ is None else environ
-    return environ.get(PREFIX + "HEADLESS") == "1" or environ.get(OLD_PREFIX + "HEADLESS") == "1"
+    return environ.get(PREFIX + "HEADLESS") == "1" or environ.get(_STRICTER + "HEADLESS") == "1"
 
 
 def logging_off(environ=None):
@@ -75,14 +64,7 @@ def logging_off(environ=None):
     if environ is None:
         check_real_environment()
         environ = os.environ
-    return any(environ.get(prefix + "USAGE_LOG", "").strip().lower() in OFF for prefix in (PREFIX, OLD_PREFIX))
-
-
-def old_variables(environ=None):
-    """The old names of a person's own variables still set without the new one beside them. They do
-    nothing now, so the setup check names them."""
-    environ = os.environ if environ is None else environ
-    return [OLD_PREFIX + name for name in PERSONAL if OLD_PREFIX + name in environ and PREFIX + name not in environ]
+    return any(environ.get(prefix + "USAGE_LOG", "").strip().lower() in OFF for prefix in (PREFIX, _STRICTER))
 
 
 def check_real_environment():
@@ -91,117 +73,10 @@ def check_real_environment():
     if _checked:
         return
     _checked = True
-    if not in_a_hook():
-        warn_old_once()
-
-
-def in_a_hook(argv=None):
-    """The program running is one of the Claude Code hooks in a .claude/hooks/ folder. They read the
-    variables on every event, and Claude Code shows their stderr to nobody, so they stay silent and
-    leave the shell's marker for a script whose warning a person reads."""
-    argv = getattr(sys, "argv", None) if argv is None else argv
-    if not argv or not argv[0]:
-        return False
     try:
-        folder = Path(argv[0]).resolve().parent
-    except (OSError, RuntimeError):
-        return False
-    return folder.name == "hooks" and folder.parent.name == ".claude"
-
-
-def mine(path):
-    """The file is this user's own. Where /tmp is shared, another user's file of the same name says
-    nothing about this shell."""
-    if not hasattr(os, "getuid"):
-        return True
-    try:
-        return os.lstat(path).st_uid == os.getuid()
-    except OSError:
-        return False
-
-
-def to_stderr(text):
-    try:
-        os.write(2, text.encode("utf-8", "replace"))
-    except OSError:
-        pass  # nowhere to say it: the script goes on as it would have
-
-
-def warn_old_once(environ=None, marker_dir=None, session=None, write=None, day=None):
-    """Say on stderr which old variables are set without their new names, once per shell, and return
-    them. HARNESS_USAGE_LOG set to off isn't named: it still switches the log off. HARNESS_HEADLESS
-    isn't a person's own variable, so it never is. A marker file named for the terminal session makes
-    it once per shell, because a script can't change its shell's environment. The day is in its name
-    too: macOS seldom empties $TMPDIR, so a later shell given the same session number isn't silenced
-    by an old marker, and a shell left open overnight is told again the next day. Under Claude Code
-    (CLAUDECODE set) each Bash call is a session of its own, so there the marker is named for Claude
-    Code instead, and a person is told once a day, not on every command."""
-    environ = os.environ if environ is None else environ
-    old = [variable for variable in old_variables(environ)
-           if not (variable == OLD_PREFIX + "USAGE_LOG" and environ[variable].strip().lower() in OFF)]
-    if not old:
-        return []
-    if marker_dir is None:
-        marker_dir = os.environ.get("TMPDIR") or "/tmp"
-    if session is None and environ.get("CLAUDECODE"):
-        session = "claude-code"  # every Bash call gets its own session: one telling a day, not one a command
-    if session is None:
-        session = os.getsid(0) if hasattr(os, "getsid") else os.getppid()
-    if day is None:
-        day = time.strftime("%Y%m%d")
-    marker = os.path.join(str(marker_dir), "sanvio-old-names-{}-{}".format(session, day))
-    try:
-        os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
-    except FileExistsError:
-        if mine(marker):
-            return []  # this shell has been told already
-        # someone else's file: it can't say this shell was told, so say it
-    except OSError:
-        pass  # no marker, so it may say it again: better than never saying it
-    write = write or to_stderr
-    for variable in old:
-        write("{} is set but does nothing now: set {} instead\n".format(
-            variable, PREFIX + variable[len(OLD_PREFIX):]))
-    return old
-
-
-def only_focus(new):
-    """True when .sanvio/ is a real folder holding nothing but the mods' project/ focus files."""
-    if new.is_symlink() or not new.is_dir():
-        return False
-    entries = list(new.iterdir())
-    return bool(entries) and [entry.name for entry in entries] == ["project"] and entries[0].is_dir() \
-        and not entries[0].is_symlink()
-
-
-def fold_focus(new, old):
-    """Move .sanvio/project/'s files into .harness/project/, then remove the emptied .sanvio/."""
-    try:
-        target = old / "project"
-        target.mkdir(exist_ok=True)
-        for one in (new / "project").iterdir():
-            if one.is_file() and not one.is_symlink():
-                os.replace(one, target / one.name)
-        (new / "project").rmdir()
-        new.rmdir()
-    except OSError:
-        pass  # left as it is: both folders stay, and the message below says so
-
-
-def move_old_state(root):
-    """Move .harness/ to .sanvio/ when only the old one exists, and say what happened, or None."""
-    new, old = Path(root) / STATE, Path(root) / OLD_STATE
-    if not old.exists():
-        return None
-    if only_focus(new):
-        # An updated mod wrote its /project focus before any session moved .harness/: fold it in first.
-        fold_focus(new, old)
-    if new.exists():
-        return ("both .harness/ and .sanvio/ are here, and only .sanvio/ is read. Move what you still need "
-                "from .harness/ into .sanvio/, then delete .harness/")
-    try:
-        os.rename(old, new)
-    except OSError as error:
-        return "couldn't move .harness/ to .sanvio/ ({}), and nothing reads .harness/ now. Move it by hand".format(
-            error.strerror or error)
-    return "moved .harness/ to .sanvio/, the new name for this repo's own state, with everything in it"
+        import old_names
+    except ModuleNotFoundError as error:
+        if error.name != "old_names":
+            raise
+        return  # a copy that took this file alone has no old names to warn about
+    old_names.warn_unless_in_a_hook()
