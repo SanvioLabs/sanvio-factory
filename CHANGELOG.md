@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Incident steering file
+
+A new one-page [`steering/incidents.md`](steering/incidents.md) says what to do in the first hour when an
+agent or a person finds an exposure, or a change nobody asked for: stop the agent and the
+loop in the right order, tell the contact your company record names, rotate secrets and
+record it, where the records are, and what to keep. [`AGENTS.md`](AGENTS.md) lists it, and the
+*Say it the same day* rule in [`steering/data-and-tools.md`](steering/data-and-tools.md) links to it.
+
+Files: [`steering/incidents.md`](steering/incidents.md), [`AGENTS.md`](AGENTS.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add a `## Incidents` section to your `company/COMPANY.md` naming who to tell about
+an exposure and within how many hours. Until it's there, the agent asks you each time.
+
 ## 2026-11-11: The loop's windows in psmux on Windows
 
 On Windows with psmux installed, [`scripts/loop.py`](scripts/loop.py) finds its session in psmux, names
