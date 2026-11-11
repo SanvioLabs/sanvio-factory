@@ -164,7 +164,7 @@ def check_step(root, step):
         raise StepError("step {} has a factory_login that isn't a GitHub login".format(name))
     method = step.get("merge_method")
     if method is not None and method not in MERGE_METHODS:
-        raise StepError("step {} has a merge_method that isn't merge, squash or rebase".format(name))
+        raise StepError("step {} has a merge_method that isn't {}".format(name, merge_methods_words()))
     extra = step.get("ci_paths", [])
     if not isinstance(extra, list) or not all(
             isinstance(path, str) and path.strip() and "/" not in path and path not in (".", "..") for path in extra):
@@ -291,16 +291,27 @@ def new_record(step, found, issue, repo, base):
 
 ENDED = ("stopped", "needs-person", "merged", "closed", "cancelled")
 MERGE_METHODS = ("merge", "squash", "rebase")  # gh pr merge's flags, one of which a step may name
+
+
+def merge_methods_words():
+    """MERGE_METHODS as "a, b or c", read when called so the words name whatever the tuple holds."""
+    *rest, last = MERGE_METHODS
+    return "{} or {}".format(", ".join(rest), last) if rest else last
+
+
+HOURS_IN_A_YEAR = 365 * 24
 # Each limit's kind, the least and the most it can be, in factories.json and in a record, and what a bad one
 # isn't. A year, past which overdue() can't add the hours to a time, and more rounds than any factory gets.
-LIMITS = {"time_limit_hours": ((int, float), 0, 8760, "isn't a number of hours above {least:g} and at most {most:,}, a year"),
+LIMITS = {"time_limit_hours": ((int, float), 0, HOURS_IN_A_YEAR,
+                               "isn't a number of hours above {least:g} and at most {most:,}{named}"),
           "max_rounds": ((int,), 1, 100, "isn't a whole number from {least} to {most}")}
 
 
 def limit_rule(field):
-    """What a bad value of field isn't, in words built from LIMITS' numbers, so the two can't drift."""
+    """What a bad value of field isn't, in words built from LIMITS' numbers, so the two can't drift. The
+    ceiling is named a year only while it is one."""
     _, least, most, rule = LIMITS[field]
-    return rule.format(least=least, most=most)
+    return rule.format(least=least, most=most, named=", a year" if most == HOURS_IN_A_YEAR else "")
 
 
 def within_limits(field, value):
@@ -351,7 +362,7 @@ def checked(record):
         except (TypeError, ValueError):
             raise ValueError("its {} isn't a time with a timezone: {!r}".format(field, value))
     if record.get("merge_method") not in (None,) + MERGE_METHODS:  # read with .get(): absent says none was named
-        raise ValueError("its merge_method isn't merge, squash or rebase: {!r}".format(record["merge_method"]))
+        raise ValueError("its merge_method isn't {}: {!r}".format(merge_methods_words(), record["merge_method"]))
     for field in LIMITS:
         if not within_limits(field, record[field]):
             raise ValueError("its {} {}: {!r}".format(field, limit_rule(field), record[field]))
