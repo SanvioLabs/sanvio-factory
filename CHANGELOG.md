@@ -45,6 +45,27 @@ Files: [`scripts/names.py`](scripts/names.py), [`scripts/token_report.py`](scrip
 
 **Do:** nothing; the dashboard reads every transcript once more.
 
+## 2026-11-10: Graded CI review
+
+The review that [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) posts on a product repo's pull
+request now ends with a verdict and a grade out of 10, from the rubric and code
+the loop grades its own reviews with: `Verdict: ready. Grade 10/10: ready, checks passing.`
+The grade comes from the factory's [`review-rubric.json`](review-rubric.json) through
+[`scripts/loop.py`](scripts/loop.py), both from the factory's default branch, and counts the pull
+request's other checks, leaving out only the review's own job, and waits up to
+10 minutes, at most 15 (the new `grade-wait-minutes` input), for them to
+finish. A token GitHub refuses to list checks for, one without `checks: read`,
+grades pending at once and says so. The review is now asked to end on a `VERDICT:`
+line, as the loop's is, so the grade can read it. The grade is advisory: no
+status, no approval, no merge. The job's timeout goes from 15 to 30 minutes,
+and its permissions don't change. [`examples/ci/README.md`](examples/ci/README.md) says where the grade can
+differ from the loop's.
+
+Files: [`scripts/review_grade.py`](scripts/review_grade.py) (new), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** Nothing. To wait other than 10 minutes for the other checks, pass
+`grade-wait-minutes` in your caller.
+
 ## 2026-11-10: How a review sorts its findings
 
 The `review-pr` skill now says how to pick the verdict. Each finding is
