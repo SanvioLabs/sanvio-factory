@@ -3371,6 +3371,7 @@ class OneHome(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertNotIn("counts only as", (ROOT / path).read_text())
                 self.assertNotIn("only in those two forms", (ROOT / path).read_text())
+        self.assertIn("*github.com only*", (ROOT / "docs/maintaining.md").read_text())
 
     def maintaining(self):
         """docs/maintaining.md with its whitespace collapsed, so a line wrap doesn't move a command."""
@@ -3388,7 +3389,6 @@ class OneHome(unittest.TestCase):
         text = self.maintaining()
         self.assertIn("--json headRefOid -q .headRefOid", text)
         self.assertEqual(text.count("--json headRefOid"), text.count("--json headRefOid -q .headRefOid"))
-        self.assertIn("*github.com only*", (ROOT / "docs/maintaining.md").read_text())
 
     def test_the_merge_method_and_the_gh_version_are_written_where_the_merge_is(self):
         # Before T079 the docs said to add the method to the command by hand, and nothing said which gh has
