@@ -37,7 +37,7 @@ still works: it reads the new names, and nothing warns.
 
 Files: [`scripts/names.py`](scripts/names.py), [`scripts/old_names.py`](scripts/old_names.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`scripts/token_report.py`](scripts/token_report.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
-**Do:** if you take files one at a time, take `scripts/old_names.py` along with the new
+**Do:** if you take files one at a time, take [`scripts/old_names.py`](scripts/old_names.py) along with the new
 `names.py`, `check_setup.py`, `token_report.py` and `session_start.py`. Without it the
 setup check and the token report stop with an import error, and the session-start hook
 says it couldn't run its checks.
