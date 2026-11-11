@@ -32,7 +32,7 @@ fine).
 Dependabot now opens a pull request each week for a newer GitHub Action or a newer
 npm package in the TypeScript example, keeping each action pinned to a commit. A new
 workflow runs osv-scanner over the repo once a week, by hand, and on any pull request
-that changes a `package-lock.json`, and fails naming the package and its advisory
+that changes a `package-lock.json` or the workflow itself, and fails naming the package and its advisory
 when a dependency has a known vulnerability. It can only read the repo.
 
 Files: [`.github/dependabot.yml`](.github/dependabot.yml), [`.github/workflows/deps.yml`](.github/workflows/deps.yml), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`CHANGELOG.md`](CHANGELOG.md).
