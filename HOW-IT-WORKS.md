@@ -152,7 +152,7 @@ Terminal window attached to the session, read-only.
 
 What the loop cost, day by day and by issue, and how many of its pull requests
 needed someone's commit before merging, come from `python3 scripts/dashboard_data.py --json`.
-In Claude Code, `/factory-dashboard` draws them in a pane, off by default
+In Claude Code, `/factory-dashboard` draws them in a pane, on by default
 ([`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/)).
 
 **What an issue used.** When the agent is `claude`, each run's tokens and cost

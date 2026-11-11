@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-10: The dashboard is on by default
+
+[`.claude/settings.json`](.claude/settings.json) switches on `factory-dashboard`, so a fresh checkout has
+`/factory-dashboard` without `/plugin`, which the VS Code extension doesn't
+have. It spends no model tokens and calls `gh` only while its pane reads. The
+mod's README gives the command-line install for the extension.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that set its own `enabledPlugins`, add
+`"factory-dashboard@sanvio-factory": true`, then `/reload-plugins` or a new
+session.
+
 ## 2026-11-10: Token reports count loop runs from before the rename
 
 [`scripts/token_report.py`](scripts/token_report.py) and the factory dashboard again count the tokens of

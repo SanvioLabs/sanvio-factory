@@ -116,8 +116,8 @@ extension in VS Code 1.143.0, and Claude Desktop 3.6556.2 on macOS:
 | Claude Desktop, Code tab | The same: the trust prompt, the setup message, the guard, `/whats-new`, the plugins in `/plugin`, both lines above the prompt and the loop's pane, now `/factory-floor`'s List view. Pick the repo's root under **Local**, then **Open folder…** |
 | Claude Desktop, chat | None of it. Chat opens no folder, so no hooks, guard, skills, mods or `company/` load. Asked, it can read this repo's [`AGENTS.md`](AGENTS.md) as text, but nothing enforces it. Use the Code tab |
 
-[`/factory-dashboard`](examples/mods/factory-dashboard/) came after those tries. It's off by default and has only been
-seen in the terminal.
+[`/factory-dashboard`](examples/mods/factory-dashboard/) came after those tries. It's on by default and has been seen in the terminal
+and the VS Code extension.
 
 [`/factory-floor`](examples/mods/factory-floor/)'s Crew view came after those tries too. It's on by default, and its drawing has only been seen in Claude Code run in VS Code's integrated terminal, against a pretend loop.
 
