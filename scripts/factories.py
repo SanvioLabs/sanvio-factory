@@ -779,7 +779,7 @@ def review(root, record, linked=(), run_review=False, read=None):
                 return stalled(record, "returned as pull request #{}, and {} isn't reviewed yet. Review it: {}".format(
                     pr, head["headRefOid"][:7], again))
             return stalled(record, "returned as pull request #{}; review of {} {}{}. Review it again: {}".format(
-                pr, done["sha"][:7], done["state"], ": " + done["note"] if done.get("note") else "", again))
+                pr, done["sha"][:7], done["state"], ": " + shown(done["note"]) if done.get("note") else "", again))
         line = run_loop_review(root, record, head)
         if line:
             return stalled(record, line)
@@ -789,7 +789,7 @@ def review(root, record, linked=(), run_review=False, read=None):
     if done["state"] != "posted":
         record["waiting_on"] = "review"
         return stalled(record, "{} {}{}. Review it again: {}".format(
-            line, done["state"], ": " + done["note"] if done["note"] else "", again))
+            line, done["state"], ": " + shown(done["note"]) if done["note"] else "", again))
     # Read just now unless a review ran since, which takes minutes: then check_report reads it again.
     return "{} {}".format(line, after_review(record, head, None if reviewed_now else head, read))
 
@@ -817,7 +817,7 @@ def run_loop_review(root, record, head):
             pr, REVIEW_TIMEOUT_HOURS)
     if done.returncode:
         lines = done.stderr.strip().splitlines() or ["loop.py exited {}".format(done.returncode)]
-        return "returned as pull request #{}, but the review didn't run: {}".format(pr, lines[-1][:200])
+        return "returned as pull request #{}, but the review didn't run: {}".format(pr, shown(lines[-1]))
     found = review_result(done.stdout, pr)
     # Only a review of the commit GitHub has now: an older one's result stays in the loop's file.
     if found.get("sha") and found["sha"] != head["headRefOid"]:  # GitHub served loop.py an older head
@@ -829,7 +829,7 @@ def run_loop_review(root, record, head):
             record["run"])
     if found.get("sha") != head["headRefOid"]:
         return "returned as pull request #{}, no review of {} yet{}".format(
-            pr, head["headRefOid"][:7], ": " + found["note"] if found.get("note") else ": see the loop's log")
+            pr, head["headRefOid"][:7], ": " + shown(found["note"]) if found.get("note") else ": see the loop's log")
     if found.get("base") != record["base"]:
         return "returned as pull request #{}, but the loop reviewed it against {}, not {}, so it doesn't count".format(
             pr, shown(found.get("base") or "no base"), record["base"])
@@ -1437,7 +1437,7 @@ def doctor_reads(root, repo, number, step, said_of):
         head.update(read_head(record))
         return READ, "{}{}, at {}, into {}".format(str(head.get("state", "")).lower(),
                                                   ", a draft" if head.get("isDraft") else "",
-                                                  head["headRefOid"][:7], head.get("baseRefName"))
+                                                  head["headRefOid"][:7], shown(head.get("baseRefName")))
     if not said_of("its head", the_head):
         return
 
