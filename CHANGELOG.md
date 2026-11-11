@@ -27,6 +27,21 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Old names in their own module
+
+[`scripts/names.py`](scripts/names.py) now holds only the names every script uses: the state folder, the
+`SANVIO_` variables and the home folders. The names from before Sanvio Factory, the one-time
+move of `.harness/`, and the once-a-shell warning about an old variable moved to
+[`scripts/old_names.py`](scripts/old_names.py) beside it. A copy that takes `names.py` alone
+still works: it reads the new names, and nothing warns.
+
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/old_names.py`](scripts/old_names.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`scripts/token_report.py`](scripts/token_report.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if you take files one at a time, take `scripts/old_names.py` along with the new
+`names.py`, `check_setup.py`, `token_report.py` and `session_start.py`. Without it the
+setup check and the token report stop with an import error, and the session-start hook
+says it couldn't run its checks.
+
 ## 2026-11-10: Steps checks a step's merge_method
 
 `factories.py steps` now checks a step's `merge_method` against the settings

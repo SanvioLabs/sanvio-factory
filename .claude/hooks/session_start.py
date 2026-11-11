@@ -46,8 +46,8 @@ def report(results):
 def startup(root):
     """Move .harness/ to .sanvio/ if that's all there is, then the checks' JSON for this root, or None."""
     import check_setup
-    import names
-    moved = names.move_old_state(root)
+    import old_names
+    moved = old_names.move_old_state(root)
     results = check_setup.run(root)
     if moved and not moved.startswith("both "):  # check_old_names already names both folders
         results.insert(0, ("WARN", "names: " + moved, None))  # a move is said once: the next session has none

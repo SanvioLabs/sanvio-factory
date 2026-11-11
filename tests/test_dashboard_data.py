@@ -841,7 +841,7 @@ class Conversations(Factory):
     def test_a_loop_checkout_from_before_the_rename_counts_on_the_loop_side(self):
         write(self.root, "loop.json", {})  # no worktree_dir, so the home folders are where the loop worked
         home = self.root.parent / "home"
-        old = token_report.names.old_loop_home(home) / self.root.name / "issue-3"
+        old = token_report.old_names.old_loop_home(home) / self.root.name / "issue-3"
         old.mkdir(parents=True)
         lines(self.transcripts, "c/s5.jsonl", [reply(old / "src", 50, "old-3", "s5")])
         # Only the home folder is swapped, so the dashboard's own loop_dirs(root) call has to find the old folder.

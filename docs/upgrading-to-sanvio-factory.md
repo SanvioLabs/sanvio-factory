@@ -63,7 +63,8 @@ redirect, so leave its address as it is: taking this release brings the new
 one. In place of step 2, and for item 6 also step 11:
 
 1. Ask your agent to "check the starter", and take the rename's files.
-2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py) and
+2. Before step 3, make sure you've taken [`scripts/names.py`](../scripts/names.py),
+   [`scripts/old_names.py`](../scripts/old_names.py) and
    [`.claude/hooks/session_start.py`](../.claude/hooks/session_start.py): they move `.harness/`.
    If your copy doesn't take that hook, make step 3's move yourself, from the
    repo root, once step 1 has stopped the loop. First see which of the two

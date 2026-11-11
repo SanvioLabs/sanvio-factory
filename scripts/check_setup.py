@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import names  # noqa: E402 (beside this file: the old names, and the new ones)
+import names  # noqa: E402 (beside this file: the new names)
+import old_names  # noqa: E402 (beside it: the names from before Sanvio Factory)
 
 ROOT = Path(__file__).resolve().parent.parent
 # The public repo.
@@ -265,15 +266,15 @@ def check_security_levels(root):
 def check_old_names(root, environ=None):
     """The names this repo had before Sanvio Factory, still in use. Nothing reads them now."""
     said, fixes = [], []
-    if (Path(root) / names.OLD_STATE).exists():
+    if (Path(root) / old_names.OLD_STATE).exists():
         said.append("both .harness/ and .sanvio/ are here, and only .sanvio/ is read"
                     if (Path(root) / names.STATE).exists() else ".harness/ is still here, and nothing reads it")
         fixes.append("move what you need from .harness/ into .sanvio/, then delete .harness/")
-    found = names.old_variables(environ)
+    found = old_names.old_variables(environ)
     if found:
         said.append("{} still set under the old name, which does nothing now".format(", ".join(found)))
         fixes.append("rename it in your shell profile: " + ", ".join(
-            names.PREFIX + name[len(names.OLD_PREFIX):] for name in found))
+            names.PREFIX + name[len(old_names.OLD_PREFIX):] for name in found))
     if said:
         fix = "; ".join(fixes)
         return ("WARN", "names: " + "; ".join(said), fix[0].upper() + fix[1:])
