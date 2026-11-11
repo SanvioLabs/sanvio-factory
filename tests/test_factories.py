@@ -92,6 +92,36 @@ class Steps(unittest.TestCase):
             self.write({"steps": [dict(STEP, max_rounds=8)]})
             self.refused("max_rounds that isn't a whole number from 1 to 7")
 
+    def step_refusal(self, **fields):
+        """check_step's own words for STEP with fields, with nothing read_steps might add around them."""
+        with self.assertRaises(factories.StepError) as caught:
+            factories.check_step(self.root, dict(STEP, **fields))
+        return str(caught.exception)
+
+    def test_a_merge_method_refusal_names_what_merge_methods_holds(self):
+        # #459: the methods were written out beside the tuple, so one added to it went unnamed.
+        with mock.patch.object(factories, "MERGE_METHODS", ("merge", "squash", "rebase", "fast-forward")):
+            self.assertIn("fast-forward", self.step_refusal(merge_method="octopus"))
+
+    def test_today_s_refusals_read_as_they_did(self):
+        for fields, words in (
+                ({"merge_method": "fast-forward"},
+                 "step build-team has a merge_method that isn't merge, squash or rebase"),
+                ({"time_limit_hours": 9000},
+                 "step build-team has a time_limit_hours that isn't a number of hours above 0 and at most 8,760, "
+                 "a year"),
+                ({"max_rounds": 101}, "step build-team has a max_rounds that isn't a whole number from 1 to 100")):
+            with self.subTest(fields=fields):
+                self.assertEqual(self.step_refusal(**fields), words)
+
+    def test_a_ceiling_that_isn_t_a_year_isn_t_called_one(self):
+        # #459: ", a year" was written into the rule, so it stayed whatever the ceiling became.
+        kinds, least, _, rule = factories.LIMITS["time_limit_hours"]
+        with mock.patch.dict(factories.LIMITS, {"time_limit_hours": (kinds, least, 48, rule)}):
+            words = self.step_refusal(time_limit_hours=49)
+        self.assertIn("at most 48", words)
+        self.assertNotIn("a year", words)
+
     def test_a_submit_label_that_is_also_the_stopped_label_is_refused(self):
         self.write({"steps": [dict(STEP, stopped_label=STEP["submit_label"])]})
         self.refused("the same label")
@@ -1207,6 +1237,7 @@ class Review(Running):
         self.assertIn("in a minute", out)
         self.assertIn("python3 scripts/factories.py review " + self.record()["run"], out)
         self.assertNotIn("see the loop's log", out)
+        self.assertIn("; the loop's log says which it read", out)  # with no note from loop.py, the log is where
 
     def test_a_failed_review_is_recorded_with_the_loop_s_reason(self):
         self.reviewed("failed", note="timed out after 900s")
@@ -3677,6 +3708,7 @@ class AfterReady(Reviewing):
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertIn("loop.py says: GitHub showed 0ld0000", out)
+        self.assertNotIn("the loop's log says which it read", out)  # a note is shown in place of the log
 
     PAD = "start" + " " * 280 + "end"  # #424: a note padded so its end would print on a row of its own
 
@@ -3846,6 +3878,28 @@ class Records(Running):
                 self.assertIn("couldn't read its record", out + err)
                 self.assertIn("waiting on build-team for #12", out)
                 bad.unlink()
+
+    def refusal(self, **fields):
+        """checked()'s words for this run's record with fields."""
+        with self.assertRaises(ValueError) as caught:
+            factories.checked(dict(self.record(), **fields))
+        return str(caught.exception)
+
+    def test_a_record_s_refusals_read_as_they_did(self):
+        self.assertEqual(self.refusal(merge_method="fast-forward"),
+                         "its merge_method isn't merge, squash or rebase: 'fast-forward'")
+        self.assertEqual(self.refusal(time_limit_hours=9000),
+                         "its time_limit_hours isn't a number of hours above 0 and at most 8,760, a year: 9000")
+
+    def test_a_record_s_refusals_name_what_the_limits_hold(self):
+        # #459: both were written out beside the values, so a change to one left the words behind.
+        with mock.patch.object(factories, "MERGE_METHODS", ("merge", "squash", "rebase", "fast-forward")):
+            self.assertIn("fast-forward", self.refusal(merge_method="octopus"))
+        kinds, least, _, rule = factories.LIMITS["time_limit_hours"]
+        with mock.patch.dict(factories.LIMITS, {"time_limit_hours": (kinds, least, 48, rule)}):
+            words = self.refusal(time_limit_hours=49)
+        self.assertIn("at most 48", words)
+        self.assertNotIn("a year", words)
 
     def test_without_file_locks_each_command_refuses_in_one_line(self):
         self.linked()
