@@ -1,0 +1,20 @@
+# Dependabot opens a pull request each week for an action or an npm package
+# that has a newer version. When it bumps an action pinned to a commit SHA, it
+# keeps the pin as a SHA and rewrites the `# vX.Y.Z` comment beside it, so no
+# setting is needed for that.
+#
+# Only this repo's own dependencies are listed. Repos cloned into projects/,
+# and a copy's own repos, keep their own dependabot.yml.
+#
+# This file alone doesn't switch on alerts: turn on Dependabot alerts under
+# Settings, Code security in the repo on GitHub.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: "npm"
+    directory: "/examples/typescript"
+    schedule:
+      interval: weekly

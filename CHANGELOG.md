@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Weekly dependency scan
+
+Dependabot now opens a pull request each week for a newer GitHub Action or a newer
+npm package in the TypeScript example, keeping each action pinned to a commit. A new
+workflow runs osv-scanner over the repo once a week, by hand, and on any pull request
+that changes a `package-lock.json` or the workflow itself, and fails naming the package and its advisory
+when a dependency has a known vulnerability. It can only read the repo.
+
+Files: [`.github/dependabot.yml`](.github/dependabot.yml), [`.github/workflows/deps.yml`](.github/workflows/deps.yml), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in your copy's repo on GitHub, turn on Dependabot alerts (and Dependabot
+security updates if you want them) under Settings → Code security. `dependabot.yml`
+alone doesn't switch alerts on.
+
 ## 2026-11-11: The loop's files and guard on Windows
 
 [`scripts/loop.py`](scripts/loop.py) now reads and writes every text file as UTF-8, whatever the

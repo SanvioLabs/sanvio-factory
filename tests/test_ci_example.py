@@ -218,5 +218,140 @@ class EveryWorkflow(unittest.TestCase):
         self.assertEqual(unquoted_heredocs("cat > f <<'EOF'\n"), [])
 
 
+DEPS = ROOT / ".github" / "workflows" / "deps.yml"
+DEPENDABOT = ROOT / ".github" / "dependabot.yml"
+
+
+def code_lines(text):
+    """The text without its comment lines."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def write_grants(text):
+    """Every `name: write` or `permissions: write-all` grant, at any level, outside a comment."""
+    grant = r"^\s*(?:[a-z-]+:\s*[\"']?write[\"']?|permissions:\s*[\"']?write-all[\"']?)\s*(?:#.*)?$"
+    return re.findall(grant, code_lines(text), re.M)
+
+
+def step_with(steps, pattern):
+    """The steps whose lines match `pattern`."""
+    return [s for s in steps if re.search(pattern, s, re.M)]
+
+
+def dependabot_updates(text):
+    """(ecosystem, directory, interval) for each entry under `updates:`."""
+    block = top_level_block(text, "updates") or ""
+    found = []
+    for entry in re.split(r"(?m)^  - ", block)[1:]:
+        fields = []
+        for key in ("package-ecosystem", "directory", "interval"):
+            match = re.search(r'(?m)^\s*{}:\s*"?([^"\s]+)"?\s*$'.format(key), entry)
+            fields.append(match.group(1) if match else None)
+        found.append(tuple(fields))
+    return found
+
+
+class DependencyScan(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(DEPS.exists(), ".github/workflows/deps.yml is missing")
+        self.assertTrue(DEPENDABOT.exists(), ".github/dependabot.yml is missing")
+        self.deps = DEPS.read_text()
+        self.dependabot = DEPENDABOT.read_text()
+        job = job_block(self.deps, "scan")
+        self.assertIsNotNone(job, "no scan: job under jobs:")
+        self.steps = steps_of(job)
+
+    def test_its_actions_are_pinned_to_a_commit(self):
+        self.assertRegex(self.deps, r"(?m)^\s*(?:-\s*)?uses:\s*\S")
+        self.assertEqual(unpinned_actions(self.deps), [])
+
+    def test_the_checkout_leaves_no_token_on_disk(self):
+        checkout = step_with(self.steps, r"^\s*-?\s*uses:\s*actions/checkout@")
+        self.assertEqual(len(checkout), 1, "no single checkout step")
+        self.assertRegex(checkout[0], r"(?m)^\s+persist-credentials:\s*false\s*$")
+
+    def test_it_can_only_read(self):
+        block = top_level_block(self.deps, "permissions")
+        self.assertIsNotNone(block, "no top-level permissions: block")
+        granted = dict(re.findall(r"^\s+([a-z-]+):\s*(\S+)\s*$", block, re.M))
+        self.assertEqual(granted, {"contents": "read"})
+        # A job-level grant would get past a check on the top-level block alone.
+        self.assertEqual(write_grants(self.deps), [])
+
+    def test_the_write_check_catches_a_job_level_grant(self):
+        job = "jobs:\n  scan:\n    permissions:\n      security-events: write\n"
+        self.assertEqual(len(write_grants(job)), 1)
+        self.assertEqual(write_grants("# a checksum written here\npermissions:\n  contents: read\n"), [])
+        self.assertEqual(len(write_grants("permissions: write-all\n")), 1)
+        self.assertEqual(len(write_grants("    permissions:\n      contents: 'write'\n")), 1)
+        # A message that only mentions the word is not a grant.
+        self.assertEqual(write_grants('        run: echo "::error::write down why it does not apply"\n'), [])
+
+    def test_it_runs_weekly_by_hand_and_on_lockfile_pull_requests_only(self):
+        triggers = top_level_block(self.deps, "on")
+        self.assertIsNotNone(triggers, "no on: block")
+        self.assertRegex(triggers, r"(?m)^  schedule:")
+        self.assertRegex(triggers, r"(?m)^  workflow_dispatch:")
+        self.assertNotRegex(triggers, r"(?m)^\s+push:")
+        pull_request = re.search(r"(?m)^  pull_request:[ \t]*\n((?:    .*\n?)*)", triggers)
+        self.assertIsNotNone(pull_request, "no pull_request: trigger with paths")
+        self.assertRegex(pull_request.group(1), r"(?m)^\s+paths:")
+        paths = re.findall(r"""(?m)^\s+-\s*["']?([^"'\s]+)["']?\s*$""", pull_request.group(1))
+        self.assertIn("**/package-lock.json", paths)
+        # Otherwise a change to the workflow itself isn't run before it merges.
+        self.assertIn(".github/workflows/deps.yml", paths)
+
+    def test_the_scanner_is_pinned_and_checked(self):
+        install = step_with(self.steps, r"^\s+id:\s*install\s*$")
+        self.assertEqual(len(install), 1, "no single step with id: install")
+        self.assertRegex(install[0], r"(?m)^\s*-?\s*name:\s*Install osv-scanner\s*$")
+        block = step_run_block(self.deps, "Install osv-scanner")
+        self.assertIsNotNone(block, "no Install osv-scanner step with a run: block")
+        lines = [line.strip() for line in block]
+        self.assertIn("VERSION=2.7.0", lines)
+        self.assertIn("SHA256=160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b", lines)
+        download = (
+            'curl -sSfL -o /tmp/osv-scanner '
+            '"https://github.com/google/osv-scanner/releases/download/v${VERSION}/osv-scanner_linux_amd64"'
+        )
+        check = 'echo "${SHA256}  /tmp/osv-scanner" | sha256sum -c -'
+        for line in (download, check, "chmod +x /tmp/osv-scanner"):
+            self.assertIn(line, lines)
+        # Download, then check, and only then make it runnable.
+        self.assertLess(lines.index(download), lines.index(check))
+        self.assertLess(lines.index(check), lines.index("chmod +x /tmp/osv-scanner"))
+        self.assertEqual(unchecked_downloads(self.deps), [])
+
+    def test_the_scan_step_runs_the_checked_scanner_over_the_repo(self):
+        scan = step_with(self.steps, r"^\s+id:\s*scan\s*$")
+        self.assertEqual(len(scan), 1, "no single step with id: scan")
+        self.assertRegex(scan[0], r"(?m)^\s+(?:run:\s*)?/tmp/osv-scanner scan source --recursive \.\s*$")
+        self.assertLess(self.steps.index(step_with(self.steps, r"^\s+id:\s*install\s*$")[0]), self.steps.index(scan[0]))
+
+    def test_a_failure_says_what_to_do(self):
+        cases = {
+            "scan": ("Upgrade the package", "record why"),
+            "install": ("the scan didn't run", "Don't remove the check", "SHA256", "osv-scanner_SHA256SUMS"),
+        }
+        for step_id, phrases in cases.items():
+            guard = r"^\s+if:\s*failure\(\) && steps\.{}\.outcome == 'failure'\s*$".format(step_id)
+            found = step_with(self.steps, guard)
+            self.assertEqual(len(found), 1, "no single failure step for " + step_id)
+            errors = re.findall(r'(?m)^\s+echo "::error::(.+)"\s*$', found[0])
+            self.assertEqual(len(errors), 1, "the failure step for {} has no ::error:: line".format(step_id))
+            for phrase in phrases:
+                self.assertIn(phrase, errors[0], step_id)
+
+    def test_dependabot_watches_only_the_factorys_own_dependencies(self):
+        self.assertEqual(sorted(dependabot_updates(self.dependabot)), [
+            ("github-actions", "/", "weekly"),
+            ("npm", "/examples/typescript", "weekly"),
+        ])
+        # projects/ and a copy's own repos keep their own dependabot.yml.
+        code = code_lines(self.dependabot)
+        self.assertEqual(len(re.findall(r"(?m)^\s*directory:", code)), 2)
+        self.assertNotRegex(code, r"(?m)^\s*directories:")
+
+
 if __name__ == "__main__":
     unittest.main()

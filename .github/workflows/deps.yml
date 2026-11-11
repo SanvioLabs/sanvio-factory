@@ -1,0 +1,56 @@
+# A scan of this repo's dependencies for known vulnerabilities, once a week,
+# by hand, and on any pull request that changes a lockfile or this workflow.
+# Dependabot (.github/dependabot.yml) proposes upgrades; this says when a
+# version already in the repo has a published advisory.
+#
+# It uses the osv-scanner CLI, checked against a checksum written here, and
+# reads the repo only: it uploads nothing and grants nothing.
+name: Dependencies
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**/package-lock.json"
+      - ".github/workflows/deps.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install osv-scanner
+        id: install
+        # The binary is checked against a checksum written here before it
+        # runs, so a release asset swapped after publishing can't run in your
+        # CI. To move the version, take the osv-scanner_linux_amd64 line from
+        # that release's osv-scanner_SHA256SUMS and change VERSION and SHA256
+        # together.
+        run: |
+          VERSION=2.7.0
+          SHA256=160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+          curl -sSfL -o /tmp/osv-scanner "https://github.com/google/osv-scanner/releases/download/v${VERSION}/osv-scanner_linux_amd64"
+          echo "${SHA256}  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+      - name: osv-scanner
+        id: scan
+        # The table names each vulnerable package and its OSV advisory ID. Any
+        # finding exits non-zero.
+        run: |
+          /tmp/osv-scanner scan source --recursive .
+      - name: What to do
+        if: failure() && steps.scan.outcome == 'failure'
+        run: |
+          echo "::error::A dependency has a known vulnerability. Upgrade the package the table above names to a fixed version, or, if the advisory doesn't apply here, record why in the pull request."
+      - name: What to do about the download
+        if: failure() && steps.install.outcome == 'failure'
+        run: |
+          echo "::error::osv-scanner didn't download, or didn't match its checksum, so the scan didn't run. Don't remove the check. Compare SHA256 in this workflow with the release's osv-scanner_SHA256SUMS: a mismatch on an unchanged VERSION means the release asset changed."
