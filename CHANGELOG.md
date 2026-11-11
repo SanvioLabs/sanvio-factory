@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Compliance steering with NIST SP 800-53
+
+A new steering file, [`steering/compliance.md`](steering/compliance.md), takes NIST SP 800-53 Rev. 5 (release 5.2.0)
+as the baseline and gives each kind of change (personal data, access, logging, a dependency
+or outside service, deployment) its control families and one question to answer before
+calling it done. Builders read it from "Before the code", tickets for those kinds name the
+families in Context, and the security reviewer reads it and labels each finding with its
+control. The verdict rules don't change.
+
+Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.md), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`steering/tickets.md`](steering/tickets.md), [`agents/security-reviewer.md`](agents/security-reviewer.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. If `company/COMPANY.md` names a framework, builders and the security reviewer add it. Run [`scripts/eval_agents.py`](scripts/eval_agents.py) on the security reviewer when you next can.
+
 ## 2026-11-11: Incident steering file
 
 A new one-page [`steering/incidents.md`](steering/incidents.md) says what to do in the first hour when an

@@ -48,6 +48,11 @@ request with no token is refused with 401" for any non-public route. A ticket
 that removes a feature lists the routes, tables, secrets and permissions it
 leaves behind, and removes them in the same change.
 
+**A ticket that touches personal data, access, logging, a dependency or
+deployment**, one of the kinds in [`compliance.md`](compliance.md), names the SP 800-53 control
+families that kind lists in its Context, so the builder and the security
+reviewer start from the same question.
+
 **One change per ticket.** If the acceptance criteria hold two unrelated
 outcomes, it's two tickets. If it can't fit one pull request, split it so each
 part can be tested on its own.
