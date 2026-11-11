@@ -149,18 +149,29 @@ Type `/factory-dashboard`. In fullscreen, from 110 columns, the pane docks
 beside the conversation. Narrower, it sits above the prompt. Close it with the
 `×` in its corner.
 
-It isn't on by default. Load it for one session, from the root:
+It's on by default. A copy that doesn't have it on yet adds
+`"factory-dashboard@sanvio-factory": true` to `enabledPlugins` in the factory's
+[`.claude/settings.json`](../../../.claude/settings.json). Or load it for one session, from the root:
 
 ```
 claude --plugin-dir examples/mods/factory-dashboard
 ```
 
-Or install it from inside a session, at the root:
+Switched on and still no `/factory-dashboard`? Install it from inside a
+session, at the root:
 
 ```
 /plugin marketplace add ./
 /plugin install factory-dashboard@sanvio-factory
 ```
+
+The VS Code extension has no `/plugin`, so from a terminal at the root:
+
+```
+claude plugin install factory-dashboard@sanvio-factory --scope local
+```
+
+Then `/reload-plugins` in the session.
 
 A change to what the mod does raises `version` in its [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), because `/plugin update` keeps an installed copy whose version hasn't changed, and CI checks this on every pull request with [`scripts/check_mod_versions.py`](../../../scripts/check_mod_versions.py).
 
