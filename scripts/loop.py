@@ -411,29 +411,37 @@ def github_name(url):
     return name if re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", name) else None
 
 
+# The rule origin() refused on, so a caller can act on which one without reading the wording of why.
+ORIGIN_UNREAD = "unread"  # git couldn't read origin's URL
+ORIGIN_OFF_GITHUB = "off github.com"  # git fetches from somewhere other than github.com
+ORIGIN_ANOTHER_REPO = "another repo"  # origin names one github.com repo and git fetches another
+
+
 def origin(folder):
-    """(OWNER/NAME of folder's GitHub origin or None, and why there's no name, or '', naming the URL git
-    fetches from as shown_url prints it). git fetches from the URL insteadOf rules leave (remote get-url), so that one has to
-    be on github.com; and where the configured URL is on github.com too it has to name the same repo, since gh
-    asks about that one. No name when either read fails. The one reader of it: a review's pin, --project's
-    check and any script that asks which repo a clone is all come here, so they never disagree."""
+    """(OWNER/NAME of folder's GitHub origin or None, why there's no name or '', and the rule that refused
+    or None). why names the URL git fetches from as shown_url prints it; the rule is ORIGIN_UNREAD,
+    ORIGIN_OFF_GITHUB or ORIGIN_ANOTHER_REPO, for a caller that acts on which. git fetches from the URL
+    insteadOf rules leave (remote get-url), so that one has to be on github.com; and where the configured URL
+    is on github.com too it has to name the same repo, since gh asks about that one. No name when either read
+    fails. The one reader of it: a review's pin, --project's check and any script that asks which repo a clone
+    is all come here, so they never disagree."""
     urls = []
     for args in (("config", "--get", "remote.origin.url"), ("remote", "get-url", "origin")):
         try:
             done = subprocess.run(["git", "-C", str(folder)] + list(args), capture_output=True, text=True)
         except OSError:
-            return None, "origin couldn't be read"
+            return None, "origin couldn't be read", ORIGIN_UNREAD
         if done.returncode != 0:
-            return None, "origin couldn't be read"
+            return None, "origin couldn't be read", ORIGIN_UNREAD
         urls.append(done.stdout.strip())
     configured, effective = (github_name(url) for url in urls)
     shown = marked(url_alone(urls[1]))
     if effective is None:
-        return None, "origin, as git fetches it ({}), isn't on github.com".format(shown)
+        return None, "origin, as git fetches it ({}), isn't on github.com".format(shown), ORIGIN_OFF_GITHUB
     if configured is not None and configured.lower() != effective.lower():
         return None, "origin names {} and git fetches {}: another repo, so git and gh would disagree".format(
-            configured, effective)
-    return effective, ""
+            configured, effective), ORIGIN_ANOTHER_REPO
+    return effective, "", None
 
 
 def origin_slug(folder):
@@ -475,11 +483,10 @@ def project_root(path, root=None):
     top = git("rev-parse", "--show-toplevel")
     if not top or Path(top).resolve() != folder:
         return refuse("it isn't a git clone of its own; clone the repo into {}".format(projects))
-    named, why = origin(folder)
+    named, why, rule = origin(folder)
     if not named:
         # Off github.com, say why it matters here: the loop reads and writes its issues there.
-        return refuse(why + (", and the loop finds its issues there" if why.endswith("isn't on github.com")
-                             else ""))
+        return refuse(why + (", and the loop finds its issues there" if rule == ORIGIN_OFF_GITHUB else ""))
     try:
         cfg = json.loads((folder / "loop.json").read_text())
     except OSError:
@@ -3438,7 +3445,7 @@ class Loop:
         to gh on every call. The watcher leaves gh to pick its repo, as it always has."""
         if pr is None:
             return self.locked(lambda: self.watch(once), until)
-        (self.pinned, why), self.only_pr = origin(self.repo), int(pr)  # only_pr: the log goes to stderr
+        (self.pinned, why, _), self.only_pr = origin(self.repo), int(pr)  # only_pr: the log goes to stderr
         if not self.pinned:
             self.log("ERROR", "{}, so review --pr can't name its repo to gh, and gh could pick another: nothing was "
                               "read".format(why))

@@ -499,33 +499,35 @@ def clone_here(root, repo):
     return False
 
 
-def origin_why(folder):
-    """Why folder's origin names no repo, as loop.py says it, or "" when it names one."""
-    import loop  # noqa: E402  beside this file
-    return loop.origin(folder)[1]
-
-
-def unnamed_clones(root):
-    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
-    loop.py reads it: one of them may be the clone a review was wanted from. Each origin is read once."""
+def read_clones(root):
+    """(where, folder, OWNER/NAME lower case or None, why) for this repo first, then each clone under projects/,
+    sorted, as loop.py reads each origin: once per folder, so a review reads none of them twice."""
     import loop  # noqa: E402  beside this file
     projects = Path(root) / "projects"
     folders = [("this repo", root)] + [("projects/" + folder.name, folder) for folder in (
         sorted(projects.iterdir()) if projects.is_dir() else []) if (folder / ".git").exists()]
     found = []
     for where, folder in folders:
-        name, why = loop.origin(folder)
-        if name is None:
-            found.append((where, why))
+        name, why, _ = loop.origin(folder)
+        found.append((where, folder, name.lower() if name else None, why))
     return found
 
 
-def review_target(root, repo):
-    """loop.py's arguments for repo when it's cloned here, or None."""
-    folder = clone_here(root, repo)
-    if folder is False:
-        return None
-    return [] if folder is None else ["--project", "projects/" + folder.name]
+def unnamed_clones(root, clones=None):
+    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
+    loop.py reads it: one of them may be the clone a review was wanted from. From clones, read_clones's list,
+    when given; else each origin is read once here."""
+    return [(where, why) for where, _, name, why in (clones or read_clones(root)) if name is None]
+
+
+def review_target(root, repo, clones):
+    """loop.py's arguments for repo when it's cloned here, or None: [] for this repo, --project for a clone
+    under projects/. clones is read_clones's list for root."""
+    wanted = (repo or "").lower()
+    for where, folder, name, _ in clones:
+        if name is not None and name == wanted:
+            return [] if where == "this repo" else ["--project", "projects/" + Path(folder).name]
+    return None
 
 
 def ready_labels(root, repo):
@@ -800,9 +802,10 @@ def run_loop_review(root, record, head):
     there's no review of this head to go on from, or None when record["review"] now holds one."""
     pr = record["pr"]
     record["waiting_on"] = "review"
-    target = review_target(root, record["repo"])
+    clones = read_clones(root)
+    target = review_target(root, record["repo"], clones)
     if target is None:
-        unnamed = unnamed_clones(root)
+        unnamed = unnamed_clones(root, clones)
         return ("returned as pull request #{}, but there's no clone of {} here to review it from. Clone it into "
                 "projects/, then: python3 scripts/factories.py review {}{}".format(
                     pr, record["repo"], record["run"],
@@ -1345,9 +1348,11 @@ def cmd_steps(args):
     except StepError as err:
         print(err, file=sys.stderr)
         return 1
-    if slug(args.root) is None:
+    import loop  # noqa: E402  beside this file
+    name, why, _ = loop.origin(args.root)
+    if name is None:
         print("Warning: this repo's {}. Factories read pull requests and checks from github.com only: "
-              "factories/README.md's *github.com only* says which origins count.".format(origin_why(args.root)))
+              "factories/README.md's *github.com only* says which origins count.".format(why))
     if not steps:
         print("No factory is configured: nothing to do.")
         return 0
