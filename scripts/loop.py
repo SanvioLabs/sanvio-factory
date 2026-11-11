@@ -32,7 +32,8 @@ to the day it starts.
 Watch it with:  tail -f .loop/loop.log
 The same state, for a tool to read, is in .loop/status.json: what's waiting, what each
 issue is on, and how its last round went. Run inside tmux, a START line in the log and the
-status name the session, so `tmux attach -t <name>` opens it. On macOS the run also writes
+status name the session, so `tmux attach -t <name>` opens it. On Windows with psmux installed,
+the session and issue windows run in psmux instead, and `psmux attach -t <name>` opens it. On macOS the run also writes
 .loop/watch.command, which opens a read-only Terminal window on it (the loop pane's Watch it),
 and .loop/issue-N/watch.command for each issue's window (the pane's Watch on that issue).
 Everything a round produced is in .loop/issue-N/, and agent.log there is what its agents said, as
@@ -241,6 +242,25 @@ def interrupt(signum, frame):
 def on_windows():
     """Whether this is Windows. Every Windows choice below asks this, so a test can answer it."""
     return os.name == "nt"
+
+
+def multiplexer():
+    """The terminal multiplexer the loop's session and issue windows run in: psmux on Windows when it's
+    installed, tmux everywhere else. The bare name, as tmux has always been called."""
+    if on_windows() and shutil.which("psmux"):
+        return "psmux"
+    return "tmux"
+
+
+def shell_quote(text):
+    """text quoted for the shell a person types it into: PowerShell on Windows, with a ' doubled inside
+    single quotes, and a POSIX shell everywhere else. A plain word stays as it is in both. PowerShell
+    reads a leading @ as splatting and a , as an array, so neither counts as plain there."""
+    if not on_windows():
+        return shlex.quote(text)
+    if re.fullmatch(r"[\w+=:./-]+", text):
+        return text
+    return "'" + text.replace("'", "''") + "'"
 
 
 def kernel32():
@@ -2020,11 +2040,12 @@ class Loop:
         return self.me
 
     def tmux_session(self):
-        """The tmux session this loop runs in, so the log and status can say how to open it. None outside tmux."""
+        """The tmux (or, on Windows, psmux) session this loop runs in, so the log and status can say how to
+        open it. None outside one."""
         pane = os.environ.get("TMUX_PANE")
         if not os.environ.get("TMUX") or not pane:
             return None
-        code, out = self.sh(["tmux", "display-message", "-p", "-t", pane, "#S"])
+        code, out = self.sh([multiplexer(), "display-message", "-p", "-t", pane, "#S"])
         name = out.strip()
         return name if code == 0 and name else None
 
@@ -3353,7 +3374,8 @@ class Loop:
             self.save_status(running=True, pid=os.getpid(), tmux=tmux,
                              started=datetime.now(timezone.utc).isoformat(timespec="seconds"))
             if tmux:
-                self.log("START", "in tmux session {}: tmux attach -t {}".format(tmux, shlex.quote(tmux)))
+                prog = multiplexer()
+                self.log("START", "in {0} session {1}: {0} attach -t {2}".format(prog, tmux, shell_quote(tmux)))
                 self.write_watch(tmux)
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
@@ -3528,7 +3550,7 @@ class Loop:
             pass  # a Ctrl-C: the issue stays as it was on GitHub, as it did with one issue at a time
         finally:
             if window:
-                self.sh(["tmux", "kill-window", "-t", "{}:{}".format(self.session, window)])
+                self.sh([multiplexer(), "kill-window", "-t", "{}:{}".format(self.session, window)])
                 (self.dir / "issue-{}".format(number) / "watch.command").unlink(missing_ok=True)
                 self.windows.pop(number, None)
                 with self.write_lock:  # the window is gone, so its row stops naming it
@@ -3541,15 +3563,23 @@ class Loop:
                 self.done.notify_all()
 
     def open_window(self, number):
-        """In tmux, a window named issue-N that follows .loop/issue-N/agent.log. Its name, or None."""
+        """In tmux or psmux, a window named issue-N that follows .loop/issue-N/agent.log. Its name, or None.
+
+        On Windows the window runs PowerShell's Get-Content -Wait, with each ' in the path doubled, as
+        PowerShell escapes it inside single quotes. -LiteralPath reads [ and * as plain characters.
+        """
         if not self.session:
             return None
         name = "issue-{}".format(number)
         log = self.dir / name / "agent.log"
         log.parent.mkdir(exist_ok=True)
-        log.touch()  # tail -f gives up on a file that isn't there yet
-        code, _ = self.sh(["tmux", "new-window", "-d", "-t", self.session, "-n", name,
-                           "tail -n +1 -f " + shlex.quote(str(log))])
+        log.touch()  # tail -f and Get-Content -Wait give up on a file that isn't there yet
+        if on_windows():
+            follow = "powershell -NoProfile -Command \"Get-Content -Wait -LiteralPath '{}'\"".format(
+                str(log).replace("'", "''"))
+        else:
+            follow = "tail -n +1 -f " + shlex.quote(str(log))
+        code, _ = self.sh([multiplexer(), "new-window", "-d", "-t", self.session, "-n", name, follow])
         if code != 0:
             return None
         self.windows[number] = name
