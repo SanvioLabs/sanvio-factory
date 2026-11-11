@@ -127,6 +127,15 @@ class Steps(unittest.TestCase):
         self.write({"steps": [dict(STEP, factory_login="factory-bot2")]})
         self.assertEqual(factories.read_steps(self.root)[0]["factory_login"], "factory-bot2")
 
+    def test_steps_reads_origin_once_to_warn(self):
+        # Before #458 the warning read origin twice: once for the name and once for why.
+        out = io.StringIO()
+        with mock.patch.object(loop, "origin", wraps=loop.origin) as read, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            factories.main(["steps", "--root", str(self.root)])
+        self.assertEqual(read.call_count, 1)
+        self.assertIn("origin couldn't be read", out.getvalue())
+
     def test_steps_warns_when_the_harness_isn_t_on_github_com(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -1264,6 +1273,40 @@ class Review(Running):
         _, out, _ = self.review()
         self.assertEqual(self.loop_calls(), [])
         self.assertIn("this repo: origin, as git fetches it (git@github-work:o/r.git), isn't on github.com", out)
+
+    def test_with_no_clone_each_origin_is_read_once_and_another_repo_s_clone_is_left_out(self):
+        # Before #458 review_target and unnamed_clones each read every origin again.
+        aliased = self.root / "projects" / "aliased"
+        aliased.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(aliased)], check=True, env=ISOLATED)
+        subprocess.run(["git", "-C", str(aliased), "remote", "add", "origin", "git@github-work:o/elsewhere.git"],
+                       check=True, env=ISOLATED)
+        clone_of(self.root / "projects" / "other", "o/other")
+        record = self.record()
+        record["repo"] = "o/elsewhere"
+        self.run_path.write_text(json.dumps(record))
+        self.linked(prs=[31])
+        with mock.patch.object(loop, "origin", wraps=loop.origin) as read:
+            _, out, _ = self.review()
+        self.assertEqual(read.call_count, 3)  # this repo, projects/aliased and projects/other
+        self.assertEqual(self.loop_calls(), [])
+        self.assertIn("projects/aliased: origin, as git fetches it (git@github-work:o/elsewhere.git), isn't on "
+                      "github.com", out)
+        self.assertNotIn("projects/other", out)
+
+    def test_a_clone_beside_one_that_names_no_repo_is_still_reviewed(self):
+        aliased = self.root / "projects" / "aliased"
+        aliased.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(aliased)], check=True, env=ISOLATED)
+        subprocess.run(["git", "-C", str(aliased), "remote", "add", "origin", "git@github-work:o/app.git"],
+                       check=True, env=ISOLATED)
+        clone_of(self.root / "projects" / "app", "o/app")
+        record = self.record()
+        record["repo"] = "O/App"
+        self.run_path.write_text(json.dumps(record))
+        self.linked(prs=[31])
+        self.review()
+        self.assertEqual(self.loop_calls(), [["review", "--pr", "31", "--project", "projects/app"]])
 
     def test_a_review_of_an_older_head_says_github_may_be_behind(self):
         # Before T074 it said "see the loop's log", which says only skipped (review after Phase 12, live).
@@ -3258,6 +3301,22 @@ class Doctor(Reviewing):
         self.assertEqual([ch for ch in out + err if not ch.isprintable() and ch != "\n"], [])
         self.assertIn("it's into dev?[2Jel?op, not main", out)
 
+    def test_its_head_line_prints_the_base_shown(self):
+        # #424: a base padded so the text after it would print on a row of its own.
+        pad = "start" + " " * 280 + "end"
+        real = forge.gh
+
+        def padded(*args):  # only the head read: the follow check reads main, so doctor gets as far as the head
+            code, out, err = real(*args)
+            if args[:2] == ("pr", "view") and "state,isDraft,baseRefName,headRefOid,isCrossRepository,headRepositoryOwner" in args:
+                out = json.dumps(dict(json.loads(out), baseRefName=pad))
+            return code, out, err
+        with mock.patch.object(forge, "gh", padded):
+            _, out, _, _ = self.doctor()
+        line, = [line for line in out.splitlines() if line.startswith("- its head: ")]
+        self.assertIn("into " + forge.shown(pad), line)
+        self.assertNotIn(pad, line)
+
     def run_record(self):
         return {"run": "r", "repo": "o/r", "pr": 31, "issue": 12, "factory": "build-team", "factory_login": "factory-bot",
                 "factory_id": "ID_factory-bot", "ci_paths": [], "base": "main"}
@@ -3392,6 +3451,12 @@ class Marking(unittest.TestCase):
                 self.assertEqual(forge.shown("a" + blank * 300 + " b"), "a b")
                 self.assertEqual(forge.one_line("a" + blank + "b"), "a" + blank + "b")
 
+    def test_loop_py_marks_as_forge_does(self):
+        # #424: loop.py doesn't import forge, so this is what keeps its marked() the same as forge's printable.
+        for text in ("start" + " " * 280 + "end", "a\nb\tc\x1b[2J", "​ ‮", "x" * 500, "ㅤ" * 300):
+            with self.subTest(text=text[:20]):
+                self.assertEqual(loop.marked(text), forge.printable(text)[:200])
+
 
 class OneHome(unittest.TestCase):
     """The rule on limits and failed reads lives in HOW-IT-WORKS, and the others link it."""
@@ -3484,6 +3549,23 @@ class OneHome(unittest.TestCase):
                 self.assertNotIn("counts only as", (ROOT / path).read_text())
                 self.assertNotIn("only in those two forms", (ROOT / path).read_text())
         self.assertIn("*github.com only*", (ROOT / "docs/maintaining.md").read_text())
+
+    def maintaining(self):
+        """docs/maintaining.md with its whitespace collapsed, so a line wrap doesn't move a command."""
+        return " ".join((ROOT / "docs/maintaining.md").read_text().split())
+
+    def test_the_doc_s_send_back_uses_resend_s_header(self):
+        # Before #425 the live review check wrote resend's header out, and the two could drift apart.
+        text = self.maintaining()
+        self.assertIn("import loop, factories;", text)
+        self.assertIn("header=factories.SEND_BACK_HEADER", text)
+        self.assertNotIn(factories.SEND_BACK_HEADER, text)
+
+    def test_the_doc_s_head_command_prints_the_bare_commit(self):
+        # Before #425 step 3's command printed JSON, not the head step 4 takes.
+        text = self.maintaining()
+        self.assertIn("--json headRefOid -q .headRefOid", text)
+        self.assertEqual(text.count("--json headRefOid"), text.count("--json headRefOid -q .headRefOid"))
 
     def test_the_merge_method_and_the_gh_version_are_written_where_the_merge_is(self):
         # Before T079 the docs said to add the method to the command by hand, and nothing said which gh has
@@ -3631,6 +3713,17 @@ class AfterReady(Reviewing):
         self.assertIn("> A person sent this back", body)
         self.assertNotIn("Written by an agent", body)
 
+    def test_resend_posts_the_shared_header(self):
+        # Before #425 resend wrote its header out, and docs/maintaining.md's live check copied it: patched
+        # here, a copy left in resend would still post the old words.
+        self.rollup(self.run_("checks"))
+        self.review()
+        with mock.patch.object(factories, "SEND_BACK_HEADER", "Sentinel header for #425."):
+            self.resend("--yes", "--because", "The export drops the header row.")
+        body = self.posted()
+        self.assertIn("> Sentinel header for #425.", body)
+        self.assertNotIn("after reading the review.", body)
+
     def test_a_comment_that_may_have_posted_never_reads_as_someone_else_s_change(self):
         # Before T058 the record learned of the comment only after gh said it posted (review after Phase 8).
         self.rollup(self.run_("checks", conclusion="FAILURE"))
@@ -3702,6 +3795,46 @@ class AfterReady(Reviewing):
         self.linked(prs=[31])
         _, out, _ = self.review()
         self.assertIn("loop.py says: GitHub showed 0ld0000", out)
+
+    PAD = "start" + " " * 280 + "end"  # #424: a note padded so its end would print on a row of its own
+
+    def assert_shown(self, out, text):
+        self.assertIn(forge.shown(text), out)
+        self.assertNotIn(text, out)
+
+    def test_no_review_of_the_head_yet_prints_loop_py_s_note_shown(self):
+        self.reviewed("not reviewed", sha="", note=self.PAD)
+        _, out, _ = self.review()
+        self.assertIn("no review of " + self.head[:7] + " yet: " + forge.shown(self.PAD), out)
+        self.assert_shown(out, self.PAD)
+
+    def test_no_review_of_the_head_yet_prints_a_plain_note_as_it_is(self):
+        self.reviewed("not reviewed", sha="", note="GitHub showed 0ld0000")
+        _, out, _ = self.review()
+        self.assertIn("no review of " + self.head[:7] + " yet: GitHub showed 0ld0000", out)
+
+    def test_status_prints_a_recorded_review_s_note_shown(self):
+        self.reviewed("failed", note=self.PAD)
+        self.review()
+        _, out, _ = self.status()  # status runs no review: the recorded one's note
+        self.assertIn("review of {} failed: {}. Review it again".format(self.head[:7], forge.shown(self.PAD)), out)
+        self.assert_shown(out, self.PAD)
+
+    def test_a_review_not_posted_prints_its_note_shown_and_keeps_it_whole(self):
+        self.reviewed("failed", note=self.PAD)
+        _, out, _ = self.review()
+        self.assertIn("review of {} failed: {}. Review it again".format(self.head[:7], forge.shown(self.PAD)), out)
+        self.assert_shown(out, self.PAD)
+        self.assertEqual(self.record()["review"]["note"], self.PAD)  # only the printing is shortened
+
+    def test_a_review_that_didn_t_run_prints_loop_py_s_last_line_shown(self):
+        last = "start" + " " * 200 + "x" * 92 + "end"
+        self.assertEqual(len(last), 300)
+        (self.home / "loop-outcome.json").write_text(json.dumps({"exit": 1, "stderr": last}))
+        _, out, _ = self.review()
+        self.assertIn("the review didn't run: " + forge.shown(last), out)
+        self.assert_shown(out, last)
+        self.assertNotIn("a first line", out)
 
     def test_a_posted_review_with_no_verdict_doesn_t_count(self):
         # Before T078 it was taken, with no verdict to check GitHub's against (review after Phase 13, correctness).

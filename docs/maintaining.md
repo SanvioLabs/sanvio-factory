@@ -58,13 +58,13 @@ run it once on a scratch pull request in the probe, and leave #2 alone:
    pull request carries one comment from you that starts with the review
    marker and the agent's header, and ends with the trailer naming that head.
 3. Push a second commit, wait until
-   `gh pr view <N> --repo SanvioLabs/fork-check-probe --json headRefOid` shows
+   `gh pr view <N> --repo SanvioLabs/fork-check-probe --json headRefOid -q .headRefOid` shows
    it, and run it again: right after a push GitHub can still give the old head,
    and the review then skips it as already reviewed. It passes when the same
    comment now names the new head, and there's still one.
 4. Post a send-back the way `factories.py resend --because` writes one, from
    the harness root, with the head from step 3:
-   `python3 -c 'import sys; sys.path.insert(0, "scripts"); import loop; print(loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sys.argv[1], header="A person sent this back to the factory, after reading the review."))' <HEAD> > send-back.md`,
+   `python3 -c 'import sys; sys.path.insert(0, "scripts"); import loop, factories; print(loop.review_comment("A person sent this back.\n\nVERDICT: changes needed", sys.argv[1], header=factories.SEND_BACK_HEADER))' <HEAD> > send-back.md`,
    then `gh pr comment <N> --repo SanvioLabs/fork-check-probe --body-file send-back.md`
    and delete `send-back.md`. Push a third commit, wait for it as in step 3,
    and run the review again. It passes when the send-back is as you posted
