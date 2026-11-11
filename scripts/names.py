@@ -3,11 +3,13 @@
 The state folder is .sanvio/, the variables are SANVIO_*, and the home folders are ~/.sanvio-loop and
 ~/.sanvio-evals. Nothing reads the old names any more, with two exceptions that only ever make things
 stricter: HARNESS_HEADLESS=1 still makes a run headless, and HARNESS_USAGE_LOG=off still turns the usage log
-off. The old names are kept here so
-.claude/hooks/session_start.py can move a leftover .harness/ across once, scripts/check_setup.py can
-name any old variable still set, which now does nothing, and the first script that reads a person's own
-variable can warn about one once per shell. The hooks in .claude/hooks/ never warn: Claude Code doesn't
-show a hook's stderr, so a warning there would use up the shell's one telling where nobody sees it.
+off. A third exception only reads: token_report.py and the factory dashboard still count the tokens of
+loop checkouts left in ~/.harness-loop, for as long as that folder is there, and nothing else looks in it.
+The old names are kept here so .claude/hooks/session_start.py can move a leftover .harness/ across once,
+scripts/check_setup.py can name any old variable still set, which now does nothing, and the first script
+that reads a person's own variable can warn about one once per shell. The hooks in .claude/hooks/ never
+warn: Claude Code doesn't show a hook's stderr, so a warning there would use up the shell's one telling
+where nobody sees it.
 
 Standard library only: the hooks and the loop import it, and so does a fresh clone before setup.
 """
@@ -35,6 +37,12 @@ def loop_home(home=None):
     """Where the loop keeps its checkouts when loop.json names no worktree_dir."""
     home = Path(home) if home else Path.home()
     return home / ".sanvio-loop"
+
+
+def old_loop_home(home=None):
+    """Where the loop kept its checkouts before the rename. Only the token reports read it, to count them."""
+    home = Path(home) if home else Path.home()
+    return home / ".harness-loop"
 
 
 def evals_home(home=None, environ=None):

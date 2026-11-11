@@ -4791,14 +4791,20 @@ class TestOriginSlug(unittest.TestCase):
             git(folder, "remote", "add", "origin", "https://github.com/o/r")
             git(folder, "config", "url.https://github.com/x/y.insteadOf", "https://github.com/o/r")
             # Since T072 it's the name and why: the URL it read is in why (review after Phase 12).
-            slug, why = loop.origin(folder)
+            slug, why, rule = loop.origin(folder)
             self.assertIsNone(slug)
             self.assertIn("another repo", why)
+            # Since #458 each refusal names its rule as a value too, so a caller needn't read the wording.
+            self.assertEqual(rule, loop.ORIGIN_ANOTHER_REPO)
             git(folder, "config", "--unset", "url.https://github.com/x/y.insteadOf")
+            self.assertEqual(loop.origin(folder), ("o/r", "", None))
             git(folder, "remote", "set-url", "origin", "https://gitlab.com/o/r")
             self.assertIn("as git fetches it (https://gitlab.com/o/r), isn't on github.com", loop.origin(folder)[1])
+            self.assertEqual(loop.origin(folder)[2], loop.ORIGIN_OFF_GITHUB)
             git(folder, "remote", "set-url", "origin", CREDENTIAL_URL)
             self.assertNotIn(TOKEN, loop.origin(folder)[1])
+            git(folder, "remote", "remove", "origin")
+            self.assertEqual(loop.origin(folder), (None, "origin couldn't be read", loop.ORIGIN_UNREAD))
 
     def test_the_scrub_stays_linear_and_stops_at_quotes(self):
         # Before T076 it took seconds on a long run of letters, and a quote didn't end the user part (review
@@ -4828,7 +4834,7 @@ class TestOriginSlug(unittest.TestCase):
                 folder = Path(tmp)
                 git(folder, "init", "-q")
                 git(folder, "remote", "add", "origin", "https://u:a" + held + TOKEN + "@gitlab.example/o/r")
-                _, why = loop.origin(folder)
+                _, why, _ = loop.origin(folder)
                 self.assertNotIn(TOKEN, why)
                 self.assertIn("https://gitlab.example/o/r", why)
 
@@ -4838,7 +4844,7 @@ class TestOriginSlug(unittest.TestCase):
             folder = Path(tmp)
             git(folder, "init", "-q")
             git(folder, "remote", "add", "origin", "https://gitlab.example/o/r\n- forged \x1b[2J" + "x" * 300)
-            _, why = loop.origin(folder)
+            _, why, _ = loop.origin(folder)
             self.assertNotIn("\n", why)
             self.assertNotIn("\x1b", why)
             self.assertIn("r?- forged ?[2J", why)
@@ -5016,6 +5022,21 @@ class TestProject(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("isn't on github.com, and the loop finds its issues there", err)
         built.assert_not_called()
+
+    def test_the_clause_follows_origin_s_rule_not_its_wording(self):
+        # Before #458 the clause was added when why ended in "isn't on github.com", so a rewording dropped it.
+        hub = self.on_github("hub")
+        for said, rule, clause in (("origin lives somewhere else", loop.ORIGIN_OFF_GITHUB, True),
+                                   ("x isn't on github.com", loop.ORIGIN_ANOTHER_REPO, False)):
+            with self.subTest(rule=rule), mock.patch.object(loop, "origin", return_value=(None, said, rule)):
+                code, err, built = self.main("review", "--project", str(hub))
+                self.assertEqual(code, 1)
+                self.assertIn(said, err)
+                if clause:
+                    self.assertIn(said + ", and the loop finds its issues there", err)
+                else:
+                    self.assertNotIn("the loop finds its issues there", err)
+                built.assert_not_called()
 
     def test_a_project_git_sends_to_another_repo_says_why_alone(self):
         # Before T072 every origin refusal added "the loop finds its issues on github.com" (review after Phase 12).
@@ -5556,7 +5577,7 @@ class ReviewFixture:
         self.prs = []
         # Since T064 review --pr refuses an origin that isn't on github.com, and this one is a bare folder:
         # it's named o/r, as git would fetch it from github.com.
-        named = mock.patch.object(loop, "origin", return_value=("o/r", ""))
+        named = mock.patch.object(loop, "origin", return_value=("o/r", "", None))
         named.start()
         self.addCleanup(named.stop)
 

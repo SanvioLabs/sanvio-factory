@@ -27,6 +27,58 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-10: The dashboard is on by default
+
+[`.claude/settings.json`](.claude/settings.json) switches on `factory-dashboard`, so a fresh checkout has
+`/factory-dashboard` without `/plugin`, which the VS Code extension doesn't
+have. It spends no model tokens and calls `gh` only while its pane reads. The
+mod's README gives the command-line install for the extension.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** in a copy that set its own `enabledPlugins`, add
+`"factory-dashboard@sanvio-factory": true`, then `/reload-plugins` or a new
+session.
+
+## 2026-11-10: Token reports count loop runs from before the rename
+
+[`scripts/token_report.py`](scripts/token_report.py) and the factory dashboard again count the tokens of
+loop checkouts still in `~/.harness-loop/<this folder's name>/` or
+`~/.harness-loop/sanvio-harness-starter/`, the repo's old name, for as long as
+each exists. The second covers a clone whose folder was renamed with the repo;
+a separate clone still named `sanvio-harness-starter` on the same machine is
+counted with it. Since the rename they had left them out. This corrects the
+2026-11-08 entry "The old names stop working" on one point: the token reports
+look in `~/.harness-loop/`, only to count what's there. The loop still makes new
+checkouts only in `~/.sanvio-loop/`. When `loop.json` sets `worktree_dir`, that
+folder is still the only one counted. Loop dollars were never affected. The dashboard's transcript cache moves to
+`.sanvio/cache/conversations-2.json`, so every transcript is read once more.
+
+Files: [`scripts/names.py`](scripts/names.py), [`scripts/token_report.py`](scripts/token_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_names.py`](tests/test_names.py), [`tests/test_token_report.py`](tests/test_token_report.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; the dashboard reads every transcript once more.
+
+## 2026-11-10: Graded CI review
+
+The review that [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) posts on a product repo's pull
+request now ends with a verdict and a grade out of 10, from the rubric and code
+the loop grades its own reviews with: `Verdict: ready. Grade 10/10: ready, checks passing.`
+The grade comes from the factory's [`review-rubric.json`](review-rubric.json) through
+[`scripts/loop.py`](scripts/loop.py), both from the factory's default branch, and counts the pull
+request's other checks, leaving out only the review's own job, and waits up to
+10 minutes, at most 15 (the new `grade-wait-minutes` input), for them to
+finish. A token GitHub refuses to list checks for, one without `checks: read`,
+grades pending at once and says so. The review is now asked to end on a `VERDICT:`
+line, as the loop's is, so the grade can read it. The grade is advisory: no
+status, no approval, no merge. The job's timeout goes from 15 to 30 minutes,
+and its permissions don't change. [`examples/ci/README.md`](examples/ci/README.md) says where the grade can
+differ from the loop's.
+
+Files: [`scripts/review_grade.py`](scripts/review_grade.py) (new), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** Nothing. To wait other than 10 minutes for the other checks, pass
+`grade-wait-minutes` in your caller.
+
 ## 2026-11-10: How a review sorts its findings
 
 The `review-pr` skill now says how to pick the verdict. Each finding is

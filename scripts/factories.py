@@ -510,33 +510,35 @@ def clone_here(root, repo):
     return False
 
 
-def origin_why(folder):
-    """Why folder's origin names no repo, as loop.py says it, or "" when it names one."""
-    import loop  # noqa: E402  beside this file
-    return loop.origin(folder)[1]
-
-
-def unnamed_clones(root):
-    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
-    loop.py reads it: one of them may be the clone a review was wanted from. Each origin is read once."""
+def read_clones(root):
+    """(where, folder, OWNER/NAME lower case or None, why) for this repo first, then each clone under projects/,
+    sorted, as loop.py reads each origin: once per folder, so a review reads none of them twice."""
     import loop  # noqa: E402  beside this file
     projects = Path(root) / "projects"
     folders = [("this repo", root)] + [("projects/" + folder.name, folder) for folder in (
         sorted(projects.iterdir()) if projects.is_dir() else []) if (folder / ".git").exists()]
     found = []
     for where, folder in folders:
-        name, why = loop.origin(folder)
-        if name is None:
-            found.append((where, why))
+        name, why, _ = loop.origin(folder)
+        found.append((where, folder, name.lower() if name else None, why))
     return found
 
 
-def review_target(root, repo):
-    """loop.py's arguments for repo when it's cloned here, or None."""
-    folder = clone_here(root, repo)
-    if folder is False:
-        return None
-    return [] if folder is None else ["--project", "projects/" + folder.name]
+def unnamed_clones(root, clones=None):
+    """(where, why) for this repo and each clone under projects/ whose origin names no repo on github.com, as
+    loop.py reads it: one of them may be the clone a review was wanted from. From clones, read_clones's list,
+    when given; else each origin is read once here."""
+    return [(where, why) for where, _, name, why in (clones or read_clones(root)) if name is None]
+
+
+def review_target(root, repo, clones):
+    """loop.py's arguments for repo when it's cloned here, or None: [] for this repo, --project for a clone
+    under projects/. clones is read_clones's list for root."""
+    wanted = (repo or "").lower()
+    for where, folder, name, _ in clones:
+        if name is not None and name == wanted:
+            return [] if where == "this repo" else ["--project", "projects/" + Path(folder).name]
+    return None
 
 
 def ready_labels(root, repo):
@@ -621,6 +623,7 @@ def whoami():
 
 
 READY = ("ready", "ready with nits")
+SEND_BACK_HEADER = "A person sent this back to the factory, after reading the review."  # resend's, and the doc's live check
 
 
 def read_verdict(record, sha):
@@ -790,7 +793,7 @@ def review(root, record, linked=(), run_review=False, read=None):
                 return stalled(record, "returned as pull request #{}, and {} isn't reviewed yet. Review it: {}".format(
                     pr, head["headRefOid"][:7], again))
             return stalled(record, "returned as pull request #{}; review of {} {}{}. Review it again: {}".format(
-                pr, done["sha"][:7], done["state"], ": " + done["note"] if done.get("note") else "", again))
+                pr, done["sha"][:7], done["state"], ": " + shown(done["note"]) if done.get("note") else "", again))
         line = run_loop_review(root, record, head)
         if line:
             return stalled(record, line)
@@ -800,7 +803,7 @@ def review(root, record, linked=(), run_review=False, read=None):
     if done["state"] != "posted":
         record["waiting_on"] = "review"
         return stalled(record, "{} {}{}. Review it again: {}".format(
-            line, done["state"], ": " + done["note"] if done["note"] else "", again))
+            line, done["state"], ": " + shown(done["note"]) if done["note"] else "", again))
     # Read just now unless a review ran since, which takes minutes: then check_report reads it again.
     return "{} {}".format(line, after_review(record, head, None if reviewed_now else head, read))
 
@@ -810,9 +813,10 @@ def run_loop_review(root, record, head):
     there's no review of this head to go on from, or None when record["review"] now holds one."""
     pr = record["pr"]
     record["waiting_on"] = "review"
-    target = review_target(root, record["repo"])
+    clones = read_clones(root)
+    target = review_target(root, record["repo"], clones)
     if target is None:
-        unnamed = unnamed_clones(root)
+        unnamed = unnamed_clones(root, clones)
         return ("returned as pull request #{}, but there's no clone of {} here to review it from. Clone it into "
                 "projects/, then: python3 scripts/factories.py review {}{}".format(
                     pr, record["repo"], record["run"],
@@ -828,7 +832,7 @@ def run_loop_review(root, record, head):
             pr, REVIEW_TIMEOUT_HOURS)
     if done.returncode:
         lines = done.stderr.strip().splitlines() or ["loop.py exited {}".format(done.returncode)]
-        return "returned as pull request #{}, but the review didn't run: {}".format(pr, lines[-1][:200])
+        return "returned as pull request #{}, but the review didn't run: {}".format(pr, shown(lines[-1]))
     found = review_result(done.stdout, pr)
     # Only a review of the commit GitHub has now: an older one's result stays in the loop's file.
     if found.get("sha") and found["sha"] != head["headRefOid"]:  # GitHub served loop.py an older head
@@ -840,7 +844,7 @@ def run_loop_review(root, record, head):
             record["run"])
     if found.get("sha") != head["headRefOid"]:
         return "returned as pull request #{}, no review of {} yet{}".format(
-            pr, head["headRefOid"][:7], ": " + found["note"] if found.get("note") else ": see the loop's log")
+            pr, head["headRefOid"][:7], ": " + shown(found["note"]) if found.get("note") else ": see the loop's log")
     if found.get("base") != record["base"]:
         return "returned as pull request #{}, but the loop reviewed it against {}, not {}, so it doesn't count".format(
             pr, shown(found.get("base") or "no base"), record["base"])
@@ -1188,7 +1192,7 @@ def resend(args, path, record):
         import loop  # noqa: E402  the comment a factory's loop reads, built as the loop's review builds it
         body = loop.review_comment("A person sent this back after a review that said {}:\n\n{}\n\n"
                                    "VERDICT: changes needed".format(verdict, why), review["sha"],
-                                   header="A person sent this back to the factory, after reading the review.")
+                                   header=SEND_BACK_HEADER)
         # Written down first: if gh dies or times out after GitHub took it, status still knows it's ours.
         review["posting"] = "changes needed"
         if because:
@@ -1355,9 +1359,11 @@ def cmd_steps(args):
     except StepError as err:
         print(err, file=sys.stderr)
         return 1
-    if slug(args.root) is None:
+    import loop  # noqa: E402  beside this file
+    name, why, _ = loop.origin(args.root)
+    if name is None:
         print("Warning: this repo's {}. Factories read pull requests and checks from github.com only: "
-              "factories/README.md's *github.com only* says which origins count.".format(origin_why(args.root)))
+              "factories/README.md's *github.com only* says which origins count.".format(why))
     if not steps:
         print("No factory is configured: nothing to do.")
         return 0
@@ -1448,7 +1454,7 @@ def doctor_reads(root, repo, number, step, said_of):
         head.update(read_head(record))
         return READ, "{}{}, at {}, into {}".format(str(head.get("state", "")).lower(),
                                                   ", a draft" if head.get("isDraft") else "",
-                                                  head["headRefOid"][:7], head.get("baseRefName"))
+                                                  head["headRefOid"][:7], shown(head.get("baseRefName")))
     if not said_of("its head", the_head):
         return
 

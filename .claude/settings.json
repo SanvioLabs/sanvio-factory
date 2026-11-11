@@ -101,6 +101,7 @@
   "enabledPlugins": {
     "harness-lens@sanvio-factory": true,
     "factory-floor@sanvio-factory": true,
+    "factory-dashboard@sanvio-factory": true,
     "github-status@sanvio-factory": true,
     "stelliad@sanvio-factory": true
   }
