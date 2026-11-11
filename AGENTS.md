@@ -26,6 +26,7 @@ Read these when their moment comes:
 | [`steering/gates.md`](steering/gates.md) | Adding, moving or strengthening a check, or deciding whether a rule needs one |
 | [`steering/tickets.md`](steering/tickets.md) | Writing an issue, putting one on the loop, commenting on one, or closing one |
 | [`steering/api-security.md`](steering/api-security.md) | Writing or reviewing an API handler, raising a project's `security_level`, or setting up a project that exposes an API |
+| [`steering/compliance.md`](steering/compliance.md) | Writing or reviewing a change that stores or moves personal data, adds or changes access or logging, adds a dependency or outside service, or changes deployment or infrastructure |
 
 Add your own the same way: one topic per file, and a row here saying when it
 applies. Where a steering file and this file disagree, this file wins, and you

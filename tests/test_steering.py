@@ -32,6 +32,26 @@ class Steering(unittest.TestCase):
             self.assertEqual(link.resolve(), (ROOT / "steering" / name).resolve(), name)
 
 
+class Compliance(unittest.TestCase):
+    def test_compliance_steering_names_the_baseline(self):
+        path = ROOT / "steering" / "compliance.md"
+        self.assertTrue(path.is_file(), "no steering/compliance.md")
+        self.assertIn("NIST SP 800-53", path.read_text())
+
+    def test_builders_ticket_writers_and_the_security_reviewer_point_at_it(self):
+        for name in ("steering/building-and-testing.md", "steering/tickets.md", "agents/security-reviewer.md"):
+            self.assertIn("compliance.md", (ROOT / name).read_text(), name)
+
+    def test_compliance_stays_read_when_and_out_of_every_session(self):
+        """An @ import would load it in every session, and Kiro's check would then want it linked."""
+        imported = {Path(target).name for target in IMPORT.findall(AGENTS)}
+        self.assertNotIn("compliance.md", imported)
+
+    def test_a_control_on_a_finding_leaves_the_verdict_where_it_was(self):
+        text = (ROOT / "agents" / "security-reviewer.md").read_text()
+        self.assertIn("NOT-READY means at least one Critical or High", text)
+
+
 # What Sanvio Factory ships. Your own files (AGENTS.md, your skills, gates and briefs)
 # aren't held to the house style: an agent's em dash shouldn't fail your suite.
 SHIPPED = ["steering/*.md", "examples/**/*", "skills/orientation/*", "skills/learn/*",

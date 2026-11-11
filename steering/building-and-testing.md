@@ -15,6 +15,10 @@ language, the habits are the same.
 - **Scaffold by hand.** Interactive scaffolding tools prompt, fail on existing
   folders and waste time in an agent session. Write the config and folders
   directly, then check a build passes before writing features.
+- **Know which kind of change it is.** If it stores or moves personal data,
+  changes access or logging, adds a dependency or outside service, or changes
+  deployment, [`compliance.md`](compliance.md) has that kind's question. Answer it before
+  calling the work done.
 
 ## While you build
 
