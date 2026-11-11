@@ -1351,7 +1351,10 @@ def merge_method_line(repo, step):
     if repo is None:
         why = "this repo has no origin on github.com"
     else:
-        found, why = gh_json("api", "repos/" + repo)
+        try:
+            found, why = gh_json("api", "repos/" + repo)
+        except OSError as error:  # no gh on the PATH: steps still says what it read, and exits as it did
+            found, why = None, "gh couldn't run ({})".format(error.strerror or error)
         if not why:
             allowed = found.get(field)
             if allowed is True:
@@ -1363,7 +1366,7 @@ def merge_method_line(repo, step):
             # GitHub leaves the allow_* fields out for some callers, depending on their access to the repo.
             why = "GitHub's answer has no {}".format(field)
     return "Step {}'s merge_method {} wasn't checked against {}: {}.".format(
-        step["factory"], method, repo or "this repo", why)
+        step["factory"], method, repo or "this repo", shown(why))
 
 
 def cmd_steps(args):

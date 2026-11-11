@@ -605,6 +605,31 @@ class MergeSettings(FakeGh):
         self.assertIn("build-team", line)
         self.assertIn("Not Found", line)
 
+    def test_no_gh_says_the_method_wasn_t_checked_and_exits_as_before(self):
+        # Review of #486: with no gh installed, steps raised FileNotFoundError and exited 1.
+        self.configure(merge_method="squash")
+        real = subprocess.run
+
+        def no_gh(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "gh":
+                raise FileNotFoundError(2, "No such file or directory", "gh")
+            return real(cmd, *args, **kwargs)
+
+        with mock.patch.object(forge.subprocess, "run", side_effect=no_gh):
+            code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertIn("gh couldn't run (No such file or directory)", line)
+
+    def test_a_long_error_from_gh_is_cut_to_one_short_line(self):
+        self.configure(merge_method="squash")
+        self.respond(["api", "repos/o/r"], json.dumps({"message": "x" * 300}), code=1)
+        code, out, _ = self.run_cli("steps")
+        self.assertEqual(code, 0)
+        line, = self.not_checked(out)
+        self.assertLess(len(line), 200)
+        self.assertIn("\u2026", line)
+
     def test_an_answer_with_no_setting_says_the_method_wasn_t_checked(self):
         # GitHub leaves the allow_* fields out for some callers, depending on their access to the repo.
         self.configure(merge_method="squash")

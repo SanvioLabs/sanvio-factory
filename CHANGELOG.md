@@ -27,12 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-10: steps checks a step's merge_method
+## 2026-11-10: Steps checks a step's merge_method
 
 `factories.py steps` now checks a step's `merge_method` against the settings
-of the repo this one's origin names on GitHub. It warns when the repo doesn't
-allow that method, since the merge would fail, and says so when it couldn't
-check. It still exits 0. A run takes its step's `merge_method` when it's
+of the repo this clone's origin names on GitHub, not one a run names with
+`--repo`. It warns when the repo doesn't allow that method, since the merge
+would fail, and says so when it couldn't check, including when gh isn't
+installed. It still exits 0. A run takes its step's `merge_method` when it's
 dispatched, so a later change to `factories.json` doesn't reach a live run;
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says so.
 
