@@ -99,16 +99,26 @@ it gets read before it's labelled.
      "python3 scripts/loop.py run <flags>; echo; echo 'The loop has exited. Press Enter to close.'; read _"
    ```
 
+   On Windows, start it in psmux when `Get-Command psmux` finds it, the same
+   way:
+
+   ```powershell
+   $name = "loop-" + ((Split-Path -Leaf $PWD) -replace '[.:]', '-')
+   psmux new-session -d -s $name -c "$PWD" "python scripts/loop.py run <flags>; echo ''; Read-Host 'The loop has exited. Press Enter to close'"
+   ```
+
    If `tmux new-session` says `duplicate session`, a loop is probably
    running there: say so and give the attach command rather than starting a
    second. The loop's lock refuses a second run in one clone anyway.
    Without tmux, start it in the background instead, and say that it stops
-   when this session ends.
+   when this session ends. On Windows without psmux, do the same: start it
+   in the background, and say that it stops when this session ends.
 5. Check it started: `tail -3 .loop/loop.log` shows a `START` line naming
-   the tmux session (none without tmux), an `UNTIL` line with `--for`'s end
-   time, then `DISCOVER`, `IDLE` or `HOURS`. Then say
-   how to watch it: `tmux attach -t <name>` (`Ctrl-b d` leaves it
-   running), `/factory-floor` in Claude Code, or `tail -f .loop/loop.log`.
+   the tmux or psmux session (none without either), an `UNTIL` line with
+   `--for`'s end time, then `DISCOVER`, `IDLE` or `HOURS`. Then say
+   how to watch it: `tmux attach -t <name>` (`Ctrl-b d` leaves it running),
+   or `psmux attach -t <name>` on Windows, `/factory-floor` in Claude Code,
+   or `tail -f .loop/loop.log`.
 
 `max_workers` in `loop.json` (default 1) is how many issues `run` works at
 once. Each worker runs its own agent sessions, so say that usage grows with the

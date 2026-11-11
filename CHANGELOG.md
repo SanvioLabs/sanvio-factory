@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The loop's windows in psmux on Windows
+
+On Windows with psmux installed, [`scripts/loop.py`](scripts/loop.py) finds its session in psmux, names
+psmux in its `START` line's attach command, quoted for PowerShell, and opens and closes each issue's window
+there, following `agent.log` with PowerShell's `Get-Content -Wait`. Everywhere else it
+still runs tmux and `tail -f`. The loop-control skill gives the psmux command to start
+the loop and to attach to it.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing on macOS or Linux. On Windows, install psmux and start the loop inside
+it to get issue windows.
+
 ## 2026-11-11: The loop's lock and stops on Windows
 
 On Windows, [`scripts/loop.py`](scripts/loop.py) now checks whether the pid in its lock still runs, catches
