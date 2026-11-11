@@ -27,6 +27,18 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The loop's files and guard on Windows
+
+[`scripts/loop.py`](scripts/loop.py) now reads and writes every text file as UTF-8, whatever the
+system's default encoding, and reads what git, gh and the agents print, and writes an agent's prompt, as
+UTF-8 too. While a reader such as one of the mods holds `status.json` open, it tries the
+write up to five times, 0.2s apart, then logs a `WARN` line and goes on. A project's build agent
+runs `guard.py` with the Python running the loop, not `python3`, which Windows doesn't have.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-11: Compliance steering with NIST SP 800-53
 
 A new steering file, [`steering/compliance.md`](steering/compliance.md), takes NIST SP 800-53 Rev. 5 (release 5.2.0)
