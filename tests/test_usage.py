@@ -145,6 +145,62 @@ class TheHook(unittest.TestCase):
             self.assertTrue(any("usage_log.py" in c for c in commands), event)
 
 
+class Keeping(unittest.TestCase):
+    """The usage log keeps SANVIO_KEEP_DAYS of entries, 90 by default, and SessionStart drops older ones."""
+
+    def write(self, tmp, *stamps):
+        path = usage_log.log_path(tmp)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps({"ts": ts, "event": "skill", "name": "learn"}) + "\n" for ts in stamps))
+        return path
+
+    def start(self, tmp, **env):
+        env = dict({k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}, CLAUDE_PROJECT_DIR=tmp, **env)
+        return subprocess.run([sys.executable, str(HOOK)], input=json.dumps({"hook_event_name": "SessionStart"}),
+                              capture_output=True, text=True, env=env, timeout=30)
+
+    def stamps(self, path):
+        return [json.loads(line)["ts"] for line in path.read_text().splitlines()]
+
+    def test_a_session_start_drops_entries_older_than_the_period(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
+            result = self.start(tmp)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+            kept = self.stamps(path)
+            self.assertNotIn("2020-01-01T00:00:00Z", kept)
+            self.assertIn("2099-01-01T00:00:00Z", kept)
+
+    def test_the_boundary_is_the_period_in_days(self):
+        now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2026-08-13T11:59:59Z", "2026-08-13T12:00:01Z", "not a time")
+            usage_log.prune(tmp, now=now, days=90)
+            self.assertEqual(self.stamps(path), ["2026-08-13T12:00:01Z", "not a time"])
+
+    def test_the_period_is_90_days_unless_set(self):
+        self.assertEqual(usage_log.names.keep_days({}), 90)
+        self.assertEqual(usage_log.names.keep_days({"SANVIO_KEEP_DAYS": "30"}), 30)
+        for bad in ("0", "-5", "ninety", ""):
+            self.assertEqual(usage_log.names.keep_days({"SANVIO_KEEP_DAYS": bad}), 90, bad)
+
+    def test_it_keeps_old_entries_out_even_with_the_log_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z")
+            self.start(tmp, SANVIO_USAGE_LOG="off")
+            self.assertEqual(self.stamps(path), [])
+
+    def test_a_log_it_cant_rewrite_never_stops_the_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z")
+            path.parent.chmod(0o500)
+            try:
+                result = self.start(tmp)
+            finally:
+                path.parent.chmod(0o700)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+
 class Report(unittest.TestCase):
     LINES = [
         {"ts": "2026-10-01T09:00:00Z", "session": "a", "event": "skill", "name": "review-pr"},

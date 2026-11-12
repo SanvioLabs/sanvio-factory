@@ -1856,6 +1856,32 @@ class Loop:
         self.log_once("STALE", "scripts/loop.py changed since this run started; "
                                "run python3 scripts/loop.py stop, then start it again to use it")
 
+    def forget_old_issues(self, now=None):
+        """Remove each issue-N folder here whose newest file is older than SANVIO_KEEP_DAYS (90 by default)
+        and whose issue status.json no longer lists, and return their numbers. A folder it can't read or
+        remove is left as it is."""
+        listed = {row.get("number") for row in self.status.get("issues", []) if isinstance(row, dict)}
+        cutoff = (now or time.time()) - names.keep_days() * 86400
+        gone = []
+        for folder in sorted(self.dir.glob("issue-*")):
+            number = folder.name[len("issue-"):]
+            if not (folder.is_dir() and number.isdigit()) or int(number) in listed:
+                continue
+            try:
+                # By its files: adding a file to a folder updates the folder's own time.
+                files = [p.stat().st_mtime for p in folder.rglob("*") if p.is_file()]
+                newest = max(files) if files else folder.stat().st_mtime
+                if newest < cutoff:
+                    shutil.rmtree(folder)
+                    gone.append(int(number))
+            except OSError:
+                continue
+        if gone:
+            self.log("CLEANUP", "removed {} issue folder{} older than {} days: {}".format(
+                len(gone), "" if len(gone) == 1 else "s", names.keep_days(),
+                ", ".join("#{}".format(n) for n in gone)))
+        return gone
+
     def log_once(self, step, text, number=None):
         """Log a line once per run, for checks repeated on every idle poll."""
         with self.write_lock:
@@ -3435,6 +3461,8 @@ class Loop:
         waits for each worker, which stops itself before its next round. The end of --for starts
         nothing new either, and waits for each worker to finish its issue."""
         self.started_with = fingerprint()
+        if not dry_run:
+            self.forget_old_issues()
         test_first = self.cfg.get("test_first") is True
         agents = ("agent", "reader_agent", self.reviewer()) + ((self.tester(),) if test_first else ())
         # An agent that can't do its job is found before any issue is taken, not one blocked issue later.
