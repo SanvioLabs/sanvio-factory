@@ -67,10 +67,10 @@ CREDENTIAL = re.compile(
     r")(?=$|[\s'\";|&>)])"
 )
 # The usage log and the loop's logs. An agent reads them, never writes, moves or deletes them (AU-9).
-LOG_PATH = (r"(?:^|(?<=[/\s'\"=<:]))(?:\.sanvio/usage(?:/[^\s'\";|&>]*)?"
+LOG_NAME = (r"(?:\.sanvio/usage(?:/[^\s'\";|&>]*)?"
             r"|\.loop/(?:[^\s'\";|&>]*/)?(?:loop|agent)\.log)(?=$|[\s'\";|&>)])")
-LOG_FILE = re.compile(LOG_PATH)
-LOG_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + LOG_PATH.replace("(?:^|(?<=[/\s'\"=<:]))", ""))
+LOG_FILE = re.compile(r"(?:^|(?<=[/\s'\"=<:]))" + LOG_NAME)
+LOG_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + LOG_NAME)
 LOG_CHANGERS = {"rm", "mv", "truncate", "shred", "unlink", "tee", "rmdir"}
 LOG_IN_PLACE = re.compile(r"^(?:sed|perl|ruby)$")
 LOG_COPIERS = {"cp", "install", "ln", "rsync", "dd"}
