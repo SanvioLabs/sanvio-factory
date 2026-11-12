@@ -153,6 +153,45 @@ class Unattended(unittest.TestCase):
                 self.assertEqual(guard.decide({"tool_name": "Read", "tool_input": {"file_path": ".env"}})[0], "deny")
 
 
+class TheLogs(unittest.TestCase):
+    """No session's agent writes to, moves or deletes the usage log or the loop's logs. Reading them is fine."""
+
+    WRITES = [("Write", {"file_path": ".sanvio/usage/pat.jsonl", "content": "x"}),
+              ("Edit", {"file_path": "/repo/.sanvio/usage/pat.jsonl", "old_string": "a", "new_string": "b"}),
+              ("Write", {"file_path": ".loop/loop.log", "content": "x"}),
+              ("Edit", {"file_path": ".loop/issue-12/agent.log", "old_string": "a", "new_string": "b"}),
+              ("Write", {"file_path": ".loop/projects/app/loop.log", "content": "x"})]
+    COMMANDS = ["rm .sanvio/usage/pat.jsonl", "rm -rf .sanvio/usage", "echo x >> .sanvio/usage/pat.jsonl",
+                "echo x > .loop/loop.log", "mv .loop/loop.log /tmp/old.log", "truncate -s 0 .loop/loop.log",
+                "sed -i '' 1d .sanvio/usage/pat.jsonl", "printf x | tee -a .loop/issue-3/agent.log",
+                "cp /tmp/forged.jsonl .sanvio/usage/pat.jsonl", ": > .sanvio/usage/pat.jsonl"]
+    READS = ["tail -f .loop/loop.log", "cat .sanvio/usage/pat.jsonl", "grep skill .sanvio/usage/pat.jsonl",
+             "tail -n 50 .loop/loop.log > /tmp/recent.txt", "cp .sanvio/usage/pat.jsonl /tmp/copy.jsonl",
+             "wc -l .loop/issue-3/agent.log", "python3 scripts/usage_report.py"]
+
+    def test_writing_a_log_is_refused(self):
+        for tool, tool_input in self.WRITES:
+            verdict = call(tool, **tool_input)
+            self.assertEqual(verdict[0] if verdict else None, "deny", (tool, tool_input))
+            self.assertIn("log", verdict[1])
+
+    def test_a_command_that_changes_a_log_is_refused(self):
+        for command in self.COMMANDS:
+            verdict = call("Bash", command=command)
+            self.assertEqual(verdict[0] if verdict else None, "deny", command)
+
+    def test_reading_a_log_is_fine(self):
+        self.assertIsNone(call("Read", file_path=".sanvio/usage/pat.jsonl"))
+        self.assertIsNone(call("Read", file_path=".loop/loop.log"))
+        for command in self.READS:
+            self.assertIsNone(call("Bash", command=command), command)
+
+    def test_other_files_nearby_are_untouched(self):
+        self.assertIsNone(call("Write", file_path=".loop/issue-3/plan.md", content="x"))
+        self.assertIsNone(call("Write", file_path=".sanvio/prices.json", content="{}"))
+        self.assertIsNone(call("Bash", command="rm .loop/issue-3/plan.md"))
+
+
 def deny_rule_matches(rule, path):
     """Whether a permissions rule's path pattern matches a path from the repo root, the gitignore way Claude
     Code reads it: **/ any folders or none, /** everything below, * within one name."""

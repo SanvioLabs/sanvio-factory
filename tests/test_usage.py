@@ -202,6 +202,32 @@ class Keeping(unittest.TestCase):
             self.assertEqual((result.returncode, result.stdout), (0, ""))
 
 
+class Chained(unittest.TestCase):
+    """The hook writes each line through scripts/log_chain.py, so a later edit shows."""
+
+    def test_a_new_log_verifies_intact_and_an_edit_shows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("learn", "retro", "standup"):
+                usage_log.record(tmp, {"event": "skill", "name": name}, "s1")
+            path = usage_log.log_path(tmp)
+            self.assertEqual(usage_log.log_chain.verify(path), "intact")
+            lines = path.read_text().splitlines()
+            lines[1] = lines[1].replace("retro", "other")
+            path.write_text("\n".join(lines) + "\n")
+            self.assertEqual(usage_log.log_chain.verify(path), 3)
+
+    def test_the_prune_keeps_the_chain_intact(self):
+        now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            for day in ("2026-07-01", "2026-07-02", "2026-11-01", "2026-11-02"):
+                stamp = usage_log.datetime.datetime.fromisoformat(day + "T09:00:00+00:00")
+                usage_log.record(tmp, {"event": "skill", "name": "learn"}, now=stamp)
+            usage_log.prune(tmp, now=now, days=90)
+            path = usage_log.log_path(tmp)
+            self.assertEqual(len(path.read_text().splitlines()), 2)
+            self.assertEqual(usage_log.log_chain.verify(path), "intact")
+
+
 class Report(unittest.TestCase):
     LINES = [
         {"ts": "2026-10-01T09:00:00Z", "session": "a", "event": "skill", "name": "review-pr"},

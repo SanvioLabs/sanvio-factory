@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The usage log is written chained, and agents can't write to the logs
+
+[`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to
+the line before it under a file lock, so parallel tool calls don't break the chain and the usage report and
+the dashboard can say when the log was changed after it was written. The 90-day prune takes the same lock.
+[`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses, in every session, an agent's Write or Edit to
+`.sanvio/usage/`, `.loop/loop.log` or an issue's `agent.log`, and a shell command that writes to, moves or
+deletes one. Reading them, and copying one out, are unchanged.
+
+Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/log_chain.py`](scripts/log_chain.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Your existing log reads as "unchained" until its first new line, and the chain starts there.
+
 ## 2026-11-11: The usage log can be chained and checked
 
 A new script, [`scripts/log_chain.py`](scripts/log_chain.py), gives each usage log line a `prev` field: the SHA-256 of the line

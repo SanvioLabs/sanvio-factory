@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+import log_chain  # noqa: E402
 from log_chain import link, verify  # noqa: E402 (needs scripts/ on the path first)
 
 ENTRIES = [{"ts": "2026-11-0{}T09:00:00Z".format(n), "event": "skill", "name": "skill-{}".format(n)}
@@ -96,3 +97,37 @@ class Link(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Append(unittest.TestCase):
+    def test_appended_lines_verify_intact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.jsonl"
+            for entry in ENTRIES:
+                log_chain.append(path, entry)
+            self.assertEqual(verify(path), "intact")
+            self.assertEqual(len(path.read_text().splitlines()), len(ENTRIES))
+
+    def test_it_links_to_an_unchained_log_s_last_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.jsonl"
+            path.write_text(json.dumps(ENTRIES[0]) + "\n" + json.dumps(ENTRIES[1]) + "\n")
+            log_chain.append(path, ENTRIES[2])
+            log_chain.append(path, ENTRIES[3])
+            self.assertEqual(verify(path), "intact")
+            last = json.loads(path.read_text().splitlines()[2])
+            self.assertEqual(last["prev"], hashlib.sha256(json.dumps(ENTRIES[1]).encode()).hexdigest())
+
+    def test_parallel_writers_keep_the_chain(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "log.jsonl"
+            code = ("import sys; sys.path.insert(0, {!r}); import log_chain\n"
+                    "for n in range(40): log_chain.append({!r}, {{'n': n, 'w': sys.argv[1]}})").format(
+                str(ROOT / "scripts"), str(path))
+            procs = [subprocess.Popen([sys.executable, "-c", code, str(w)]) for w in range(6)]
+            for proc in procs:
+                self.assertEqual(proc.wait(timeout=60), 0)
+            self.assertEqual(len(path.read_text().splitlines()), 240)
+            self.assertEqual(verify(path), "intact")
+

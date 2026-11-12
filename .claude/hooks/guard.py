@@ -66,6 +66,51 @@ CREDENTIAL = re.compile(
     r"|\.htpasswd|\.docker/config\.json|\.gnupg/[\w.-]+"
     r")(?=$|[\s'\";|&>)])"
 )
+# The usage log and the loop's logs. An agent reads them, never writes, moves or deletes them (AU-9).
+LOG_PATH = (r"(?:^|(?<=[/\s'\"=<:]))(?:\.sanvio/usage(?:/[^\s'\";|&>]*)?"
+            r"|\.loop/(?:[^\s'\";|&>]*/)?(?:loop|agent)\.log)(?=$|[\s'\";|&>)])")
+LOG_FILE = re.compile(LOG_PATH)
+LOG_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + LOG_PATH.replace("(?:^|(?<=[/\s'\"=<:]))", ""))
+LOG_CHANGERS = {"rm", "mv", "truncate", "shred", "unlink", "tee", "rmdir"}
+LOG_IN_PLACE = re.compile(r"^(?:sed|perl|ruby)$")
+LOG_COPIERS = {"cp", "install", "ln", "rsync", "dd"}
+LOGS_ARE_READ_ONLY = ("{} is one of the factory's logs. Agents read them and never write, move or delete them, "
+                      "so a change to one shows as tampering. Ask a human if a log needs to change.")
+
+
+def log_write(command):
+    """The log a shell command writes to, moves or deletes, or None. Reading one, or copying one out, is fine."""
+    for segment in re.split(r"&&|\|\||;|\||\n", command):
+        found = LOG_REDIRECT.search(segment)
+        if found:
+            return LOG_FILE.search(segment[found.start():]).group(0)
+        named = LOG_FILE.search(segment)
+        if not named:
+            continue
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            words = segment.split()
+        while words and re.match(r"^\w+=", words[0]):
+            words = words[1:]  # FOO=bar rm ...
+        if words and words[0] in ("sudo", "command", "env"):
+            words = words[1:]
+        if not words:
+            continue
+        verb = os.path.basename(words[0])
+        if verb in LOG_CHANGERS:
+            return named.group(0)
+        if LOG_IN_PLACE.match(verb) and any(w == "-i" or w.startswith("-i") or w.startswith("--in-place")
+                                            or (w.startswith("-") and not w.startswith("--") and "i" in w[1:])
+                                            for w in words[1:]):
+            return named.group(0)
+        if verb in LOG_COPIERS:
+            target = words[-1][3:] if verb == "dd" and words[-1].startswith("of=") else words[-1]
+            if LOG_FILE.search(target):
+                return named.group(0)
+    return None
+
+
 SECRET_COMMANDS = re.compile(
     r"\bsecretsmanager\s+get-secret-value\b|\bssm\s+get-parameters?\b.*--with-decryption"
     r"|\bgh\s+auth\s+token\b|\bprintenv\b|^\s*env\s*($|[|>])",
@@ -560,6 +605,11 @@ def decide(event):
                     return ("deny", "ripgrep's {} type takes in credential files. Name the files with a glob "
                             "instead.".format(kind))
 
+    if tool in FILE_TOOLS and tool != "Read":
+        path = data.get("file_path") or data.get("notebook_path") or ""
+        if path and LOG_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
+            return ("deny", LOGS_ARE_READ_ONLY.format(path))
+
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):
             return ("deny", HEADLESS_OUTSIDE)
@@ -572,6 +622,9 @@ def decide(event):
         if CREDENTIAL.search(" " + named.lower()) or SECRET_COMMANDS.search(command):
             return ("deny", "That command reads a credential or prints secrets. Agents never do "
                     "that. Check the secret exists without showing its value, or ask a human.")
+        written = log_write(command)
+        if written:
+            return ("deny", LOGS_ARE_READ_ONLY.format(written))
         # Before the auditor's list: a headless run is held to its reads whichever agent asks.
         if headless:
             why = headless_refusal(command)
