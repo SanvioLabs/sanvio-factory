@@ -37,6 +37,35 @@ Files: [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.exam
 
 **Do:** add the `## Onboarding` section from [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md) to an existing company record.
 
+## 2026-11-12: Stage times on the factory dashboard
+
+The factory dashboard's **Throughput and rework** section gains a **Stage times** table. It gives the
+median minutes the loop's issues spent at Shape, Build, Validate and Scale, from `step_seconds` in
+`.loop/status.json`, and the median hours its merged pull requests waited for a first review by someone
+other than their author and to merge, from `gh`. Each stage shows how many it rests on, and the slowest
+stage resting on 3 or more is marked. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) prints it as a new
+`stage_times` section, in two halves that each fail on their own, with one more `gh` call on each read.
+The loop-step medians cover only the 20 issues status.json keeps, whatever `--since` says.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update` to get the pane's new table. Issues the loop ran before it recorded
+`step_seconds` have none, so the loop-step medians fill in as new issues run.
+
+## 2026-11-12: CI checkouts don't keep the token
+
+Every `actions/checkout` in `ci.yml` and `secrets.yml` now sets
+`persist-credentials: false`, as `deps.yml` already did. No job pushes, so the
+token had no use after the clone. Newer checkout versions keep it through an
+include in the clone's git config, and the security reviewer's shell refuses
+git in a repo whose config includes another file, so the reviewer's tests failed
+on the newer checkout.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/secrets.yml`](.github/workflows/secrets.yml)
+
+**Do:** nothing, unless your copy added a CI job that pushes: give that one
+checkout its credentials back.
+
 ## 2026-11-11: The usage log is written chained, and agents can't write to the logs
 
 [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to

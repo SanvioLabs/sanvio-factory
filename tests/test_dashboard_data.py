@@ -196,7 +196,8 @@ class Layout(Factory):
         self.assertEqual(code, 0)
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
-                                       "evals", "conversations", "waiting", "loop_rework", "loop_history"])
+                                       "evals", "conversations", "waiting", "loop_rework", "stage_times",
+                                       "loop_history"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -647,6 +648,144 @@ class Rework(Factory):
         code, out = self.main()
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out)["loop_rework"], {"value": None, "why": "gh failed"})
+
+
+def stage_row(number, started, **seconds):
+    """One status.json row with the time it spent at each step, and a title and note it mustn't print."""
+    return {"number": number, "title": LEAK, "state": "pr", "round": 1, "note": LEAK, "started": started,
+            "step_seconds": seconds}
+
+
+def merged_pr(number, branch, created, merged, reviews=()):
+    """One row of gh pr list --state merged, opened by the loop's account, with each review as (login, time)."""
+    return {"number": number, "title": LEAK, "headRefName": branch, "author": {"login": "loop-" + LEAK},
+            "createdAt": created, "mergedAt": merged,
+            "reviews": [{"author": {"login": who}, "submittedAt": at, "body": LEAK} for who, at in reviews]}
+
+
+OTHER = "person-" + LEAK  # a reviewer who isn't the pull request's author
+
+
+class StageTimes(Factory):
+    """Four issues started since SINCE, one before it, and the loop's merged pull requests and a person's."""
+
+    def setUp(self):
+        super().setUp()
+        self.answer_gh()
+        write(self.root, ".loop/status.json", {"queue": [], "issues": [
+            stage_row(1, "2026-10-16T09:00:00", SHAPE=120, BUILD=600, VALIDATE=1800, SCALE=60),
+            stage_row(2, "2026-10-20T09:00:00", SHAPE=240, BUILD=1200, VALIDATE=3600, SCALE=120),
+            stage_row(3, "2026-10-22T09:00:00", SHAPE=360, BUILD=900, VALIDATE=2400),  # no SCALE yet
+            stage_row(4, "2026-10-01T09:00:00", SHAPE=99_999, BUILD=99_999, VALIDATE=99_999, SCALE=99_999),
+            stage_row(6, "2026-10-23T09:00:00", SHAPE="600", BUILD=True),  # not numbers, so not counted
+            {"number": 8, "title": LEAK, "state": "working", "step_seconds": {"SHAPE": 99_999}}]})  # never started
+        write(self.root, ".loop/projects/app/status.json", {"issues": [
+            stage_row(5, "2026-10-25T09:00:00", SHAPE=480, BUILD=300, VALIDATE=600, SCALE=180)]})
+        write(self.bin, "prs-merged.json", [
+            # 10 hours to merge; the author's own review at half an hour isn't the first, the person's at 2 hours is.
+            merged_pr(101, "loop/issue-1", "2026-10-16T10:00:00Z", "2026-10-16T20:00:00Z",
+                      [("loop-" + LEAK, "2026-10-16T10:30:00Z"), (OTHER, "2026-10-16T12:00:00Z")]),
+            # 24 hours to merge, the earlier of two reviews at 1 hour.
+            merged_pr(102, "loop/issue-2", "2026-10-20T10:00:00Z", "2026-10-21T10:00:00Z",
+                      [(OTHER, "2026-10-20T14:00:00Z"), ("other-" + LEAK, "2026-10-20T11:00:00Z")]),
+            # 6 hours to merge, reviewed only by its author.
+            merged_pr(103, "loop/issue-3", "2026-10-22T00:00:00Z", "2026-10-22T06:00:00Z",
+                      [("loop-" + LEAK, "2026-10-22T01:00:00Z")]),
+            merged_pr(104, "feature/x", "2026-10-22T00:00:00Z", "2026-10-22T01:00:00Z",
+                      [(OTHER, "2026-10-22T00:06:00Z")]),  # a person's pull request
+            merged_pr(105, "loop/issue-4", "2026-10-01T00:00:00Z", "2026-10-05T04:00:00Z",
+                      [(OTHER, "2026-10-01T00:06:00Z")])])  # merged before SINCE
+
+    def stages(self):
+        return self.build()["stage_times"]
+
+    def test_the_median_minutes_of_each_step_for_odd_and_even_counts(self):
+        steps = self.stages()["loop_steps"]
+        self.assertEqual(steps["SCALE"], {"median_minutes": 2.0, "issues": 3})  # 1, 2 and 3 minutes
+        self.assertEqual(steps["SHAPE"], {"median_minutes": 5.0, "issues": 4})  # between 4 and 6 minutes
+        self.assertEqual(steps["BUILD"], {"median_minutes": 12.5, "issues": 4})
+        self.assertEqual(steps["VALIDATE"], {"median_minutes": 35.0, "issues": 4})
+
+    def test_the_median_hours_to_merge_and_to_first_review(self):
+        self.assertEqual(self.stages()["pull_requests"], {"merged": 3, "median_hours_to_merge": 10.0,
+                                                          "reviewed": 2, "median_hours_to_first_review": 1.5})
+
+    def test_since_drops_an_issue_that_started_earlier_and_a_pull_request_merged_earlier(self):
+        early = self.build(since="2026-09-01")["stage_times"]
+        self.assertEqual(early["loop_steps"]["SHAPE"]["issues"], 5)
+        self.assertEqual(early["pull_requests"]["merged"], 4)
+        found = self.stages()
+        self.assertEqual(found["loop_steps"]["SHAPE"]["issues"], 4)
+        self.assertEqual(found["pull_requests"]["merged"], 3)
+
+    def test_a_step_missing_from_one_issue_lowers_only_that_steps_count(self):
+        steps = self.stages()["loop_steps"]
+        self.assertEqual({step: steps[step]["issues"] for step in steps},
+                         {"SHAPE": 4, "BUILD": 4, "VALIDATE": 4, "SCALE": 3})
+
+    def test_slowest_names_the_largest_median(self):
+        self.assertEqual(self.stages()["slowest"], "merge")  # 10 hours, ahead of the 35 minutes VALIDATE takes
+        write(self.bin, "fail", "")
+        self.assertEqual(self.stages()["slowest"], "VALIDATE")
+
+    def test_slowest_is_none_with_2_issues_even_when_a_median_exists(self):
+        write(self.root, ".loop/status.json", {"issues": [
+            stage_row(1, "2026-10-16T09:00:00", SHAPE=120, BUILD=600, VALIDATE=1800, SCALE=60),
+            stage_row(2, "2026-10-20T09:00:00", SHAPE=240, BUILD=1200, VALIDATE=3600, SCALE=120)]})
+        (self.root / ".loop" / "projects" / "app" / "status.json").unlink()
+        prs = json.loads((self.bin / "prs-merged.json").read_text())
+        write(self.bin, "prs-merged.json", prs[:2])
+        found = self.stages()
+        self.assertEqual(found["loop_steps"]["VALIDATE"], {"median_minutes": 45.0, "issues": 2})
+        self.assertEqual(found["pull_requests"]["merged"], 2)
+        self.assertIsNone(found["slowest"])
+
+    def test_a_pull_request_a_person_opened_isnt_counted(self):
+        prs = json.loads((self.bin / "prs-merged.json").read_text())
+        write(self.bin, "prs-merged.json", [p for p in prs if p["headRefName"] == "feature/x"])
+        self.assertEqual(self.stages()["pull_requests"], {"merged": 0, "median_hours_to_merge": None,
+                                                          "reviewed": 0, "median_hours_to_first_review": None})
+
+    def test_a_review_by_the_author_isnt_a_first_review(self):
+        prs = json.loads((self.bin / "prs-merged.json").read_text())
+        write(self.bin, "prs-merged.json", [p for p in prs if p["number"] in (101, 103)])
+        # 101's first review is the person's at 2 hours, not its author's at half an hour; 103 has no other reviewer.
+        self.assertEqual(self.stages()["pull_requests"], {"merged": 2, "median_hours_to_merge": 8.0,
+                                                          "reviewed": 1, "median_hours_to_first_review": 2.0})
+
+    def test_no_status_json_leaves_the_pull_requests_filled(self):
+        shutil.rmtree(self.root / ".loop")
+        found = self.stages()
+        self.assertEqual(found["loop_steps"], {"value": None, "why": "no status.json"})
+        self.assertEqual(found["pull_requests"]["merged"], 3)
+        self.assertEqual(found["slowest"], "merge")
+
+    def test_an_unreadable_status_json_says_so(self):
+        write(self.root, ".loop/status.json", "not json")
+        write(self.root, ".loop/projects/app/status.json", ["not", "an", "object"])
+        self.assertEqual(self.stages()["loop_steps"], {"value": None, "why": "unreadable"})
+
+    def test_gh_failing_leaves_the_steps_filled_and_exits_0(self):
+        write(self.bin, "fail", "")
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        found = json.loads(out)["stage_times"]
+        self.assertEqual(found["pull_requests"], {"value": None, "why": "gh failed"})
+        self.assertEqual(found["loop_steps"]["SHAPE"], {"median_minutes": 5.0, "issues": 4})
+
+    def test_gh_printing_the_wrong_shape_counts_as_failed(self):
+        write(self.bin, "prs-merged.json", {"number": 101})
+        self.assertEqual(self.stages()["pull_requests"], {"value": None, "why": "gh failed"})
+
+    def test_it_prints_no_title_note_or_login(self):
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        self.assertNotIn(LEAK, json.dumps(json.loads(out)["stage_times"]))
+
+    def test_the_docstring_says_the_steps_cover_status_jsons_issues(self):
+        self.assertIn("status.json keeps only the loop's 20 most recent issues (STATUS_KEEP), so the loop-step "
+                      "medians cover those whatever --since says, the same limit cost_per_pr has.",
+                      dashboard_data.__doc__)
 
 
 class MissingOrCorrupt(Factory):
@@ -1209,21 +1348,35 @@ class Sample(GitHarness):
         write(self.root, ".loop/projects/app/issue-3/usage.json", [
             run("2026-10-22T14:00:00", "build", OPUS, 880_000, 1.30)])
 
-        def issue(number, title, state, round, note="", pull=None):
+        def issue(number, title, state, round, note="", pull=None, started=None, steps=None):
             return {"number": number, "title": title, "state": state, "round": round, "note": note,
                     "pr": "https://github.com/o/r/pull/{}".format(pull) if pull else None,
-                    "updated": "2026-10-23T16:00:00Z" if state == "blocked" else None}
+                    "updated": "2026-10-23T16:00:00Z" if state == "blocked" else None,
+                    "started": started, "step_seconds": steps or {}}
+
+        def steps(shape, build, validate, scale=None):
+            """Seconds at each step, as loop.py's time_step() keeps them. Review takes 2 to 3 times the build."""
+            found = {"SHAPE": shape, "BUILD": build, "VALIDATE": validate, "TEST": 300}
+            return dict(found, SCALE=scale) if scale is not None else found
 
         write(self.root, ".loop/status.json", {"queue": [], "issues": [
-            issue(31, "Dashboard: stack narrow tables", "pr", 1, pull=39),
-            issue(32, "Loop: say which round a review was", "pr", 1, pull=41),
-            issue(33, "Gate: name the section that's empty", "pr", 2, pull=43),
-            issue(34, "README: link the loop section", "blocked", 5, "the link check still fails after 5 rounds"),
-            issue(36, "Loop: retry a flaky test once", "pr", 1, pull=44),
-            issue(38, "Gate: check the fee total", "pr", 1, pull=45),
-            issue(40, "Steering: when a ticket needs a spec", "building", 1)]})
+            issue(31, "Dashboard: stack narrow tables", "pr", 1, pull=39, started="2026-10-16T09:00:00",
+                  steps=steps(260, 1180, 2900, 70)),
+            issue(32, "Loop: say which round a review was", "pr", 1, pull=41, started="2026-10-19T09:00:00",
+                  steps=steps(300, 1500, 3700, 80)),
+            issue(33, "Gate: name the section that's empty", "pr", 2, pull=43, started="2026-10-20T11:00:00",
+                  steps=steps(220, 2600, 5400, 65)),
+            issue(34, "README: link the loop section", "blocked", 5, "the link check still fails after 5 rounds",
+                  started="2026-10-22T09:00:00", steps=steps(280, 5200, 12000)),
+            issue(36, "Loop: retry a flaky test once", "pr", 1, pull=44, started="2026-10-26T09:00:00",
+                  steps=steps(240, 1300, 3300, 75)),
+            issue(38, "Gate: check the fee total", "pr", 1, pull=45, started="2026-10-26T13:00:00",
+                  steps=steps(250, 1400, 3500, 70)),
+            issue(40, "Steering: when a ticket needs a spec", "building", 1, started="2026-10-27T10:00:00",
+                  steps={"SHAPE": 270})]})
         write(self.root, ".loop/projects/app/status.json", {"issues": [
-            {"number": 3, "title": "Add a health check", "state": "pr", "round": 1, "pr": "https://github.com/o/app/pull/4"}]})
+            {"number": 3, "title": "Add a health check", "state": "pr", "round": 1, "pr": "https://github.com/o/app/pull/4",
+             "started": "2026-10-22T14:00:00", "step_seconds": steps(200, 1100, 2500, 60)}]})
         # The same issues as they ended, each outcome and round count agreeing with status.json above.
         lines(self.root, ".loop/history.jsonl", [
             finished(31, "2026-10-16T10:40:00", started="2026-10-16T09:00:00", tokens=2_440_000, cost=3.65),
@@ -1288,13 +1441,20 @@ class Sample(GitHarness):
             pr(42, "2026-10-25T12:00:00Z", "response-style", draft=True, mergeable="CONFLICTING",
                title="Steering: shorter replies", rollup=[check_run("COMPLETED", "FAILURE")]),
             pr(46, "2026-10-27T11:00:00Z", "go-example", title="Examples: a Go project")])
+        # The loop's account opens them; a person reviews them, and the loop's own comment on 41 isn't a review.
+        def review(who, at):
+            return {"author": {"login": who}, "submittedAt": at, "state": "COMMENTED"}
+
         write(self.bin, "prs-merged.json", [
             {"number": 39, "title": "Dashboard: stack narrow tables", "headRefName": "loop/issue-31",
-             "mergedAt": "2026-10-17T12:00:00Z"},
+             "author": {"login": "loop-bot"}, "createdAt": "2026-10-16T10:40:00Z", "mergedAt": "2026-10-17T12:00:00Z",
+             "reviews": [review("a-reviewer", "2026-10-16T15:10:00Z")]},
             {"number": 41, "title": "Loop: say which round a review was", "headRefName": "loop/issue-32",
-             "mergedAt": "2026-10-20T12:00:00Z"},
+             "author": {"login": "loop-bot"}, "createdAt": "2026-10-20T09:40:00Z", "mergedAt": "2026-10-20T12:00:00Z",
+             "reviews": [review("loop-bot", "2026-10-20T09:45:00Z"), review("a-reviewer", "2026-10-20T11:00:00Z")]},
             {"number": 43, "title": "Gate: name the section that's empty", "headRefName": "loop/issue-33",
-             "mergedAt": "2026-10-22T12:00:00Z"}])
+             "author": {"login": "loop-bot"}, "createdAt": "2026-10-21T10:30:00Z", "mergedAt": "2026-10-22T12:00:00Z",
+             "reviews": [review("a-reviewer", "2026-10-21T16:00:00Z")]}])
         loop = commit("Build it\n\nLoop: issue #31, round 1.")
         write(self.bin, "commits.json", {
             "39": [[loop]],
@@ -1346,6 +1506,7 @@ class Sample(GitHarness):
         self.assertIsNotNone(found, "no sample. run: " + UPDATE_SAMPLE)
         parts = {name: found[name] for name in found if name not in ("generated", "since")}
         parts.update({"waiting." + half: found["waiting"][half] for half in ("pull_requests", "blocked")})
+        parts.update({"stage_times." + half: found["stage_times"][half] for half in ("loop_steps", "pull_requests")})
         for name, value in parts.items():
             self.assertTrue(value, name)
             self.assertFalse(isinstance(value, dict) and "value" in value and value["value"] is None, name)
