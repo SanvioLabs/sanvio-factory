@@ -27,6 +27,17 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: The setup check warns about unapproved MCP servers
+
+[`scripts/check_setup.py`](scripts/check_setup.py) has a new `mcp:` line. It reads the server names in `.mcp.json`,
+[`.claude/settings.json`](.claude/settings.json) and `.claude/settings.local.json`, and warns about any server the Approved tools table in
+[`steering/data-and-tools.md`](steering/data-and-tools.md) doesn't list, or any of those files it can't read. It reads only the names, never a
+server's `env`, `headers` or `args`, and never your own config under your home folder.
+
+Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add each MCP server you use to the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md).
+
 ## 2026-11-11: The usage log is written chained, and agents can't write to the logs
 
 [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to

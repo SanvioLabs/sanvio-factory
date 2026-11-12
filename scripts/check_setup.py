@@ -9,6 +9,7 @@ line below. Exits 1 when anything FAILs, so you can run it in a script. A WARN
 doesn't fail: it's something to decide, not something broken.
 """
 import argparse
+import json
 import re
 import shlex
 import shutil
@@ -263,6 +264,95 @@ def check_security_levels(root):
     return ("PASS", "security: " + ", ".join(levels), None)
 
 
+# Where this repo's MCP servers are configured. The person's own config under their home folder is theirs,
+# and this check never reads it.
+MCP_SOURCES = (".mcp.json", ".claude/settings.json", ".claude/settings.local.json")
+APPROVED_TOOLS = "steering/data-and-tools.md"
+TABLE_RULE = re.compile(r"^\|[\s:|-]*-[\s:|-]*$")
+
+
+def approved_tools(root):
+    """The casefolded first cell of each row in the Approved tools table. The header row, the |---| row and
+    an italic placeholder row don't count, and neither does any other table in the file. A missing or
+    unreadable file is an empty table, so every server warns."""
+    try:
+        text = (Path(root) / APPROVED_TOOLS).read_text(errors="replace")
+    except OSError:
+        return set()
+    names, inside, rows = set(), False, 0
+    for line in text.splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.*?)\s*$", line)
+        if heading:
+            if len(heading.group(1)) <= 2:
+                inside = heading.group(1) == "##" and heading.group(2) == "Approved tools"
+            rows = 0
+            continue
+        line = line.strip()
+        if not inside or not line.startswith("|"):
+            rows = 0
+            continue
+        rows += 1
+        if rows == 1 or TABLE_RULE.match(line):
+            continue
+        cell = line[1:].split("|")[0].strip().strip("`").strip()
+        if not cell or (len(cell) > 1 and cell[0] == cell[-1] and cell[0] in "_*"):
+            continue
+        names.add(cell.casefold())
+    return names
+
+
+def mcp_server_names(path):
+    """The keys of a config file's mcpServers object, and nothing else from it. ValueError when the file
+    can't be read as JSON or mcpServers isn't an object."""
+    try:
+        data = json.loads(path.read_text())
+    except OSError as exc:
+        raise ValueError(str(exc))
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    servers = data.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("mcpServers is not an object")
+    return list(servers)
+
+
+def check_mcp(root):
+    """Each MCP server this repo configures is in the Approved tools table, since a server is a tool
+    customer information can reach (steering/data-and-tools.md)."""
+    approved = approved_tools(root)
+    listed, unlisted, unreadable = [], [], []
+    for source in MCP_SOURCES:
+        path = Path(root) / source
+        if not path.exists():
+            continue
+        try:
+            found = mcp_server_names(path)
+        except ValueError:
+            unreadable.append(source)
+            continue
+        for name in found:
+            shown = marked(str(name))
+            if str(name).strip().casefold() in approved:
+                listed.append(shown)
+            else:
+                unlisted.append("{} ({})".format(shown, source))
+    if not unlisted and not unreadable:
+        if not listed:
+            return ("PASS", "mcp: no MCP server is configured in {}".format(", ".join(MCP_SOURCES)), None)
+        return ("PASS", "mcp: every MCP server is in the Approved tools table: " + ", ".join(listed), None)
+    said, fixes = [], []
+    if unlisted:
+        said.append("not in the Approved tools table: " + ", ".join(unlisted))
+        fixes.append("Add it to the Approved tools table in steering/data-and-tools.md once the customer "
+                     "has agreed to it, or remove it.")
+    for source in unreadable:
+        said.append("{} can't be read".format(source))
+    if unreadable:
+        fixes.append("Make each file that can't be read valid JSON, with mcpServers as an object, "
+                     "so its servers can be checked.")
+    return ("WARN", "mcp: " + "; ".join(said), " ".join(fixes))
+
+
 def check_old_names(root, environ=None):
     """The names this repo had before Sanvio Factory, still in use. Nothing reads them now."""
     said, fixes = [], []
@@ -284,7 +374,7 @@ def check_old_names(root, environ=None):
 def run(root, home=None):
     return [check_python(), check_hooks(root), check_links(root), check_gate(root),
             check_company(root), check_shadowed_skills(root, home), check_security_levels(root),
-            check_remote(root), check_old_names(root)]
+            check_mcp(root), check_remote(root), check_old_names(root)]
 
 
 def main(argv):

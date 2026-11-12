@@ -41,6 +41,9 @@ plan and the date you checked it:
 |---|---|---|
 | _your coding agent_ | _personal, business, enterprise or API_ | _the date you checked_ |
 
+`python3 scripts/check_setup.py` compares the MCP servers in `.mcp.json`, [`.claude/settings.json`](../.claude/settings.json) and
+`.claude/settings.local.json` against this table, and warns about any it doesn't list.
+
 `company/DATA.md` says which sources are cleared for which tool.
 
 ## What may go to an AI coding tool
