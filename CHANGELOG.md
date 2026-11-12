@@ -42,6 +42,19 @@ Files: [`scripts/log_chain.py`](scripts/log_chain.py), [`scripts/usage_report.py
 **Do:** nothing. Nothing changes yet: the usage log hook doesn't write `prev`, so every log reads as
 unchained and nothing is reported. The chain starts once a follow-up change has the hook call `link()`.
 
+## 2026-11-11: Bandit scans the factory's Python on every change
+
+CI's `checks` job now runs Bandit, pinned to 1.9.4, over `scripts`, [`.claude/hooks`](.claude/hooks), `tools` and `examples`
+(tests and `node_modules` left out) on every pull request and every push to `main`. A finding at medium
+severity and confidence or higher fails the job. The loop's one shell call carries `# nosec B602` with its
+reason on the line above, and [`scripts/old_names.py`](scripts/old_names.py) asks `tempfile` for the temp folder instead of falling
+back to `/tmp`, still reading `TMPDIR` first. To move the version, change it in the CI step and in
+[`tests/test_ci_example.py`](tests/test_ci_example.py) together.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`scripts/loop.py`](scripts/loop.py), [`scripts/old_names.py`](scripts/old_names.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless your copy adds Python that Bandit flags at medium or higher. Fix it, or add `# nosec <ID>` with a reason on the line above.
+
 ## 2026-11-11: The build agent's shell can run in Claude Code's sandbox
 
 A new machine key, `network_allow`, runs a `claude` build and tester agent's shell commands in Claude Code's
