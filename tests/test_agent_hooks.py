@@ -153,6 +153,53 @@ class Unattended(unittest.TestCase):
                 self.assertEqual(guard.decide({"tool_name": "Read", "tool_input": {"file_path": ".env"}})[0], "deny")
 
 
+def deny_rule_matches(rule, path):
+    """Whether a permissions rule's path pattern matches a path from the repo root, the gitignore way Claude
+    Code reads it: **/ any folders or none, /** everything below, * within one name."""
+    pattern = re.escape(rule)
+    pattern = pattern.replace(r"\*\*/", "(?:.*/)?").replace(r"/\*\*", "/.*").replace(r"\*", "[^/]*")
+    return re.fullmatch(pattern, path) is not None
+
+
+class DenyList(unittest.TestCase):
+    """.claude/settings.json's permissions.deny: Claude Code itself refusing the credential files the guard
+    refuses, so they stay refused when the guard doesn't run or errors. Checked live on 2026-11-11 with
+    claude -p in a scratch repo: Read(**/.env) refused .env and sub/.env, and .env.example stayed readable."""
+
+    SETTINGS = json.loads((ROOT / ".claude" / "settings.json").read_text())
+    # Paths the guard refuses, one or more for each kind of file its CREDENTIAL pattern names.
+    CREDENTIALS = [".env", "app/.env", ".env.local", ".env.production.local", ".env.development",
+                   ".env.production", ".env.staging", ".env.test", "server.pem", "certs/tls.key", "id_rsa",
+                   "id_ed25519", "id_ecdsa", ".aws/credentials", ".ssh/config", ".netrc", ".npmrc", ".pypirc",
+                   "cert.p12", "cert.pfx", "store.jks", "app.keystore", ".kube/config",
+                   "service-account-prod.json", ".htpasswd", ".docker/config.json", ".gnupg/pubring.kbx"]
+    ORDINARY = [".env.example", ".env.sample", ".env.template", "notes.txt", "README.md", "steering/gates.md",
+                "src/keys.py"]
+
+    def rules(self, tool):
+        deny = self.SETTINGS.get("permissions", {}).get("deny", [])
+        return [rule[len(tool) + 1:-1] for rule in deny if rule.startswith(tool + "(") and rule.endswith(")")]
+
+    def test_each_credential_the_guard_refuses_is_denied_to_read_and_edit(self):
+        for path in self.CREDENTIALS:
+            self.assertTrue(guard.path_names_credential(path, str(ROOT)), path + " isn't one the guard refuses")
+            for tool in ("Read", "Edit"):
+                self.assertTrue(any(deny_rule_matches(rule, path) for rule in self.rules(tool)), (tool, path))
+
+    def test_an_example_env_file_and_ordinary_files_stay_readable(self):
+        for path in self.ORDINARY:
+            for tool in ("Read", "Edit"):
+                self.assertFalse([r for r in self.rules(tool) if deny_rule_matches(r, path)], (tool, path))
+
+    def test_read_and_edit_deny_the_same_paths(self):
+        self.assertTrue(self.rules("Read"))
+        self.assertEqual(sorted(self.rules("Read")), sorted(self.rules("Edit")))
+
+    def test_the_home_folders_are_denied_too(self):
+        for rule in ("~/.ssh/**", "~/.aws/credentials", "~/.gnupg/**"):
+            self.assertIn(rule, self.rules("Read"))
+
+
 def reviewer_runs(command, cwd=None):
     event = {"tool_name": "Bash", "tool_input": {"command": command}, "agent_type": "security-reviewer"}
     if cwd:

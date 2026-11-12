@@ -27,6 +27,19 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Claude Code denies credential files too
+
+[`.claude/settings.json`](.claude/settings.json) now carries a `permissions.deny` list for Read and Edit
+that names the credential files [`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses: `.env` and its
+usual variants, keys and certificates, SSH and GPG folders, cloud and registry credentials, in the repo and
+under your home folder. Claude Code applies it whether or not the guard runs. `.env.example`,
+`.env.sample` and `.env.template` stay readable. A test keeps the list and the guard in step.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy's [`.claude/settings.json`](.claude/settings.json) already has a `permissions` block, merge the `deny` entries
+into it by hand rather than taking the file whole.
+
 ## 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them
 
 Every agent [`scripts/loop.py`](scripts/loop.py) starts (planner, tester, builder, reviewer) now gets the
