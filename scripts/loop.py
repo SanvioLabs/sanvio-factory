@@ -136,6 +136,11 @@ DEFAULTS = {
     # environment less anything named like a secret, keeping only its own sign-in (AGENT_SIGN_IN) and these.
     # A machine key: a clone anyone can push to mustn't hand an agent a token.
     "agent_env": [],
+    # The domains the build and tester agents' shell commands may reach, through Claude Code's sandbox: a list,
+    # even an empty one, runs a claude build agent's Bash in it, with writes held to the worktree and temp and
+    # the home folder's credential folders unreadable. null leaves it off. The loop's own test, setup and
+    # generate commands run outside it. A machine key: a clone anyone can push to mustn't open the network.
+    "network_allow": None,
     # The file that turns a posted review's verdict into a grade out of 10, from the factory's root. A machine
     # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
     # factory's projects[<name>] entry.
@@ -817,6 +822,47 @@ def vouch(data, ready_label):
 def env_for_tests(environ):
     """The environment the test command gets: this one, less anything named like a secret."""
     return {k: v for k, v in environ.items() if not SECRET_ENV.search(k)}
+
+
+# The home folder's credential folders, unreadable from a sandboxed shell. Checked live on macOS on 2026-11-11:
+# a script opening a file under a denyRead folder got PermissionError.
+SANDBOX_DENY_READ = ["~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.npmrc", "~/.pypirc", "~/.kube",
+                     "~/.docker", "~/.gnupg", "~/.config/gcloud", "~/.azure"]
+
+
+def sandbox_settings(domains):
+    """Claude Code's sandbox block for a build agent's --settings. It fails closed: Claude Code exits where the
+    sandbox can't start, never runs a command outside it, refuses a host off the list without asking, and
+    doesn't auto-approve a sandboxed command, so the shell runs nothing it couldn't run without the sandbox."""
+    return {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
+            "autoAllowBashIfSandboxed": False,
+            "filesystem": {"denyRead": list(SANDBOX_DENY_READ)},
+            "network": {"allowedDomains": list(domains), "strictAllowlist": True}}
+
+
+def sandbox_problem(cfg, platform=None, which=None):
+    """Why network_allow can't be honoured here, or None. Checked before any issue is taken, so a sandbox that
+    can't start stops the run once instead of failing every agent."""
+    domains = cfg.get("network_allow")
+    if domains is None:
+        return None
+    if not (isinstance(domains, list) and all(isinstance(d, str) for d in domains)):
+        return "{} isn't a list of domains".format(repr(domains)[:100])
+    platform = platform or sys.platform
+    which = which or shutil.which
+    if platform == "win32":
+        return "Claude Code's sandbox doesn't run on Windows"
+    if platform.startswith("linux"):
+        missing = [tool for tool in ("bwrap", "socat") if not which(tool)]
+        if missing:
+            return "Claude Code's sandbox needs bwrap and socat on Linux, and {} isn't installed".format(
+                " and ".join(missing))
+    if named(cfg["agent"])[0] != "claude" and Path(shlex.split(cfg["agent"])[0]).name != "claude":
+        return "only a claude build agent runs in Claude Code's sandbox"
+    tester = cfg.get("tester_agent")
+    if tester and named(tester)[0] != "claude" and Path(shlex.split(tester)[0]).name != "claude":
+        return "only a claude tester agent runs in Claude Code's sandbox"
+    return None
 
 
 # What an agent signs in with, kept although SECRET_ENV matches each: without it, an agent run on an API key
@@ -2193,8 +2239,14 @@ class Loop:
                           "which could end up in a posted comment").format(which)
         if untrusted and name != "ollama":
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
-        if which in ("agent", "tester_agent") and self.project and Path(cmd[0]).name == "claude":
-            cmd = cmd + ["--settings", self.guard_settings()]
+        settings = {}
+        if which in ("agent", "tester_agent") and Path(cmd[0]).name == "claude":
+            if self.project:
+                settings.update(json.loads(self.guard_settings()))
+            if isinstance(self.cfg.get("network_allow"), list):
+                settings["sandbox"] = sandbox_settings(self.cfg["network_allow"])
+        if settings:
+            cmd = cmd + ["--settings", json.dumps(settings)]
         if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
             # The project's own test command and nothing else: the rest of Bash stays as it was.
             cmd = cmd + ["--allowedTools", "Bash({}:*)".format(self.cfg["test_command"].strip())]
@@ -3483,6 +3535,10 @@ class Loop:
         limit, why = budget(self.cfg)
         if why:
             self.log("ERROR", "max_issue_tokens in loop.json: {}, so no issue is taken".format(why)[:200])
+            return 1
+        why = sandbox_problem(self.cfg)
+        if why:
+            self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
         if limit:
             for which in dict.fromkeys(agents):

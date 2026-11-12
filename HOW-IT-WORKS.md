@@ -258,6 +258,7 @@ keeps its default:
 | `label_own_prs` | `false` | Whether `run` puts `review_label` on each pull request it opens or pushes to, so `review` takes it. Needs `review_label` set. A label that isn't added is an `ERROR` line in the log, and the issue isn't blocked. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_logins` | empty | The GitHub logins whose review a round reads, such as the person who hands this loop issues as a factory. Empty means the login the loop runs as. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `agent_env` | empty | Variables every agent keeps although their names look like a secret's, for a provider that signs in through them, such as `["AWS_PROFILE", "AWS_REGION"]` for Bedrock. Each is kept only where it's set. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `network_allow` | `null` | A list of domains, an empty one included, runs a `claude` build and tester agent's shell commands in Claude Code's sandbox: network only to those domains, writes only to the worktree and temp, and the home folder's credential folders (`~/.ssh`, `~/.aws`, `~/.config/gh` and others) unreadable. It fails closed and never auto-approves a command. `null` leaves it off. On Windows, on Linux without `bwrap` and `socat`, or with another build agent, the loop logs an `ERROR` and takes no issue. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
@@ -506,6 +507,17 @@ warning nobody reads. The tests still run code the agent
 wrote, as you, so they can reach whatever your user can on disk: a token kept in a
 file or the keychain, such as `gh`'s login, is still in reach. Run the loop
 as a user, or on a machine, with nothing you'd mind a test reading.
+
+`network_allow` closes part of that for the agents' own shell: with it set, a
+build agent's commands, including the tests it runs under `builder_runs_tests`,
+run in Claude Code's sandbox, so they reach only the listed domains and can't
+read the credential folders. It wraps the agent's Bash and nothing else. The
+loop's own `test_command`, `setup_command` and `generate_command` still run
+outside it, as you, and so do the agent's file tools and its hooks. A test
+command that writes a cache outside the worktree (`uv`, `npm`, a game engine's
+user folder) fails inside it: point the cache at the worktree or temp, or leave
+`builder_runs_tests` off. Checked live on macOS with Claude Code 2.1.322; Linux
+uses bubblewrap and socat and wasn't tried.
 
 **Reviewing pull requests.** The issues are half the queue; pull requests waiting
 on your review are the other half. Start it on the machine the loop runs on, in
