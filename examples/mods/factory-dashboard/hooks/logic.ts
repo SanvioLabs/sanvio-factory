@@ -167,9 +167,9 @@ const total = (v: unknown): { tokens: number | null; cost: number | null } => {
   return { tokens: num(o?.tokens), cost: num(o?.cost_usd) }
 }
 
-// The loop's spend as three tables: today, the last 7 days, since the document's date and per pull
-// request; the costliest issues; each model. Then when its records start, if after that date, and the
-// day-by-day chart.
+// The loop's spend as tables: today, the last 7 days, since the document's date and per pull
+// request; the costliest issues; each model; and, when the script gives it, what merged by type and
+// what the loop spent on it. Then when its records start, if after that date, and the day-by-day chart.
 export function spend(doc: Doc): Section {
   const why = missing(doc.loop_spend)
   const s = obj(doc.loop_spend)
@@ -201,6 +201,8 @@ export function spend(doc: Doc): Section {
     tables.push({ key: 'spend-models', head: ['Model', 'Cost', 'Tokens'],
       rows: models.map(m => [m.id === 'null' ? (m.label ?? 'not recorded') : model(m.id), money(m.cost), tokens(m.tokens)]) })
   }
+  const types = workByType(doc)
+  tables.push(...types.tables)
   const out: Line[] = []
   const first = str(s.first_run)
   const since = str(doc.since)
@@ -208,6 +210,7 @@ export function spend(doc: Doc): Section {
   // The chart starts where the records do: the days before hold nothing to show.
   const points = series(s.by_day, 'cost_usd')?.filter(p => !first || p.date >= first) ?? null
   if (!points?.length) out.push(NO_DAILY)
+  out.push(...types.lines)
   out.push(line('quiet', "Claude Code's estimate at API prices, not a bill"))
   if (!points?.length) return { key: 'spend', title: 'Loop spend', lines: out, tables }
   const alt = `The loop's estimated spend each day, ${day(points[0]?.date ?? null)} to ${day(points[points.length - 1]?.date ?? null)}`
@@ -215,6 +218,26 @@ export function spend(doc: Doc): Section {
   const labels = points.map(p => [day(p.date), money(p.value), tokens(used.get(p.date) ?? null)])
   return { key: 'spend', title: 'Loop spend', lines: out, tables,
     chart: { key: 'spend-chart', alt, caption: daily(points, money).text, points, unit: 'money', columns: ['Day', 'Cost', 'Tokens'], labels } }
+}
+
+// What the period's merges were, by type, and what the loop spent on the issues they close: a row for
+// bug, enhancement, documentation and chore, then Untyped, a cost the records don't give as ?. A section
+// the script couldn't fill says why in a line, and a search that stopped at its limit says the counts are
+// low. A script that doesn't give the section draws nothing for it.
+export function workByType(doc: Doc): { tables: Table[]; lines: Line[] } {
+  if (doc.work_by_type === undefined) return { tables: [], lines: [] }
+  const why = missing(doc.work_by_type)
+  const w = obj(doc.work_by_type)
+  const rows = list(w?.types).map(obj).filter((r): r is Obj => !!r)
+  if (why || !w || !rows.length) return { tables: [], lines: [line('quiet', `Work by type: ${why ?? "couldn't read it"}`)] }
+  const name = (v: unknown) => {
+    const kind = str(v)
+    return kind ? kind[0]!.toUpperCase() + kind.slice(1) : 'Untyped'
+  }
+  const table: Table = { key: 'spend-types', head: ['Merged by type', 'Merged', 'By the loop', 'Cost'],
+    rows: rows.map(r => [name(r.type), String(num(r.merged) ?? '?'), String(num(r.loop_built) ?? '?'), money(num(r.cost_usd))]) }
+  const lines = w.truncated === true ? [line('now', 'Work by type: the search hit its limit, so counts are low')] : []
+  return { tables: [table], lines }
 }
 
 // How the loop's recent issues ended, then how many of its merged pull requests needed a commit from

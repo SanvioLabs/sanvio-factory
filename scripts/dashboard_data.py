@@ -119,13 +119,27 @@
                      Why values: `{"value": null, "why": "no run history"}` and `"unreadable"`.
                      The first is for no files and the second for none that can be read. It prints no
                      title, note, link, path or command name
+    work_by_type     this repo's pull requests merged since --since, by type, and what the loop spent on
+                     the issues they close. It reads them through work_report.py's GraphQL search, one gh
+                     call of up to SEARCH_TIMEOUT seconds, and types each as that script does: the first
+                     of bug, enhancement, documentation and chore among its own labels, else among its
+                     closed issues', else null. types has one row for each of those, then null, every row
+                     always present: merged, loop_built (its branch is loop/issue-N), issues (how many
+                     different issues its pull requests close), and tokens and cost_usd, the totals over
+                     those issues' issue-N usage.json records on every date, since work merged in the
+                     period was often started before it. A person's pull request counts its issues too.
+                     A type whose issues have no loop records has tokens 0 and cost_usd 0.0, and cost_usd
+                     is null when none of their records has a cost. A project's issue-N isn't this repo's.
+                     truncated is true when the search matched more than the 1000 it returns, and then
+                     the counts are low. Why values are work_report.py's: "gh unavailable" and "GitHub's
+                     search returned a page it couldn't read". It prints no title, author, login or address
 
 A section whose source is missing or can't be read is {"value": null, "why": ...}, and the why names
 the kind of problem, never a path or an error's text. The script still exits 0. status.json keeps
 only the loop's 20 most recent issues, so throughput covers those whatever --since says, and
 cost_per_pr leaves out an issue that ran in the period but has dropped off the list. loop_rework and
-stage_times read the 200 most recently merged pull requests, so a --since far enough back can undercount
-them. Titles appear only under waiting and loop_rework, and notes only under waiting, printed as they
+stage_times read the 200 most recently merged pull requests, and work_by_type the first 1000 its search
+matches, so a --since far enough back can undercount them. Titles appear only under waiting and loop_rework, and notes only under waiting, printed as they
 were written, so they hold whatever was typed into them. Nowhere else does it print a title or a note:
 stage_times reads the same status.json and pull requests and prints none. Nowhere does it add a pull
 request's address, a pull request's or review's author, a prompt, a commit's message or author, an eval's reasons or a
@@ -970,6 +984,31 @@ def loop_history(root, since, today):
     return {"runs": runs, "by_day": by_day, "by_outcome": outcome_counts(runs), "skipped_lines": skipped}
 
 
+def work_by_type(root, since):
+    """This repo's pull requests merged since `since`, by type, with what the loop spent on the issues they close.
+
+    The pull requests and their types come from work_report.py's search, read the way it reads them. Spend
+    is over every date, since work merged in the period was often started before it."""
+    import work_report  # here, not at the top: work_report imports this module as it loads
+    pages = gh(root, "api", "graphql", "--paginate",
+               "-F", "q=repo:{{owner}}/{{repo}} is:pr is:merged merged:>={}".format(since),
+               "-f", "query=" + work_report.QUERY, timeout=work_report.SEARCH_TIMEOUT)
+    prs, matched, why = work_report.searched(pages or None)  # no page at all is a gh that didn't answer
+    if prs is None:
+        return missing(why)
+    rows = [row for row in work_report.pull_request_rows(prs) if row["merged"] >= since]
+    runs = loop_runs(root, "0000-01-01")
+    out = []
+    for kind in work_report.TYPES + (None,):
+        typed = [row for row in rows if row["type"] == kind]
+        issues = sorted({n for row in typed for n in row["closes"]})
+        entries = [e for n in issues for e in runs.get("issue-{}".format(n), [])]
+        spent = totals(entries) if entries else {"tokens": 0, "cost_usd": 0.0}
+        out.append({"type": kind, "merged": len(typed), "loop_built": sum(1 for row in typed if row["loop_built"]),
+                    "issues": len(issues), "tokens": spent["tokens"] or 0, "cost_usd": spent["cost_usd"]})
+    return {"types": out, "truncated": matched > work_report.LIMIT}
+
+
 def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
     now = now or datetime.datetime.now().astimezone()
     return {"schema": SCHEMA, "generated": now.isoformat(timespec="seconds"), "since": since,
@@ -981,7 +1020,8 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "waiting": waiting(root, now),
             "loop_rework": loop_rework(root, since),
             "stage_times": stage_times(root, since),
-            "loop_history": loop_history(root, since, today)}
+            "loop_history": loop_history(root, since, today),
+            "work_by_type": work_by_type(root, since)}
 
 
 def main(argv=None, root=ROOT, projects_dir=TRANSCRIPTS):

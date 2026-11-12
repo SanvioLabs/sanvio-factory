@@ -217,6 +217,38 @@ group('loop spend', () => {
   })
 })
 
+group('work by type', () => {
+  const row = (type: string | null, merged: number, loop_built: number, cost_usd: number | null) =>
+    ({ type, merged, loop_built, issues: merged, tokens: 0, cost_usd })
+  const TYPED = { types: [row('bug', 2, 1, 11), row('enhancement', 3, 2, 1.75), row('documentation', 1, 0, 0),
+    row('chore', 0, 0, 0), row(null, 1, 0, 0)], truncated: false }
+  const typed = (work_by_type: unknown) => spend({ ...DOC, work_by_type })
+  test('a table under Loop spend, a row for each type in order then untyped, with its counts and cost', () => {
+    const table = typed(TYPED).tables?.find(t => t.key === 'spend-types')
+    expect(table?.head).toEqual(['Merged by type', 'Merged', 'By the loop', 'Cost'])
+    expect(table?.rows).toEqual([['Bug', '2', '1', '$11.00'], ['Enhancement', '3', '2', '$1.75'],
+      ['Documentation', '1', '0', '$0.00'], ['Chore', '0', '0', '$0.00'], ['Untyped', '1', '0', '$0.00']])
+    expect(text(typed(TYPED).lines)).not.toContain('Work by type')
+  })
+  test('a type whose records give no cost shows ?, never $0.00', () => {
+    const table = typed({ types: [row('bug', 1, 1, null)], truncated: false }).tables?.find(t => t.key === 'spend-types')
+    expect(table?.rows).toEqual([['Bug', '1', '1', '?']])
+  })
+  test("a section the script couldn't fill says why in a quiet line and draws no table", () => {
+    const section = typed(GONE('gh unavailable'))
+    expect(section.tables?.find(t => t.key === 'spend-types')).toBeUndefined()
+    expect(section.lines.filter(l => l.text.startsWith('Work by type'))).toEqual([{ tone: 'quiet', text: 'Work by type: gh unavailable' }])
+  })
+  test('a search that stopped at its limit says the counts are low', () => {
+    expect(text(typed({ ...TYPED, truncated: true }).lines)).toContain('so counts are low')
+  })
+  test('a document without the section draws Loop spend as before', () => {
+    const section = spend(DOC)
+    expect(section.tables?.map(t => t.key)).toEqual(['spend-periods', 'spend-issues', 'spend-models'])
+    expect(text(section.lines)).not.toContain('Work by type')
+  })
+})
+
 group('throughput and rework', () => {
   test('a table of how recent issues ended and the repeats, then one of rework split into fixes and merges', () => {
     const [issues, rework] = throughput(DOC).tables ?? []

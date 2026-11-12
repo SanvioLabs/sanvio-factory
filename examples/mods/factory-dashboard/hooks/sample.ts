@@ -714,5 +714,50 @@ export const SAMPLE: Doc = {
         "title": "Examples: a Go project"
       }
     ]
+  },
+  "work_by_type": {
+    "truncated": false,
+    "types": [
+      {
+        "cost_usd": 4.75,
+        "issues": 1,
+        "loop_built": 1,
+        "merged": 1,
+        "tokens": 3220000,
+        "type": "bug"
+      },
+      {
+        "cost_usd": 9.95,
+        "issues": 2,
+        "loop_built": 2,
+        "merged": 2,
+        "tokens": 6680000,
+        "type": "enhancement"
+      },
+      {
+        "cost_usd": 0.0,
+        "issues": 0,
+        "loop_built": 0,
+        "merged": 1,
+        "tokens": 0,
+        "type": "documentation"
+      },
+      {
+        "cost_usd": 0.0,
+        "issues": 0,
+        "loop_built": 0,
+        "merged": 0,
+        "tokens": 0,
+        "type": "chore"
+      },
+      {
+        "cost_usd": 0.0,
+        "issues": 0,
+        "loop_built": 0,
+        "merged": 1,
+        "tokens": 0,
+        "type": null
+      }
+    ]
   }
 }
