@@ -2072,7 +2072,9 @@ class Loop:
         try:
             # UTF-8 whatever the system's default, as git, gh and the agents write it. errors="replace": a pull
             # request's diff or commit message needn't be UTF-8.
-            done = subprocess.run(cmd, cwd=str(cwd or self.root), input=stdin, shell=shell, env=env,
+            # shell=True only for the loop's own configured commands (test_command, setup, generate), which are
+            # meant to run as shell text.
+            done = subprocess.run(cmd, cwd=str(cwd or self.root), input=stdin, shell=shell, env=env,  # nosec B602
                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         except FileNotFoundError:
             return 127, "command not found: {}".format(cmd if shell else cmd[0])
