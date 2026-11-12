@@ -27,6 +27,23 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The loop's own commands run in a sandbox on a Mac
+
+On a Mac, [`scripts/loop.py`](scripts/loop.py) now runs `test_command`, `generate_command` and
+`setup_command` inside macOS's `sandbox-exec`, which keeps them from reading credential files under your
+home folder (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/.docker`,
+`~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.claude/.credentials.json`, `~/Library/Keychains`)
+and the factory's own `company/`, `local-data/`, `.inbox/` and `.claude/settings.local.json`. It covers
+reading files only: the network and the keychain's API are still in reach, and the agents' own tool calls
+aren't in it. A new key, `sandbox_commands`, on by default, turns it off with `false`, and a project's own
+`loop.json` may set it. Off a Mac nothing changes, and the loop logs one `WARN` line when it starts. A
+value other than `true` or `false` stops the run with an `ERROR` line before any issue is taken.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** a project whose tests need one of the denied paths sets `"sandbox_commands": false` in its
+`loop.json`. For the factory's own tests, set it in the factory's `loop.json`.
+
 ## 2026-11-11: Claude Code denies credential files too
 
 [`.claude/settings.json`](.claude/settings.json) now carries a `permissions.deny` list for Read and Edit

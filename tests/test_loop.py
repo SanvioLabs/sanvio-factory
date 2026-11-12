@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -959,8 +960,9 @@ class TestAPass(unittest.TestCase):
         git(self.work, "commit", "-q", "-m", "init")
         git(self.work, "push", "-q", "-u", "origin", "main")
         agent = "{} {}".format(sys.executable, bin_dir / "agent")
+        # The sandbox off, so a run is the same on any OS: the sandbox's own tests turn it on.
         self.cfg = dict(loop.DEFAULTS, agent=agent, reader_agent=agent, test_command="test -f feature.txt",
-                        max_rounds=2, poll_seconds=0, worktree_dir=str(tmp / "trees"))
+                        max_rounds=2, poll_seconds=0, worktree_dir=str(tmp / "trees"), sandbox_commands=False)
         (self.state / "issues.json").write_text(json.dumps([issue(12)]))
         (self.state / "verdict").write_text("PASS")
         os.environ["LOOP_TEST_STATE"] = str(self.state)
@@ -3977,6 +3979,108 @@ class TestAPass(unittest.TestCase):
         self.assertNotIn("HOURS", [l.split()[2] for l in self.lines()])
         self.assertIsNone(runner.hours)
 
+    # -- the sandbox ---------------------------------------------------------
+
+    def sandboxed_run(self, available=True):
+        """go() with sandbox_available() saying available. Returns (exit code, each sh call as (cmd, kwargs),
+        each Popen's argv). A sandbox-exec call runs its command in the shell, so the run is the same on any OS."""
+        calls, popens = [], []
+        sh, popen = loop.Loop.sh, subprocess.Popen
+
+        def spy(me, cmd, *args, **kwargs):
+            calls.append((cmd, kwargs))
+            if isinstance(cmd, list) and cmd[:1] == [loop.SANDBOX_EXEC]:
+                cmd, kwargs = cmd[-1], dict(kwargs, shell=True)
+            return sh(me, cmd, *args, **kwargs)
+
+        def seen(*args, **kwargs):
+            popens.append(args[0] if args else kwargs.get("args"))
+            return popen(*args, **kwargs)
+
+        with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop.Loop, "sh", spy), mock.patch.object(loop.subprocess, "Popen", side_effect=seen):
+            code = self.go()
+        return code, calls, popens
+
+    def own_commands(self, calls):
+        """The sh calls that ran test_command, generate_command or setup_command, as (how, command, partial),
+        how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way."""
+        found = []
+        for cmd, kwargs in calls:
+            if isinstance(cmd, list) and cmd[:1] == [loop.SANDBOX_EXEC]:
+                how, command = "sandbox", cmd[-1]
+                self.assertEqual(cmd, [loop.SANDBOX_EXEC, "-p", loop.sandbox_profile(Path.home(), self.work),
+                                       "/bin/sh", "-c", command])
+                self.assertFalse(kwargs.get("shell"))
+            elif kwargs.get("shell"):
+                how, command = "shell", cmd
+            else:
+                continue
+            self.assertEqual(Path(kwargs["cwd"]).resolve(), self.tree().resolve())
+            self.assertEqual(kwargs["timeout"], self.cfg["test_timeout"])
+            self.assertEqual(kwargs["env"], loop.env_for_tests(os.environ))
+            found.append((how, command, kwargs.get("partial", False)))
+        return found
+
+    def every_own_command(self):
+        """setup_command, generate_command and test_first on, so one run reaches four of the five places:
+        setup, the tester's test run, generate and the round's test run. Returns them in that order."""
+        self.setup_counts()
+        self.cfg["generate_command"] = "echo made > generated.txt"
+        self.tests_go_first()
+        test = self.cfg["test_command"]
+        return [(self.cfg["setup_command"], True), (test, False), (self.cfg["generate_command"], False), (test, False)]
+
+    def test_on_a_mac_setup_generate_and_both_test_runs_go_through_the_sandbox_and_nothing_else_does(self):
+        expected = self.every_own_command()
+        self.cfg["sandbox_commands"] = True
+        code, calls, popens = self.sandboxed_run()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.own_commands(calls), [("sandbox", c, p) for c, p in expected])
+        # No git, gh or agent call went through it: sh ran nothing else in the sandbox, and nothing the run
+        # started itself, an agent included, was started under sandbox-exec.
+        self.assertTrue(any(c[:1] == ["git"] for c, _ in calls) and any(c[:1] == ["gh"] for c, _ in calls))
+        agent = str(Path(self.tmp.name) / "bin" / "agent")
+        self.assertTrue(any(isinstance(p, list) and agent in p for p in popens), popens)
+        self.assertFalse([p for p in popens if isinstance(p, list) and p[:1] == [loop.SANDBOX_EXEC]])
+        self.assertTrue(self.opened_pr())
+
+    def test_with_the_sandbox_off_or_not_on_this_machine_each_command_runs_in_the_shell_as_before(self):
+        for on, available in ((False, True), (True, False), ("yes", True)):
+            with self.subTest(sandbox_commands=on, available=available):
+                self.tearDown()
+                self.setUp()
+                expected = self.every_own_command()
+                self.cfg["sandbox_commands"] = on
+                code, calls, _ = self.sandboxed_run(available)
+                if on == "yes":  # refused before anything runs, so nothing is sandboxed by mistake either
+                    self.assertEqual((code, self.own_commands(calls)), (1, []))
+                    continue
+                self.assertEqual(code, 0)
+                self.assertEqual(self.own_commands(calls), [("shell", c, p) for c, p in expected])
+
+    def test_the_tests_after_a_changelog_merge_go_through_the_sandbox_too(self):
+        for on, available, how in ((True, True, "sandbox"), (False, True, "shell"), (True, False, "shell")):
+            with self.subTest(sandbox_commands=on, available=available):
+                self.tearDown()
+                self.setUp()
+                self.changelog_conflict()  # its first run, which opens the pull request, with the sandbox off
+                self.cfg["sandbox_commands"] = on
+                code, calls, _ = self.sandboxed_run(available)
+                self.assertEqual(code, 0)
+                self.assertEqual(self.own_commands(calls), [(how, self.cfg["test_command"], False)])
+                self.assertEqual(self.update_lines(), ["merged main, kept both CHANGELOG.md entries"])
+
+    def test_sandbox_commands_that_isnt_a_bool_is_an_error_with_no_agent_run(self):
+        self.cfg["sandbox_commands"] = "yes"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = loop.Loop(self.work, self.cfg).run(once=True)
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR sandbox_commands in loop.json: 'yes' isn't true or false, so no issue is taken",
+                      (self.work / ".loop" / "loop.log").read_text())
+        self.assertFalse((self.state / "agents-started").exists())
+
     # -- tests written first -------------------------------------------------
 
     def tests_go_first(self, *paths):
@@ -4348,6 +4452,121 @@ class TestAPass(unittest.TestCase):
                 self.setUp()
                 self.cfg["test_paths"] = value
                 self.assertEqual(self.go(), 0)
+
+
+class TestSandbox(unittest.TestCase):
+    """sandbox_commands: on a Mac, test_command, generate_command and setup_command run inside sandbox-exec,
+    which keeps them from reading credential files and the factory's own data. The runs are in TestAPass."""
+
+    SUBPATH = re.compile(r'\(deny file-read\* \(subpath "((?:[^"\\]|\\.)*)"\)\)')
+    FILES = (".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", ".claude/settings.local.json")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make(self, base, names):
+        """Each name under base, a file for those in FILES and a folder for the rest."""
+        for name in names:
+            path = base / name
+            if name in self.FILES:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("x")
+            else:
+                path.mkdir(parents=True, exist_ok=True)
+
+    def denied(self, profile):
+        """The paths a profile denies reading, unquoted."""
+        return [re.sub(r"\\(.)", r"\1", quoted) for quoted in self.SUBPATH.findall(profile)]
+
+    def test_the_profile_denies_each_listed_path_that_exists_quoted_and_nothing_beside_it(self):
+        base = self.root / 'a "quoted" \\ name'
+        home, root = base / "home dir", base / 'the "factory"'
+        missing_home, missing_root = ".kube", ".inbox"
+        self.make(home, [n for n in loop.SANDBOX_HOME_DENIED if n != missing_home] + [".sshx", ".config/ghx"])
+        self.make(root, [n for n in loop.SANDBOX_ROOT_DENIED if n != missing_root] + ["companyx"])
+        profile = loop.sandbox_profile(home, root)
+        self.assertTrue(profile.startswith("(version 1)(allow default)"), profile)
+        expected = [str((home / n).resolve()) for n in loop.SANDBOX_HOME_DENIED if n != missing_home]
+        expected += [str((root / n).resolve()) for n in loop.SANDBOX_ROOT_DENIED if n != missing_root]
+        self.assertEqual(self.denied(profile), expected)
+        # One rule a line, and every " or \ in a path escaped: unescaped, the pattern above couldn't match them.
+        self.assertEqual(len(profile.splitlines()), 1 + len(expected))
+        self.assertIn('\\"quoted\\" \\\\ name', profile)
+        for name in (".sshx", ".config/ghx", "companyx", missing_home, missing_root):
+            self.assertFalse([p for p in self.denied(profile) if p.endswith("/" + name)], name)
+
+    def test_a_path_that_cant_be_looked_at_is_left_out_not_an_error(self):
+        # As inside the sandbox itself, where the suite runs under the loop: stat on a denied path is refused.
+        self.make(self.root, [".ssh", ".aws"])
+        stat_of = os.stat
+
+        def refuse(path, *args, **kwargs):
+            if str(path).endswith("/.ssh"):
+                raise PermissionError(1, "Operation not permitted", str(path))
+            return stat_of(path, *args, **kwargs)
+
+        with mock.patch.object(loop.os, "stat", side_effect=refuse):
+            profile = loop.sandbox_profile(self.root, self.root / "factory")
+        self.assertEqual(self.denied(profile), [str((self.root / ".aws").resolve())])
+
+    def test_the_profile_lists_the_planned_paths(self):
+        self.assertEqual(set(loop.SANDBOX_HOME_DENIED), {
+            ".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg", ".netrc",
+            ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains"})
+        self.assertEqual(set(loop.SANDBOX_ROOT_DENIED), {"company", "local-data", ".inbox",
+                                                         ".claude/settings.local.json"})
+
+    def test_the_sandbox_is_on_by_default_and_only_on_a_mac_with_sandbox_exec(self):
+        self.assertIs(loop.DEFAULTS["sandbox_commands"], True)
+        for platform, exists, available in (("darwin", True, True), ("darwin", False, False), ("linux", True, False)):
+            with self.subTest(platform=platform, exists=exists), mock.patch.object(loop.sys, "platform", platform), \
+                    mock.patch.object(loop.os.path, "exists", return_value=exists):
+                self.assertIs(loop.sandbox_available(), available)
+
+    def logged(self, available, **cfg):
+        """The log of a run inside tmux with nothing to work, sandbox_available() saying available."""
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        lp = loop.Loop(root, dict(loop.DEFAULTS, **cfg))
+        with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
+                mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
+            self.assertEqual(lp.locked(lambda: None), 0)
+        return (lp.dir / "loop.log").read_text().splitlines()
+
+    def test_without_the_sandbox_one_warn_follows_start(self):
+        lines = self.logged(False)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN test_command, generate_command and setup_command run without a sandbox here", lines[1])
+
+    def test_with_the_sandbox_or_with_it_turned_off_there_is_no_warn(self):
+        self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
+        self.assertEqual([l.split()[2] for l in self.logged(False, sandbox_commands=False)], ["START"])
+
+    def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
+        if not loop.sandbox_available():
+            self.skipTest("needs macOS's sandbox-exec")
+        probe = subprocess.run([loop.SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
+                               capture_output=True)
+        if probe.returncode != 0:
+            self.skipTest("sandbox-exec can't start a sandbox here, as inside another sandbox")
+        home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
+        for folder in (home / ".ssh", home / ".cache", tree, factory):
+            folder.mkdir(parents=True)
+        (home / ".ssh" / "key").write_text("SECRET-KEY")
+        (home / ".cache" / "ok").write_text("CACHED")
+        (tree / "f").write_text("CHECKOUT")
+        lp = loop.Loop(factory, dict(loop.DEFAULTS))
+        with mock.patch.object(loop.Path, "home", return_value=home):
+            code, out = lp.own_command("cat " + shlex.quote(str(home / ".ssh" / "key")), tree)
+            self.assertNotEqual(code, 0)
+            self.assertIn("Operation not permitted", out)
+            self.assertNotIn("SECRET-KEY", out)
+            self.assertEqual(lp.own_command("cat " + shlex.quote(str(home / ".cache" / "ok")), tree), (0, "CACHED"))
+            self.assertEqual(lp.own_command("cat f", tree), (0, "CHECKOUT"))
 
 
 # A line from each file of the harness's rules, to find in the prompts. None is a phrase the stand-in agent looks for.
@@ -5000,7 +5219,9 @@ class TestProject(unittest.TestCase):
         self.project = self.harness / "projects" / "app"
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.project)], check=True, capture_output=True)
         self.trees = tmp / "trees"
-        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "base": "develop"}))
+        # The sandbox off, as in TestAPass: a project key, so it's the project's own loop.json that says so.
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "base": "develop",
+                                                            "sandbox_commands": False}))
         self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
                              "worktree_dir": str(self.trees)})
         (self.project / "README.md").write_text("hi")
@@ -5329,10 +5550,17 @@ class TestProject(unittest.TestCase):
     def test_a_projects_own_loop_json_sets_only_the_project_keys(self):
         (self.project / "loop.json").write_text(json.dumps({
             "test_command": "make test", "test_timeout": 9, "base": "dev", "ready_label": "go",
-            "blocked_label": "stuck", "generate_command": "make files", "setup_command": "make deps"}))
+            "blocked_label": "stuck", "generate_command": "make files", "setup_command": "make deps",
+            "sandbox_commands": False}))
         cfg = loop.Loop(self.harness, project=self.project).cfg
         self.assertEqual([cfg[k] for k in loop.PROJECT_KEYS],
-                         ["make test", 9, "dev", "go", "stuck", "make files", "make deps"])
+                         ["make test", 9, "dev", "go", "stuck", "make files", "make deps", False])
+
+    def test_a_projects_own_loop_json_turns_the_sandbox_off_and_leaving_it_out_keeps_it_on(self):
+        self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], False)  # setUp's file
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
+        self.harness_config({"sandbox_commands": False})  # a project key: the factory's top level doesn't set it
+        self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], True)
 
     def test_a_project_gets_no_generate_command_from_the_harness(self):
         (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
@@ -5625,7 +5853,7 @@ class ReviewFixture:
         skill.parent.mkdir(parents=True)
         skill.write_text("The review procedure, version A.")
         self.cfg = dict(loop.DEFAULTS, reader_agent=str(self.bin / "claude") + " -p", poll_seconds=0,
-                        worktree_dir=str(tmp / "trees"))
+                        worktree_dir=str(tmp / "trees"), sandbox_commands=False)
         os.environ["LOOP_TEST_STATE"] = str(self.state)
         self.old_path = os.environ["PATH"]
         os.environ["PATH"] = str(self.bin) + os.pathsep + self.old_path
