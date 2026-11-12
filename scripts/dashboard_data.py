@@ -78,6 +78,24 @@
                      and each of those with its number, title, merges from main and other commits.
                      A pull request's commits are cached in .sanvio/cache/loop_rework.json, so
                      each is asked for once
+    stage_times      how long the loop's work spends at each stage, in two halves that each fail on their
+                     own, and the slowest stage. loop_steps reads .loop/status.json and each project's,
+                     keeps the issues whose `started` date is on or after --since, and for each of SHAPE,
+                     BUILD, VALIDATE and SCALE gives median_minutes, the median of the issues'
+                     step_seconds for it in minutes to 1 decimal, and issues, how many it covers. An
+                     issue whose step_seconds has no number for a step doesn't count in that step, and
+                     median_minutes is null when no issue does.
+                     status.json keeps only the loop's 20 most recent issues (STATUS_KEEP), so the loop-step medians cover those whatever --since says, the same limit cost_per_pr has.
+                     pull_requests asks gh for the merged pull requests, its own call apart from
+                     loop_rework's, and keeps the loop's (branch loop/issue-N) merged since --since:
+                     merged and median_hours_to_merge, from opened to merged, then reviewed and
+                     median_hours_to_first_review, from opened to the earliest review by anyone other
+                     than the pull request's author. Hours are to 1 decimal, a median is null when it
+                     covers none, and a pull request whose times can't be read isn't counted. slowest
+                     is the stage with the largest median, compared in minutes, among those with 3 or
+                     more behind it: SHAPE, BUILD, VALIDATE, SCALE, first_review or merge, or null when
+                     none has 3. Why values: loop_steps' are status.json's, "no status.json" and
+                     "unreadable", and pull_requests' is "gh failed". It prints no title, login or address
     loop_history     every loop run that ended since --since, from .loop/history.jsonl and each
                      .loop/projects/*/history.jsonl, as runs, by_day, by_outcome and skipped_lines.
                      It keys on `ended`, where loop_spend keys on when the loop picked the issue up.
@@ -105,11 +123,12 @@
 A section whose source is missing or can't be read is {"value": null, "why": ...}, and the why names
 the kind of problem, never a path or an error's text. The script still exits 0. status.json keeps
 only the loop's 20 most recent issues, so throughput covers those whatever --since says, and
-cost_per_pr leaves out an issue that ran in the period but has dropped off the list. loop_rework reads
-the 200 most recently merged pull requests, so a --since far enough back can undercount it. Titles
-appear only under waiting and loop_rework, and notes only under waiting, printed as they were written,
-so they hold whatever was typed into them. Nowhere else does it print a title or a note, and nowhere
-does it add a pull request's address, a prompt, a commit's message or author, an eval's reasons or a
+cost_per_pr leaves out an issue that ran in the period but has dropped off the list. loop_rework and
+stage_times read the 200 most recently merged pull requests, so a --since far enough back can undercount
+them. Titles appear only under waiting and loop_rework, and notes only under waiting, printed as they
+were written, so they hold whatever was typed into them. Nowhere else does it print a title or a note:
+stage_times reads the same status.json and pull requests and prints none. Nowhere does it add a pull
+request's address, a pull request's or review's author, a prompt, a commit's message or author, an eval's reasons or a
 file path other than those in changed, which are from the harness root: counts, dollars, dates, issue
 names, step, model, skill, agent, rule and case names, and a run's outcome, tests and verdicts. The dollars are the loop's estimate at API
 prices, or under activity an estimate at the prices in .sanvio/prices.json, not what was billed.
@@ -156,6 +175,9 @@ PRICES = Path("prices.json")
 PRICED_TOKENS = 1_000_000  # prices.json's figures are dollars for this many tokens
 SPEND_FIELDS = {"skills": "skill_spend", "agents": "agent_spend", "commands": "command_spend"}
 OUTCOMES = ("pr", "blocked", "stopped", "skipped")  # the states a run ends in; see record_run in loop.py
+STAGE_STEPS = ("SHAPE", "BUILD", "VALIDATE", "SCALE")  # the loop's steps stage_times takes medians of
+STAGE_PR_FIELDS = "number,headRefName,author,createdAt,mergedAt,reviews"
+SLOWEST_AT = 3  # how many a stage's median needs behind it before it can be named slowest
 
 
 def missing(why):
@@ -788,6 +810,93 @@ def loop_rework(root, since):
     return {"merged": len(prs), "reworked": len(out), "pull_requests": out}
 
 
+def median(values):
+    """The median of a list of numbers, or None when it's empty."""
+    found = sorted(values)
+    if not found:
+        return None
+    mid = len(found) // 2
+    return found[mid] if len(found) % 2 else (found[mid - 1] + found[mid]) / 2
+
+
+def rounded(value):
+    return None if value is None else round(value, 1)
+
+
+def loop_steps(root, since):
+    """For each of STAGE_STEPS, the median minutes the issues started since `since` spent at it, and how many."""
+    rows, why = status_rows(root)
+    if rows is None:
+        return missing(why)
+    counted = [row for row in rows.values() if isinstance(row.get("started"), str) and row["started"][:10] >= since]
+    out = {}
+    for step in STAGE_STEPS:
+        minutes = []
+        for row in counted:
+            spent = row.get("step_seconds")
+            seconds = number(spent.get(step)) if isinstance(spent, dict) else None
+            if seconds is None:
+                continue
+            try:
+                value = float(seconds) / 60
+            except OverflowError:  # a whole number too big for a float
+                continue
+            # json.loads() takes NaN, which json.dumps() would print as invalid JSON.
+            if math.isfinite(value):
+                minutes.append(value)
+        out[step] = {"median_minutes": rounded(median(minutes)), "issues": len(minutes)}
+    return out
+
+
+def login(person):
+    """A gh author's login, or None when it has none. Used only to compare, never printed."""
+    return text_or_none(person.get("login")) if isinstance(person, dict) else None
+
+
+def stage_pull_requests(root, since):
+    """The loop's pull requests merged since `since`: the median hours from opened to merged, and to the first
+    review by someone other than the pull request's author, each with how many it covers."""
+    pages = gh(root, "pr", "list", "--state", "merged", "--json", STAGE_PR_FIELDS, "--limit", "200")
+    if pages is None or not all(isinstance(page, list) for page in pages):
+        return missing("gh failed")
+    to_merge, to_review = [], []
+    for pr in (pr for page in pages for pr in page):
+        if not (isinstance(pr, dict) and isinstance(pr.get("headRefName"), str) and LOOP_BRANCH.match(pr["headRefName"])
+                and isinstance(pr.get("mergedAt"), str) and pr["mergedAt"][:10] >= since):
+            continue
+        opened, merged = when(pr.get("createdAt")), when(pr["mergedAt"])
+        if opened is None or merged is None:
+            continue  # a pull request whose times can't be read isn't counted
+        to_merge.append((merged - opened).total_seconds() / 3600)
+        own = login(pr.get("author"))
+        reviews = pr.get("reviews") if isinstance(pr.get("reviews"), list) else []
+        times = [when(r.get("submittedAt")) for r in reviews
+                 if isinstance(r, dict) and login(r.get("author")) not in (None, own)]
+        times = [t for t in times if t is not None]
+        if times:
+            to_review.append((min(times) - opened).total_seconds() / 3600)
+    return {"merged": len(to_merge), "median_hours_to_merge": rounded(median(to_merge)),
+            "reviewed": len(to_review), "median_hours_to_first_review": rounded(median(to_review))}
+
+
+def slowest(steps, prs):
+    """The stage with the largest median, in minutes, among those with SLOWEST_AT or more behind it, or None."""
+    found = []
+    if "why" not in steps:
+        found += [(steps[step]["median_minutes"], steps[step]["issues"], step) for step in STAGE_STEPS]
+    if "why" not in prs:
+        for name, hours, n in (("first_review", prs["median_hours_to_first_review"], prs["reviewed"]),
+                               ("merge", prs["median_hours_to_merge"], prs["merged"])):
+            found.append((None if hours is None else hours * 60, n, name))
+    found = [(minutes, name) for minutes, n, name in found if minutes is not None and n >= SLOWEST_AT]
+    return max(found, key=lambda f: f[0])[1] if found else None
+
+
+def stage_times(root, since):
+    steps, prs = loop_steps(root, since), stage_pull_requests(root, since)
+    return {"loop_steps": steps, "pull_requests": prs, "slowest": slowest(steps, prs)}
+
+
 def finite(text):
     """text as a float, refusing NaN and the infinities: json.loads() takes them, and json.dumps() would print
     them as invalid JSON. A number too big for a float, like 1e999, comes through here as well."""
@@ -871,6 +980,7 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "conversations": conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE),
             "waiting": waiting(root, now),
             "loop_rework": loop_rework(root, since),
+            "stage_times": stage_times(root, since),
             "loop_history": loop_history(root, since, today)}
 
 

@@ -27,6 +27,21 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Stage times on the factory dashboard
+
+The factory dashboard's **Throughput and rework** section gains a **Stage times** table. It gives the
+median minutes the loop's issues spent at Shape, Build, Validate and Scale, from `step_seconds` in
+`.loop/status.json`, and the median hours its merged pull requests waited for a first review by someone
+other than their author and to merge, from `gh`. Each stage shows how many it rests on, and the slowest
+stage resting on 3 or more is marked. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) prints it as a new
+`stage_times` section, in two halves that each fail on their own, with one more `gh` call on each read.
+The loop-step medians cover only the 20 issues status.json keeps, whatever `--since` says.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update` to get the pane's new table. Issues the loop ran before it recorded
+`step_seconds` have none, so the loop-step medians fill in as new issues run.
+
 ## 2026-11-12: CI checkouts don't keep the token
 
 Every `actions/checkout` in `ci.yml` and `secrets.yml` now sets
