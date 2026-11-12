@@ -218,7 +218,7 @@ export function spend(doc: Doc): Section {
 }
 
 // How the loop's recent issues ended, then how many of its merged pull requests needed a commit from
-// someone else first, split into fixes and merges from main.
+// someone else first, split into fixes and merges from main, then how long each stage takes.
 export function throughput(doc: Doc): Section {
   const out: Line[] = []
   const tables: Table[] = []
@@ -250,7 +250,60 @@ export function throughput(doc: Doc): Section {
       ], tones: ['plain', reworked.length ? 'now' : 'pass', 'plain', 'plain'] })
     }
   }
+  const stages = stageTimes(doc)
+  tables.push(...stages.tables)
+  out.push(...stages.lines)
   return { key: 'throughput', title: 'Throughput and rework', lines: out, tables }
+}
+
+// A stage's median as a person reads it: whole minutes under an hour, then hours, to a tenth under 10.
+// A stage with nothing behind it is —.
+export function duration(minutes: number | null, count: number | null): string {
+  if (!count || minutes === null) return '—'
+  if (Math.round(minutes) < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  return hours < 10 ? `${hours.toFixed(1)}h` : `${Math.round(hours)}h`
+}
+
+const STEPS = [['SHAPE', 'Shape'], ['BUILD', 'Build'], ['VALIDATE', 'Validate'], ['SCALE', 'Scale']] as const
+
+// The median time at each of the loop's steps, then to a first review and to merging, as one table with
+// how many each rests on, the slowest stage marked and in yellow. A table, not a line: six stages don't
+// fit the pane's 66 columns. A half the script couldn't read says why in place of its rows. A script
+// that doesn't give stage times draws nothing for them.
+export function stageTimes(doc: Doc): { tables: Table[]; lines: Line[] } {
+  if (doc.stage_times === undefined) return { tables: [], lines: [] }
+  const whole = missing(doc.stage_times)
+  const s = obj(doc.stage_times)
+  if (whole || !s) return { tables: [], lines: [line('quiet', `Stage times: ${whole ?? "couldn't read them"}`)] }
+  const slowest = str(s.slowest)
+  const rows: string[][] = []
+  const tones: Tone[] = []
+  const out: Line[] = []
+  const add = (key: string, label: string, minutes: number | null, count: number | null) => {
+    rows.push([key === slowest ? `${label} (slowest)` : label, duration(minutes, count), String(count ?? '?')])
+    tones.push(key === slowest ? 'now' : 'plain')
+  }
+  const stepsWhy = missing(s.loop_steps)
+  const steps = obj(s.loop_steps)
+  if (stepsWhy || !steps) out.push(line('quiet', `Loop step times: ${stepsWhy ?? "couldn't read them"}`))
+  else for (const [key, label] of STEPS) {
+    const step = obj(steps[key])
+    add(key, label, num(step?.median_minutes), num(step?.issues))
+  }
+  const prsWhy = missing(s.pull_requests)
+  const prs = obj(s.pull_requests)
+  if (prsWhy || !prs) out.push(line('quiet', `Pull request times: ${prsWhy ?? "couldn't read them"}`))
+  else {
+    const minutes = (v: unknown) => {
+      const hours = num(v)
+      return hours === null ? null : hours * 60
+    }
+    add('first_review', 'First review', minutes(prs.median_hours_to_first_review), num(prs.reviewed))
+    add('merge', 'Merge', minutes(prs.median_hours_to_merge), num(prs.merged))
+  }
+  const tables: Table[] = rows.length ? [{ key: 'throughput-stages', head: ['Stage times', 'Median', 'Count'], rows, tones }] : []
+  return { tables, lines: out }
 }
 
 // Each reviewer's newest saved eval as a table row, red when a case fails and yellow when it's stale,

@@ -5,7 +5,7 @@ saved evals, Claude Code's transcripts and GitHub. This mod opens a pane
 beside the conversation that brings them together, with what needs you first.
 In a terminal pane 66 columns wide, with made-up numbers:
 
-<img src="../../../docs/factory-dashboard.svg" width="480" alt="The Factory pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
+<img src="../../../docs/factory-dashboard.svg" width="480" alt="The Factory pane in a terminal. Under the header, the buttons Refresh, 7 days, 14 days in orange as the one chosen, and 30 days. Waiting on you: four pull requests, one in yellow whose checks are still running and a draft in red whose checks fail and that conflicts, then a blocked issue in red with why. Loop spend: a bar a day from Oct 16 to Oct 27, today's in orange, with Oct 20 and Oct 27 under them, then tables of the spend by period, issue and model. Throughput and rework, with the 67% that needed a commit in yellow, then the median time at each stage, the slowest in yellow. Evals, with a stale reviewer in yellow. Conversations: a bar a day from Oct 15 to Oct 27, then tokens by side and model. Activity: the skills, agents and commands used, each with its tokens and estimated cost, a question mark where there is no figure, and the guard's one refusal in yellow, then what the estimate rests on.">
 
 <details>
 <summary>The same pane as text</summary>
@@ -72,6 +72,14 @@ Needed a commit first                                      2 (67%)
   with a fix                                                     1
   only a merge from main                                         1
 
+Stage times                                           Median Count
+Shape                                                     4m     8
+Build                                                    23m     7
+Validate                                                 58m     7
+Scale                                                     1m     6
+First review                                            4.5h     3
+Merge (slowest)                                          25h     3
+
 ──────────────────────────────────────────────────────────────────
 
 Evals
@@ -132,7 +140,7 @@ tables: names on the left, figures in right-aligned columns. A row that needs
 you is coloured. Red is a failing check, a conflict, a blocked issue, a failing
 eval, or a list the pane couldn't read. Yellow is checks still running, a stale
 or flaky eval, an eval count it couldn't read, loop pull requests that needed a
-commit before merging, and what the guard refused.
+commit before merging, the slowest stage, and what the guard refused.
 
 Every number comes from [`scripts/dashboard_data.py`](../../../scripts/dashboard_data.py) `--json`, which the
 pane runs and draws. That script says where each one comes from and what it
@@ -182,15 +190,27 @@ A change to what the mod does raises `version` in its [`.claude-plugin/plugin.js
 | The header | The factory's folder, and when the numbers were read. **7 days**, **14 days** and **30 days** pick how many days it counts, today among them: 14 until you pick another, and the pick is kept across reloads. Picking one reads straight away, and works out what each skill, agent and command spent again, because only the last range's is kept. **Reading…** on the Refresh button during any read, and the numbers shown stay the last range's until it ends. The first read can take a minute or more, because it goes through every Claude Code transcript and keeps what it found in `.sanvio/cache/`; later reads use that again. What each skill, agent and command spent is kept for 15 minutes, then worked out from the transcripts again. Measured on one machine on 2026-10-30, a read took about 2 seconds with that kept, and 23 to 29 seconds when it was worked out again. Expect that to grow with how many transcripts you have. **Refresh failed** in red when the last refresh didn't work, with the time of the numbers still shown and why under it |
 | **Waiting on you** | Each open pull request, how long it has waited, whether it's a draft, its checks and whether it conflicts with its base, then each issue the loop blocked, with why. Red when checks fail or it conflicts, yellow while they run. **conflicts unknown** while GitHub hasn't worked it out. Without `gh`, signed out, or a list in a shape it doesn't know, it says in red that it couldn't read them: never that nothing is waiting |
 | **Loop spend** | Three tables: the loop's estimated dollars and tokens today, over the last 7 days, since the date the numbers start and per pull request it opened; the five issues that cost most; and each model, costliest first. Runs that recorded no model show as **model not recorded**. When the loop's records start later than that date, it says when, and the chart starts there |
-| **Throughput and rework** | How the loop's recent issues ended and how many took more than one round, then how many of its merged pull requests needed someone else's commit before merging, split into fixes and merges from main |
+| **Throughput and rework** | How the loop's recent issues ended and how many took more than one round, then how many of its merged pull requests needed someone else's commit before merging, split into fixes and merges from main, then the median time at each stage, described under the table |
 | **Evals** | Each reviewer's newest saved eval: stable, flaky and failing cases, which ones fail, and **stale** when the agent, a brief, a case or the eval script changed after it was saved. **stale: unknown** when git couldn't say |
 | The daily charts | At the top of **Loop spend** and **Conversations**: one bar per day, today in orange, under a line naming the busiest day. The terminal draws them in coloured blocks the width of the pane, with each day and its figures under its bar when the pane has 7 columns a day: cost and tokens for spend, tokens for conversations. Narrower, as for Conversations above, it writes only the day, under every 7th bar counting back from today's. A day whose runs recorded no cost shows **?**, not $0.00. On other surfaces it draws them as a picture whose bars say their day and value when you hover, with every bar's figures under it up to 14 days and every 7th bar's day beyond that; the tests cover Claude Desktop's, and nobody has looked at it in VS Code or the mobile app yet. A `dashboard_data.py` that doesn't give daily figures says so instead |
 | **Conversations** | Claude Code's tokens in the factory and in the loop's worktrees, with sessions and the four biggest models. Cache reads are most of it. Its chart covers every day counted, since the factory's own sessions start before the loop's |
 | **Activity** | The skills, agents and slash commands you used most, what the guard refused and how often it asked, from your usage log. Skills, agents and commands also show **Tokens** and **Est. cost**, from the transcripts of sessions started at the factory's root, including after they move into [`projects/`](../../../projects/). A session started under [`projects/`](../../../projects/) isn't counted. A subagent's are measured, and a skill's or command's are attributed from where it started to the next prompt. **Est. cost** prices those tokens from `.sanvio/prices.json`, a file you keep yourself: copy [`scripts/prices.example.json`](../../../scripts/prices.example.json), then put in each model you use, from your provider's price list, with the date you checked it. The example's own model and date price nothing of yours. The lines under the tables say when its prices were checked and when the figures were worked out. **?** means no figure, never $0.00: a name the transcripts don't list, or a model with no price. With no price file it says to fill one. **Times** and **Tokens** come from different sources, so don't divide one by the other. A `dashboard_data.py` that doesn't give these figures, or couldn't read the transcripts, draws just **Times** |
 
+Under **Throughput and rework**, the **Stage times** table gives how long the
+loop's work takes at each stage, as a median with how many it rests on: its
+**Shape**, **Build**, **Validate** and **Scale** steps, from each issue's
+`step_seconds` in `.loop/status.json`, then a merged loop pull request's wait
+from opening to its **First review** by someone other than its author, and to
+**Merge**, from `gh`. Under an hour reads in minutes, longer in hours, and a
+stage with nothing behind it shows **—**. The stage with the longest median,
+among those resting on 3 or more, is marked **(slowest)** in yellow. When
+status.json or `gh` can't be read, a line says why in place of that half's
+rows. A pull request someone opened by hand isn't counted.
+
 A section whose source is missing or can't be read says why, dimmed, and the
 rest still show. The range sets every section but **Throughput and rework**'s
-issues, which are always the loop's 20 most recent. The loop's spend only goes
+issues, which are always the loop's 20 most recent. The loop steps' stage
+times count only issues among those 20, however far back the range goes. The loop's spend only goes
 back as far as the loop's own records: a run before the loop recorded its usage
 isn't in it, so **Since** can match **7 days** in a young factory.
 
@@ -207,8 +227,9 @@ finishes.
 The script reads the loop's `.loop/` files, your usage log, `.sanvio/evals/`,
 git and every transcript under `~/.claude/projects`, and writes only its own
 caches under `.sanvio/cache/`, which is gitignored. Each refresh calls GitHub
-through `gh` twice, for the open pull requests and the merged ones, and the
-first time it sees a merged loop pull request, once more for its commits. The
+through `gh` three times, for the open pull requests and twice for the merged
+ones, once for rework and once for stage times, and the first time it sees a
+merged loop pull request, once more for its commits. The
 [`github-status`](../github-status/) mod reads the same pull requests every two minutes, so the two
 can differ for a few minutes.
 
