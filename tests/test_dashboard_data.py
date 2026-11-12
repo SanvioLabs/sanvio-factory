@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import dashboard_data  # noqa: E402 (needs scripts/ on the path first)
 import token_report  # noqa: E402 (same reason)
+from log_chain import link  # noqa: E402 (same reason)
 from usage_report import log_path  # noqa: E402 (same reason)
 
 TODAY = datetime.date(2026, 10, 27)
@@ -222,6 +223,11 @@ class Layout(Factory):
         self.assertNotIn("conversations at the factory's root", readme)
         self.assertIn("including after they move into", doc)
 
+    def test_the_activity_docs_say_what_chain_holds(self):
+        doc = dashboard_data.__doc__
+        section = doc[doc.index("\n    activity "):doc.index("\n    evals ")]
+        self.assertIn("unchained", section)
+
     def test_without_json_it_refuses(self):
         with self.assertRaises(SystemExit) as raised, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             dashboard_data.main([], root=self.root)
@@ -347,7 +353,40 @@ class Activity(Factory):
         self.fill()
         self.assertEqual(self.build()["activity"], {
             "skills": {"review-pr": 2, "learn": 1}, "agents": {"reviewer": 1}, "commands": {"standup": 1},
-            "guard_refusals": {"credential-file": 2}, "asks": 1})
+            "guard_refusals": {"credential-file": 2}, "asks": 1, "chain": "unchained"})
+
+    def write_chained(self, path, edit=False):
+        """Five lines chained with link() at path, with line 3's name changed after it was written when edit is set."""
+        lines = []
+        for n in range(1, 6):
+            entry = {"ts": "2026-10-2{}T10:00:00Z".format(n), "event": "skill", "name": "skill-{}".format(n)}
+            lines.append(json.dumps(link(lines[-1] if lines else None, entry)))
+        if edit:
+            changed = json.loads(lines[2])
+            changed["name"] = "something-else"
+            lines[2] = json.dumps(changed)
+        write(path.parent, path.name, "".join(line + "\n" for line in lines))
+
+    def test_a_chained_log_is_intact(self):
+        self.write_chained(log_path(self.root))
+        self.assertEqual(self.build()["activity"]["chain"], "intact")
+
+    def test_an_edited_log_gives_the_line_it_changed_from(self):
+        self.write_chained(log_path(self.root), edit=True)
+        self.assertEqual(self.build()["activity"]["chain"], 4)
+
+    def test_an_edit_from_before_since_still_gives_its_line(self):
+        # Line 3 is from 2026-10-23, before since; the whole log is checked, not just the window.
+        self.write_chained(log_path(self.root), edit=True)
+        activity = self.build(since="2026-10-24")["activity"]
+        self.assertEqual(activity["skills"], {"skill-4": 1, "skill-5": 1})
+        self.assertEqual(activity["chain"], 4)
+
+    def test_someone_elses_edited_log_leaves_yours_intact(self):
+        mine = log_path(self.root)
+        self.write_chained(mine)
+        self.write_chained(mine.with_name("other-" + mine.name), edit=True)
+        self.assertEqual(self.build()["activity"]["chain"], "intact")
 
 
 class Evals(Factory):
@@ -878,7 +917,7 @@ CANNED = {"skills": {"review-pr": {"runs": 2, "models": {"m-a": [1000, 2000, 300
           "commands": {"standup": {"runs": 3, "models": {}}}}
 PRICE_A = {"input": 1, "output": 2, "cache_writes": 3, "cache_reads": 4}
 USAGE_COUNTS = {"skills": {"review-pr": 2, "learn": 1}, "agents": {"reviewer": 1}, "commands": {"standup": 1},
-                "guard_refusals": {"credential-file": 2}, "asks": 1}
+                "guard_refusals": {"credential-file": 2}, "asks": 1, "chain": "unchained"}
 
 
 class ActivitySpend(Factory):

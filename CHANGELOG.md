@@ -27,6 +27,21 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The usage log can be chained and checked
+
+A new script, [`scripts/log_chain.py`](scripts/log_chain.py), gives each usage log line a `prev` field: the SHA-256 of the line
+written before it. Its `verify()` then says whether the log is `intact`, `unchained` (no line carries
+`prev`), or changed after it was written, and from which line. `usage_report.py` prints
+`Usage log changed after it was written, from line N.` after the report when a chained log was edited, and
+the dashboard's `activity` section gains a `chain` field with the same answer. Both check the whole log,
+whatever `--since` says. This shows that a log was changed, but doesn't stop the change: an edit to the
+last line, or lines dropped from the start, go unseen.
+
+Files: [`scripts/log_chain.py`](scripts/log_chain.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Nothing changes yet: the usage log hook doesn't write `prev`, so every log reads as
+unchained and nothing is reported. The chain starts once a follow-up change has the hook call `link()`.
+
 ## 2026-11-11: Bandit scans the factory's Python on every change
 
 CI's `checks` job now runs Bandit, pinned to 1.9.4, over `scripts`, [`.claude/hooks`](.claude/hooks), `tools` and `examples`
