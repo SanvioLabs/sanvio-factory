@@ -13,6 +13,10 @@ and the person reads that before it goes anywhere.
 
 Turn it off for yourself with SANVIO_USAGE_LOG=off. It never blocks a tool
 call, never prints, and never stops a session if it fails.
+
+Entries are kept for SANVIO_KEEP_DAYS, 90 by default. Each session start drops
+older ones from your own log, with the log on or off, so turning it off doesn't
+keep old entries forever. An entry whose time can't be read is kept.
 """
 import datetime
 import getpass
@@ -96,14 +100,42 @@ def record(root, line, session_id="", now=None):
         out.write(json.dumps(full) + "\n")
 
 
+def prune(root, now=None, days=None):
+    """Rewrite this person's log without the entries older than days (SANVIO_KEEP_DAYS, 90 by default).
+    The new file replaces the old in one step, so a reader never sees half a log."""
+    path = log_path(root)
+    if not path.is_file():
+        return
+    days = days or names.keep_days()
+    cutoff = (now or datetime.datetime.now(datetime.timezone.utc)) - datetime.timedelta(days=days)
+    kept = []
+    for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        try:
+            stamp = datetime.datetime.strptime(json.loads(line)["ts"], "%Y-%m-%dT%H:%M:%SZ")
+        except (ValueError, KeyError, TypeError):
+            kept.append(line)  # a time it can't read: keep it rather than guess its age
+            continue
+        if stamp.replace(tzinfo=datetime.timezone.utc) >= cutoff:
+            kept.append(line)
+    part = path.with_name(path.name + ".part")
+    part.write_text("".join(kept), encoding="utf-8")
+    os.replace(part, path)
+
+
 def main():
-    if names.logging_off():
-        return 0
     try:
         event = json.load(sys.stdin)
-        line = entry(event.get("hook_event_name", ""), event)
+        hook = event.get("hook_event_name", "")
+        root = os.environ.get("CLAUDE_PROJECT_DIR") or str(HOOKS.parent.parent)
+        if hook == "SessionStart":
+            try:
+                prune(root)
+            except Exception:  # a log it can't rewrite is kept as it is
+                pass
+        if names.logging_off():
+            return 0
+        line = entry(hook, event)
         if line:
-            root = os.environ.get("CLAUDE_PROJECT_DIR") or str(HOOKS.parent.parent)
             record(root, line, str(event.get("session_id", "")))
     except Exception:  # a broken log must never get in the way of the work
         pass

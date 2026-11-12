@@ -58,6 +58,18 @@ def headless(environ=None):
     return environ.get(PREFIX + "HEADLESS") == "1" or environ.get(_STRICTER + "HEADLESS") == "1"
 
 
+KEEP_DAYS = 90  # how long the usage log and the loop's issue folders are kept, unless SANVIO_KEEP_DAYS says
+
+
+def keep_days(environ=None):
+    """SANVIO_KEEP_DAYS as a whole number of days above 0, else KEEP_DAYS."""
+    try:
+        days = int(env("KEEP_DAYS", environ=environ).strip())
+    except ValueError:
+        return KEEP_DAYS
+    return days if days > 0 else KEEP_DAYS
+
+
 def logging_off(environ=None):
     """The usage log is switched off. The old name's off still counts: like headless, it only ever means
     less is recorded, so someone who opted out stays opted out."""

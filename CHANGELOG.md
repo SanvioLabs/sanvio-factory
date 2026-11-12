@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: Local records are kept for 90 days
+
+The usage log and the loop's per-issue folders now have a retention period, written in one table in
+[`steering/data-and-tools.md`](steering/data-and-tools.md). Each session start drops your own usage-log
+entries older than 90 days, with the log on or off. Each loop run removes an `.loop/issue-N/` folder whose
+files haven't changed in 90 days, once `.loop/status.json` no longer lists the issue, and logs a `CLEANUP`
+line naming them. `SANVIO_KEEP_DAYS` changes the period. Session retro copies keep their 30 days.
+
+Files: [`scripts/names.py`](scripts/names.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/loop.py`](scripts/loop.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`README.md`](README.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing to keep the default. Your next session start drops usage-log entries older than 90 days,
+and the next loop run removes old issue folders. To keep them longer, set `SANVIO_KEEP_DAYS` first, and
+during an investigation, stop the loop before anything else.
+
 ## 2026-11-11: Claude Code denies credential files too
 
 [`.claude/settings.json`](.claude/settings.json) now carries a `permissions.deny` list for Read and Edit

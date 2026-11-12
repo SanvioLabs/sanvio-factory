@@ -935,6 +935,43 @@ def git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, check=True)
 
 
+class TestKeepingIssueFolders(unittest.TestCase):
+    """An .loop/issue-N/ folder goes once its newest file is older than SANVIO_KEEP_DAYS (90 by default) and
+    status.json no longer lists the issue."""
+
+    def test_only_an_old_folder_for_an_unlisted_issue_goes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / ".loop"
+            state.mkdir()
+            (state / "status.json").write_text(json.dumps({"issues": [{"number": 2, "state": "pr"}]}))
+            old = time.time() - 100 * 86400
+            for n, when in ((1, old), (2, old), (3, time.time())):
+                folder = state / "issue-{}".format(n)
+                folder.mkdir()
+                (folder / "agent.log").write_text("x")
+                os.utime(folder / "agent.log", (when, when))
+            (state / "issue-notes").mkdir()  # not an issue folder, so never touched
+            with contextlib.redirect_stdout(io.StringIO()):
+                gone = loop.Loop(tmp, dict(CFG)).forget_old_issues()
+            self.assertEqual(gone, [1])
+            self.assertEqual(sorted(p.name for p in state.iterdir() if p.is_dir()),
+                             ["issue-2", "issue-3", "issue-notes"])
+            self.assertIn("CLEANUP", (state / "loop.log").read_text())
+
+    def test_a_newer_file_inside_keeps_an_old_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / ".loop"
+            folder = state / "issue-4"
+            folder.mkdir(parents=True)
+            old = time.time() - 100 * 86400
+            (folder / "plan.md").write_text("x")
+            os.utime(folder / "plan.md", (old, old))
+            (folder / "agent.log").write_text("x")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(loop.Loop(tmp, dict(CFG)).forget_old_issues(), [])
+            self.assertTrue(folder.is_dir())
+
+
 class TestAPass(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
