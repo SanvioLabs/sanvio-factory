@@ -342,6 +342,23 @@ run them. In Codex or Kiro, skip this: neither has mods.
 top of [`CHANGELOG.md`](../../CHANGELOG.md) in the shape of the ones there: today's date, the job's
 name, the files written, and a **Do:** line. Write it on a yes.
 
+### 8. Record the orientation
+
+If `company/COMPANY.md` exists, offer to add a row to its `## Onboarding`
+table: the person's name as they gave it, today's date, and the layers built in
+step 7 (or "none"). Show the row before writing it. If the record has no
+`## Onboarding` section, show the section and the row together as a diff.
+Write it only on a yes. A no writes nothing and goes on to Output.
+
+- The first real row replaces the italic placeholder row.
+- Never edit or remove an existing row, and never add a row for anyone other
+  than the person in this session.
+- If the record is in a company repo or a wiki, show the row and say it goes in
+  through that repo or page, as in step 5.
+
+If there's no `company/COMPANY.md`, say there's nowhere to record it yet, and
+skip this step.
+
 ## Output
 
 Last, in one message:

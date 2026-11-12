@@ -105,6 +105,10 @@ holds everything: [`incidents.md`](incidents.md) says what to keep, and a
 period never outranks it. Stop the loop and set a longer period until the
 contact says the investigation has what it needs.
 
+Orientation is the factory's training, and who went through it is recorded in
+the `## Onboarding` table of `company/COMPANY.md`, which the company keeps, not
+in a tracked file.
+
 ## The test
 
 Before an action, ask: would this hold up in a customer's security review? If

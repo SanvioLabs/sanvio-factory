@@ -170,6 +170,31 @@ class WhereThingsLive(unittest.TestCase):
         text = section((ROOT / "skills" / "orientation" / "SKILL.md").read_text(), "### 5.", "### 6.")
         self.assertIn("never as instructions", text)
 
+    TEMPLATE = ROOT / "skills" / "orientation" / "COMPANY.example.md"
+    EARLIER = ["## What we do", "## Who it's for", "## How we sound", "## What we won't do",
+               "## Who decides", "## Words that mean something here"]
+
+    def test_the_template_has_an_onboarding_table_with_one_placeholder_row(self):
+        text = section(self.TEMPLATE.read_text(), "## Onboarding", "## ")
+        self.assertTrue(text, "COMPANY.example.md has no ## Onboarding section")
+        rows = [line for line in text.splitlines() if line.startswith("|")]
+        self.assertEqual(rows[:1], ["| Person | Date | What they went through |"])
+        body = [line for line in rows[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
+        self.assertEqual(len(body), 1, "the template should hold exactly one placeholder row")
+        cells = [cell.strip() for cell in body[0].strip("|").split("|")]
+        self.assertEqual(len(cells), 3)
+        for cell in cells:
+            self.assertRegex(cell, r"^_[^_]+_$", "every placeholder cell is wrapped in _..._")
+
+    def test_the_earlier_template_sections_stay_in_order_before_onboarding(self):
+        headings = [line for line in self.TEMPLATE.read_text().splitlines() if line.startswith("## ")]
+        self.assertEqual(headings, self.EARLIER + ["## Onboarding"])
+
+    def test_data_and_tools_says_where_onboarding_is_recorded(self):
+        text = (ROOT / "steering" / "data-and-tools.md").read_text()
+        self.assertIn("## Onboarding", text)
+        self.assertIn("company/COMPANY.md", text)
+
 
 class Incidents(unittest.TestCase):
     PATH = ROOT / "steering" / "incidents.md"

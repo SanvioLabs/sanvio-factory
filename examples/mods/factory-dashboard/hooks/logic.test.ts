@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { activity, argv, conversations, day, evals, findRoot, missing, money, newer, outcome, parseDoc, sections, sinceFor, spend, state, throughput, tokens, waiting } from './logic'
+import { activity, argv, conversations, day, duration, evals, findRoot, missing, money, newer, outcome, parseDoc, sections, sinceFor, spend, stageTimes, state, throughput, tokens, waiting } from './logic'
 import type { Doc, Seen } from '../types'
 
 // The shape scripts/dashboard_data.py --json prints, with every section filled. The numbers and
@@ -231,6 +231,66 @@ group('throughput and rework', () => {
   })
   test("a merged count it can't read says so, not that nothing merged", () => {
     expect(text(throughput({ ...DOC, loop_rework: { pull_requests: [] } }).lines)).toBe("Rework: couldn't read it")
+  })
+})
+
+group('stage times', () => {
+  const STEPS = { SHAPE: { median_minutes: 4.2, issues: 5 }, BUILD: { median_minutes: 12, issues: 5 },
+    VALIDATE: { median_minutes: 31, issues: 5 }, SCALE: { median_minutes: null, issues: 0 } }
+  const PRS = { merged: 4, median_hours_to_merge: 20, reviewed: 3, median_hours_to_first_review: 5.2 }
+  const timed = (over: object = {}): Doc => ({ ...DOC, stage_times: { loop_steps: STEPS, pull_requests: PRS, slowest: 'merge', ...over } })
+
+  test('a table of each stage with its median and how many it rests on, the slowest marked in yellow', () => {
+    const t = stageTimes(timed()).tables[0]
+    expect(t?.head).toEqual(['Stage times', 'Median', 'Count'])
+    expect(t?.rows).toEqual([['Shape', '4m', '5'], ['Build', '12m', '5'], ['Validate', '31m', '5'], ['Scale', '-', '0'],
+      ['First review', '5.2h', '3'], ['Merge (slowest)', '20h', '4']])
+    expect(t?.tones).toEqual(['plain', 'plain', 'plain', 'plain', 'plain', 'now'])
+    for (const r of t?.rows ?? []) expect(r.length).toBe(3)
+  })
+  test('a step can be the slowest too', () => {
+    const t = stageTimes(timed({ slowest: 'VALIDATE' })).tables[0]
+    expect(t?.rows[2]).toEqual(['Validate (slowest)', '31m', '5'])
+    expect(t?.tones?.filter(tone => tone === 'now')).toHaveLength(1)
+  })
+  test('under an hour reads in minutes, from an hour in hours, to a tenth under 10', () => {
+    expect(duration(4.2, 5)).toBe('4m')
+    expect(duration(59.4, 5)).toBe('59m')
+    expect(duration(59.6, 5)).toBe('1.0h')
+    expect(duration(90, 5)).toBe('1.5h')
+    expect(duration(600, 5)).toBe('10h')
+    expect(duration(1200, 5)).toBe('20h')
+  })
+  test('a stage with none behind it is -, never 0m', () => {
+    expect(duration(null, 0)).toBe('-')
+    expect(duration(12, 0)).toBe('-')
+    expect(duration(null, null)).toBe('-')
+  })
+  test('with no slowest stage none is marked', () => {
+    const t = stageTimes(timed({ slowest: null })).tables[0]
+    expect(t?.rows.some(r => r[0]?.includes('slowest'))).toBe(false)
+    expect(t?.tones?.every(tone => tone === 'plain')).toBe(true)
+  })
+  test('a half the script couldn\'t read says why in place of its stages, and the other half still shows', () => {
+    const noPrs = stageTimes(timed({ pull_requests: GONE('gh failed'), slowest: 'VALIDATE' }))
+    expect(noPrs.tables[0]?.rows.map(r => r[0])).toEqual(['Shape', 'Build', 'Validate (slowest)', 'Scale'])
+    expect(text(noPrs.lines)).toBe('Pull request times: gh failed')
+    const noSteps = stageTimes(timed({ loop_steps: GONE('no status.json') }))
+    expect(noSteps.tables[0]?.rows.map(r => r[0])).toEqual(['First review', 'Merge (slowest)'])
+    expect(text(noSteps.lines)).toBe('Loop step times: no status.json')
+    const neither = stageTimes(timed({ loop_steps: GONE('unreadable'), pull_requests: GONE('gh failed'), slowest: null }))
+    expect(neither.tables).toEqual([])
+    expect(text(neither.lines)).toBe('Loop step times: unreadable\nPull request times: gh failed')
+  })
+  test('comes after rework in throughput, its whys after the others', () => {
+    const section = throughput(timed({ pull_requests: GONE('gh failed') }))
+    expect(section.tables?.map(t => t.key)).toEqual(['throughput-issues', 'throughput-rework', 'throughput-stages'])
+    expect(text(throughput({ ...timed({ pull_requests: GONE('gh failed') }), loop_rework: GONE('gh failed') }).lines))
+      .toBe('Rework: gh failed\nPull request times: gh failed')
+  })
+  test('a script that gives no stage times draws throughput as it did', () => {
+    expect(stageTimes(DOC)).toEqual({ tables: [], lines: [] })
+    expect(throughput(DOC).tables?.map(t => t.key)).toEqual(['throughput-issues', 'throughput-rework'])
   })
 })
 

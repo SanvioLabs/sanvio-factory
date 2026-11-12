@@ -38,6 +38,31 @@ Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`steering/data-and-t
 
 **Do:** add each MCP server you use to the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md).
 
+## 2026-11-12: Orientation records who went through it
+
+Orientation has a last step, step 8, that offers to add a row for the person to a new `## Onboarding` table in
+`company/COMPANY.md` (their name, the date and the layers they built), shown first and written only on a yes,
+and [`steering/data-and-tools.md`](steering/data-and-tools.md) says that table is where the factory's training is recorded.
+
+Files: [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add the `## Onboarding` section from [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md) to an existing company record.
+
+## 2026-11-12: Stage times on the factory dashboard
+
+The factory dashboard's **Throughput and rework** section gains a **Stage times** table. It gives the
+median minutes the loop's issues spent at Shape, Build, Validate and Scale, from `step_seconds` in
+`.loop/status.json`, and the median hours its merged pull requests waited for a first review by someone
+other than their author and to merge, from `gh`. Each stage shows how many it rests on, and the slowest
+stage resting on 3 or more is marked. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) prints it as a new
+`stage_times` section, in two halves that each fail on their own, with one more `gh` call on each read.
+The loop-step medians cover only the 20 issues status.json keeps, whatever `--since` says.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update` to get the pane's new table. Issues the loop ran before it recorded
+`step_seconds` have none, so the loop-step medians fill in as new issues run.
+
 ## 2026-11-12: CI checkouts don't keep the token
 
 Every `actions/checkout` in `ci.yml` and `secrets.yml` now sets
