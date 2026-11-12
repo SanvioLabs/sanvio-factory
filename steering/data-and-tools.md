@@ -41,6 +41,9 @@ plan and the date you checked it:
 |---|---|---|
 | _your coding agent_ | _personal, business, enterprise or API_ | _the date you checked_ |
 
+`python3 scripts/check_setup.py` compares the MCP servers in `.mcp.json`, [`.claude/settings.json`](../.claude/settings.json) and
+`.claude/settings.local.json` against this table, and warns about any it doesn't list.
+
 `company/DATA.md` says which sources are cleared for which tool.
 
 ## What may go to an AI coding tool
@@ -101,6 +104,10 @@ can't write to, move or delete the usage log or the loop's logs at all:
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a
 period never outranks it. Stop the loop and set a longer period until the
 contact says the investigation has what it needs.
+
+Orientation is the factory's training, and who went through it is recorded in
+the `## Onboarding` table of `company/COMPANY.md`, which the company keeps, not
+in a tracked file.
 
 ## The test
 

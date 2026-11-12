@@ -635,6 +635,33 @@ export const SAMPLE: Doc = {
   },
   "schema": 2,
   "since": "2026-10-15",
+  "stage_times": {
+    "loop_steps": {
+      "BUILD": {
+        "issues": 7,
+        "median_minutes": 23.3
+      },
+      "SCALE": {
+        "issues": 6,
+        "median_minutes": 1.2
+      },
+      "SHAPE": {
+        "issues": 8,
+        "median_minutes": 4.2
+      },
+      "VALIDATE": {
+        "issues": 7,
+        "median_minutes": 58.3
+      }
+    },
+    "pull_requests": {
+      "median_hours_to_first_review": 4.5,
+      "median_hours_to_merge": 25.3,
+      "merged": 3,
+      "reviewed": 3
+    },
+    "slowest": "merge"
+  },
   "waiting": {
     "blocked": [
       {
