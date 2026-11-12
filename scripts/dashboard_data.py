@@ -30,8 +30,8 @@
                      chain is "intact", "unchained" (no line carries prev, as in a log written before
                      chaining), or the line number from which the log was changed after it was
                      written. It comes from scripts/log_chain.py's verify() over the whole log,
-                     whatever --since says. skill_spend, agent_spend and command_spend hold each name's tokens and estimated
-                     cost_usd, from token_report.py's split of the transcripts in ~/.claude/projects for
+                     whatever --since says. skill_spend, agent_spend and command_spend hold each
+                     name's tokens and estimated cost_usd, from token_report.py's split of the transcripts in ~/.claude/projects for
                      sessions started at the factory's root, including after they move into projects/. A
                      session started under projects/ isn't counted. A name there needn't match the counts: a
                      subagent's are measured, a skill's or command's attributed from where it started to

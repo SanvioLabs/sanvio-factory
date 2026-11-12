@@ -37,7 +37,7 @@ the dashboard's `activity` section gains a `chain` field with the same answer. B
 whatever `--since` says. This shows that a log was changed, but doesn't stop the change: an edit to the
 last line, or lines dropped from the start, go unseen.
 
-Files: [`scripts/log_chain.py`](scripts/log_chain.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`scripts/log_chain.py`](scripts/log_chain.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing. Nothing changes yet: the usage log hook doesn't write `prev`, so every log reads as
 unchained and nothing is reported. The chain starts once a follow-up change has the hook call `link()`.

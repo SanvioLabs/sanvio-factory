@@ -25,13 +25,15 @@ def link(previous_line, entry):
     return dict(entry, prev=digest(previous_line) if previous_line else "")
 
 
-def carries_prev(raw):
-    """True when a raw line is a JSON object whose prev is a string."""
+def prev_of(raw):
+    """A raw line's prev when the line is a JSON object whose prev is a string, otherwise None."""
     try:
         found = json.loads(raw)
     except ValueError:
-        return False
-    return isinstance(found, dict) and isinstance(found.get("prev"), str)
+        return None
+    if isinstance(found, dict) and isinstance(found.get("prev"), str):
+        return found["prev"]
+    return None
 
 
 def verify(path):
@@ -50,10 +52,10 @@ def verify(path):
     lines = data.split(b"\n")
     if lines[-1] == b"":
         lines.pop()
-    start = next((n for n, raw in enumerate(lines) if carries_prev(raw)), None)
+    start = next((n for n, raw in enumerate(lines) if prev_of(raw) is not None), None)
     if start is None:
         return "unchained"
     for n in range(start + 1, len(lines)):
-        if not carries_prev(lines[n]) or json.loads(lines[n])["prev"] != digest(lines[n - 1]):
+        if prev_of(lines[n]) != digest(lines[n - 1]):
             return n + 1
     return "intact"

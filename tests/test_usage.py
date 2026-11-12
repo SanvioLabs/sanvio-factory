@@ -303,7 +303,7 @@ class Report(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("# Harness usage, 2026-10-01 to", result.stdout)
 
-    def chained_report(self, edit=False):
+    def chained_report(self, edit=False, since="2026-10-01"):
         """The report on LINES chained with link(), with line 3's name changed after it was written when edit is set."""
         lines = []
         for entry in self.LINES:
@@ -316,11 +316,18 @@ class Report(unittest.TestCase):
             log = Path(tmp) / "me.jsonl"
             log.write_text("".join(line + "\n" for line in lines))
             return subprocess.run([sys.executable, str(ROOT / "scripts" / "usage_report.py"),
-                                   "--log", str(log), "--since", "2026-10-01"],
+                                   "--log", str(log), "--since", since],
                                   capture_output=True, text=True, timeout=30)
 
     def test_an_edited_chained_log_says_from_which_line(self):
         result = self.chained_report(edit=True)
+        self.assertEqual(result.returncode, 0)
+        found = [line for line in result.stdout.splitlines() if "changed after it was written" in line]
+        self.assertEqual(found, ["Usage log changed after it was written, from line 4."])
+
+    def test_an_edit_from_before_since_is_still_reported(self):
+        # Line 3 is from 2026-10-02, before the period; the whole log is checked, not just the period.
+        result = self.chained_report(edit=True, since="2026-10-03")
         self.assertEqual(result.returncode, 0)
         found = [line for line in result.stdout.splitlines() if "changed after it was written" in line]
         self.assertEqual(found, ["Usage log changed after it was written, from line 4."])

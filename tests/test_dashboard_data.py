@@ -375,6 +375,13 @@ class Activity(Factory):
         self.write_chained(log_path(self.root), edit=True)
         self.assertEqual(self.build()["activity"]["chain"], 4)
 
+    def test_an_edit_from_before_since_still_gives_its_line(self):
+        # Line 3 is from 2026-10-23, before since; the whole log is checked, not just the window.
+        self.write_chained(log_path(self.root), edit=True)
+        activity = self.build(since="2026-10-24")["activity"]
+        self.assertEqual(activity["skills"], {"skill-4": 1, "skill-5": 1})
+        self.assertEqual(activity["chain"], 4)
+
     def test_someone_elses_edited_log_leaves_yours_intact(self):
         mine = log_path(self.root)
         self.write_chained(mine)
