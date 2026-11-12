@@ -23,13 +23,18 @@ jobs:
         with:
           # The whole history, so the mod version check below can find the merge base.
           fetch-depth: 0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - name: Tests
         run: python3 -m unittest discover -s tests -v
       # uv runs the API security tool's generated-authz tests, which need pytest.
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # Pinned exactly. To move it, change 1.9.4 here and in tests/test_ci_example.py together, then run
+      # this same command locally and clear what it finds. A finding fails the job.
+      - name: Bandit scans the factory's Python
+        if: matrix.python == '3.13'
+        run: uvx bandit==1.9.4 -q -r scripts .claude/hooks tools examples -x '*/tests/*,*/node_modules/*' --severity-level medium --confidence-level medium
       - name: The API security tool's own tests
         working-directory: tools/api-security
         run: python3 -m unittest discover -s tests -v
@@ -57,7 +62,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       - name: The loop's Windows tests
@@ -70,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22.18.0
       - name: Install

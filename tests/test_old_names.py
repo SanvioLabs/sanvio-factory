@@ -193,7 +193,7 @@ class TheModule(unittest.TestCase):
                 found.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 found.add((node.module or "").split(".")[0])
-        self.assertLessEqual(found, {"os", "pathlib", "sys", "time", "names"})
+        self.assertLessEqual(found, {"os", "pathlib", "sys", "tempfile", "time", "names"})
 
     def test_only_what_still_reads_the_old_names_imports_them(self):
         found = set()

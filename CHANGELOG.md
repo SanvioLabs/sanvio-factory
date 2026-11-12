@@ -27,7 +27,7 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-11: The loop's own commands run in a sandbox on a Mac
+## 2026-11-12: The loop's own commands run in a sandbox on a Mac
 
 On a Mac, [`scripts/loop.py`](scripts/loop.py) now runs `test_command`, `generate_command` and
 `setup_command` inside macOS's `sandbox-exec`, which keeps them from reading credential files under your
@@ -43,6 +43,76 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** a project whose tests need one of the denied paths sets `"sandbox_commands": false` in its
 `loop.json`. For the factory's own tests, set it in the factory's `loop.json`.
+
+## 2026-11-11: The usage log is written chained, and agents can't write to the logs
+
+[`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to
+the line before it under a file lock, so parallel tool calls don't break the chain and the usage report and
+the dashboard can say when the log was changed after it was written. The 90-day prune takes the same lock.
+[`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses, in every session, an agent's Write or Edit to
+`.sanvio/usage/`, `.loop/loop.log` or an issue's `agent.log`, and a shell command that writes to, moves or
+deletes one. Reading them, and copying one out, are unchanged.
+
+Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/log_chain.py`](scripts/log_chain.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Your existing log reads as "unchained" until its first new line, and the chain starts there.
+
+## 2026-11-11: The usage log can be chained and checked
+
+A new script, [`scripts/log_chain.py`](scripts/log_chain.py), gives each usage log line a `prev` field: the SHA-256 of the line
+written before it. Its `verify()` then says whether the log is `intact`, `unchained` (no line carries
+`prev`), or changed after it was written, and from which line. `usage_report.py` prints
+`Usage log changed after it was written, from line N.` after the report when a chained log was edited, and
+the dashboard's `activity` section gains a `chain` field with the same answer. Both check the whole log,
+whatever `--since` says. This shows that a log was changed, but doesn't stop the change: an edit to the
+last line, or lines dropped from the start, go unseen.
+
+Files: [`scripts/log_chain.py`](scripts/log_chain.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_log_chain.py`](tests/test_log_chain.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`skills/starter-updates/capabilities.md`](skills/starter-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Nothing changes yet: the usage log hook doesn't write `prev`, so every log reads as
+unchained and nothing is reported. The chain starts once a follow-up change has the hook call `link()`.
+
+## 2026-11-11: Bandit scans the factory's Python on every change
+
+CI's `checks` job now runs Bandit, pinned to 1.9.4, over `scripts`, [`.claude/hooks`](.claude/hooks), `tools` and `examples`
+(tests and `node_modules` left out) on every pull request and every push to `main`. A finding at medium
+severity and confidence or higher fails the job. The loop's one shell call carries `# nosec B602` with its
+reason on the line above, and [`scripts/old_names.py`](scripts/old_names.py) asks `tempfile` for the temp folder instead of falling
+back to `/tmp`, still reading `TMPDIR` first. To move the version, change it in the CI step and in
+[`tests/test_ci_example.py`](tests/test_ci_example.py) together.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`scripts/loop.py`](scripts/loop.py), [`scripts/old_names.py`](scripts/old_names.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless your copy adds Python that Bandit flags at medium or higher. Fix it, or add `# nosec <ID>` with a reason on the line above.
+
+## 2026-11-11: The build agent's shell can run in Claude Code's sandbox
+
+A new machine key, `network_allow`, runs a `claude` build and tester agent's shell commands in Claude Code's
+sandbox: network only to the domains it lists (an empty list means none), writes only to the worktree and
+temp, and the home folder's credential folders unreadable. The sandbox fails closed and never auto-approves a
+command, so the agent can run nothing it couldn't run before. Off by default. Where the sandbox can't run
+(Windows, Linux without `bwrap` and `socat`, another build agent), the loop logs an `ERROR` and takes no issue.
+The loop's own test, setup and generate commands still run outside it.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing to keep things as they are. To turn it on, set `"network_allow": []` in the factory's
+`loop.json`, add the domains your build's commands need, and on Linux install `bubblewrap` and `socat`
+first. Restart the loop to take it.
+
+## 2026-11-11: Local records are kept for 90 days
+
+The usage log and the loop's per-issue folders now have a retention period, written in one table in
+[`steering/data-and-tools.md`](steering/data-and-tools.md). Each session start drops your own usage-log
+entries older than 90 days, with the log on or off. Each loop run removes an `.loop/issue-N/` folder whose
+files haven't changed in 90 days, once `.loop/status.json` no longer lists the issue, and logs a `CLEANUP`
+line naming them. `SANVIO_KEEP_DAYS` changes the period. Session retro copies keep their 30 days.
+
+Files: [`scripts/names.py`](scripts/names.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`scripts/loop.py`](scripts/loop.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`README.md`](README.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing to keep the default. Your next session start drops usage-log entries older than 90 days,
+and the next loop run removes old issue folders. To keep them longer, set `SANVIO_KEEP_DAYS` first, and
+during an investigation, stop the loop before anything else.
 
 ## 2026-11-11: Claude Code denies credential files too
 

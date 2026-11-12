@@ -11,6 +11,7 @@ Standard library only, and names.py beside it.
 """
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -87,7 +88,7 @@ def warn_old_once(environ=None, marker_dir=None, session=None, write=None, day=N
     if not old:
         return []
     if marker_dir is None:
-        marker_dir = os.environ.get("TMPDIR") or "/tmp"
+        marker_dir = tempfile.gettempdir()
     if session is None and environ.get("CLAUDECODE"):
         session = "claude-code"  # every Bash call gets its own session: one telling a day, not one a command
     if session is None:

@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / ".claude" / "hooks"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import usage_log  # noqa: E402 (the imports need those folders on the path first)
 import usage_report  # noqa: E402 (same reason)
+from log_chain import link  # noqa: E402 (same reason)
 
 
 def pre(tool, **tool_input):
@@ -145,6 +146,88 @@ class TheHook(unittest.TestCase):
             self.assertTrue(any("usage_log.py" in c for c in commands), event)
 
 
+class Keeping(unittest.TestCase):
+    """The usage log keeps SANVIO_KEEP_DAYS of entries, 90 by default, and SessionStart drops older ones."""
+
+    def write(self, tmp, *stamps):
+        path = usage_log.log_path(tmp)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps({"ts": ts, "event": "skill", "name": "learn"}) + "\n" for ts in stamps))
+        return path
+
+    def start(self, tmp, **env):
+        env = dict({k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}, CLAUDE_PROJECT_DIR=tmp, **env)
+        return subprocess.run([sys.executable, str(HOOK)], input=json.dumps({"hook_event_name": "SessionStart"}),
+                              capture_output=True, text=True, env=env, timeout=30)
+
+    def stamps(self, path):
+        return [json.loads(line)["ts"] for line in path.read_text().splitlines()]
+
+    def test_a_session_start_drops_entries_older_than_the_period(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
+            result = self.start(tmp)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+            kept = self.stamps(path)
+            self.assertNotIn("2020-01-01T00:00:00Z", kept)
+            self.assertIn("2099-01-01T00:00:00Z", kept)
+
+    def test_the_boundary_is_the_period_in_days(self):
+        now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2026-08-13T11:59:59Z", "2026-08-13T12:00:01Z", "not a time")
+            usage_log.prune(tmp, now=now, days=90)
+            self.assertEqual(self.stamps(path), ["2026-08-13T12:00:01Z", "not a time"])
+
+    def test_the_period_is_90_days_unless_set(self):
+        self.assertEqual(usage_log.names.keep_days({}), 90)
+        self.assertEqual(usage_log.names.keep_days({"SANVIO_KEEP_DAYS": "30"}), 30)
+        for bad in ("0", "-5", "ninety", ""):
+            self.assertEqual(usage_log.names.keep_days({"SANVIO_KEEP_DAYS": bad}), 90, bad)
+
+    def test_it_keeps_old_entries_out_even_with_the_log_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z")
+            self.start(tmp, SANVIO_USAGE_LOG="off")
+            self.assertEqual(self.stamps(path), [])
+
+    def test_a_log_it_cant_rewrite_never_stops_the_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z")
+            path.parent.chmod(0o500)
+            try:
+                result = self.start(tmp)
+            finally:
+                path.parent.chmod(0o700)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+
+class Chained(unittest.TestCase):
+    """The hook writes each line through scripts/log_chain.py, so a later edit shows."""
+
+    def test_a_new_log_verifies_intact_and_an_edit_shows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("learn", "retro", "standup"):
+                usage_log.record(tmp, {"event": "skill", "name": name}, "s1")
+            path = usage_log.log_path(tmp)
+            self.assertEqual(usage_log.log_chain.verify(path), "intact")
+            lines = path.read_text().splitlines()
+            lines[1] = lines[1].replace("retro", "other")
+            path.write_text("\n".join(lines) + "\n")
+            self.assertEqual(usage_log.log_chain.verify(path), 3)
+
+    def test_the_prune_keeps_the_chain_intact(self):
+        now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            for day in ("2026-07-01", "2026-07-02", "2026-11-01", "2026-11-02"):
+                stamp = usage_log.datetime.datetime.fromisoformat(day + "T09:00:00+00:00")
+                usage_log.record(tmp, {"event": "skill", "name": "learn"}, now=stamp)
+            usage_log.prune(tmp, now=now, days=90)
+            path = usage_log.log_path(tmp)
+            self.assertEqual(len(path.read_text().splitlines()), 2)
+            self.assertEqual(usage_log.log_chain.verify(path), "intact")
+
+
 class Report(unittest.TestCase):
     LINES = [
         {"ts": "2026-10-01T09:00:00Z", "session": "a", "event": "skill", "name": "review-pr"},
@@ -245,6 +328,41 @@ class Report(unittest.TestCase):
         result = self.run_report("2026-10-01")
         self.assertEqual(result.returncode, 0)
         self.assertIn("# Harness usage, 2026-10-01 to", result.stdout)
+
+    def chained_report(self, edit=False, since="2026-10-01"):
+        """The report on LINES chained with link(), with line 3's name changed after it was written when edit is set."""
+        lines = []
+        for entry in self.LINES:
+            lines.append(json.dumps(link(lines[-1] if lines else None, entry)))
+        if edit:
+            changed = json.loads(lines[2])
+            changed["name"] = "something-else"
+            lines[2] = json.dumps(changed)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "me.jsonl"
+            log.write_text("".join(line + "\n" for line in lines))
+            return subprocess.run([sys.executable, str(ROOT / "scripts" / "usage_report.py"),
+                                   "--log", str(log), "--since", since],
+                                  capture_output=True, text=True, timeout=30)
+
+    def test_an_edited_chained_log_says_from_which_line(self):
+        result = self.chained_report(edit=True)
+        self.assertEqual(result.returncode, 0)
+        found = [line for line in result.stdout.splitlines() if "changed after it was written" in line]
+        self.assertEqual(found, ["Usage log changed after it was written, from line 4."])
+
+    def test_an_edit_from_before_since_is_still_reported(self):
+        # Line 3 is from 2026-10-02, before the period; the whole log is checked, not just the period.
+        result = self.chained_report(edit=True, since="2026-10-03")
+        self.assertEqual(result.returncode, 0)
+        found = [line for line in result.stdout.splitlines() if "changed after it was written" in line]
+        self.assertEqual(found, ["Usage log changed after it was written, from line 4."])
+
+    def test_an_intact_or_unchained_log_says_nothing_about_changes(self):
+        for result in (self.chained_report(), self.run_report("2026-10-01")):
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("# Harness usage", result.stdout)
+            self.assertNotIn("changed after it was written", result.stdout)
 
 
 if __name__ == "__main__":

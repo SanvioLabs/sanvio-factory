@@ -13,6 +13,15 @@ and the person reads that before it goes anywhere.
 
 Turn it off for yourself with SANVIO_USAGE_LOG=off. It never blocks a tool
 call, never prints, and never stops a session if it fails.
+
+Each line carries prev, the hash of the line before it (scripts/log_chain.py),
+so an edit, a removal or an insertion shows in the usage report and the
+dashboard. It shows a change; it can't stop one. Agents can't write to the log:
+.claude/hooks/guard.py refuses it.
+
+Entries are kept for SANVIO_KEEP_DAYS, 90 by default. Each session start drops
+older ones from your own log, with the log on or off, so turning it off doesn't
+keep old entries forever. An entry whose time can't be read is kept.
 """
 import datetime
 import getpass
@@ -27,6 +36,7 @@ sys.path.insert(0, str(HOOKS))
 import guard  # noqa: E402 (the guard's own verdict, so there's one copy of the rules)
 sys.path.insert(0, str(HOOKS.parent.parent / "scripts"))
 import names  # noqa: E402 (the state folder and the variables)
+import log_chain  # noqa: E402 (each line linked to the one before it, so an edit shows)
 
 FILE_TOOLS = guard.FILE_TOOLS + ("Grep", "Glob")
 COMMAND = re.compile(r"^/([A-Za-z0-9][A-Za-z0-9:_-]*)(\s|$)")
@@ -90,20 +100,52 @@ def record(root, line, session_id="", now=None):
     stamp = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     full = {"ts": stamp, "session": session_id}
     full.update(line)
+    log_chain.append(log_path(root), full)
+
+
+def prune(root, now=None, days=None):
+    """Rewrite this person's log without the entries older than days (SANVIO_KEEP_DAYS, 90 by default).
+    The new file replaces the old in one step, so a reader never sees half a log."""
     path = log_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as out:
-        out.write(json.dumps(full) + "\n")
+    if not path.is_file():
+        return
+    with log_chain.locked(path):
+        _prune(path, now, days)
+
+
+def _prune(path, now, days):
+    """prune()'s rewrite, under the log's lock so no line is appended between the read and the replace.
+    Only lines from the start go, so the chain from the first kept line on stays intact."""
+    days = days or names.keep_days()
+    cutoff = (now or datetime.datetime.now(datetime.timezone.utc)) - datetime.timedelta(days=days)
+    kept = []
+    for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        try:
+            stamp = datetime.datetime.strptime(json.loads(line)["ts"], "%Y-%m-%dT%H:%M:%SZ")
+        except (ValueError, KeyError, TypeError):
+            kept.append(line)  # a time it can't read: keep it rather than guess its age
+            continue
+        if stamp.replace(tzinfo=datetime.timezone.utc) >= cutoff:
+            kept.append(line)
+    part = path.with_name(path.name + ".part")
+    part.write_text("".join(kept), encoding="utf-8")
+    os.replace(part, path)
 
 
 def main():
-    if names.logging_off():
-        return 0
     try:
         event = json.load(sys.stdin)
-        line = entry(event.get("hook_event_name", ""), event)
+        hook = event.get("hook_event_name", "")
+        root = os.environ.get("CLAUDE_PROJECT_DIR") or str(HOOKS.parent.parent)
+        if hook == "SessionStart":
+            try:
+                prune(root)
+            except Exception:  # a log it can't rewrite is kept as it is
+                pass
+        if names.logging_off():
+            return 0
+        line = entry(hook, event)
         if line:
-            root = os.environ.get("CLAUDE_PROJECT_DIR") or str(HOOKS.parent.parent)
             record(root, line, str(event.get("session_id", "")))
     except Exception:  # a broken log must never get in the way of the work
         pass

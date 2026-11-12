@@ -81,6 +81,27 @@ the problem afterwards.
 - **Say it the same day.** If you cause or find an exposure, say so in the same
   reply. [`incidents.md`](incidents.md) has what to do in the first hour.
 
+## How long local records are kept
+
+| Record | Kept | Removed by |
+|---|---|---|
+| Your usage log, `.sanvio/usage/<user>.jsonl` | 90 days | [`.claude/hooks/usage_log.py`](../.claude/hooks/usage_log.py), at each session start, log on or off |
+| The loop's `.loop/issue-N/` folders | 90 days after their last file changed, once `.loop/status.json` no longer lists the issue | [`scripts/loop.py`](../scripts/loop.py), each time a run starts |
+| Session retro copies, `local-data/retro/` | 30 days, or once read | [`.claude/hooks/session_retro.py`](../.claude/hooks/session_retro.py) |
+
+Each usage-log line carries the hash of the line before it, so an edit, a
+removal or an insertion shows in the usage report and the dashboard as "changed
+after it was written". It shows a change and can't stop one: someone who
+recomputes the hashes can hide an edit, an edit to the last line doesn't show,
+and lines dropped from the start look the same as the 90-day prune. Agents
+can't write to, move or delete the usage log or the loop's logs at all:
+[`.claude/hooks/guard.py`](../.claude/hooks/guard.py) refuses it.
+
+`SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
+holds everything: [`incidents.md`](incidents.md) says what to keep, and a
+period never outranks it. Stop the loop and set a longer period until the
+contact says the investigation has what it needs.
+
 ## The test
 
 Before an action, ask: would this hold up in a customer's security review? If

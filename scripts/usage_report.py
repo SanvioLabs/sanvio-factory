@@ -21,6 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / ".claude" / "hooks"))
+sys.path.insert(0, str(ROOT / "scripts"))
+from log_chain import verify  # noqa: E402 (needs scripts/ on the path first)
 from usage_log import log_path  # noqa: E402 (needs .claude/hooks/ on the path first)
 
 
@@ -122,6 +124,10 @@ def main(argv=None):
         return 1
     previous = earlier_unused(args.previous) if args.previous else None
     print(report(read(path, args.since), args.since, today.isoformat(), skills_here(ROOT), previous))
+    # The whole log, whatever --since says: an edit before the period still means it was changed.
+    chain = verify(path)
+    if isinstance(chain, int):
+        print("Usage log changed after it was written, from line {}.".format(chain))
     return 0
 
 

@@ -15,6 +15,7 @@ export const SAMPLE: Doc = {
       "security-reviewer": 1
     },
     "asks": 2,
+    "chain": "unchained",
     "command_spend": {
       "standup": {
         "cost_usd": 62.115,

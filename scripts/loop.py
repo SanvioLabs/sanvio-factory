@@ -141,6 +141,11 @@ DEFAULTS = {
     # environment less anything named like a secret, keeping only its own sign-in (AGENT_SIGN_IN) and these.
     # A machine key: a clone anyone can push to mustn't hand an agent a token.
     "agent_env": [],
+    # The domains the build and tester agents' shell commands may reach, through Claude Code's sandbox: a list,
+    # even an empty one, runs a claude build agent's Bash in it, with writes held to the worktree and temp and
+    # the home folder's credential folders unreadable. null leaves it off. The loop's own test, setup and
+    # generate commands run outside it. A machine key: a clone anyone can push to mustn't open the network.
+    "network_allow": None,
     # The file that turns a posted review's verdict into a grade out of 10, from the factory's root. A machine
     # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
     # factory's projects[<name>] entry.
@@ -851,6 +856,47 @@ def sandbox_profile(home, root):
                 quoted = str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
                 rules.append('(deny file-read* (subpath "{}"))'.format(quoted))
     return "\n".join(rules)
+
+
+# The home folder's credential folders, unreadable from a sandboxed shell. Checked live on macOS on 2026-11-11:
+# a script opening a file under a denyRead folder got PermissionError.
+SANDBOX_DENY_READ = ["~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.npmrc", "~/.pypirc", "~/.kube",
+                     "~/.docker", "~/.gnupg", "~/.config/gcloud", "~/.azure"]
+
+
+def sandbox_settings(domains):
+    """Claude Code's sandbox block for a build agent's --settings. It fails closed: Claude Code exits where the
+    sandbox can't start, never runs a command outside it, refuses a host off the list without asking, and
+    doesn't auto-approve a sandboxed command, so the shell runs nothing it couldn't run without the sandbox."""
+    return {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
+            "autoAllowBashIfSandboxed": False,
+            "filesystem": {"denyRead": list(SANDBOX_DENY_READ)},
+            "network": {"allowedDomains": list(domains), "strictAllowlist": True}}
+
+
+def sandbox_problem(cfg, platform=None, which=None):
+    """Why network_allow can't be honoured here, or None. Checked before any issue is taken, so a sandbox that
+    can't start stops the run once instead of failing every agent."""
+    domains = cfg.get("network_allow")
+    if domains is None:
+        return None
+    if not (isinstance(domains, list) and all(isinstance(d, str) for d in domains)):
+        return "{} isn't a list of domains".format(repr(domains)[:100])
+    platform = platform or sys.platform
+    which = which or shutil.which
+    if platform == "win32":
+        return "Claude Code's sandbox doesn't run on Windows"
+    if platform.startswith("linux"):
+        missing = [tool for tool in ("bwrap", "socat") if not which(tool)]
+        if missing:
+            return "Claude Code's sandbox needs bwrap and socat on Linux, and {} isn't installed".format(
+                " and ".join(missing))
+    if named(cfg["agent"])[0] != "claude" and Path(shlex.split(cfg["agent"])[0]).name != "claude":
+        return "only a claude build agent runs in Claude Code's sandbox"
+    tester = cfg.get("tester_agent")
+    if tester and named(tester)[0] != "claude" and Path(shlex.split(tester)[0]).name != "claude":
+        return "only a claude tester agent runs in Claude Code's sandbox"
+    return None
 
 
 # What an agent signs in with, kept although SECRET_ENV matches each: without it, an agent run on an API key
@@ -1890,6 +1936,32 @@ class Loop:
         self.log_once("STALE", "scripts/loop.py changed since this run started; "
                                "run python3 scripts/loop.py stop, then start it again to use it")
 
+    def forget_old_issues(self, now=None):
+        """Remove each issue-N folder here whose newest file is older than SANVIO_KEEP_DAYS (90 by default)
+        and whose issue status.json no longer lists, and return their numbers. A folder it can't read or
+        remove is left as it is."""
+        listed = {row.get("number") for row in self.status.get("issues", []) if isinstance(row, dict)}
+        cutoff = (now or time.time()) - names.keep_days() * 86400
+        gone = []
+        for folder in sorted(self.dir.glob("issue-*")):
+            number = folder.name[len("issue-"):]
+            if not (folder.is_dir() and number.isdigit()) or int(number) in listed:
+                continue
+            try:
+                # By its files: adding a file to a folder updates the folder's own time.
+                files = [p.stat().st_mtime for p in folder.rglob("*") if p.is_file()]
+                newest = max(files) if files else folder.stat().st_mtime
+                if newest < cutoff:
+                    shutil.rmtree(folder)
+                    gone.append(int(number))
+            except OSError:
+                continue
+        if gone:
+            self.log("CLEANUP", "removed {} issue folder{} older than {} days: {}".format(
+                len(gone), "" if len(gone) == 1 else "s", names.keep_days(),
+                ", ".join("#{}".format(n) for n in gone)))
+        return gone
+
     def log_once(self, step, text, number=None):
         """Log a line once per run, for checks repeated on every idle poll."""
         with self.write_lock:
@@ -2018,6 +2090,16 @@ class Loop:
             except (OSError, ValueError) as err:
                 self.log("ERROR", "could not write history.jsonl: {}".format(type(err).__name__), number)
 
+    def own_command(self, command, tree, partial=False):
+        """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
+        environment. With sandbox_commands true on a Mac, inside sandbox-exec, which can't read what
+        sandbox_profile denies. Anything else runs it as before: only true turns the sandbox on."""
+        env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
+        if self.cfg.get("sandbox_commands") is True and sandbox_available():
+            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
+            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+        return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
+
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
         """(exit code, combined output, or stdout alone with stderr=False).
 
@@ -2029,22 +2111,14 @@ class Loop:
         code, out = self.ran(cmd, cwd, stdin, timeout, shell, stderr, env, partial)
         return code, out if code == 0 else shown_url(out)
 
-    def own_command(self, command, tree, partial=False):
-        """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
-        environment. With sandbox_commands true on a Mac, inside sandbox-exec, which can't read what
-        sandbox_profile denies. Anything else runs it as before: only true turns the sandbox on."""
-        env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
-        if self.cfg.get("sandbox_commands") is True and sandbox_available():
-            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
-            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
-        return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
-
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial):
         """sh's command, its output as it came."""
         try:
             # UTF-8 whatever the system's default, as git, gh and the agents write it. errors="replace": a pull
             # request's diff or commit message needn't be UTF-8.
-            done = subprocess.run(cmd, cwd=str(cwd or self.root), input=stdin, shell=shell, env=env,
+            # shell=True only for the loop's own configured commands (test_command, setup, generate), which are
+            # meant to run as shell text.
+            done = subprocess.run(cmd, cwd=str(cwd or self.root), input=stdin, shell=shell, env=env,  # nosec B602
                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
         except FileNotFoundError:
             return 127, "command not found: {}".format(cmd if shell else cmd[0])
@@ -2211,8 +2285,14 @@ class Loop:
                           "which could end up in a posted comment").format(which)
         if untrusted and name != "ollama":
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
-        if which in ("agent", "tester_agent") and self.project and Path(cmd[0]).name == "claude":
-            cmd = cmd + ["--settings", self.guard_settings()]
+        settings = {}
+        if which in ("agent", "tester_agent") and Path(cmd[0]).name == "claude":
+            if self.project:
+                settings.update(json.loads(self.guard_settings()))
+            if isinstance(self.cfg.get("network_allow"), list):
+                settings["sandbox"] = sandbox_settings(self.cfg["network_allow"])
+        if settings:
+            cmd = cmd + ["--settings", json.dumps(settings)]
         if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
             # The project's own test command and nothing else: the rest of Bash stays as it was.
             cmd = cmd + ["--allowedTools", "Bash({}:*)".format(self.cfg["test_command"].strip())]
@@ -3477,6 +3557,8 @@ class Loop:
         waits for each worker, which stops itself before its next round. The end of --for starts
         nothing new either, and waits for each worker to finish its issue."""
         self.started_with = fingerprint()
+        if not dry_run:
+            self.forget_old_issues()
         test_first = self.cfg.get("test_first") is True
         agents = ("agent", "reader_agent", self.reviewer()) + ((self.tester(),) if test_first else ())
         # An agent that can't do its job is found before any issue is taken, not one blocked issue later.
@@ -3501,6 +3583,10 @@ class Loop:
         limit, why = budget(self.cfg)
         if why:
             self.log("ERROR", "max_issue_tokens in loop.json: {}, so no issue is taken".format(why)[:200])
+            return 1
+        why = sandbox_problem(self.cfg)
+        if why:
+            self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
         if limit:
             for which in dict.fromkeys(agents):
