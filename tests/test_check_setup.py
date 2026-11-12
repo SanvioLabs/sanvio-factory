@@ -1,4 +1,5 @@
 """Run with: python3 -m unittest discover -s tests"""
+import json
 import os
 import shutil
 import subprocess
@@ -300,6 +301,125 @@ class SetupCheck(unittest.TestCase):
     def test_no_personal_skills_folder_passes(self):
         self.write_skill(self.root / "skills", "review-pr")
         self.assertEqual(check_setup.check_shadowed_skills(self.root, self.root / "nohome")[0], "PASS")
+
+    MCP_FIX = ("Add it to the Approved tools table in steering/data-and-tools.md once the customer "
+               "has agreed to it, or remove it")
+
+    def write_approved(self, *rows, extra=""):
+        table = "".join("| {} | business | 2026-11-01 |\n".format(row) for row in rows)
+        path = self.root / "steering" / "data-and-tools.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# Data and tools\n\n## Approved tools\n\nIntro.\n\n| Tool | Plan | Checked |\n"
+                        "|---|---|---|\n| _your coding agent_ | _personal_ | _the date_ |\n" + table +
+                        "\nAfter the table.\n\n## What may go to an AI coding tool\n\n"
+                        "| Fine | Not without written permission |\n|---|---|\n"
+                        "| Source code | Customers' personal data |\n" + extra)
+
+    def write_servers(self, source, servers):
+        path = self.root / source
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"mcpServers": servers}))
+
+    def test_no_mcp_config_passes(self):
+        self.write_approved("github")
+        status, line, fix = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "PASS")
+        self.assertTrue(line.startswith("mcp: "))
+        self.assertIsNone(fix)
+
+    def test_a_listed_server_in_another_letter_case_passes_and_is_named(self):
+        self.write_approved("`GitHub`")
+        self.write_servers(".mcp.json", {"github": {"command": "gh-mcp"}})
+        status, line, _ = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "PASS")
+        self.assertIn("github", line)
+
+    def assert_unlisted_warns(self, source):
+        self.write_approved("github")
+        self.write_servers(source, {"linear": {"command": "linear-mcp"}})
+        status, line, fix = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertTrue(line.startswith("mcp: "))
+        self.assertIn("linear ({})".format(source), line)
+        self.assertIn(self.MCP_FIX, fix)
+
+    def test_an_unlisted_server_in_mcp_json_warns(self):
+        self.assert_unlisted_warns(".mcp.json")
+
+    def test_an_unlisted_server_in_claude_settings_warns(self):
+        self.assert_unlisted_warns(".claude/settings.json")
+
+    def test_an_unlisted_server_in_claude_local_settings_warns(self):
+        self.assert_unlisted_warns(".claude/settings.local.json")
+
+    def test_a_server_matching_only_an_italic_placeholder_warns(self):
+        self.write_approved("_github_", "*linear*")
+        self.write_servers(".mcp.json", {"github": {}, "linear": {}})
+        status, line, _ = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertIn("github (.mcp.json)", line)
+        self.assertIn("linear (.mcp.json)", line)
+
+    def test_a_config_that_isn_t_json_warns_without_a_crash(self):
+        self.write_approved("github")
+        (self.root / ".mcp.json").write_text("{not json")
+        status, line, _ = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertIn(".mcp.json can't be read", line)
+
+    def test_an_mcp_servers_that_isn_t_an_object_warns_beside_an_unlisted_server(self):
+        self.write_approved("github")
+        (self.root / ".claude").mkdir()
+        (self.root / ".claude" / "settings.json").write_text(json.dumps({"mcpServers": ["github"]}))
+        self.write_servers(".mcp.json", {"linear": {}})
+        status, line, fix = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertIn(".claude/settings.json can't be read", line)
+        self.assertIn("linear (.mcp.json)", line)
+        self.assertIn(self.MCP_FIX, fix)
+
+    def test_a_server_s_env_headers_and_args_are_never_printed(self):
+        self.write_approved("github")
+        self.write_servers(".mcp.json", {"linear": {
+            "command": "npx", "args": ["--api-key-arg-text"], "env": {"TOKEN": "s3cret-value"},
+            "headers": {"Authorization": "Bearer header-value"}}})
+        status, line, fix = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        for value in ("s3cret-value", "header-value", "--api-key-arg-text", "TOKEN", "Authorization"):
+            self.assertNotIn(value, line + fix)
+
+    def test_a_name_only_in_the_plan_column_or_another_table_is_not_approved(self):
+        self.write_approved("github", extra="| linear | x |\n")
+        (self.root / "steering" / "data-and-tools.md").write_text(
+            (self.root / "steering" / "data-and-tools.md").read_text().replace(
+                "| github | business |", "| github | slack |"))
+        self.write_servers(".mcp.json", {"slack": {}, "source code": {}, "linear": {}})
+        status, line, _ = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        for name in ("slack", "source code", "linear"):
+            self.assertIn("{} (.mcp.json)".format(name), line)
+
+    def test_servers_under_the_home_folder_are_never_named(self):
+        self.write_approved("github")
+        home = self.root / "home"
+        (home / ".claude").mkdir(parents=True)
+        (home / ".claude" / "settings.json").write_text(json.dumps({"mcpServers": {"homeonly": {}}}))
+        (home / ".claude.json").write_text(json.dumps({"mcpServers": {"homeuser": {}}}))
+        lines = [line for _, line, _ in check_setup.run(self.root, home) if line.startswith("mcp:")]
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn("homeonly", lines[0])
+        self.assertNotIn("homeuser", lines[0])
+
+    def test_an_env_key_named_like_a_tool_is_not_a_server(self):
+        self.write_approved("github")
+        self.write_servers(".mcp.json", {"linear": {"env": {"github": "x"}}})
+        status, line, _ = check_setup.check_mcp(self.root)
+        self.assertEqual(status, "WARN")
+        self.assertIn("linear (.mcp.json)", line)
+        self.assertNotIn("github", line)
+
+    def test_the_mcp_check_runs_with_the_others(self):
+        self.assertTrue(any(line.startswith("mcp:") for _, line, _ in check_setup.run(self.root)))
 
     def test_projects_are_never_committed_but_stay_searchable(self):
         def ignored(path):
