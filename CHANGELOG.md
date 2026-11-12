@@ -27,6 +27,21 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-11: The build agent's shell can run in Claude Code's sandbox
+
+A new machine key, `network_allow`, runs a `claude` build and tester agent's shell commands in Claude Code's
+sandbox: network only to the domains it lists (an empty list means none), writes only to the worktree and
+temp, and the home folder's credential folders unreadable. The sandbox fails closed and never auto-approves a
+command, so the agent can run nothing it couldn't run before. Off by default. Where the sandbox can't run
+(Windows, Linux without `bwrap` and `socat`, another build agent), the loop logs an `ERROR` and takes no issue.
+The loop's own test, setup and generate commands still run outside it.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing to keep things as they are. To turn it on, set `"network_allow": []` in the factory's
+`loop.json`, add the domains your build's commands need, and on Linux install `bubblewrap` and `socat`
+first. Restart the loop to take it.
+
 ## 2026-11-11: Local records are kept for 90 days
 
 The usage log and the loop's per-issue folders now have a retention period, written in one table in

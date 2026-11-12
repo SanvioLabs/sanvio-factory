@@ -972,6 +972,42 @@ class TestKeepingIssueFolders(unittest.TestCase):
             self.assertTrue(folder.is_dir())
 
 
+class TestSandboxSettings(unittest.TestCase):
+    """network_allow: the build and tester agents' shell in Claude Code's sandbox."""
+
+    def test_the_settings_fail_closed_and_never_widen_the_shell(self):
+        box = loop.sandbox_settings(["pypi.org"])
+        self.assertIs(box["enabled"], True)
+        self.assertIs(box["failIfUnavailable"], True)
+        self.assertIs(box["allowUnsandboxedCommands"], False)
+        self.assertIs(box["autoAllowBashIfSandboxed"], False)
+        self.assertEqual(box["network"], {"allowedDomains": ["pypi.org"], "strictAllowlist": True})
+        for folder in ("~/.ssh", "~/.aws", "~/.config/gh"):
+            self.assertIn(folder, box["filesystem"]["denyRead"])
+
+    def problem(self, value, platform="darwin", found=True, agent="claude -p --permission-mode acceptEdits"):
+        cfg = dict(loop.DEFAULTS, network_allow=value, agent=agent)
+        return loop.sandbox_problem(cfg, platform=platform, which=lambda name: "/usr/bin/" + name if found else None)
+
+    def test_unset_is_never_a_problem(self):
+        self.assertIsNone(self.problem(None, platform="win32", found=False, agent="codex"))
+
+    def test_a_list_on_a_mac_or_a_linux_with_its_tools_is_fine(self):
+        self.assertIsNone(self.problem([]))
+        self.assertIsNone(self.problem(["pypi.org"], platform="linux"))
+
+    def test_where_it_cant_run_it_says_why(self):
+        self.assertIn("Windows", self.problem([], platform="win32"))
+        self.assertIn("bwrap", self.problem([], platform="linux", found=False))
+        self.assertIn("list", self.problem("pypi.org"))
+        self.assertIn("list", self.problem([3]))
+        self.assertIn("claude", self.problem([], agent="codex"))
+
+    def test_it_is_a_machine_key_and_off_by_default(self):
+        self.assertIsNone(loop.DEFAULTS["network_allow"])
+        self.assertIn("network_allow", loop.MACHINE_KEYS)
+
+
 class TestAPass(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1063,6 +1099,42 @@ class TestAPass(unittest.TestCase):
         names = json.loads((self.state / "build-env").read_text())
         self.assertNotIn("GH_TOKEN", names)
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", names)
+
+    def claude_agents(self):
+        """The claude stand-in on PATH, as the build and reader agents."""
+        claude = Path(self.tmp.name) / "bin" / "claude"
+        claude.write_text(AGENT)
+        claude.chmod(claude.stat().st_mode | stat.S_IEXEC)
+        self.cfg.update(agent="claude -p --permission-mode acceptEdits", reader_agent="claude -p")
+
+    def settings_for(self, step):
+        argv = json.loads((self.state / (step + "-argv")).read_text())
+        return json.loads(argv[argv.index("--settings") + 1]) if "--settings" in argv else {}
+
+    def test_network_allow_puts_the_build_in_the_sandbox_and_not_the_readers(self):
+        self.claude_agents()
+        self.cfg.update(network_allow=["pypi.org"])
+        with mock.patch.object(loop, "sandbox_problem", return_value=None):
+            self.go()
+        box = self.settings_for("build")["sandbox"]
+        self.assertEqual(box["network"]["allowedDomains"], ["pypi.org"])
+        self.assertIs(box["autoAllowBashIfSandboxed"], False)
+        for step in ("plan", "review"):
+            self.assertNotIn("sandbox", self.settings_for(step), step)
+
+    def test_without_network_allow_no_agent_gets_sandbox_settings(self):
+        self.claude_agents()
+        self.go()
+        for step in ("plan", "build", "review"):
+            self.assertNotIn("sandbox", self.settings_for(step), step)
+
+    def test_a_sandbox_that_cant_run_takes_no_issue(self):
+        self.claude_agents()
+        self.cfg.update(network_allow=[])
+        with mock.patch.object(loop, "sandbox_problem", return_value="Claude Code's sandbox doesn't run on Windows"):
+            self.go()
+        self.assertTrue(any("ERROR" in l and "network_allow" in l for l in self.lines()))
+        self.assertFalse((self.state / "agents-started").exists())
 
     def test_agent_env_hands_an_agent_the_provider_variables_it_names(self):
         self.cfg.update(agent_env=["AWS_PROFILE"])
