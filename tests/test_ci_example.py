@@ -353,5 +353,79 @@ class DependencyScan(unittest.TestCase):
         self.assertNotRegex(code, r"(?m)^\s*directories:")
 
 
+CI = ROOT / ".github" / "workflows" / "ci.yml"
+
+
+class BanditScan(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(CI.exists(), ".github/workflows/ci.yml is missing")
+        self.text = CI.read_text()
+        job = job_block(self.text, "checks")
+        self.assertIsNotNone(job, "no checks: job under jobs:")
+        self.steps = steps_of(job)
+        found = step_with(self.steps, r"uvx bandit")
+        self.assertEqual(len(found), 1, "no single step in checks runs uvx bandit")
+        self.step = found[0]
+
+    def test_the_version_is_pinned_exactly(self):
+        # Moving the version means changing it here and in ci.yml together.
+        self.assertRegex(self.step, r"(?m)^\s+run:\s*" + re.escape(
+            "uvx bandit==1.9.4 -q -r scripts .claude/hooks tools examples -x '*/tests/*,*/node_modules/*'"
+            " --severity-level medium --confidence-level medium") + r"\s*$")
+        self.assertRegex(self.step, r"uvx bandit==\d+\.\d+\.\d+ ")
+        self.assertNotRegex(self.step, r"bandit\s*(?:>=|~=|<|>|!=)")
+        self.assertNotRegex(self.step, r"uvx bandit(?!==)")
+
+    def test_it_scans_the_factorys_python_at_medium_and_up(self):
+        for part in ("-r scripts .claude/hooks tools examples", "-x '*/tests/*,*/node_modules/*'",
+                     "--severity-level medium", "--confidence-level medium"):
+            self.assertIn(part, self.step)
+
+    def test_a_finding_fails_the_job(self):
+        self.assertNotIn("continue-on-error", self.step)
+        self.assertNotRegex(self.step, r"\|\|\s*true")
+
+    def test_it_runs_on_every_pull_request_and_every_push_to_main(self):
+        triggers = top_level_block(self.text, "on")
+        self.assertIsNotNone(triggers, "no on: block")
+        push = re.search(r"(?m)^  push:[ \t]*\n((?:    .*\n?)*)", triggers)
+        self.assertIsNotNone(push, "no push: trigger")
+        self.assertRegex(push.group(1), r"(?m)^\s+branches:\s*\[main\]\s*$")
+        pull_request = re.search(r"(?m)^  pull_request:[ \t]*\n((?:    .*\n?)*)", triggers)
+        self.assertIsNotNone(pull_request, "no pull_request: trigger")
+        self.assertNotRegex(pull_request.group(1), r"(?m)^\s+paths(?:-ignore)?:")
+
+    def test_it_runs_after_uv_is_set_up(self):
+        setup = step_with(self.steps, r"^\s*-?\s*uses:\s*astral-sh/setup-uv@")
+        self.assertEqual(len(setup), 1, "no single setup-uv step in checks")
+        self.assertLess(self.steps.index(setup[0]), self.steps.index(self.step))
+
+    def test_the_loops_one_nosec_names_its_test_at_the_shell_call(self):
+        lines = (ROOT / "scripts" / "loop.py").read_text(encoding="utf-8").splitlines()
+        marked = [i for i, line in enumerate(lines) if "nosec" in line]
+        self.assertEqual(len(marked), 1, "scripts/loop.py should have exactly one nosec")
+        line = lines[marked[0]]
+        self.assertRegex(line, r"subprocess\.run\(.*shell=shell.*# nosec B602\s*$")
+        # It sits in ran(), the body of sh(), the one place the loop runs shell text.
+        defs = [i for i, text in enumerate(lines[:marked[0]]) if re.match(r"\s*def ", text)]
+        self.assertRegex(lines[defs[-1]], r"^\s*def ran\(")
+        self.assertRegex(lines[defs[-2]], r"^\s*def sh\(")
+        self.assertIn("self.ran(", "\n".join(lines[defs[-2]:defs[-1]]))
+
+    def test_no_nosec_is_bare(self):
+        for folder in ("scripts", ".claude/hooks", "tools"):
+            for path in (ROOT / folder).rglob("*.py"):
+                if "node_modules" in path.parts:
+                    continue
+                for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                    with self.subTest(path=path.relative_to(ROOT).as_posix(), line=number):
+                        self.assertNotRegex(line, r"#\s*nosec\s*$")
+
+    def test_old_names_asks_tempfile_for_the_temp_folder(self):
+        text = (ROOT / "scripts" / "old_names.py").read_text(encoding="utf-8")
+        self.assertNotIn('"/tmp"', text)
+        self.assertIn("tempfile.gettempdir()", text)
+
+
 if __name__ == "__main__":
     unittest.main()

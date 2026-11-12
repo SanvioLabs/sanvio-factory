@@ -30,6 +30,11 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       # uv runs the API security tool's generated-authz tests, which need pytest.
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      # Pinned exactly. To move it, change 1.9.4 here and in tests/test_ci_example.py together, then run
+      # this same command locally and clear what it finds. A finding fails the job.
+      - name: Bandit scans the factory's Python
+        if: matrix.python == '3.13'
+        run: uvx bandit==1.9.4 -q -r scripts .claude/hooks tools examples -x '*/tests/*,*/node_modules/*' --severity-level medium --confidence-level medium
       - name: The API security tool's own tests
         working-directory: tools/api-security
         run: python3 -m unittest discover -s tests -v
