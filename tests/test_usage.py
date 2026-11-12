@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / ".claude" / "hooks"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import usage_log  # noqa: E402 (the imports need those folders on the path first)
 import usage_report  # noqa: E402 (same reason)
+from log_chain import link  # noqa: E402 (same reason)
 
 
 def pre(tool, **tool_input):
@@ -301,6 +302,34 @@ class Report(unittest.TestCase):
         result = self.run_report("2026-10-01")
         self.assertEqual(result.returncode, 0)
         self.assertIn("# Harness usage, 2026-10-01 to", result.stdout)
+
+    def chained_report(self, edit=False):
+        """The report on LINES chained with link(), with line 3's name changed after it was written when edit is set."""
+        lines = []
+        for entry in self.LINES:
+            lines.append(json.dumps(link(lines[-1] if lines else None, entry)))
+        if edit:
+            changed = json.loads(lines[2])
+            changed["name"] = "something-else"
+            lines[2] = json.dumps(changed)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "me.jsonl"
+            log.write_text("".join(line + "\n" for line in lines))
+            return subprocess.run([sys.executable, str(ROOT / "scripts" / "usage_report.py"),
+                                   "--log", str(log), "--since", "2026-10-01"],
+                                  capture_output=True, text=True, timeout=30)
+
+    def test_an_edited_chained_log_says_from_which_line(self):
+        result = self.chained_report(edit=True)
+        self.assertEqual(result.returncode, 0)
+        found = [line for line in result.stdout.splitlines() if "changed after it was written" in line]
+        self.assertEqual(found, ["Usage log changed after it was written, from line 4."])
+
+    def test_an_intact_or_unchained_log_says_nothing_about_changes(self):
+        for result in (self.chained_report(), self.run_report("2026-10-01")):
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("# Harness usage", result.stdout)
+            self.assertNotIn("changed after it was written", result.stdout)
 
 
 if __name__ == "__main__":

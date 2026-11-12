@@ -27,7 +27,10 @@
                      state, each one's round, and how many took more than one
     activity         your usage log, .sanvio/usage/<you>.jsonl, since --since: skills, agents and
                      slash commands by name, guard refusals by rule, and how many times it asked.
-                     skill_spend, agent_spend and command_spend hold each name's tokens and estimated
+                     chain is "intact", "unchained" (no line carries prev, as in a log written before
+                     chaining), or the line number from which the log was changed after it was
+                     written. It comes from scripts/log_chain.py's verify() over the whole log,
+                     whatever --since says. skill_spend, agent_spend and command_spend hold each name's tokens and estimated
                      cost_usd, from token_report.py's split of the transcripts in ~/.claude/projects for
                      sessions started at the factory's root, including after they move into projects/. A
                      session started under projects/ isn't counted. A name there needn't match the counts: a
@@ -128,6 +131,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import token_report  # noqa: E402 (needs scripts/ on the path first)
 from eval_agents import load_cases  # noqa: E402 (same reason)
+from log_chain import verify  # noqa: E402 (same reason)
 from loop import USAGE_TOKENS, usage_totals  # noqa: E402 (same reason)
 from token_report import group, loop_dirs, loop_runs, natural, read_file, tokens, usage_files  # noqa: E402 (same reason)
 from usage_report import count, log_path, read, since_date  # noqa: E402 (same reason)
@@ -278,7 +282,8 @@ def activity(root, since):
             "agents": dict(count(lines, "agent", "name").most_common()),
             "commands": dict(count(lines, "command", "name").most_common()),
             "guard_refusals": dict(count(lines, "guard_deny", "rule").most_common()),
-            "asks": sum(1 for l in lines if l.get("event") == "guard_ask")}
+            "asks": sum(1 for l in lines if l.get("event") == "guard_ask"),
+            "chain": verify(path)}
 
 
 def git(root, *args):
