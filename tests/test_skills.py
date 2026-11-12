@@ -596,5 +596,29 @@ class FactoryTrendsDaily(unittest.TestCase):
         self.assertTrue((ROOT / "reports" / "trends" / "README.md").exists())
 
 
+class OrientationRecordTest(unittest.TestCase):
+    """Orientation's last step offers to record the person in the company record's ## Onboarding table."""
+
+    SKILL = ROOT / "skills" / "orientation" / "SKILL.md"
+
+    def step(self):
+        text = self.SKILL.read_text()
+        self.assertIn("### 8.", text, "orientation has no step 8")
+        return " ".join(text[text.index("### 8."):text.index("## Output")].split())
+
+    def test_the_step_records_the_name_date_and_layers_on_a_yes(self):
+        step = self.step()
+        for words in ("## Onboarding", "yes", "today's date", "layers"):
+            self.assertIn(words, step)
+
+    def test_nothing_gets_written_without_a_yes(self):
+        self.assertIn("Nothing gets written without a yes.", self.SKILL.read_text())
+
+    def test_rows_are_append_only_and_only_for_this_person(self):
+        step = self.step()
+        self.assertIn("Never edit or remove an existing row", step)
+        self.assertIn("anyone other than the person in this session", step)
+
+
 if __name__ == "__main__":
     unittest.main()

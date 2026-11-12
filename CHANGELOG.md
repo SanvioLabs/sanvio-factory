@@ -27,6 +27,16 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Orientation records who went through it
+
+Orientation has a last step, step 8, that offers to add a row for the person to a new `## Onboarding` table in
+`company/COMPANY.md` (their name, the date and the layers they built), shown first and written only on a yes,
+and [`steering/data-and-tools.md`](steering/data-and-tools.md) says that table is where the factory's training is recorded.
+
+Files: [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add the `## Onboarding` section from [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md) to an existing company record.
+
 ## 2026-11-11: The usage log is written chained, and agents can't write to the logs
 
 [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to

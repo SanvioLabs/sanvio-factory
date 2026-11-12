@@ -41,3 +41,9 @@ section empty rather than guess: an empty section tells the agent to ask.
 ## Words that mean something here
 
 <!-- Product names, internal terms, acronyms, and what each one means. -->
+
+## Onboarding
+
+| Person | Date | What they went through |
+|---|---|---|
+| _name as they gave it_ | _the date they finished_ | _the layers they built_ |
