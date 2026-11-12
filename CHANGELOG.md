@@ -38,6 +38,20 @@ Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`steering/data-and-t
 
 **Do:** add each MCP server you use to the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md).
 
+## 2026-11-12: CI checkouts don't keep the token
+
+Every `actions/checkout` in `ci.yml` and `secrets.yml` now sets
+`persist-credentials: false`, as `deps.yml` already did. No job pushes, so the
+token had no use after the clone. Newer checkout versions keep it through an
+include in the clone's git config, and the security reviewer's shell refuses
+git in a repo whose config includes another file, so the reviewer's tests failed
+on the newer checkout.
+
+Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/secrets.yml`](.github/workflows/secrets.yml)
+
+**Do:** nothing, unless your copy added a CI job that pushes: give that one
+checkout its credentials back.
+
 ## 2026-11-11: The usage log is written chained, and agents can't write to the logs
 
 [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py) now writes each line through [`scripts/log_chain.py`](scripts/log_chain.py), linked to
