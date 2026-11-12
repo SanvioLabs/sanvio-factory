@@ -6,6 +6,7 @@ edited, removed or inserted later no longer matches the line after it. verify() 
 says whether its chain holds. It shows a log was changed, it doesn't stop it: an edit to the last
 line, or lines dropped from the start, can't be seen.
 """
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -59,3 +60,57 @@ def verify(path):
         if prev_of(lines[n]) != digest(lines[n - 1]):
             return n + 1
     return "intact"
+
+
+@contextlib.contextmanager
+def locked(path):
+    """Hold an exclusive lock on path's .lock file beside it, so writers to the same log take turns:
+    two appends that both read the same last line would break the chain. fcntl's flock, or msvcrt's lock
+    on Windows. A lock that can't be taken is skipped rather than blocking whoever writes."""
+    lock_path = Path(path).with_name(Path(path).name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_path, "a")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        except ImportError:
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            pass
+        yield
+    finally:
+        handle.close()  # closing the file lets the lock go
+
+
+def last_line(path):
+    """The last non-empty raw line of the file at path, as bytes, or None when it's missing or empty.
+    Reads back from the end, so a long log isn't read whole."""
+    try:
+        handle = open(path, "rb")
+    except OSError:
+        return None
+    with handle:
+        handle.seek(0, 2)
+        pos, tail = handle.tell(), b""
+        while pos > 0:
+            step = min(4096, pos)
+            pos -= step
+            handle.seek(pos)
+            tail = handle.read(step) + tail
+            body = tail.rstrip(b"\n")
+            if b"\n" in body:
+                return body.rsplit(b"\n", 1)[1]
+        return tail.rstrip(b"\n") or None
+
+
+def append(path, entry):
+    """Append entry to the log at path as one JSON line, linked to the line before it, under the lock."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with locked(path):
+        line = json.dumps(link(last_line(path), entry))
+        with open(path, "a", encoding="utf-8") as out:
+            out.write(line + "\n")
+
