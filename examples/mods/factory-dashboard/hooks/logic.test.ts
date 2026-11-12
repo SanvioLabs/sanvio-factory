@@ -243,7 +243,7 @@ group('stage times', () => {
   test('a table of each stage with its median and how many it rests on, the slowest marked in yellow', () => {
     const t = stageTimes(timed()).tables[0]
     expect(t?.head).toEqual(['Stage times', 'Median', 'Count'])
-    expect(t?.rows).toEqual([['Shape', '4m', '5'], ['Build', '12m', '5'], ['Validate', '31m', '5'], ['Scale', '—', '0'],
+    expect(t?.rows).toEqual([['Shape', '4m', '5'], ['Build', '12m', '5'], ['Validate', '31m', '5'], ['Scale', '-', '0'],
       ['First review', '5.2h', '3'], ['Merge (slowest)', '20h', '4']])
     expect(t?.tones).toEqual(['plain', 'plain', 'plain', 'plain', 'plain', 'now'])
     for (const r of t?.rows ?? []) expect(r.length).toBe(3)
@@ -261,10 +261,10 @@ group('stage times', () => {
     expect(duration(600, 5)).toBe('10h')
     expect(duration(1200, 5)).toBe('20h')
   })
-  test('a stage with none behind it is —, never 0m', () => {
-    expect(duration(null, 0)).toBe('—')
-    expect(duration(12, 0)).toBe('—')
-    expect(duration(null, null)).toBe('—')
+  test('a stage with none behind it is -, never 0m', () => {
+    expect(duration(null, 0)).toBe('-')
+    expect(duration(12, 0)).toBe('-')
+    expect(duration(null, null)).toBe('-')
   })
   test('with no slowest stage none is marked', () => {
     const t = stageTimes(timed({ slowest: null })).tables[0]

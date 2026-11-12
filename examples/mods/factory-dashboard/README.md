@@ -202,7 +202,7 @@ loop's work takes at each stage, as a median with how many it rests on: its
 `step_seconds` in `.loop/status.json`, then a merged loop pull request's wait
 from opening to its **First review** by someone other than its author, and to
 **Merge**, from `gh`. Under an hour reads in minutes, longer in hours, and a
-stage with nothing behind it shows **—**. The stage with the longest median,
+stage with nothing behind it shows **-**. The stage with the longest median,
 among those resting on 3 or more, is marked **(slowest)** in yellow. When
 status.json or `gh` can't be read, a line says why in place of that half's
 rows. A pull request someone opened by hand isn't counted.

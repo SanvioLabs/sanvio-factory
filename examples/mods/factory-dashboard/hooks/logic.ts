@@ -257,9 +257,9 @@ export function throughput(doc: Doc): Section {
 }
 
 // A stage's median as a person reads it: whole minutes under an hour, then hours, to a tenth under 10.
-// A stage with nothing behind it is —.
+// A stage with nothing behind it is -, never 0m.
 export function duration(minutes: number | null, count: number | null): string {
-  if (!count || minutes === null) return '—'
+  if (!count || minutes === null) return '-'
   if (Math.round(minutes) < 60) return `${Math.round(minutes)}m`
   const hours = minutes / 60
   return hours < 10 ? `${hours.toFixed(1)}h` : `${Math.round(hours)}h`
