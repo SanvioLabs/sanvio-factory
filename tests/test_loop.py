@@ -5882,6 +5882,20 @@ elif args[:1] == ["api"] and args[1].endswith("/check-runs"):
     runs = os.path.join(state, "checks.tsv")
     if os.path.exists(runs):
         print(open(runs).read())
+elif args[:1] == ["api"] and args[1].endswith("/status"):
+    # A commit's statuses, one state per line: statuses.txt, none by default. gh api prints its error on stdout.
+    if os.path.exists(os.path.join(state, "statuses-fail")):
+        print('{"message": "Server Error", "status": "502"}')
+        sys.exit(1)
+    states = os.path.join(state, "statuses.txt")
+    if os.path.exists(states):
+        print(open(states).read())
+elif args[:2] == ["pr", "merge"]:
+    # merge-refused holds GitHub's reason, as gh prints it on a refusal.
+    refused = os.path.join(state, "merge-refused")
+    if os.path.exists(refused):
+        print(open(refused).read(), file=sys.stderr)
+        sys.exit(1)
 elif args[:2] == ["api", "--paginate"] and args[-1].endswith("@json"):  # REVIEW_COMMENTS_JQ's rows
     for c in comments:
         print(json.dumps([c["user"], c.get("updated", ""), c["body"]]))
@@ -7284,6 +7298,438 @@ class TestReviewGrading(ReviewFixture, unittest.TestCase):
         self.assertIn("Grade 10/10: ready, checks passing.", after[0]["body"])
         self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
         self.assertEqual(self.agents_started(), 1)
+
+
+class TestAutoMerge(ReviewFixture, unittest.TestCase):
+    """auto_merge: with its owner's say-so, review merges a pull request it graded, and nothing else."""
+
+    ON = {"enabled": True, "bases": ["main"]}
+
+    def setUp(self):
+        super().setUp()
+        (self.work / "review-rubric.json").write_text(json.dumps(RUBRIC))
+        self.cfg["auto_merge"] = dict(self.ON)  # a fresh dict: DEFAULTS' own is shared by every copy
+        self.checks(("completed", "success"))
+        (self.state / "review-tail").write_text("VERDICT: ready")
+
+    def checks(self, *runs):
+        (self.state / "checks.tsv").write_text("\n".join("\t".join(run) for run in runs))
+
+    def statuses(self, *states):
+        (self.state / "statuses.txt").write_text("\n".join(states))
+
+    def view(self, number, sha, **changes):
+        """The pull request as gh pr view reads it just before a merge: open, no draft, no fork, by pat."""
+        row = dict(self.pr(number, sha), state="OPEN", isCrossRepository=False, author={"login": "pat"})
+        row.update(changes)
+        (self.state / "pr-{}.json".format(number)).write_text(json.dumps(row))
+
+    def graded(self, number=7, name="thing.txt", text="x", **changes):
+        """A pull request on main, reviewed and graded on this pass. Returns its head."""
+        sha = self.push(number, name, text)
+        self.list_prs(self.pr(number, sha))
+        self.view(number, sha, **changes)
+        self.go()
+        return sha
+
+    def merges(self):
+        return [c for c in self.calls() if c.startswith("pr merge")]
+
+    def merge_lines(self):
+        return [l.split(" - ", 1)[1] for l in self.lines() if l.split()[2] == "MERGE"]
+
+    def errors(self):
+        return [l.split(" - ", 1)[1] for l in self.lines() if l.split()[2] == "ERROR"]
+
+    def fresh(self):
+        """A new clone and state, for the next case of a loop."""
+        self.tearDown()
+        self.setUp()
+
+    # With auto_merge off or unset, nothing is merged, whatever the grade.
+
+    def test_off_or_unset_nothing_is_merged_and_nothing_more_is_asked_of_github(self):
+        for i, setting in enumerate(("unset", "default", {"enabled": False, "bases": ["main"]}, {"bases": ["main"]})):
+            if i:
+                self.fresh()
+            with self.subTest(auto_merge=setting):
+                if setting == "unset":
+                    del self.cfg["auto_merge"]  # a cfg built without DEFAULTS
+                elif setting == "default":
+                    self.cfg["auto_merge"] = dict(loop.DEFAULTS["auto_merge"])
+                else:
+                    self.cfg["auto_merge"] = setting
+                self.statuses("success")
+                self.graded()
+                self.go()
+                self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+                self.assertEqual(self.merges(), [])
+                self.assertEqual(self.merge_lines(), [])
+                self.assertFalse(any(c.startswith("pr view") or c.endswith("/status --paginate --jq " + loop.STATUSES_JQ)
+                                     for c in self.calls()), self.calls())
+        self.assertEqual(loop.DEFAULTS["auto_merge"],
+                         {"enabled": False, "min_grade": 10, "bases": [], "method": "squash", "authors": []})
+
+    # With it on, a pull request that passes every check is merged with method, and the log says so.
+
+    def test_a_graded_pull_request_is_merged_with_method_and_the_log_names_it_the_grade_and_the_method(self):
+        for i, method in enumerate((None, "merge", "squash", "rebase")):
+            if i:
+                self.fresh()
+            with self.subTest(method=method):
+                if method:
+                    self.cfg["auto_merge"] = dict(self.ON, method=method)
+                sha = self.graded()
+                used = method or "squash"  # the default
+                self.assertEqual(self.merges(), ["pr merge 7 --{} --match-head-commit {}".format(used, sha)])
+                self.assertEqual(self.merge_lines(), ["MERGE #7 {} merged with {}, graded 10/10".format(sha[:7], used)])
+                merged = self.status()["reviews"]["7"]["merge"]
+                self.assertEqual((merged["sha"], merged["base"], merged["state"]), (sha, "main", "merged"))
+                self.go()  # GitHub's list can still name it on the next poll: it isn't merged twice
+                self.assertEqual(len(self.merges()), 1)
+
+    def test_min_grade_is_the_least_grade_merged(self):
+        (self.state / "review-tail").write_text("VERDICT: ready with nits")
+        sha = self.graded()
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: graded 8/10, under min_grade 10".format(sha[:7])])
+        self.cfg["auto_merge"] = dict(self.ON, min_grade=8)
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+        self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} merged with squash, graded 8/10".format(sha[:7]))
+        self.assertEqual(self.agents_started(), 1)  # the merge is the second pass's only work: no new review
+
+    def test_authors_is_who_is_merged_and_empty_means_the_login_the_loop_runs_as(self):
+        self.cfg["auto_merge"] = dict(self.ON, authors=["Factory-Bot"])
+        sha = self.graded()  # by pat, the login the loop runs as, who isn't named
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: its author pat isn't in auto_merge.authors".format(
+            sha[:7])])
+        self.view(7, sha, author={"login": "factory-bot"})  # a login is matched whatever its case
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+
+    # Checks all pass: at least one check run or commit status, and every one finished passing.
+
+    def test_commit_statuses_count_as_checks_with_no_check_runs(self):
+        (self.state / "checks.tsv").unlink()
+        self.statuses("success", "success")
+        sha = self.graded()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+        self.assertTrue(any(c.startswith("api repos/{owner}/{repo}/commits/" + sha + "/status ") for c in self.calls()),
+                        self.calls())
+
+    def test_a_commit_with_no_check_run_and_no_status_is_not_merged_and_the_log_says_no_checks_ran(self):
+        (self.state / "checks.tsv").unlink()
+        sha = self.graded()
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)  # the grade lets it through: the merge doesn't
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: no checks ran".format(sha[:7])])
+
+    def test_a_failed_or_unfinished_check_holds_the_merge_until_every_one_has_passed(self):
+        self.statuses("pending")  # the grade reads check runs alone, so it's 10 while a status is still pending
+        sha = self.graded()
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: checks still running".format(sha[:7])])
+        passed = ("completed", "success")
+        cases = [  # (check runs, statuses, what the log says)
+            ((passed,), ("success", "failure"), "a check failed"),
+            ((passed,), ("error",), "a check failed"),
+            ((passed, ("completed", "failure")), ("success",), "a check failed"),
+            ((passed, ("completed", "cancelled")), (), "a check failed"),
+            ((passed, ("in_progress", "")), ("success",), "checks still running"),
+            ((), ("success", "pending"), "checks still running"),
+        ]
+        for runs, states, said in cases:
+            with self.subTest(runs=runs, states=states):
+                self.checks(*runs)
+                self.statuses(*states)
+                self.go()
+                self.assertEqual(self.merges(), [])
+                self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: {}".format(sha[:7], said))
+        self.checks(passed, ("completed", "skipped"), ("completed", "neutral"))
+        self.statuses("success")
+        self.go()  # every one finished and passed: merged
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_checks_github_can_t_list_hold_the_merge_for_the_next_poll(self):
+        (self.state / "statuses-fail").write_text("")
+        sha = self.graded()
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: its checks couldn't be read (will retry)".format(
+            sha[:7])])
+        (self.state / "statuses-fail").unlink()
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+
+    # A grade still pending, or none at all, is never merged.
+
+    def test_a_pending_grade_is_never_merged(self):
+        self.checks(("completed", "success"), ("queued", ""))
+        self.statuses("success")
+        sha = self.graded()
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.go()
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: its grade is pending".format(sha[:7])] * 2)
+
+    def test_no_grade_is_never_merged(self):
+        (self.state / "agent-fails").write_text("")  # a review that failed has no grade
+        sha = self.graded()
+        self.assertEqual(self.status()["reviews"]["7"]["state"], "failed")
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: it has no grade".format(sha[:7])])
+        # A review posted before reviews carried a grade.
+        status = self.status()
+        status["reviews"]["7"].update(state="posted", grade=None, note="")
+        (self.work / ".loop" / "status.json").write_text(json.dumps(status))
+        self.go()
+        self.assertEqual(self.agents_started(), 1)
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: it has no grade".format(sha[:7]))
+        # And a pull request no review has read.
+        other = self.push(8, "eight.txt")
+        self.list_prs(self.pr(8, other))
+        with mock.patch.object(loop.Loop, "review_one", return_value=False):
+            self.go()
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines()[-1], "MERGE #8 {} not merged: it has no grade".format(other[:7]))
+
+    # A fork, a draft, an untrusted author, a moved head or base, or another base: not merged, and the log says why.
+
+    def test_each_reason_to_hold_a_merge_is_logged_and_nothing_is_merged(self):
+        sha = self.graded(isDraft=True)  # a draft by the time it's read again, just before the merge
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: it's a draft".format(sha[:7])])
+        moved = "f" * 40
+        cases = [
+            ({"isCrossRepository": True}, None, "it's from a fork"),
+            ({"author": {"login": "mallory"}}, None, "its author mallory isn't in auto_merge.authors"),
+            ({"author": None}, None, "its author (none) isn't in auto_merge.authors"),
+            ({"headRefOid": moved}, None, "its head moved after it was graded"),
+            ({"baseRefName": "dev"}, None, "its base changed after it was graded"),
+            ({}, ["release"], "its base main isn't in auto_merge.bases"),
+            ({}, [], "its base main isn't in auto_merge.bases"),  # empty bases merges nothing
+        ]
+        for changes, bases, said in cases:
+            with self.subTest(said=said):
+                self.view(7, sha, **changes)
+                self.cfg["auto_merge"] = dict(self.ON, bases=self.ON["bases"] if bases is None else bases)
+                self.go()
+                self.assertEqual(self.merges(), [])
+                self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: {}".format(sha[:7], said))
+        self.assertEqual(self.agents_started(), 1)
+        # A draft in the list is held before anything is read.
+        self.cfg["auto_merge"] = dict(self.ON)
+        self.view(7, sha)
+        self.list_prs(self.pr(7, sha, draft=True))
+        self.go()
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: it's a draft".format(sha[:7]))
+        # The head and base the list names, against the ones graded.
+        self.list_prs(dict(self.pr(7, sha), baseRefName="dev"))
+        with mock.patch.object(loop.Loop, "review_one", return_value=False):  # as if its new review couldn't run
+            self.go()
+            self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: its base changed after it was graded".format(
+                sha[:7]))
+            self.list_prs(self.pr(7, moved))
+            self.go()
+        self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: its head moved after it was graded".format(
+            sha[:7]))
+        self.assertEqual(self.merges(), [])
+        # With every reason gone, it merges.
+        self.list_prs(self.pr(7, sha))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+
+    def test_a_reason_is_logged_once_per_run_not_on_every_poll(self):
+        sha = self.graded(isCrossRepository=True)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            looped = loop.Loop(self.work, self.cfg)
+            looped.merge_when_ready(self.pr(7, sha))
+            looped.merge_when_ready(self.pr(7, sha))
+        self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: it's from a fork".format(sha[:7])] * 2)
+
+    # A merge GitHub refuses: its reason in the log, and that head isn't tried again until its head or base changes.
+
+    def test_a_refused_merge_logs_github_s_reason_and_isn_t_tried_again_until_the_head_or_base_changes(self):
+        (self.state / "merge-refused").write_text(
+            "X Pull request #7 is not mergeable: the base branch policy prohibits the merge.\n"
+            "To have the pull request merged after all the requirements have been met, add the `--auto` flag.")
+        sha = self.graded()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+        self.assertEqual(self.merge_lines(), [
+            "MERGE #7 {} not merged: GitHub refused it, and it isn't tried again until its head or base changes: X Pull "
+            "request #7 is not mergeable: the base branch policy prohibits the merge. To have the pull request merged "
+            "after all the requirements have been met, add the `--auto` flag.".format(sha[:7])])
+        refused = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((refused["sha"], refused["base"], refused["state"]), (sha, "main", "refused"))
+        self.assertIn("base branch policy prohibits the merge", refused["note"])
+        self.go()
+        self.go()
+        self.assertEqual(len(self.merges()), 1)  # the same head and base: not tried again
+        self.assertEqual(len(self.merge_lines()), 1)
+        # A new head is reviewed again and tried again.
+        second = self.push(7, "thing.txt", "a new head")
+        self.list_prs(self.pr(7, second))
+        self.view(7, second)
+        self.go()
+        self.assertEqual(self.merges()[1:], ["pr merge 7 --squash --match-head-commit " + second])
+        self.go()
+        self.assertEqual(len(self.merges()), 2)
+        # So is a new base, once it's in bases.
+        git(self.work, "push", "-q", "origin", "main:refs/heads/dev")
+        self.cfg["auto_merge"] = dict(self.ON, bases=["main", "dev"])
+        self.list_prs(dict(self.pr(7, second), baseRefName="dev"))
+        self.view(7, second, baseRefName="dev")
+        self.go()
+        self.assertEqual(self.merges()[2:], ["pr merge 7 --squash --match-head-commit " + second])
+        self.assertEqual(self.agents_started(), 3)
+        (self.state / "merge-refused").unlink()
+        self.go()
+        self.assertEqual(len(self.merges()), 3)
+
+    def test_a_merge_runs_after_a_pending_grade_is_filled_in_on_a_later_poll(self):
+        self.checks(("in_progress", ""))
+        sha = self.graded()
+        self.assertEqual(self.merges(), [])
+        self.checks(("completed", "success"))
+        self.go()
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_review_pr_never_merges(self):
+        sha = self.push(7, "seven.txt")
+        self.view(7, sha)
+        found = self.alone(7)
+        self.assertEqual((found["state"], found["sha"]), ("posted", sha))
+        self.assertEqual(json.loads((self.work / ".loop" / "review-pr-7.json").read_text())["grade"], 10)
+        self.assertEqual(self.merges(), [])
+        self.assertEqual(self.merge_lines(), [])
+
+    def test_a_stop_asked_for_during_a_review_merges_nothing(self):
+        sha = self.push(7, "thing.txt")
+        self.list_prs(self.pr(7, sha))
+        self.view(7, sha)
+        real = loop.Loop.review_one
+
+        def then_stop(looped, pr):
+            ran = real(looped, pr)
+            (looped.dir / "STOP").write_text("")
+            return ran
+        with mock.patch.object(loop.Loop, "review_one", then_stop):
+            self.go()
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertEqual(self.merges(), [])
+
+    # An auto_merge that isn't right stops review at start, naming the key.
+
+    def test_a_bad_auto_merge_stops_review_and_review_pr_at_start_naming_the_key(self):
+        cases = [
+            (True, "auto_merge in loop.json: True isn't an object"),
+            (None, "auto_merge in loop.json: None isn't an object"),
+            (["main"], "auto_merge in loop.json: ['main'] isn't an object"),
+            ({"enabled": "yes"}, "auto_merge.enabled in loop.json: 'yes' isn't true or false"),
+            ({"enabled": None}, "auto_merge.enabled in loop.json: None isn't true or false"),
+            ({"enabled": 1}, "auto_merge.enabled in loop.json: 1 isn't true or false"),
+            ({"method": "fast"}, "auto_merge.method in loop.json: 'fast' isn't merge, squash or rebase"),
+            ({"method": "admin"}, "auto_merge.method in loop.json: 'admin' isn't merge, squash or rebase"),
+            ({"method": None}, "auto_merge.method in loop.json: None isn't merge, squash or rebase"),
+            ({"min_grade": 11}, "auto_merge.min_grade in loop.json: 11 isn't a whole number from 0 to 10"),
+            ({"min_grade": -1}, "auto_merge.min_grade in loop.json: -1 isn't a whole number from 0 to 10"),
+            ({"min_grade": 9.5}, "auto_merge.min_grade in loop.json: 9.5 isn't a whole number from 0 to 10"),
+            ({"min_grade": True}, "auto_merge.min_grade in loop.json: True isn't a whole number from 0 to 10"),
+            ({"min_grade": "10"}, "auto_merge.min_grade in loop.json: '10' isn't a whole number from 0 to 10"),
+            ({"bases": "main"}, "auto_merge.bases in loop.json: 'main' isn't a list of names"),
+            ({"bases": [1]}, "auto_merge.bases in loop.json: [1] isn't a list of names"),
+            ({"bases": [""]}, "auto_merge.bases in loop.json: [''] isn't a list of names"),
+            ({"bases": ["a b"]}, "auto_merge.bases in loop.json: ['a b'] isn't a list of names"),
+            ({"authors": "pat"}, "auto_merge.authors in loop.json: 'pat' isn't a list of names"),
+            ({"authors": [None]}, "auto_merge.authors in loop.json: [None] isn't a list of names"),
+            ({"base": ["main"]}, "auto_merge.base in loop.json isn't one of auto_merge's keys: "
+                                 "enabled, min_grade, bases, method, authors"),
+        ]
+        sha = self.push(7, "seven.txt")
+        self.list_prs(self.pr(7, sha))
+        self.view(7, sha)
+        for value, said in cases:
+            with self.subTest(auto_merge=value):
+                self.cfg["auto_merge"] = dict(self.ON, **value) if isinstance(value, dict) else value
+                self.assertEqual(self.go(), 1)
+                self.assertEqual(self.errors()[-1], "ERROR {}, so no pull request is reviewed".format(said))
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(loop.Loop(self.work, self.cfg).review(pr=7), 1)
+                self.assertEqual(out.getvalue(), "")
+                self.assertEqual(self.errors()[-1], "ERROR {}, so no pull request is reviewed".format(said))
+        self.assertFalse((self.state / "gh-calls").exists())  # nothing was asked of GitHub
+        self.assertEqual(self.agents_started(), 0)
+        self.cfg["auto_merge"] = {"enabled": True, "min_grade": 0, "bases": [], "method": "rebase", "authors": []}
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.agents_started(), 1)
+
+    # Who merges, as a pull request the loop opens says it.
+
+    def test_the_loop_s_pull_request_and_comment_say_who_merges(self):
+        off = loop.pr_body(12, 1, "", "cmd", "p", "r", "t")
+        self.assertIn("Opened by the loop after 1 round. The loop doesn't merge.", off)
+        on = loop.pr_body(12, 1, "", "cmd", "p", "r", "t", merges=8)
+        self.assertIn("Opened by the loop after 1 round. With `auto_merge` on, `loop.py review` may merge it once it "
+                      "grades it 8/10 or more and every check passes.", on)
+        self.assertIn("It doesn't merge; a person does.", loop.pr_comment("u", 1))
+        self.assertIn("With `auto_merge` on, `loop.py review` may merge it once it grades it 10/10 or more",
+                      loop.pr_comment("u", 1, merges=10))
+        self.assertIsNone(loop.Loop(self.work, dict(self.cfg, auto_merge={"bases": ["main"]})).merge_grade())
+        self.assertIsNone(loop.Loop(self.work, dict(self.cfg, auto_merge={"enabled": True, "method": "x"})).merge_grade())
+        self.assertEqual(loop.Loop(self.work, dict(self.cfg, auto_merge=dict(self.ON, min_grade=7))).merge_grade(), 7)
+
+    def test_merge_checks_needs_one_check_and_every_one_passed(self):
+        passed = [("completed", "success")]
+        self.assertEqual(loop.merge_checks([], []), "none")
+        self.assertEqual(loop.merge_checks(passed, []), "passing")
+        self.assertEqual(loop.merge_checks([], ["success"]), "passing")
+        self.assertEqual(loop.merge_checks(passed + [("completed", "neutral"), ("completed", "skipped")], ["success"]),
+                         "passing")
+        self.assertEqual(loop.merge_checks(passed, ["success", "failure"]), "failing")
+        self.assertEqual(loop.merge_checks(passed, ["pending", "error"]), "failing")
+        self.assertEqual(loop.merge_checks([("completed", "timed_out")], ["pending"]), "failing")
+        self.assertEqual(loop.merge_checks(passed, ["pending"]), "pending")
+        self.assertEqual(loop.merge_checks([("queued", "")], ["success"]), "pending")
+        self.assertEqual(loop.merge_checks(passed, ["something new"]), "pending")
+
+
+class TestAutoMergeIsAMachineKey(unittest.TestCase):
+    """A project's own loop.json can't set auto_merge: only the factory's may, or its projects entry."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_a_project_whose_loop_json_sets_auto_merge_is_refused_naming_it(self):
+        self.assertIn("auto_merge", loop.MACHINE_KEYS)
+        self.assertNotIn("auto_merge", loop.PROJECT_KEYS)
+        site = self.on_github("site")
+        for value in ({"enabled": True, "bases": ["main"]}, {"enabled": False}):
+            with self.subTest(auto_merge=value):
+                (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "auto_merge": value}))
+                for command in ("run", "review"):
+                    code, err, built = self.main(command, "--project", str(site))
+                    self.assertEqual(code, 1)
+                    self.assertTrue(err.startswith("ERROR "), err)
+                    self.assertIn("sets auto_merge, which only the factory's loop.json may set", err)
+                    built.assert_not_called()
+
+    def test_the_factory_s_projects_entry_sets_it_and_the_project_s_own_never_does(self):
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
+        self.harness_config({"projects": {"app": {"auto_merge": {"enabled": True, "bases": ["main"]}}}})
+        cfg = loop.Loop(self.harness, project=self.project).cfg
+        self.assertEqual(cfg["auto_merge"], {"enabled": True, "bases": ["main"]})
+        self.assertEqual(loop.auto_merge_settings(cfg), {"enabled": True, "min_grade": 10, "bases": ["main"],
+                                                         "method": "squash", "authors": []})
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "auto_merge": {}}))
+        self.assertEqual(loop.Loop(self.harness, project=self.project).cfg["auto_merge"],
+                         {"enabled": True, "bases": ["main"]})
 
 
 class TestIssueUsage(unittest.TestCase):

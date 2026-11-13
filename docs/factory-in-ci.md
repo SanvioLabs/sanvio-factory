@@ -12,6 +12,11 @@ factory itself.
 
 Start with checks, then add the review. The loop is optional.
 
+None of the three merges. The factory never merges unless you turn on
+`auto_merge` in its `loop.json`, and even then only `loop.py review`, the
+watcher you run on a machine, merges, never a workflow here. *Merging, when you
+turn it on* in [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) has the detail.
+
 ![Three product repos each hold one short caller, review.yml. A pull request, #42, opens in the first. Its caller asks the factory repo, your-org/factory, for .github/workflows/review-pr.yml. The review job checks the harness out with a read-only deploy key, holding only AGENTS.md, steering, skills, agents and standards, beside the product repo at the pull request's base and the pull request itself. The pull request's own AGENTS.md, CLAUDE.md, .claude folders and symlinks are struck out, so its copies of those can't change the review's rules. Claude reads with Read, Grep and Glob only, and one comment is posted: changes needed, two findings. A second push edits the same comment to ready with nits, one finding, marked edited. Last, the factory repo's main is shown as protected, and a change to it marks all three product repos: their next review uses the new rules.](factory-in-ci.gif)
 
 You make each key yourself and paste it into GitHub. Nobody else, including

@@ -19,7 +19,10 @@ loop:blocked and the loop moves on without it.
 
 `review` is the other half of the queue: it reviews each open pull request that asks for you,
 once per head commit, with skills/review-pr, and posts the report as one comment per pull
-request, edited in place on later commits. It never approves, merges or pushes.
+request, edited in place on later commits. It never approves or pushes, and it never merges unless
+auto_merge in loop.json is on. Then it merges a pull request it graded at least min_grade on the head it
+graded, into a base auto_merge names, by an author it names, once every check on that commit has passed.
+review --pr never merges.
 
 --for 8h (or 90m, 2d) on either one starts nothing new once that long has passed, lets what's
 running finish, and then exits, logging an END line. An UNTIL line at the start says when.
@@ -37,7 +40,7 @@ the session and issue windows run in psmux instead, and `psmux attach -t <name>`
 .loop/watch.command, which opens a read-only Terminal window on it (the loop pane's Watch it),
 and .loop/issue-N/watch.command for each issue's window (the pane's Watch on that issue).
 Everything a round produced is in .loop/issue-N/, and agent.log there is what its agents said, as
-they said it. Checkouts live outside the clone, in ~/.sanvio-loop/. It never merges.
+they said it. Checkouts live outside the clone, in ~/.sanvio-loop/. run never merges.
 
 max_workers in loop.json (default 1) is how many issues it works at once, each on its own thread
 and each agent its own session, so usage grows with it. Inside tmux each issue gets a window,
@@ -150,6 +153,13 @@ DEFAULTS = {
     # key: a clone anyone can push to mustn't grade its own pull requests. A project sets its own in the
     # factory's projects[<name>] entry.
     "review_rubric": "review-rubric.json",
+    # Whether `review` merges a pull request it graded. Only "enabled": true turns it on: off, the factory never
+    # merges. On, it merges one whose posted grade is at least min_grade on the head it graded, into a base in
+    # bases, by a login in authors (empty means the login the loop runs as), once every check run and commit
+    # status on that commit has passed, with method: merge, squash or rebase. Empty bases merges nothing. A
+    # loop.json that sets it replaces the whole object, so a key it leaves out is this default's. A machine key:
+    # a clone anyone can push to mustn't merge its own pull requests.
+    "auto_merge": {"enabled": False, "min_grade": 10, "bases": [], "method": "squash", "authors": []},
     # Where the build checkouts go. Empty means ~/.sanvio-loop/<this folder's name>. Keep it outside the
     # clone: an agent started in a nested folder loads this repo's CLAUDE.md too, which tells it to stop.
     "worktree_dir": "",
@@ -1427,13 +1437,14 @@ def plan_decisions(plan):
     return "\n".join(found or []).strip()
 
 
-def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=None, tests_first=()):
+def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=None, tests_first=(), merges=None):
     """The pull request's description: what a reviewer on GitHub needs without this machine.
 
     numstat is `git diff --numstat` of the branch, or None when git couldn't read it. plan, review
     and tests are the files' text, or None for a file that wasn't there. usage is the issue's
     usage.json entries; with none, there is no Usage section. tests_first is the files a separate
-    agent's tests are in; with none, there is no section for them. A plan's Decisions section also
+    agent's tests are in; with none, there is no section for them. merges is auto_merge's min_grade while it's
+    on, and None while it's off: who_merges() says which. A plan's Decisions section also
     shows above the folded plan. The agents' text goes out with its mentions made harmless. Over
     PR_BODY_CAP, the plan is cut first, then the review, then the Decisions.
     """
@@ -1461,9 +1472,10 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     else:
         last = [line for line in tests.splitlines() if line.strip()][-PR_TEST_LINES:]
         shown = "~~~~\n{}\n~~~~".format(safe_to_post("\n".join(last))) if last else "The tests printed nothing."
-    head = ("Closes #{n}.\n\nOpened by the loop after {r} round{s}. The loop doesn't merge.\n\n"
+    head = ("Closes #{n}.\n\nOpened by the loop after {r} round{s}. {who}\n\n"
             "## Files\n\n{files}\n\n## Tests\n\n`{cmd}`\n\n{shown}\n\n").format(
-        n=number, r=rounds, s="" if rounds == 1 else "s", files=files, cmd=test_command, shown=shown)
+        n=number, r=rounds, s="" if rounds == 1 else "s", who=who_merges(merges, "The loop doesn't merge."),
+        files=files, cmd=test_command, shown=shown)
     if tests_first:
         head += ("## Tests written first\n\nA separate agent wrote these tests first, before the build started, "
                  "and the build could not change them:\n\n{}\n\n").format(
@@ -1617,6 +1629,58 @@ def grade_text(grade):
     return " Grade {}: {}.".format("pending" if score is None else "{}/10".format(score), why)
 
 
+MERGE_METHODS = ("merge", "squash", "rebase")  # auto_merge's method: gh pr merge's flag, without its --
+# A commit's statuses as merge_checks() reads them, one state per line: the combined status's newest per context.
+STATUSES_JQ = ".statuses[] | .state"
+
+
+def auto_merge_settings(cfg):
+    """auto_merge from cfg over its default: loop.json replaces the whole object, so a key it leaves out is the
+    default's. Only for a cfg auto_merge_problem() passed."""
+    return dict(DEFAULTS["auto_merge"], **(cfg.get("auto_merge") or {}))
+
+
+def auto_merge_problem(cfg):
+    """Why cfg's auto_merge can't be used, naming the key, or None. review checks it before it takes anything."""
+    found = cfg.get("auto_merge", {})
+    if not isinstance(found, dict):
+        return "auto_merge in loop.json: {} isn't an object".format(repr(found)[:100])
+    other = sorted(set(found) - set(DEFAULTS["auto_merge"]))
+    if other:
+        return "auto_merge.{} in loop.json isn't one of auto_merge's keys: {}".format(
+            marked(other[0], cap=100), ", ".join(DEFAULTS["auto_merge"]))
+    settings = auto_merge_settings(cfg)
+    if not isinstance(settings["enabled"], bool):
+        return "auto_merge.enabled in loop.json: {} isn't true or false".format(repr(settings["enabled"])[:100])
+    if settings["method"] not in MERGE_METHODS:
+        return "auto_merge.method in loop.json: {} isn't merge, squash or rebase".format(repr(settings["method"])[:100])
+    grade = settings["min_grade"]
+    if isinstance(grade, bool) or not isinstance(grade, int) or not 0 <= grade <= 10:
+        return "auto_merge.min_grade in loop.json: {} isn't a whole number from 0 to 10".format(repr(grade)[:100])
+    for key in ("bases", "authors"):
+        names = settings[key]
+        if not (isinstance(names, list) and all(isinstance(n, str) and re.fullmatch(r"\S+", n) for n in names)):
+            return "auto_merge.{} in loop.json: {} isn't a list of names".format(key, repr(names)[:100])
+    return None
+
+
+def merging(cfg):
+    """Whether review may merge, by cfg: auto_merge is valid and enabled."""
+    return auto_merge_problem(cfg) is None and auto_merge_settings(cfg)["enabled"] is True
+
+
+def merge_checks(runs, states):
+    """For a merge: passing, failing, pending or none, over a commit's check runs, as (status, conclusion)
+    pairs, and its commit statuses' states. A check run passes as it does for the grade; a status only on
+    success. none is neither, which a merge never takes."""
+    if (any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion in runs)
+            or any(state in ("failure", "error") for state in states)):
+        return "failing"
+    if any(status != "completed" for status, _ in runs) or any(state != "success" for state in states):
+        return "pending"
+    return "passing" if runs or states else "none"
+
+
 def review_grade(body):
     """The grade in a review comment's trailer, out of 10, or 'pending'; None when it has none, as a comment
     written before trailers carried one doesn't. Never from the report above the trailer."""
@@ -1720,9 +1784,20 @@ def agent_rows(out):
     return "\n".join(kept)
 
 
-def pr_comment(url, rounds, updated=False):
-    return "The loop {} {} after {} round{}: the tests and the review passed. It doesn't merge; a person does.".format(
-        "updated" if updated else "opened", url, rounds, "" if rounds == 1 else "s")
+def who_merges(min_grade, off):
+    """What the loop's pull request and its issue say about merging it: off while auto_merge is off, when
+    min_grade is None; else that review may merge it, at min_grade."""
+    if min_grade is None:
+        return off
+    return ("With `auto_merge` on, `loop.py review` may merge it once it grades it {}/10 or more and every check "
+            "passes.").format(min_grade)
+
+
+def pr_comment(url, rounds, updated=False, merges=None):
+    """The issue's comment on its pull request. merges is as pr_body's."""
+    return "The loop {} {} after {} round{}: the tests and the review passed. {}".format(
+        "updated" if updated else "opened", url, rounds, "" if rounds == 1 else "s",
+        who_merges(merges, "It doesn't merge; a person does."))
 
 
 def block_comment(number, why, rounds, cfg, said=None, usage=None):
@@ -3246,7 +3321,7 @@ class Loop:
             self.log("SCALE", "PR updated " + reopened["url"], number)
             self.label_pr(reopened["url"], number)
             self.mark(number, state="pr", pr=reopened["url"])
-            self.comment(number, pr_comment(reopened["url"], rounds, updated=True))
+            self.comment(number, pr_comment(reopened["url"], rounds, updated=True, merges=self.merge_grade()))
             if problems:
                 self.lesson(number, rounds, problems, passed=True)
             return
@@ -3256,7 +3331,8 @@ class Loop:
         saved = {name: (folder / name).read_text(encoding="utf-8") if (folder / name).exists() else None
                  for name in ("plan.md", "review.md", "test-output.txt")}
         body = pr_body(number, rounds, numstat if code == 0 else None, self.cfg["test_command"],
-                       saved["plan.md"], saved["review.md"], saved["test-output.txt"], self.usage(number), fixed)
+                       saved["plan.md"], saved["review.md"], saved["test-output.txt"], self.usage(number), fixed,
+                       merges=self.merge_grade())
         code, out = self.gh("pr", "create", "--base", self.cfg["base"], "--head", branch,
                             "--title", "{} (#{})".format(issue["title"], number), "--body", body)
         if code != 0:
@@ -3266,7 +3342,7 @@ class Loop:
         self.log("SCALE", "PR opened " + url, number)
         self.label_pr(url, number)
         self.mark(number, state="pr", pr=url)
-        self.comment(number, pr_comment(url, rounds))
+        self.comment(number, pr_comment(url, rounds, merges=self.merge_grade()))
         if problems:
             self.lesson(number, rounds, problems, passed=True)
 
@@ -3771,6 +3847,8 @@ class Loop:
         the loop's files but its log."""
         self.only_pr, self.busy = int(pr), False
         self.started_with = fingerprint()
+        if not self.auto_merge_ok():
+            return 1
         if not file_locks():
             self.log("ERROR", "this system has no file lock (fcntl or msvcrt), so review --pr can't run beside the loop: "
                               "run review without --pr")
@@ -3787,6 +3865,8 @@ class Loop:
 
     def watch(self, once):
         self.started_with = fingerprint()
+        if not self.auto_merge_ok():
+            return 1
         if not self.whoami():
             self.log("ERROR", "could not tell who you are (gh api user), so it can't find its own comments")
             return 1
@@ -3803,6 +3883,8 @@ class Loop:
                 if self.stopped() or self.expired() or self.off_hours():
                     break
                 worked = self.review_one(pr) or worked
+                if not self.stopped():
+                    self.merge_when_ready(pr)
             if worked:
                 idle = False
             elif prs is not None and not idle:
@@ -4094,6 +4176,128 @@ class Loop:
                 before, grade=grade[0], updated=datetime.now().isoformat(timespec="seconds"))
         self.save_status()
         self.log("REVIEW", "#{} {} graded {}/10".format(number, sha[:7], grade[0]))
+
+    # -- merging what review graded, with auto_merge on --------------------
+
+    def auto_merge_ok(self):
+        """Whether auto_merge in loop.json can be used; if not, one ERROR line naming the key. review checks it
+        before it takes anything, --pr too, though --pr never merges."""
+        why = auto_merge_problem(self.cfg)
+        if why:
+            self.log("ERROR", "{}, so no pull request is reviewed".format(why))
+        return why is None
+
+    def merge_grade(self):
+        """auto_merge's min_grade while it's on, for what a pull request the loop opens says; else None."""
+        return auto_merge_settings(self.cfg)["min_grade"] if merging(self.cfg) else None
+
+    def merge_when_ready(self, pr):
+        """With auto_merge on, merge pull request pr, one row of the watcher's list, when review graded its head
+        at least min_grade and the rest of merge_held()'s checks pass. The watcher alone calls it, after
+        review_one(), and --pr never merges. It holds the pull request's lock, as a review does: while a review
+        of it runs elsewhere, the next poll tries again."""
+        if not merging(self.cfg) or self.only_pr is not None:
+            return
+        if not file_locks():
+            self.merge_held(pr, auto_merge_settings(self.cfg))
+            return
+        with FileLock(self.pr_file(pr["number"], "lock")) as held:
+            if held:
+                self.merge_held(pr, auto_merge_settings(self.cfg))
+
+    def merge_held(self, pr, settings):
+        """merge_when_ready, holding the lock. Cheapest first: the grade the review's row records, the head and
+        base it was graded on against the list's, bases, a merge already tried on that head and base, then the
+        commit's check runs and statuses, then the pull request read again just before the merge, for a fork, a
+        draft, its author, its head and its base. gh's --match-head-commit has GitHub refuse the merge if the
+        head moved after that. A merge GitHub refuses is recorded on the row, so that head and base aren't tried
+        again: a new head or base gets a new review, and a new row."""
+        number = pr["number"]
+        row = self.last_review(number) or {}
+        sha, base = row.get("sha") or pr["headRefOid"], row.get("base") or ""
+
+        def hold(why):
+            # Once per head and reason, as a skipped review is: the next poll asks again, quietly.
+            if ("merge", number, sha, why) not in self.said:
+                self.said.add(("merge", number, sha, why))
+                self.log("MERGE", "#{} {} not merged: {}".format(number, sha[:7], why))
+
+        if pr.get("isDraft"):
+            return hold("it's a draft")
+        grade = row.get("grade") if row.get("state") == "posted" else None
+        if grade == "pending":
+            return hold("its grade is pending")
+        if isinstance(grade, bool) or not isinstance(grade, int):
+            return hold("it has no grade")
+        if grade < settings["min_grade"]:
+            return hold("graded {}/10, under min_grade {}".format(grade, settings["min_grade"]))
+        if sha != pr["headRefOid"]:
+            return hold("its head moved after it was graded")
+        if base != pr.get("baseRefName"):
+            return hold("its base changed after it was graded")
+        if base not in settings["bases"]:
+            return hold("its base {} isn't in auto_merge.bases".format(marked(base, cap=100)))
+        tried = row.get("merge")
+        if isinstance(tried, dict) and (tried.get("sha"), tried.get("base")) == (sha, base):
+            return  # merged, or refused by GitHub: logged then, and not tried again on this head and base
+        checks = self.commit_checks(sha)
+        if checks != "passing":
+            return hold({"none": "no checks ran", "failing": "a check failed", "pending": "checks still running"}.get(
+                checks, "its checks couldn't be read (will retry)"))
+        code, out = self.gh("pr", "view", str(number), "--json",
+                            "state,headRefOid,baseRefName,isDraft,isCrossRepository,author")
+        try:
+            if code != 0:  # gh api and gh pr view can print an error as JSON: the exit status says which it is
+                raise ValueError
+            now = json.loads(out)
+            author = (now.get("author") or {}).get("login") or ""
+        except (ValueError, TypeError, AttributeError):
+            return hold("it couldn't be read again before merging (will retry)")
+        if now.get("state") != "OPEN":
+            return  # merged or closed since the list: nothing to do
+        if now.get("isCrossRepository") is not False:
+            return hold("it's from a fork")
+        if now.get("isDraft") is not False:
+            return hold("it's a draft")
+        trusted = {login.lower() for login in settings["authors"] or [self.whoami()] if login}
+        if not isinstance(author, str) or author.lower() not in trusted:
+            return hold("its author {} isn't in auto_merge.authors".format(marked(author, cap=100) or "(none)"))
+        if now.get("headRefOid") != sha:
+            return hold("its head moved after it was graded")
+        if now.get("baseRefName") != base:
+            return hold("its base changed after it was graded")
+        code, out = self.gh("pr", "merge", str(number), "--" + settings["method"], "--match-head-commit", sha)
+        if code != 0:
+            why = marked(" ".join(out.split()), cap=300) or "gh exited {}".format(code)
+            self.record_merge(number, row, sha, base, "refused", why)
+            self.log("MERGE", "#{} {} not merged: GitHub refused it, and it isn't tried again until its head or base "
+                              "changes: {}".format(number, sha[:7], why))
+            return
+        self.record_merge(number, row, sha, base, "merged", "")
+        self.log("MERGE", "#{} {} merged with {}, graded {}/10".format(number, sha[:7], settings["method"], grade))
+
+    def commit_checks(self, sha):
+        """merge_checks() over commit sha's check runs and commit statuses, or None when GitHub couldn't say."""
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
+                            "--jq", CHECK_RUNS_JQ)
+        if code != 0:
+            return None
+        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
+        if any(len(run) != 2 for run in runs):
+            return None
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/status".format(sha), "--paginate",
+                            "--jq", STATUSES_JQ)
+        if code != 0:
+            return None
+        return merge_checks(runs, [line.strip() for line in out.split("\n") if line.strip()])
+
+    def record_merge(self, number, row, sha, base, state, note):
+        """Put a merge tried on sha and base, merged or refused, on pull request number's review row."""
+        with self.write_lock:
+            self.status["reviews"][str(number)] = dict(
+                row, merge={"sha": sha, "base": base, "state": state, "note": note},
+                updated=datetime.now().isoformat(timespec="seconds"))
+        self.save_status()
 
 
 def build_parser():
