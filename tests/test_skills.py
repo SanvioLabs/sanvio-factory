@@ -342,6 +342,38 @@ class StarterUpdatesCapabilities(unittest.TestCase):
         return names
 
 
+class FactoryEval(unittest.TestCase):
+    """The factory-eval skill asks before spending, validates first, keeps away from the key, and deletes nothing."""
+
+    SKILL = ROOT / "skills" / "factory-eval" / "SKILL.md"
+
+    def text(self):
+        return " ".join(self.SKILL.read_text().split())
+
+    def test_it_exists_with_its_name(self):
+        self.assertEqual(frontmatter(self.SKILL.read_text())["name"], "factory-eval")
+
+    def test_nothing_that_spends_starts_without_a_yes(self):
+        text = self.text()
+        self.assertIn("Never start anything that spends model tokens or creates a repo without the person's yes", text)
+        self.assertIn("`--yes` goes on the command only after that yes", text)
+
+    def test_a_suite_is_validated_before_a_run(self):
+        text = self.text()
+        self.assertLess(text.index("eval_factory.py validate"), text.index("eval_factory.py run"))
+
+    def test_it_never_reads_the_key(self):
+        self.assertIn("Never read, print or summarise anything in a suite's `key/`", self.text())
+
+    def test_it_never_deletes_a_run_repo(self):
+        text = self.text()
+        self.assertIn("Never delete a run's repo", text)
+        self.assertIn("Don't run it.", text)
+
+    def test_it_compares_like_with_like(self):
+        self.assertIn("Compare only runs of the same suite, on the same models", self.text())
+
+
 class FactoryUpdatesRename(unittest.TestCase):
     """The skill's new name, and the only places its two old ones may still appear."""
 
