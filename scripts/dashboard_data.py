@@ -133,6 +133,10 @@
                      truncated is true when the search matched more than the 1000 it returns, and then
                      the counts are low. Why values are work_report.py's: "gh unavailable" and "GitHub's
                      search returned a page it couldn't read". It prints no title, author, login or address
+    last_review      the last monthly log review, from .sanvio/usage/last-review, which
+                     usage_report.py --review writes: date, YYYY-MM-DD, and days_since, the days from
+                     it to today. Why values: "no review yet" when there's no file, and "unreadable"
+                     when it can't be read or doesn't hold a date
 
 A section whose source is missing or can't be read is {"value": null, "why": ...}, and the why names
 the kind of problem, never a path or an error's text. The script still exits 0. status.json keeps
@@ -192,6 +196,7 @@ OUTCOMES = ("pr", "blocked", "stopped", "skipped")  # the states a run ends in; 
 STAGE_STEPS = ("SHAPE", "BUILD", "VALIDATE", "SCALE")  # the loop's steps stage_times takes medians of
 STAGE_PR_FIELDS = "number,headRefName,author,createdAt,mergedAt,reviews"
 SLOWEST_AT = 3  # how many a stage's median needs behind it before it can be named slowest
+LAST_REVIEW = Path("usage") / "last-review"  # under names.state_dir(), written by usage_report.py --review
 
 
 def missing(why):
@@ -1009,6 +1014,20 @@ def work_by_type(root, since):
     return {"types": out, "truncated": matched > work_report.LIMIT}
 
 
+def last_review(root, today):
+    """{date, days_since} from .sanvio/usage/last-review, which usage_report.py --review writes."""
+    try:
+        text = (names.state_dir(root) / LAST_REVIEW).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return missing("no review yet")
+    except (OSError, ValueError):
+        return missing("unreadable")
+    found = iso_date(text.strip())
+    if found is None:
+        return missing("unreadable")
+    return {"date": found, "days_since": (today - datetime.date.fromisoformat(found)).days}
+
+
 def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
     now = now or datetime.datetime.now().astimezone()
     return {"schema": SCHEMA, "generated": now.isoformat(timespec="seconds"), "since": since,
@@ -1021,7 +1040,8 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "loop_rework": loop_rework(root, since),
             "stage_times": stage_times(root, since),
             "loop_history": loop_history(root, since, today),
-            "work_by_type": work_by_type(root, since)}
+            "work_by_type": work_by_type(root, since),
+            "last_review": last_review(root, today)}
 
 
 def main(argv=None, root=ROOT, projects_dir=TRANSCRIPTS):
