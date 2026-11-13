@@ -3900,7 +3900,7 @@ class Loop:
         """Open pull requests matching review_query, and, with review_label set, those carrying that label,
         once each, lowest number first, or None if GitHub couldn't be asked for either list. GitHub's search
         can't OR a query with a label, so the label is a second list, and review_query stays as written."""
-        fields = ("--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft")
+        fields = ("--limit", "50", "--json", "number,title,headRefOid,baseRefName,isDraft,reviewDecision")
         asks = [("--search", self.cfg["review_query"])]
         if self.cfg.get("review_label"):
             asks.append(("--label", self.cfg["review_label"]))
@@ -4210,11 +4210,16 @@ class Loop:
         base it was graded on against the list's, bases, a merge already tried on that head and base, then the
         commit's check runs and statuses, then the pull request read again just before the merge, for a fork, a
         draft, its author, its head and its base. gh's --match-head-commit has GitHub refuse the merge if the
-        head moved after that. A merge GitHub refuses is recorded on the row, so that head and base aren't tried
-        again: a new head or base gets a new review, and a new row."""
+        head moved after that. A merge is recorded on the row with the list's review decision and when it was
+        tried. A merged one is never tried again. A refused one is tried again on the same head and base once
+        the list's review decision differs from the recorded one, such as after an approval, or once a day has
+        passed since GitHub refused it, and every other check still runs first. An entry written before the
+        row carried a time gets one on first sight, so it ages from then. A new head or base gets a new review,
+        and a new row."""
         number = pr["number"]
         row = self.last_review(number) or {}
         sha, base = row.get("sha") or pr["headRefOid"], row.get("base") or ""
+        decision = pr.get("reviewDecision") or ""  # gh gives an empty value when no review is required
 
         def hold(why):
             # Once per head and reason, as a skipped review is: the next poll asks again, quietly.
@@ -4238,8 +4243,30 @@ class Loop:
         if base not in settings["bases"]:
             return hold("its base {} isn't in auto_merge.bases".format(marked(base, cap=100)))
         tried = row.get("merge")
+        again = None
         if isinstance(tried, dict) and (tried.get("sha"), tried.get("base")) == (sha, base):
-            return  # merged, or refused by GitHub: logged then, and not tried again on this head and base
+            if tried.get("state") == "merged":
+                return  # merged: logged then, and never tried again
+            recorded = tried.get("decision") or ""
+            try:
+                at = datetime.fromisoformat(tried.get("at"))
+            except (ValueError, TypeError):
+                at = None
+            if at is not None and at.tzinfo is not None:
+                at = None  # the loop writes local times without an offset: one with an offset isn't its own
+            if decision != recorded:
+                again = "its review decision changed"
+            elif at is None:
+                # Written before a refusal carried a time: stamp it now, so a day can pass from here.
+                with self.write_lock:
+                    self.status["reviews"][str(number)] = dict(row, merge=dict(
+                        tried, decision=recorded, at=datetime.now().isoformat(timespec="seconds")))
+                self.save_status()
+                return
+            elif datetime.now() - at >= timedelta(hours=24):
+                again = "a day since GitHub refused it"
+            else:
+                return  # refused by GitHub: logged then, and not tried again yet on this head and base
         checks = self.commit_checks(sha)
         if checks != "passing":
             return hold({"none": "no checks ran", "failing": "a check failed", "pending": "checks still running"}.get(
@@ -4266,14 +4293,16 @@ class Loop:
             return hold("its head moved after it was graded")
         if now.get("baseRefName") != base:
             return hold("its base changed after it was graded")
+        if again:
+            self.log("MERGE", "#{} {} tried again: {}".format(number, sha[:7], again))
         code, out = self.gh("pr", "merge", str(number), "--" + settings["method"], "--match-head-commit", sha)
         if code != 0:
             why = marked(" ".join(out.split()), cap=300) or "gh exited {}".format(code)
-            self.record_merge(number, row, sha, base, "refused", why)
-            self.log("MERGE", "#{} {} not merged: GitHub refused it, and it isn't tried again until its head or base "
-                              "changes: {}".format(number, sha[:7], why))
+            self.record_merge(number, row, sha, base, "refused", why, decision)
+            self.log("MERGE", "#{} {} not merged: GitHub refused it, and it isn't tried again on this head and base "
+                              "until its review decision changes or a day passes: {}".format(number, sha[:7], why))
             return
-        self.record_merge(number, row, sha, base, "merged", "")
+        self.record_merge(number, row, sha, base, "merged", "", decision)
         self.log("MERGE", "#{} {} merged with {}, graded {}/10".format(number, sha[:7], settings["method"], grade))
 
     def commit_checks(self, sha):
@@ -4291,12 +4320,14 @@ class Loop:
             return None
         return merge_checks(runs, [line.strip() for line in out.split("\n") if line.strip()])
 
-    def record_merge(self, number, row, sha, base, state, note):
-        """Put a merge tried on sha and base, merged or refused, on pull request number's review row."""
+    def record_merge(self, number, row, sha, base, state, note, decision):
+        """Put a merge tried on sha and base, merged or refused, on pull request number's review row, with the
+        list's review decision then and when it was tried."""
+        when = datetime.now().isoformat(timespec="seconds")
         with self.write_lock:
             self.status["reviews"][str(number)] = dict(
-                row, merge={"sha": sha, "base": base, "state": state, "note": note},
-                updated=datetime.now().isoformat(timespec="seconds"))
+                row, merge={"sha": sha, "base": base, "state": state, "note": note, "decision": decision, "at": when},
+                updated=when)
         self.save_status()
 
 

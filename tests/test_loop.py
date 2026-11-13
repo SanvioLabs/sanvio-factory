@@ -6891,7 +6891,7 @@ RUBRIC = {"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 0, 
 class TestReviewLabel(ReviewFixture, unittest.TestCase):
     """review_label: review takes the open pull requests carrying it as well as the ones review_query finds."""
 
-    LIST = "--limit 50 --json number,title,headRefOid,baseRefName,isDraft"
+    LIST = "--limit 50 --json number,title,headRefOid,baseRefName,isDraft,reviewDecision"
 
     def label(self, *rows):
         """The open pull requests GitHub lists as carrying the label."""
@@ -7550,18 +7550,20 @@ class TestAutoMerge(ReviewFixture, unittest.TestCase):
             looped.merge_when_ready(self.pr(7, sha))
         self.assertEqual(self.merge_lines(), ["MERGE #7 {} not merged: it's from a fork".format(sha[:7])] * 2)
 
-    # A merge GitHub refuses: its reason in the log, and that head isn't tried again until its head or base changes.
+    # A merge GitHub refuses: its reason in the log, and that head and base aren't tried again soon. A new head or
+    # base is reviewed and tried again.
 
-    def test_a_refused_merge_logs_github_s_reason_and_isn_t_tried_again_until_the_head_or_base_changes(self):
+    def test_a_refused_merge_logs_github_s_reason_and_a_new_head_or_base_is_tried_again(self):
         (self.state / "merge-refused").write_text(
             "X Pull request #7 is not mergeable: the base branch policy prohibits the merge.\n"
             "To have the pull request merged after all the requirements have been met, add the `--auto` flag.")
         sha = self.graded()
         self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
         self.assertEqual(self.merge_lines(), [
-            "MERGE #7 {} not merged: GitHub refused it, and it isn't tried again until its head or base changes: X Pull "
-            "request #7 is not mergeable: the base branch policy prohibits the merge. To have the pull request merged "
-            "after all the requirements have been met, add the `--auto` flag.".format(sha[:7])])
+            "MERGE #7 {} not merged: GitHub refused it, and it isn't tried again on this head and base until its "
+            "review decision changes or a day passes: X Pull request #7 is not mergeable: the base branch policy "
+            "prohibits the merge. To have the pull request merged after all the requirements have been met, add the "
+            "`--auto` flag.".format(sha[:7])])
         refused = self.status()["reviews"]["7"]["merge"]
         self.assertEqual((refused["sha"], refused["base"], refused["state"]), (sha, "main", "refused"))
         self.assertIn("base branch policy prohibits the merge", refused["note"])
@@ -7588,6 +7590,147 @@ class TestAutoMerge(ReviewFixture, unittest.TestCase):
         (self.state / "merge-refused").unlink()
         self.go()
         self.assertEqual(len(self.merges()), 3)
+
+    # A refused merge is tried again on the same head and base once its review decision changes or a day passes.
+
+    def listed(self, *rows):
+        """The open pull requests as gh pr list gives them, each (number, head, its review decision)."""
+        self.list_prs(*[dict(self.pr(number, sha), reviewDecision=decision) for number, sha, decision in rows])
+
+    def refused_with(self, decision):
+        """Pull request #7, graded and refused by GitHub while the list shows decision. Returns its head."""
+        (self.state / "merge-refused").write_text("X Pull request #7 is not mergeable: the base branch policy "
+                                                  "prohibits the merge.")
+        sha = self.push(7, "thing.txt")
+        self.listed((7, sha, decision))
+        self.view(7, sha)
+        self.go()
+        return sha
+
+    def set_merge(self, number=7, **changes):
+        """Edit pull request number's merge entry in status.json, as time passing would. None deletes a key."""
+        status = self.status()
+        entry = status["reviews"][str(number)]["merge"]
+        for key, value in changes.items():
+            if value is None:
+                entry.pop(key, None)
+            else:
+                entry[key] = value
+        (self.work / ".loop" / "status.json").write_text(json.dumps(status))
+
+    def ago(self, hours):
+        return (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
+
+    def just_now(self, at):
+        return datetime.now() - datetime.fromisoformat(at) < timedelta(hours=1)
+
+    def test_a_refused_merge_is_tried_again_once_its_review_decision_changes(self):
+        sha = self.refused_with("REVIEW_REQUIRED")
+        self.assertEqual(len(self.merges()), 1)
+        refused = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((refused["state"], refused["decision"]), ("refused", "REVIEW_REQUIRED"))
+        self.assertTrue(self.just_now(refused["at"]))
+        (self.state / "merge-refused").unlink()
+        self.listed((7, sha, "APPROVED"))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha] * 2)
+        self.assertEqual(self.merge_lines()[1:], [
+            "MERGE #7 {} tried again: its review decision changed".format(sha[:7]),
+            "MERGE #7 {} merged with squash, graded 10/10".format(sha[:7])])
+        merged = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((merged["state"], merged["decision"]), ("merged", "APPROVED"))
+        self.assertEqual(self.agents_started(), 1)  # the same head: no new review
+
+    def test_a_refused_merge_is_tried_again_once_a_day_after_github_refused_it_and_the_day_starts_over(self):
+        sha = self.refused_with("REVIEW_REQUIRED")
+        self.set_merge(at=self.ago(23))
+        self.go()
+        self.assertEqual(len(self.merges()), 1)  # the same decision, under a day: not tried again
+        self.assertEqual(len(self.merge_lines()), 1)
+        self.set_merge(at=self.ago(25))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha] * 2)
+        self.assertEqual(self.merge_lines()[-2], "MERGE #7 {} tried again: a day since GitHub refused it".format(
+            sha[:7]))
+        self.assertTrue(self.merge_lines()[-1].startswith("MERGE #7 {} not merged: GitHub refused it".format(sha[:7])))
+        again = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((again["state"], again["decision"]), ("refused", "REVIEW_REQUIRED"))
+        self.assertTrue(self.just_now(again["at"]))  # refused again: the day starts over
+        self.go()
+        self.go()
+        self.assertEqual(len(self.merges()), 2)
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_a_refusal_recorded_before_it_carried_a_time_is_stamped_on_first_sight_and_ages_from_then(self):
+        sha = self.refused_with("")
+        self.set_merge(decision=None, at=None)
+        self.go()
+        self.assertEqual(len(self.merges()), 1)  # the list shows "", as the entry is read: not tried again
+        stamped = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((stamped["sha"], stamped["state"], stamped["decision"]), (sha, "refused", ""))
+        self.assertIn("base branch policy prohibits the merge", stamped["note"])
+        self.assertTrue(self.just_now(stamped["at"]))
+        self.listed((7, sha, None))  # no review required: gh's empty value counts as ""
+        self.go()
+        self.assertEqual(len(self.merges()), 1)
+        self.set_merge(at=self.ago(25))
+        self.go()
+        self.assertEqual(len(self.merges()), 2)
+        self.assertEqual(self.merge_lines()[-2], "MERGE #7 {} tried again: a day since GitHub refused it".format(
+            sha[:7]))
+        # An old entry whose pull request has since been approved is tried at once.
+        self.fresh()
+        sha = self.refused_with("")
+        self.set_merge(decision=None, at=None)
+        self.listed((7, sha, "APPROVED"))
+        self.go()
+        self.assertEqual(len(self.merges()), 2)
+        self.assertEqual(self.merge_lines()[-2], "MERGE #7 {} tried again: its review decision changed".format(
+            sha[:7]))
+
+    def test_a_merged_pull_request_is_never_tried_again(self):
+        sha = self.push(7, "thing.txt")
+        self.listed((7, sha, "REVIEW_REQUIRED"))
+        self.view(7, sha)
+        self.go()
+        self.assertEqual(self.status()["reviews"]["7"]["merge"]["state"], "merged")
+        self.set_merge(at=self.ago(48))
+        self.listed((7, sha, "APPROVED"))  # GitHub's list can still name it, and its decision changed
+        self.go()
+        self.assertEqual(len(self.merges()), 1)
+        self.assertEqual(len(self.merge_lines()), 1)
+
+    def test_only_the_pull_request_whose_decision_changed_is_tried_again(self):
+        (self.state / "merge-refused").write_text("X Pull request is not mergeable.")
+        seven, eight = self.push(7, "seven.txt"), self.push(8, "eight.txt")
+        self.view(7, seven)
+        self.view(8, eight)
+        self.listed((7, seven, "REVIEW_REQUIRED"), (8, eight, "REVIEW_REQUIRED"))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + seven,
+                                         "pr merge 8 --squash --match-head-commit " + eight])
+        before = self.status()["reviews"]["8"]["merge"]
+        self.listed((7, seven, "APPROVED"), (8, eight, "REVIEW_REQUIRED"))
+        self.go()
+        self.assertEqual(self.merges()[2:], ["pr merge 7 --squash --match-head-commit " + seven])
+        self.assertEqual(self.status()["reviews"]["7"]["merge"]["decision"], "APPROVED")
+        self.assertEqual(self.status()["reviews"]["8"]["merge"], before)  # its decision and its time unchanged
+
+    def test_a_retry_still_runs_every_other_check_first(self):
+        sha = self.refused_with("REVIEW_REQUIRED")
+        self.checks(("completed", "failure"))
+        self.listed((7, sha, "APPROVED"))
+        self.go()
+        self.assertEqual(len(self.merges()), 1)
+        self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: a check failed".format(sha[:7]))
+        self.assertFalse(any("tried again" in line for line in self.merge_lines()))
+        self.checks(("completed", "success"))
+        (self.state / "merge-refused").unlink()
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha] * 2)
+        self.assertEqual(self.merge_lines()[-2:], [
+            "MERGE #7 {} tried again: its review decision changed".format(sha[:7]),
+            "MERGE #7 {} merged with squash, graded 10/10".format(sha[:7])])
 
     def test_a_merge_runs_after_a_pending_grade_is_filled_in_on_a_later_poll(self):
         self.checks(("in_progress", ""))
