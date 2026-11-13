@@ -16,7 +16,7 @@ This spec was written after the first build, from what [`scripts/loop.py`](../..
 
 ## Summary
 
-[`scripts/loop.py`](../../scripts/loop.py) takes an open GitHub issue labelled `loop-ready` through the flywheel: plan it, build it, check it, open a pull request. It is the small version of a runner for a team with one repo, one agent tool and a person who wants to watch a plain log. It never merges.
+[`scripts/loop.py`](../../scripts/loop.py) takes an open GitHub issue labelled `loop-ready` through the flywheel: plan it, build it, check it, open a pull request. It is the small version of a runner for a team with one repo, one agent tool and a person who wants to watch a plain log. It never merges unless the owner turns on `auto_merge`.
 
 ## Problem
 
@@ -33,7 +33,7 @@ This spec was written after the first build, from what [`scripts/loop.py`](../..
 ## Non-Goals
 
 - Running many projects or many issues at once.
-- Merging. A person merges.
+- Merging by default. A person merges unless the owner turns on `auto_merge` in the factory's `loop.json`.
 - A dispatcher, voice control, a dashboard, a database, or routing work to different models by tier.
 - Holding credentials. It uses the person's own agent and `gh` sign-in.
 
@@ -104,7 +104,7 @@ Run by hand, not in CI, 2026-10-09: a real issue in a private scratch repo ("cre
 | ID | Requirement |
 |---|---|
 | SEC-001 | A ticket is an instruction to an agent. The loop shall act only on issues carrying `ready_label`, and the README shall say to label only issues the team wrote or read. |
-| SEC-002 | The loop shall never merge, and shall never hold or read a credential. It runs on the person's own agent and `gh` sign-in. |
+| SEC-002 | The loop shall never merge unless the owner sets `auto_merge.enabled` to true in the factory's `loop.json`, never a project's. Then `review` shall merge only a pull request it graded at least `min_grade` on its current head, by an author in `authors`, into a base in `bases`, with at least one check and every check passed, and never a fork or a draft. The loop shall never hold or read a credential. It runs on the person's own agent and `gh` sign-in. |
 | SEC-003 | The reader agent shall be told not to edit, and any edit it makes shall be discarded (REQ-006). |
 
 ## Privacy / Compliance Requirements

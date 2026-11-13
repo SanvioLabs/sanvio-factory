@@ -98,7 +98,7 @@
 <li><b>One job per session.</b> Finished, or going in circles? <code>/clear</code> and start fresh.</li>
 <li><b>When it gets something wrong, say "learn from that."</b> Every mistake is a rule missing from the harness.</li>
 <li><b>What must survive goes in a file.</b> A correction said out loud is gone next session.</li>
-<li><b>It proposes, you decide.</b> Nothing merges without a person.</li>
+<li><b>It proposes, you decide.</b> Nothing merges without a person, unless the owner turns on auto-merge.</li>
 </ul>
 </section>
 
@@ -271,7 +271,7 @@
 
 <div class="model">
   <p><b>The loop</b> takes a labelled issue, plans it, builds it, tests it and has a second agent review it, then opens a pull request.</p>
-  <p style="margin:0"><b>It has no merge step.</b> That isn't a rule it follows; the code doesn't exist. A person reads the pull request and decides.</p>
+  <p style="margin:0"><b>It doesn't merge.</b> A person reads the pull request and decides. Only the owner can change that, with <code>auto_merge</code> in <code>loop.json</code>, and then only for work it graded, by trusted authors, with every check passed.</p>
 </div>
 
 <div class="grid">
@@ -614,7 +614,8 @@
 <tr><td><code>/work-report</code></td><td>One page of what merged, who approved it, and what the loop built</td></tr>
 <tr><td><code>/dispatch</code></td><td>Hand an issue to another team's factory, and review what comes back</td></tr>
 <tr><td><code>/factory-updates</code></td><td>What the public factory added since your copy, and what's worth taking</td></tr>
-<tr><td><code>/factory-dashboard</code></td><td>A pane, not a skill: what's waiting on you, the loop's spend and rework, token use. Off until installed</td></tr>
+<tr><td><code>/factory-dashboard</code></td><td>A pane, not a skill: what's waiting on you, the loop's spend and rework, token use. On by default</td></tr>
+<tr><td><code>/factory-eval</code></td><td>Whether a change made the factory better: runs a suite, scores it, compares two runs</td></tr>
 </table>
 <p class="note">The review agents (<code>reviewer</code>, <code>security-reviewer</code>, <code>cto</code>, <code>gc</code>, <code>ceo</code>, <code>cmo</code>) each read the work from one angle, and never edit it.</p>
 </section>

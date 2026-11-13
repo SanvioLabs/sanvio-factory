@@ -615,7 +615,7 @@ class Wording(unittest.TestCase):
 
     def test_the_harness_names_it(self):
         self.assertIn("skills/pulse/SKILL.md", (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
-        capabilities = (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text(encoding="utf-8")
+        capabilities = (ROOT / "skills" / "factory-updates" / "capabilities.md").read_text(encoding="utf-8")
         self.assertEqual(capabilities.count("`skills/pulse/`"), 1)
         self.assertIn("`scripts/pulse.py`", capabilities)
         self.assertIn("A daily question", (ROOT / "README.md").read_text(encoding="utf-8"))

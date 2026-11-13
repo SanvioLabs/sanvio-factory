@@ -94,7 +94,7 @@ for them.
 - Never call a copy up to date when step 2 failed or `origin/HEAD` didn't
   resolve. Say the remote couldn't be read.
 - Asked what the public Sanvio Factory has that this copy doesn't, say that's
-  [`starter-updates`](../starter-updates/SKILL.md), a separate skill, and don't answer it here.
+  [`factory-updates`](../factory-updates/SKILL.md), a separate skill, and don't answer it here.
 
 ## Output
 

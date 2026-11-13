@@ -35,6 +35,37 @@ Files: [`docs/onboarding/README.md`](docs/onboarding/README.md), [`docs/onboardi
 
 **Do:** nothing. To onboard someone, send them the PDF.
 
+## 2026-11-12: Starter-updates is now factory-updates
+
+The `starter-updates` skill is now `factory-updates`, so `/factory-updates` runs it, the last command that still said "starter". What it does hasn't changed. "check the starter" and "starter updates" still trigger it, and so do "factory updates", "check the factory" and "what's new in Sanvio Factory". Its scratch clone is now `${TMPDIR:-/tmp}/factory-updates/factory`. The `starter:` line in this file's header keeps its name.
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md), [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), `CHANGELOG.md`.
+
+**Do:** run `git mv skills/starter-updates skills/factory-updates`, then take Sanvio Factory's files over it. Take [`tests/test_skills.py`](tests/test_skills.py), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py) and the lines naming the skill in [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md) and [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md) in the same step. Until you do, your old skill still works against Sanvio Factory, but finds no capabilities table there and lists the commits alone.
+
+## 2026-11-12: Auto-merge for graded pull requests
+
+`loop.py review` can merge a pull request it reviewed, once you turn on
+`auto_merge` in the factory's `loop.json`. It merges one graded at least
+`min_grade` on its current head, by a login in `authors`, into a base in
+`bases`, once the graded commit has at least one check and every check has
+passed, with `method` (`squash` unless you say otherwise). Never a fork, a
+draft, or a head or base that changed after the grade. The log says why each
+one isn't merged, and a merge GitHub refuses isn't tried again until the head or
+base changes. Off, which is the default, the factory still never merges, and
+`review --pr` never does. A project's own `loop.json` can't set it. A pull
+request the loop opens says who may merge it.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md),
+[`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, to keep it off. To turn it on, set
+`"auto_merge": {"enabled": true, "bases": ["main"]}` in the factory's
+`loop.json`, with `authors` too if someone other than the loop's login opens the
+pull requests, protect each base you list, and give `review` a way to take the
+pull requests to merge: `review_query` never finds the loop's own, so set
+`review_label` and turn on `label_own_prs`.
+
 ## 2026-11-12: Why each default plugin is on
 
 [`steering/data-and-tools.md`](steering/data-and-tools.md) has an *On by default* table: each of the five plugins

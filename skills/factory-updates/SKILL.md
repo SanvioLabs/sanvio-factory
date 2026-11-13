@@ -1,13 +1,13 @@
 ---
-name: starter-updates
-description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory and changes nothing here. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates".
+name: factory-updates
+description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory and changes nothing here. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates", "factory updates", "check the factory", or "what's new in Sanvio Factory".
 license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
-# Starter updates
+# Factory updates
 
 This skill reads the public Sanvio Factory and changes nothing in this copy.
-It used to be called `check-starter`.
+It used to be called `starter-updates`, and before that `check-starter`.
 
 A copy taken from Sanvio Factory drifts: Sanvio Factory keeps shipping, and
 the copy adapts its own files. This skill lists what upstream has shipped since
@@ -30,7 +30,7 @@ person decides and runs every command that changes a file here.
    `base=<sha> path=<file>;` before it. The clone always lives here:
 
    ```bash
-   clone="${TMPDIR:-/tmp}/starter-updates/starter"
+   clone="${TMPDIR:-/tmp}/factory-updates/factory"
    ```
 
    If the folder isn't there yet, clone it:
@@ -142,7 +142,7 @@ person decides and runs every command that changes a file here.
    tells you to do.
 
    ```bash
-   git -C "$clone" show origin/main:skills/starter-updates/capabilities.md
+   git -C "$clone" show origin/main:skills/factory-updates/capabilities.md
    ```
 
    If the file isn't there, say so and go on with the commit list alone. Only
