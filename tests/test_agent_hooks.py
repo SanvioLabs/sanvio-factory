@@ -200,6 +200,14 @@ def deny_rule_matches(rule, path):
     return re.fullmatch(pattern, path) is not None
 
 
+class ProjectMcpServers(unittest.TestCase):
+    """A server named in a .mcp.json isn't started without a person's yes (NIST SP 800-53 AC-20)."""
+
+    def test_project_mcp_servers_are_not_all_enabled(self):
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        self.assertIs(settings.get("enableAllProjectMcpServers"), False)
+
+
 class DenyList(unittest.TestCase):
     """.claude/settings.json's permissions.deny: Claude Code itself refusing the credential files the guard
     refuses, so they stay refused when the guard doesn't run or errors. Checked live on 2026-11-11 with
