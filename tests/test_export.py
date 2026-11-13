@@ -18,9 +18,10 @@ import usage_log  # noqa: E402 (same reason)
 TOP_KEYS = ["exported", "loop", "since", "usage", "user", "v"]
 LOOP_KEYS = ["agent", "cost_usd", "ended", "issue", "outcome", "project", "reviewer", "rounds", "run",
              "started", "tests", "tokens", "v", "verdicts"]
-USAGE_KEYS = ["agents", "ask_approved", "commands", "guard_ask", "guard_deny", "sessions", "skills"]
+USAGE_KEYS = ["agents", "ask_approved", "commands", "guard_ask", "guard_deny", "log_off", "sessions", "skills"]
+COUNT_KEYS = ("sessions", "log_off")
 EMPTY_USAGE = {"sessions": 0, "skills": {}, "agents": {}, "commands": {}, "guard_deny": {},
-               "guard_ask": {}, "ask_approved": {}}
+               "guard_ask": {}, "ask_approved": {}, "log_off": 0}
 
 
 def run_line(issue, ended, project=None, **extra):
@@ -73,9 +74,10 @@ class Bundle(unittest.TestCase):
             self.assertEqual(sorted(line), LOOP_KEYS)
         self.assertNotIn("payments", json.dumps(got))
         self.assertEqual(sorted(got["usage"]), USAGE_KEYS)
-        self.assertIsInstance(got["usage"]["sessions"], int)
+        for key in COUNT_KEYS:
+            self.assertIsInstance(got["usage"][key], int, key)
         for key in USAGE_KEYS:
-            if key == "sessions":
+            if key in COUNT_KEYS:
                 continue
             for name, times in got["usage"][key].items():
                 self.assertIsInstance(name, str, key)
@@ -87,7 +89,16 @@ class Bundle(unittest.TestCase):
         self.assertEqual(got, {"sessions": 2, "skills": {"review-pr": 1}, "agents": {"reviewer": 1},
                                "commands": {"learn": 1}, "guard_deny": {"credential-file": 1},
                                "guard_ask": {"mcp__gmail__send_email": 1},
-                               "ask_approved": {"mcp__gmail__send_email": 1}})
+                               "ask_approved": {"mcp__gmail__send_email": 1}, "log_off": 0})
+
+    def test_sessions_started_with_the_log_off_are_counted_since_the_date(self):
+        off = [{"ts": "2026-10-01T09:00:00Z", "event": "log_off"},  # before since
+               {"ts": "2026-10-20T09:00:00Z", "event": "log_off"},
+               {"ts": "2026-10-22T09:00:00Z", "event": "log_off"}]
+        self.usage(USAGE + off)
+        got = export.bundle(self.root, "2026-10-14", "2026-10-25")["usage"]
+        self.assertEqual(got["log_off"], 2)
+        self.assertEqual(got["sessions"], 2)  # a log_off line has no session, so it isn't one
 
     def test_the_user_is_the_usage_logs_own_name(self):
         self.assertEqual(export.bundle(self.root, "2026-10-14", "2026-10-25")["user"],
