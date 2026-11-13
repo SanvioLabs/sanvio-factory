@@ -7688,6 +7688,16 @@ class TestAutoMerge(ReviewFixture, unittest.TestCase):
         self.assertEqual(self.merge_lines()[-2], "MERGE #7 {} tried again: its review decision changed".format(
             sha[:7]))
 
+    def test_a_refusal_time_with_an_offset_is_not_the_loop_s_own_and_is_stamped_afresh(self):
+        self.refused_with("REVIEW_REQUIRED")
+        self.set_merge(at="2025-11-13T09:00:00+00:00")  # a year old, but the loop never writes an offset
+        self.go()
+        self.assertEqual(len(self.merges()), 1)  # read as missing, not as a day gone by
+        stamped = self.status()["reviews"]["7"]["merge"]
+        self.assertEqual((stamped["state"], stamped["decision"]), ("refused", "REVIEW_REQUIRED"))
+        self.assertIsNone(datetime.fromisoformat(stamped["at"]).tzinfo)
+        self.assertTrue(self.just_now(stamped["at"]))
+
     def test_a_merged_pull_request_is_never_tried_again(self):
         sha = self.push(7, "thing.txt")
         self.listed((7, sha, "REVIEW_REQUIRED"))
@@ -7723,7 +7733,8 @@ class TestAutoMerge(ReviewFixture, unittest.TestCase):
         self.go()
         self.assertEqual(len(self.merges()), 1)
         self.assertEqual(self.merge_lines()[-1], "MERGE #7 {} not merged: a check failed".format(sha[:7]))
-        self.assertFalse(any("tried again" in line for line in self.merge_lines()))
+        retry = "MERGE #7 {} tried again:".format(sha[:7])
+        self.assertFalse(any(line.startswith(retry) for line in self.merge_lines()))
         self.checks(("completed", "success"))
         (self.state / "merge-refused").unlink()
         self.go()
