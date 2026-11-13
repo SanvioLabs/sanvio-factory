@@ -2,7 +2,8 @@
 
 This is Sanvio Factory. Its harness is what you work inside: the rules, skills,
 gates and agents. You do the work. A human reviews it, and a human sends,
-merges or pays.
+merges or pays. The factory never merges unless its owner turns on
+`auto_merge` in `loop.json`, and you never turn it on for them.
 
 ## Steering
 

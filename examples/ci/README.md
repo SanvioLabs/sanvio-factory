@@ -8,6 +8,10 @@ Workflows to copy into a repo's [`.github/workflows/`](../../.github/workflows/)
 - [`examples/ci/review-pr.yml`](review-pr.yml) reviews every pull request with the review-pr skill, in a repo that carries this factory's [`skills/`](../../skills/) folder.
 - [`examples/ci/evals/`](evals/) holds changes with planted problems, to check the review-pr skill still finds them. [Testing the review](#testing-the-review) says how to run them.
 
+None of them merges. The factory never merges unless you turn on `auto_merge`
+in its `loop.json`, and even then only `loop.py review`, the watcher you run on
+a machine, merges, never a workflow here.
+
 The rest of this page is for the other way to review: many product repos, one
 factory. Each product repo calls [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml) from your
 factory's repo, so every review follows the same skill and the same rules, and
