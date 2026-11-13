@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Onboarding cards
+
+[`docs/onboarding/`](docs/onboarding/) has six one-page cards for bringing a team onto the factory, one per session: getting started, knowledge and skills, first motion, gates and guards, specs, and team and your loop. Each names the skills that session uses and ends with what to do before the next. One PDF to hand out, built from one HTML file.
+
+Files: [`docs/onboarding/README.md`](docs/onboarding/README.md), [`docs/onboarding/onboarding-cards.html`](docs/onboarding/onboarding-cards.html), [`docs/onboarding/onboarding-cards.pdf`](docs/onboarding/onboarding-cards.pdf), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To onboard someone, send them the PDF.
+
 ## 2026-11-12: Why each default plugin is on
 
 [`steering/data-and-tools.md`](steering/data-and-tools.md) has an *On by default* table: each of the five plugins
