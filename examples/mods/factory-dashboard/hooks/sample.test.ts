@@ -5,7 +5,7 @@ import { SAMPLE } from './sample'
 
 // SAMPLE is what scripts/dashboard_data.py printed, written by tests/test_dashboard_data.py, so a field
 // the script renames or moves shows here as a section the pane can't read.
-const KEYS = ['loop_spend', 'loop_throughput', 'activity', 'evals', 'conversations', 'waiting', 'loop_rework']
+const KEYS = ['loop_spend', 'loop_throughput', 'activity', 'evals', 'conversations', 'waiting', 'loop_rework', 'work_by_type']
 // What the pane says when a field isn't where it looks.
 const UNREAD = ["couldn't read", 'not in this script', "doesn't give them yet"]
 // Every why the script gives a missing section, and the one missing() gives when it has none.

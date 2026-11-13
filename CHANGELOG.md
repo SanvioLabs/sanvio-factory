@@ -27,6 +27,20 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Work by type on the factory dashboard
+
+The factory dashboard's **Loop spend** section gains a **Merged by type** table. It counts this repo's
+pull requests merged in the period as bug, enhancement, documentation, chore or untyped, typed by their own
+labels first and then their closed issues', with how many the loop built and what the loop spent on the
+issues they close, on any date. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) prints it as a new
+`work_by_type` section, through the same GraphQL search [`scripts/work_report.py`](scripts/work_report.py) uses, with one more `gh`
+call on each read. It says when the search stopped at its 1000 limit, and a failed read shows why in place of the table.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run `/plugin update` to get the pane's new table. Pull requests with no type label, on them or
+their issues, count as untyped.
+
 ## 2026-11-12: The loop's own commands run in a sandbox on a Mac
 
 On a Mac, [`scripts/loop.py`](scripts/loop.py) now runs `test_command`, `generate_command` and

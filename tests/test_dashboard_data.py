@@ -70,8 +70,9 @@ def fake_gh(folder, script):
     path.chmod(0o755)
 
 # A stand-in for gh, found on PATH. It logs each call, answers pr list from prs-<state>.json for its
-# --state, or prs.json when there's none ([] when neither is there), and pulls/<n>/commits from
-# commits.json's pages for n, and exits 1 while a file named fail exists.
+# --state, or prs.json when there's none ([] when neither is there), api graphql by printing each page
+# in search.json (failing when there's none), and pulls/<n>/commits from commits.json's pages for n, and
+# exits 1 while a file named fail exists.
 GH = """#!PYTHON
 import json, os, sys
 folder = FOLDER
@@ -86,6 +87,12 @@ if args[:2] == ["pr", "list"]:
     if not os.path.exists(path):
         path = os.path.join(folder, "prs.json")
     print(open(path).read() if os.path.exists(path) else "[]")
+elif args[:2] == ["api", "graphql"]:
+    path = os.path.join(folder, "search.json")
+    if not os.path.exists(path):
+        sys.exit(1)
+    for page in json.load(open(path)):
+        print(json.dumps(page))
 elif args[:1] == ["api"]:
     for page in json.load(open(os.path.join(folder, "commits.json")))[args[1].split("/")[-2]]:
         print(json.dumps(page))
@@ -197,7 +204,7 @@ class Layout(Factory):
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
                                        "evals", "conversations", "waiting", "loop_rework", "stage_times",
-                                       "loop_history"])
+                                       "loop_history", "work_by_type"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -786,6 +793,128 @@ class StageTimes(Factory):
         self.assertIn("status.json keeps only the loop's 20 most recent issues (STATUS_KEEP), so the loop-step "
                       "medians cover those whatever --since says, the same limit cost_per_pr has.",
                       dashboard_data.__doc__)
+
+
+def search_pr(number, branch, merged, labels=(), closes=(), title=None, author=None):
+    """One pull request from work_report.py's GraphQL search, each of closes as (issue, its labels). Unless
+    given, its title, address, author and its issues' bodies carry LEAK, which the section mustn't print."""
+    def labelled(names):
+        return {"nodes": [{"name": name} for name in names]}
+
+    return {"number": number, "title": title or LEAK, "url": "https://github.com/o/r/pull/{}?{}".format(number, LEAK),
+            "createdAt": merged, "mergedAt": merged, "headRefName": branch,
+            "author": {"__typename": "User", "login": author or "person-" + LEAK}, "milestone": None,
+            "labels": labelled(labels),
+            "closingIssuesReferences": {"nodes": [{"number": n, "body": "Spec: " + LEAK, "milestone": None,
+                                                   "labels": labelled(names)} for n, names in closes]},
+            "reviews": {"nodes": []}, "approvals": {"nodes": []}}
+
+
+def search_page(prs, matched):
+    """One page of the search as gh --paginate prints it, matched being the search's whole count."""
+    return {"data": {"search": {"issueCount": matched, "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": list(prs)}}}
+
+
+class WorkByType(Factory):
+    """fill()'s loop records, and merged pull requests of every type over two pages: issue-7 (310 tokens,
+    $1.75) closed by the loop's pull request and a person's, issue-9 (6000 tokens, $11.00 on every date)
+    by one labelled bug whose issue says enhancement, and spend on issue-11 that nothing merged closes."""
+
+    def setUp(self):
+        super().setUp()
+        self.fill()
+        write(self.root, ".loop/issue-11/usage.json", [run("2026-10-20T09:00:00", "plan", "claude-a", 777, 7.0)])
+        self.answer_gh()
+        prs = [
+            search_pr(201, "loop/issue-7", "2026-10-20T12:00:00Z", closes=[(7, ["enhancement"])]),  # typed by its issue
+            search_pr(202, "feature/x", "2026-10-21T12:00:00Z", labels=["enhancement"], closes=[(7, [])]),
+            search_pr(203, "loop/issue-9", "2026-10-22T12:00:00Z", labels=["bug"], closes=[(9, ["enhancement"])]),
+            search_pr(204, "feature/docs", "2026-10-23T12:00:00Z", labels=["documentation"], closes=[(3, [])]),
+            search_pr(205, "feature/y", "2026-10-24T12:00:00Z"),  # no type anywhere
+            search_pr(206, "loop/issue-12", "2026-10-01T12:00:00Z", labels=["chore"], closes=[(9, [])])]  # before SINCE
+        write(self.bin, "search.json", [search_page(prs[:3], len(prs)), search_page(prs[3:], len(prs))])
+
+    def types(self, since=SINCE):
+        return {row["type"]: row for row in self.build(since)["work_by_type"]["types"]}
+
+    def test_every_type_then_untyped_in_order_with_its_counts_and_spend(self):
+        self.assertEqual(self.build()["work_by_type"], {"types": [
+            {"type": "bug", "merged": 1, "loop_built": 1, "issues": 1, "tokens": 6000, "cost_usd": 11.0},
+            {"type": "enhancement", "merged": 2, "loop_built": 1, "issues": 1, "tokens": 310, "cost_usd": 1.75},
+            {"type": "documentation", "merged": 1, "loop_built": 0, "issues": 1, "tokens": 0, "cost_usd": 0.0},
+            {"type": "chore", "merged": 0, "loop_built": 0, "issues": 0, "tokens": 0, "cost_usd": 0.0},
+            {"type": None, "merged": 1, "loop_built": 0, "issues": 0, "tokens": 0, "cost_usd": 0.0}],
+            "truncated": False})
+
+    def test_the_loops_pull_request_and_a_persons_of_one_type(self):
+        found = self.types()["enhancement"]
+        self.assertEqual((found["merged"], found["loop_built"]), (2, 1))
+
+    def test_its_own_label_comes_before_its_issues_and_an_issues_types_one_without(self):
+        write(self.bin, "search.json", [search_page([
+            search_pr(203, "loop/issue-9", "2026-10-22T12:00:00Z", labels=["bug"], closes=[(9, ["enhancement"])]),
+            search_pr(201, "loop/issue-7", "2026-10-20T12:00:00Z", closes=[(7, ["documentation"])])], 2)])
+        found = self.types()
+        self.assertEqual([found[kind]["merged"] for kind in ("bug", "enhancement", "documentation")], [1, 0, 1])
+
+    def test_a_pull_request_with_no_type_counts_under_null(self):
+        self.assertEqual(self.types()[None]["merged"], 1)
+
+    def test_an_issue_with_an_unpriced_record_gives_its_type_a_null_cost(self):
+        write(self.root, ".loop/issue-9/usage.json", [run("2026-10-16T09:00:00", "plan", "claude-b", 1000, None)])
+        found = self.types()
+        self.assertEqual((found["bug"]["tokens"], found["bug"]["cost_usd"]), (1000, None))
+        self.assertEqual(found["enhancement"]["cost_usd"], 1.75)
+
+    def test_a_search_that_matched_more_than_it_returns_says_truncated(self):
+        prs = json.loads((self.bin / "search.json").read_text())
+        for page in prs:
+            page["data"]["search"]["issueCount"] = 1001
+        write(self.bin, "search.json", prs)
+        self.assertTrue(self.build()["work_by_type"]["truncated"])
+
+    def test_no_gh_no_answer_or_a_page_it_cant_read_gives_null_and_why_and_exits_0(self):
+        unreadable = "GitHub's search returned a page it couldn't read"
+        for name, search, why in (("fails", None, "gh unavailable"), ("prints nothing", [], "gh unavailable"),
+                                  ("an error page", [{"errors": [{"message": LEAK}]}], unreadable),
+                                  ("a list", [[1, 2]], unreadable)):
+            with self.subTest(name):
+                if search is None:
+                    (self.bin / "search.json").unlink(missing_ok=True)
+                else:
+                    write(self.bin, "search.json", search)
+                code, out = self.main()
+                self.assertEqual(code, 0)
+                self.assertEqual(json.loads(out)["work_by_type"], {"value": None, "why": why})
+        empty = self.root.parent / "empty"
+        empty.mkdir()
+        with mock.patch.dict(os.environ, {"PATH": str(empty)}):
+            self.assertEqual(self.build()["work_by_type"], {"value": None, "why": "gh unavailable"})
+
+    def test_it_prints_no_title_author_login_body_or_address(self):
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        self.assertNotIn(LEAK, json.dumps(json.loads(out)["work_by_type"]))
+
+    def test_spend_on_an_issue_no_merged_pull_request_closes_adds_nothing(self):
+        found = self.build()["work_by_type"]["types"]
+        self.assertEqual(sum(row["tokens"] for row in found), 6000 + 310)
+
+    def test_a_projects_issue_isnt_this_repos_issue_of_the_same_number(self):
+        found = self.types()["documentation"]  # 204 closes #3; only app/issue-3 has records
+        self.assertEqual((found["issues"], found["tokens"], found["cost_usd"]), (1, 0, 0.0))
+
+    def test_a_pull_request_merged_before_since_isnt_counted(self):
+        self.assertEqual(self.types()["chore"]["merged"], 0)
+        self.assertEqual(self.types(since="2026-09-01")["chore"]["merged"], 1)
+
+    def test_an_issue_two_pull_requests_of_a_type_close_is_charged_once(self):
+        found = self.types()["enhancement"]
+        self.assertEqual((found["issues"], found["tokens"], found["cost_usd"]), (1, 310, 1.75))
+
+    def test_the_docstring_lists_the_section(self):
+        self.assertIn("\n    work_by_type ", dashboard_data.__doc__)
 
 
 class MissingOrCorrupt(Factory):
@@ -1460,6 +1589,19 @@ class Sample(GitHarness):
             "39": [[loop]],
             "41": [[loop, commit("fix the test")]],
             "43": [[loop, commit("Merge branch 'main' into loop/issue-33", parents=2)]]})
+        # The same three as the search finds them for work_by_type, typed by their own label or their issue's,
+        # with a person's documentation fix and a tidy-up nobody labelled.
+        merged = [
+            search_pr(39, "loop/issue-31", "2026-10-17T12:00:00Z", labels=["enhancement"], closes=[(31, [])],
+                      title="Dashboard: stack narrow tables", author="loop-bot"),
+            search_pr(41, "loop/issue-32", "2026-10-20T12:00:00Z", closes=[(32, ["bug"])],
+                      title="Loop: say which round a review was", author="loop-bot"),
+            search_pr(43, "loop/issue-33", "2026-10-22T12:00:00Z", closes=[(33, ["enhancement"])],
+                      title="Gate: name the section that's empty", author="loop-bot"),
+            search_pr(37, "readme-links", "2026-10-19T15:00:00Z", labels=["documentation"],
+                      title="README: fix two links", author="a-person"),
+            search_pr(47, "tidy", "2026-10-23T15:00:00Z", title="Tidy the scripts folder", author="a-person")]
+        write(self.bin, "search.json", [search_page(merged, len(merged))])
         # Replies at noon UTC fall on the same day in UTC and in Los Angeles. reply() gives 10n tokens a reply.
         checkouts = self.root.parent / "loop-checkouts"
         write(self.root, "loop.json", {"worktree_dir": str(checkouts)})
