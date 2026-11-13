@@ -27,6 +27,16 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Why each default plugin is on
+
+[`steering/data-and-tools.md`](steering/data-and-tools.md) has an *On by default* table: each of the five plugins
+[`.claude/settings.json`](.claude/settings.json) switches on, what it reads and why it's there, and how to switch one off. A
+test fails when a plugin is switched on with no row.
+
+Files: [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if your copy switches on a plugin of its own, add its row.
+
 ## 2026-11-12: Usage log records when it's off
 
 With `SANVIO_USAGE_LOG=off`, each session start now writes one `log_off` line to your usage log, holding only the time and the chain's `prev`: no session id, skill, tool or path. The session's setup message says the log is off and how to turn it back on. The usage report says `Usage log off for N sessions.`, and the dashboard's `--json` has a `log_off` count under `activity`. The bundle [`scripts/export.py`](scripts/export.py) writes counts them as `usage.log_off`.

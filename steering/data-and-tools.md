@@ -48,6 +48,26 @@ false in [`.claude/settings.json`](../.claude/settings.json), so Claude Code ask
 
 `company/DATA.md` says which sources are cleared for which tool.
 
+## On by default
+
+Five plugins come switched on in [`.claude/settings.json`](../.claude/settings.json). NIST SP 800-53 CM-7
+asks that only what's needed runs, so each one's reason is here. They read and
+show: none writes to your project, and none reaches anything beyond what its
+row names.
+
+| Plugin | What it reads | Why it's on |
+|---|---|---|
+| `harness-lens` | This session's own hook events and the factory's local files | So you can see which part of the harness just acted |
+| `github-status` | This repo's actions, pull requests and issues on GitHub, through `gh` and your login | So a running check or a waiting pull request shows without a browser tab |
+| `factory-dashboard` | The local logs and `.loop/` records, through [`scripts/dashboard_data.py`](../scripts/dashboard_data.py), which asks GitHub for merged pull requests through `gh` | The factory's numbers in one pane |
+| `factory-floor` | The loop's `.loop/` records, including each issue's pull request link, which it opens in your browser when you click it | So you can watch the loop work |
+| `stelliad` | Nothing until one of its skills runs. It's pinned to one reviewed commit in [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | Its `create-ticket` and `create-spec` skills write the issues the loop takes |
+
+`claude plugin disable <name>@sanvio-factory --scope local` switches one off
+for you, and `"<name>@sanvio-factory": false` in [`.claude/settings.json`](../.claude/settings.json) switches it
+off for everyone. A plugin added to that list gets a row here in the same
+change, and [`tests/test_steering.py`](../tests/test_steering.py) checks it does.
+
 ## What may go to an AI coding tool
 
 | Fine | Not without written permission |
