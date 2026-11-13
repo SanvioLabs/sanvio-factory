@@ -142,7 +142,7 @@ jobs:
       # by every repo that calls this.
       - name: Check out the harness
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.factory-repo }}
           ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Check out the pull request's base
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
@@ -186,7 +186,7 @@ jobs:
 
       - name: Check out the pull request's head
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: head
           fetch-depth: 0

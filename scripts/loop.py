@@ -90,6 +90,11 @@ DEFAULTS = {
     # Run by this script once per worktree, before its first agent, such as `npm ci`. It may write only
     # what git ignores, since anything else would go in a commit. Empty means nothing runs.
     "setup_command": "",
+    # Whether those three commands run inside macOS's sandbox-exec, which keeps them from reading credential
+    # files under the home folder and the factory's own data (sandbox_profile() lists both). Only true turns
+    # it on, and only on a Mac: elsewhere they run as before and the loop logs a WARN. A project whose tests
+    # need one of those paths sets it false in its own loop.json.
+    "sandbox_commands": True,
     # Whether a separate agent writes failing tests after the planner and before round 1, which the build then
     # has to make pass without changing them. Only true turns it on. A machine key, like the next two: they
     # limit what an agent may write, so a clone anyone can push to must not set them.
@@ -218,7 +223,7 @@ CLOSED_BY_QUERY = """query($owner: String!, $name: String!, $n: Int!) {
 }"""
 # Left out of the environment the test command and every agent run in (env_for_tests, env_for_agents). The
 # tests run code an agent wrote, and the agent works from an issue. This keeps the easy reach to your accounts
-# out of both; it's not a sandbox.
+# out of both. It isn't a sandbox: on a Mac, Loop.own_command runs the test, generate and setup commands in one.
 SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|^AWS_|^SSH_AUTH_SOCK$", re.I)
 DEPENDS_ON = re.compile(r"(?im)^\s*depends on\b.*$")
 SCOPE = re.compile(r"(?ims)^##[ \t]+scope[ \t]*$(.*?)(?=^#{1,2}\s|\Z)")  # a ticket's Scope section
@@ -454,7 +459,7 @@ def load_config(root):
 # What a project's own loop.json may set. Everything else is the machine's: it decides what the loop may
 # run and spend, so it comes from the factory's loop.json, never from a clone anyone can push to.
 PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_label", "generate_command",
-                "setup_command")
+                "setup_command", "sandbox_commands")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 
 
@@ -822,6 +827,35 @@ def vouch(data, ready_label):
 def env_for_tests(environ):
     """The environment the test command gets: this one, less anything named like a secret."""
     return {k: v for k, v in environ.items() if not SECRET_ENV.search(k)}
+
+
+SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+# What test_command, generate_command and setup_command may not read inside the sandbox: credential files under
+# the home folder, then the factory's own data under its root. A file or a folder, each with all it holds.
+SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg",
+                       ".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains")
+SANDBOX_ROOT_DENIED = ("company", "local-data", ".inbox", ".claude/settings.local.json")
+
+
+def sandbox_available():
+    """Whether this machine has macOS's sandbox-exec, which Loop.own_command runs the loop's own commands in."""
+    return sys.platform == "darwin" and os.path.exists(SANDBOX_EXEC)
+
+
+def sandbox_profile(home, root):
+    """sandbox-exec's profile: everything allowed, then reading denied for each path in SANDBOX_HOME_DENIED
+    under home and SANDBOX_ROOT_DENIED under root that exists. Each is resolved first, since the sandbox
+    matches the real path (macOS's /var is /private/var). subpath matches a file as well as a folder, and
+    never a neighbour such as .sshx. os.path.exists, not Path.exists: inside this sandbox a denied path can't
+    even be looked at, and before Python 3.13 Path.exists raises on that where os.path.exists says False."""
+    rules = ["(version 1)(allow default)"]
+    for base, names in ((Path(home), SANDBOX_HOME_DENIED), (Path(root), SANDBOX_ROOT_DENIED)):
+        for name in names:
+            path = base / name
+            if os.path.exists(path):
+                quoted = str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
+                rules.append('(deny file-read* (subpath "{}"))'.format(quoted))
+    return "\n".join(rules)
 
 
 # The home folder's credential folders, unreadable from a sandboxed shell. Checked live on macOS on 2026-11-11:
@@ -2056,6 +2090,16 @@ class Loop:
             except (OSError, ValueError) as err:
                 self.log("ERROR", "could not write history.jsonl: {}".format(type(err).__name__), number)
 
+    def own_command(self, command, tree, partial=False):
+        """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
+        environment. With sandbox_commands true on a Mac, inside sandbox-exec, which can't read what
+        sandbox_profile denies. Anything else runs it as before: only true turns the sandbox on."""
+        env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
+        if self.cfg.get("sandbox_commands") is True and sandbox_available():
+            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
+            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+        return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
+
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
         """(exit code, combined output, or stdout alone with stderr=False).
 
@@ -2771,8 +2815,7 @@ class Loop:
                                "run: it would run what an agent wrote. Remove the worktree and the branch, then put "
                                "the issue back".format(number))
             return False
-        code, out = self.sh(command, cwd=tree, shell=True, timeout=self.cfg["test_timeout"],
-                            env=env_for_tests(os.environ), partial=True)
+        code, out = self.own_command(command, tree, partial=True)
         if code != 0:
             # Kept on this machine: an install's output can name paths, hosts or secrets, and a comment is public.
             folder = self.dir / "issue-{}".format(number)
@@ -2960,8 +3003,7 @@ class Loop:
             # Before the add, so what it writes is in this round's commit and counts as a change below.
             # One that fails doesn't stop the round: the tests and the review see what it left.
             if generate:
-                gcode = self.sh(generate, cwd=tree, shell=True, timeout=self.cfg["test_timeout"],
-                                env=env_for_tests(os.environ))[0]
+                gcode = self.own_command(generate, tree)[0]
                 if gcode != 0:
                     self.log("GENERATE", "round {} exit {}".format(round_no, gcode), number)
             self.git("add", "-A", cwd=tree)
@@ -3025,8 +3067,7 @@ class Loop:
                 return self.block(number, "the build added nothing in round {}".format(round_no), said=said)
             self.mark(number, step="VALIDATE")
 
-            tcode, tout = self.sh(self.cfg["test_command"], cwd=tree, shell=True,
-                                  timeout=self.cfg["test_timeout"], env=env_for_tests(os.environ))
+            tcode, tout = self.own_command(self.cfg["test_command"], tree)
             (folder / "test-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
             (folder / "diff.patch").write_text(diff[:OUTPUT_CAP], encoding="utf-8")
 
@@ -3133,8 +3174,7 @@ class Loop:
         if locks:  # whatever allow_lockfile_changes says: that setting is about the build
             return reject("the tester changed a lockfile: {}".format(path_list(locks)))
 
-        tcode, tout = self.sh(self.cfg["test_command"], cwd=tree, shell=True,
-                              timeout=self.cfg["test_timeout"], env=env_for_tests(os.environ))
+        tcode, tout = self.own_command(self.cfg["test_command"], tree)
         self.halt_if_interrupted()  # a killed test command exits non-zero, which isn't a test that failed
         (folder / "tester-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
         if tcode == 0:
@@ -3402,8 +3442,7 @@ class Loop:
                 return self.update_error(number, out)
             merge = out.strip()
 
-            code, out = self.sh(self.cfg["test_command"], cwd=tree, shell=True,
-                                timeout=self.cfg["test_timeout"], env=env_for_tests(os.environ))
+            code, out = self.own_command(self.cfg["test_command"], tree)
             # From here each line can appear only once for this commit of the base, so plain log() will do.
             self.mark(number, update_tried=target)
             folder = self.dir / "issue-{}".format(number)
@@ -3482,6 +3521,9 @@ class Loop:
                 prog = multiplexer()
                 self.log("START", "in {0} session {1}: {0} attach -t {2}".format(prog, tmux, shell_quote(tmux)))
                 self.write_watch(tmux)
+            if self.cfg.get("sandbox_commands") is not False and not sandbox_available():
+                self.log("WARN", "test_command, generate_command and setup_command run without a sandbox here, "
+                         "since only macOS has sandbox-exec: they can read any file your user can")
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:
@@ -3533,6 +3575,10 @@ class Loop:
         if not isinstance(self.cfg.get("allow_lockfile_changes", False), bool):
             self.log("ERROR", "allow_lockfile_changes in loop.json: {} isn't true or false, "
                      "so no issue is taken".format(repr(self.cfg["allow_lockfile_changes"])[:100]))
+            return 1
+        if not isinstance(self.cfg.get("sandbox_commands", False), bool):
+            self.log("ERROR", "sandbox_commands in loop.json: {} isn't true or false, "
+                     "so no issue is taken".format(repr(self.cfg["sandbox_commands"])[:100]))
             return 1
         limit, why = budget(self.cfg)
         if why:

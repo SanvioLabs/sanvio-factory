@@ -41,6 +41,44 @@ Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_da
 **Do:** run `/plugin update` to get the pane's new table. Pull requests with no type label, on them or
 their issues, count as untyped.
 
+## 2026-11-12: The loop's own commands run in a sandbox on a Mac
+
+On a Mac, [`scripts/loop.py`](scripts/loop.py) now runs `test_command`, `generate_command` and
+`setup_command` inside macOS's `sandbox-exec`, which keeps them from reading credential files under your
+home folder (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/.docker`,
+`~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.claude/.credentials.json`, `~/Library/Keychains`)
+and the factory's own `company/`, `local-data/`, `.inbox/` and `.claude/settings.local.json`. It covers
+reading files only: the network and the keychain's API are still in reach, and the agents' own tool calls
+aren't in it. A new key, `sandbox_commands`, on by default, turns it off with `false`, and a project's own
+`loop.json` may set it. Off a Mac nothing changes, and the loop logs one `WARN` line when it starts. A
+value other than `true` or `false` stops the run with an `ERROR` line before any issue is taken.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** a project whose tests need one of the denied paths sets `"sandbox_commands": false` in its
+`loop.json`. For the factory's own tests, set it in the factory's `loop.json`.
+
+## 2026-11-12: The setup check warns about unapproved MCP servers
+
+[`scripts/check_setup.py`](scripts/check_setup.py) has a new `mcp:` line. It reads the server names in `.mcp.json`,
+[`.claude/settings.json`](.claude/settings.json) and `.claude/settings.local.json`, and warns about any server the Approved tools table in
+[`steering/data-and-tools.md`](steering/data-and-tools.md) doesn't list, or any of those files it can't read. It reads only the names, never a
+server's `env`, `headers` or `args`, and never your own config under your home folder.
+
+Files: [`scripts/check_setup.py`](scripts/check_setup.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add each MCP server you use to the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md).
+
+## 2026-11-12: Orientation records who went through it
+
+Orientation has a last step, step 8, that offers to add a row for the person to a new `## Onboarding` table in
+`company/COMPANY.md` (their name, the date and the layers they built), shown first and written only on a yes,
+and [`steering/data-and-tools.md`](steering/data-and-tools.md) says that table is where the factory's training is recorded.
+
+Files: [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_steering.py`](tests/test_steering.py), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add the `## Onboarding` section from [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md) to an existing company record.
+
 ## 2026-11-12: Stage times on the factory dashboard
 
 The factory dashboard's **Throughput and rework** section gains a **Stage times** table. It gives the

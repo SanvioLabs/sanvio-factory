@@ -242,6 +242,7 @@ keeps its default:
 | `test_command` | `python3 -m unittest discover -s tests` | Run by the script, in the worktree |
 | `generate_command` | For this repo, `UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py`. For a project, empty | Run by the script after each build, before the commit, in the worktree, with the same environment and timeout as `test_command`. What it writes goes in that round's commit, for files the build agent can't make itself. Empty runs nothing. One that fails logs a `GENERATE` line with its exit code, and the round goes on |
 | `setup_command` | empty | Run by the script once per worktree, before the planner, with the same environment and timeout as `test_command`, such as `npm ci`. Empty runs nothing. It logs `SETUP done` when it passes. One that fails or times out blocks the issue, with its output kept in `.loop/issue-N/setup-output.txt` and off the public comment. On a branch that already has the loop's commits and no record of setup, it doesn't run and the issue blocks, since it would run what an agent wrote; remove the worktree and the branch to start over. One that passes but leaves anything git would commit blocks too, naming the paths, so it may write only what git ignores. A blocked setup runs again when the issue is put back; a passed one doesn't, even if the command changes, until the worktree is removed |
+| `sandbox_commands` | `true` | On a Mac, the script runs `test_command`, `generate_command` and `setup_command` inside macOS's `sandbox-exec`, which keeps them from reading `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.claude/.credentials.json` and `~/Library/Keychains`, and the factory's own `company/`, `local-data/`, `.inbox/` and `.claude/settings.local.json`. A command that tries gets `Operation not permitted`. It covers reading files only: the network, and the keychain's API (`security`, or `gh auth token` when `gh` keeps its login there), are still in reach. Only `true` turns it on. `false` turns it off, and a project's own `loop.json` may set it, for tests that need one of those paths. Off a Mac there's no sandbox: the commands run as before and the loop logs one `WARN` line when it starts. Any value other than `true` or `false` is refused with an `ERROR` line before any issue is taken. The agents' own tool calls aren't in it, including the tests a build runs with `builder_runs_tests` |
 | `test_first` | `false` | Only `true` turns it on. A separate agent writes failing tests, in new files only, after the planner and before round 1, and the build has to make them pass without changing them. The issue blocks if the tester changes nothing, changes or deletes a file that already existed, changes a path outside `test_paths` or a lockfile, or its tests already pass. A build that changes or deletes one of its files blocks too. A branch with a `round 0 (tests)` commit skips the tester and keeps that commit's files fixed |
 | `tester_agent` | empty | The command that writes the tests, named the same way as `agent`. Empty means `agent` |
 | `test_paths` | `["tests/**"]` | Globs for the files the tester may write. `*` stays within a folder and `**` crosses folders. For a project, set it in the factory's `projects` entry |
@@ -446,7 +447,7 @@ script; [`examples/typescript/`](examples/typescript/) has a fuller one. The loo
 isn't on github.com, or a `loop.json` without `test_command`.
 
 Which `loop.json` sets what: the project's own sets only `test_command`,
-`test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command` and `setup_command`. Every other key,
+`test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command`, `setup_command` and `sandbox_commands`. Every other key,
 `agent`, `max_workers` and `allow_lockfile_changes` among them, comes from the
 factory's `loop.json`, and can be set for one project under `"projects"` there,
 keyed by the folder name:
@@ -454,7 +455,7 @@ keyed by the folder name:
     {"max_rounds": 3, "projects": {"app": {"agent": "claude", "max_workers": 2}}}
 
 The order is the defaults, the factory's other keys, its `"projects"` entry for
-the folder, then the project's own seven. One of the seven the project leaves out
+the folder, then the project's own eight. One of the eight the project leaves out
 is the default, not the factory's value: the factory's `base` describes the
 factory. A project's `loop.json` that sets one of
 the others is refused with an `ERROR` line naming the key, because a clone
@@ -504,9 +505,12 @@ keeping only the agent's own sign-in (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN
 names. Each agent's session also gets `SANVIO_UNATTENDED=1`, so a tool call
 [`.claude/hooks/guard.py`](.claude/hooks/guard.py) can't check is refused rather than let through with a
 warning nobody reads. The tests still run code the agent
-wrote, as you, so they can reach whatever your user can on disk: a token kept in a
-file or the keychain, such as `gh`'s login, is still in reach. Run the loop
-as a user, or on a machine, with nothing you'd mind a test reading.
+wrote, as you. On a Mac, `sandbox_commands` keeps them, and the generate and
+setup commands, from reading the credential files and factory folders its row
+in the table above lists. Anything else your user can reach is still in reach:
+the rest of the disk, the network, and the keychain through its API, where `gh`
+often keeps its login. Off a Mac there's no sandbox at all. Run the loop as a
+user, or on a machine, with nothing you'd mind a test reading.
 
 `network_allow` closes part of that for the agents' own shell: with it set, a
 build agent's commands, including the tests it runs under `builder_runs_tests`,
