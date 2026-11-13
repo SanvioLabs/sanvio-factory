@@ -71,6 +71,7 @@
       "Edit(~/.gnupg/**)"
     ]
   },
+  "enableAllProjectMcpServers": false,
   "hooks": {
     "SessionStart": [
       {

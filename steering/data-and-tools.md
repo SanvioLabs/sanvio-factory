@@ -42,7 +42,9 @@ plan and the date you checked it:
 | _your coding agent_ | _personal, business, enterprise or API_ | _the date you checked_ |
 
 `python3 scripts/check_setup.py` compares the MCP servers in `.mcp.json`, [`.claude/settings.json`](../.claude/settings.json) and
-`.claude/settings.local.json` against this table, and warns about any it doesn't list.
+`.claude/settings.local.json` against this table, and warns about any it doesn't list. `enableAllProjectMcpServers` is
+false in [`.claude/settings.json`](../.claude/settings.json), so Claude Code asks before it starts a server a
+`.mcp.json` names, rather than starting every one.
 
 `company/DATA.md` says which sources are cleared for which tool.
 
