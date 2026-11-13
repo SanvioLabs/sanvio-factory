@@ -13,8 +13,7 @@ The bundle holds:
   .loop/projects/ is read, and a line tagged with a project is dropped
 - `usage`: counts from your usage log, .sanvio/usage/<you>.jsonl: sessions, then
   skills, agents and slash commands by name, guard refusals by rule, and guard asks
-  and the asks you said yes to by tool (or by rule when there's no tool), and log_off:
-  how many sessions started with SANVIO_USAGE_LOG=off
+  and the asks you said yes to by tool (or by rule when there's no tool)
 
 Nothing sends it. It only reads, prints or writes the one file you name. This shape is
 the only one any later sender may send: anything not in it stays on this machine.
@@ -69,8 +68,7 @@ def usage_counts(root, since):
             "commands": dict(usage_report.count(lines, "command", "name")),
             "guard_deny": dict(usage_report.count(lines, "guard_deny", "rule")),
             "guard_ask": dict(by_tool(lines, "guard_ask")),
-            "ask_approved": dict(by_tool(lines, "ask_approved")),
-            "log_off": sum(1 for l in lines if l.get("event") == "log_off")}
+            "ask_approved": dict(by_tool(lines, "ask_approved"))}
 
 
 def bundle(root, since, today):

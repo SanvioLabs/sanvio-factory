@@ -113,6 +113,20 @@ class TheHook(unittest.TestCase):
             result, lines = self.run_hook(event, SANVIO_USAGE_LOG="off")
             self.assertEqual((result.returncode, result.stdout, lines), (0, "", []), event["hook_event_name"])
 
+    def test_off_a_session_start_writes_one_log_off_line_with_only_the_time(self):
+        result, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
+                                      SANVIO_USAGE_LOG="off")
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual(set(lines[0]), {"ts", "event", "prev"})
+        self.assertEqual(lines[0]["event"], "log_off")
+        self.assertRegex(lines[0]["ts"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def test_off_by_the_old_name_a_session_start_still_writes_its_log_off_line(self):
+        _, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
+                                 HARNESS_USAGE_LOG="off")
+        self.assertEqual([(set(line), line["event"]) for line in lines], [({"ts", "event", "prev"}, "log_off")])
+
     def test_on_a_session_start_is_logged_and_not_as_off(self):
         _, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"})
         self.assertEqual([line["event"] for line in lines], ["session_start"])
@@ -127,8 +141,9 @@ class TheHook(unittest.TestCase):
             for event in ({"hook_event_name": "SessionStart", "source": "startup"},) + OFF_EVENTS:
                 self.hook(tmp, event, SANVIO_USAGE_LOG="off", LOGNAME="alice", USER="alice")
             self.assertEqual(bob.read_bytes(), before)
-            # Only alice's own log may appear: a session start with the log off writes there, if anywhere.
-            self.assertIn(sorted(p.name for p in usage.glob("*.jsonl")), (["bob.jsonl"], ["alice.jsonl", "bob.jsonl"]))
+            self.assertEqual(sorted(p.name for p in usage.glob("*.jsonl")), ["alice.jsonl", "bob.jsonl"])
+            alice = [json.loads(line) for line in (usage / "alice.jsonl").read_text().splitlines()]
+            self.assertEqual([line["event"] for line in alice], ["log_off"])
 
     def test_it_appends_a_line_and_prints_nothing(self):
         result, lines = self.run_hook({"hook_event_name": "PreToolUse", "session_id": "s1",
@@ -222,9 +237,8 @@ class Keeping(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.write(tmp, "2020-01-01T00:00:00Z")
             self.start(tmp, SANVIO_USAGE_LOG="off")
-            self.assertNotIn("2020-01-01T00:00:00Z", self.stamps(path))
-            # The one line a session start may write with the log off is its log_off line.
-            self.assertEqual({json.loads(line)["event"] for line in path.read_text().splitlines()} - {"log_off"}, set())
+            # The old entry is gone, and the one line left is the session start's own log_off line.
+            self.assertEqual([json.loads(line)["event"] for line in path.read_text().splitlines()], ["log_off"])
 
     def test_a_log_it_cant_rewrite_never_stops_the_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,14 +265,19 @@ class Chained(unittest.TestCase):
             path.write_text("\n".join(lines) + "\n")
             self.assertEqual(usage_log.log_chain.verify(path), 3)
 
-    def test_a_log_off_line_keeps_the_chain_intact(self):
+    def test_the_hooks_log_off_line_keeps_the_chain_intact(self):
         with tempfile.TemporaryDirectory() as tmp:
+            path = usage_log.log_path(tmp, "alice")
             for name in ("learn", "retro"):
-                usage_log.record(tmp, {"event": "skill", "name": name}, "s1")
-            path = usage_log.log_path(tmp)
-            usage_log.log_chain.append(path, {"ts": "2026-11-12T09:00:00Z", "event": "log_off"})
+                usage_log.log_chain.append(path, {"ts": "2099-01-01T00:00:00Z", "session": "s1", "event": "skill",
+                                                  "name": name})
+            env = {k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}
+            subprocess.run([sys.executable, str(HOOK)], input=json.dumps({"hook_event_name": "SessionStart"}),
+                           capture_output=True, text=True, timeout=30,
+                           env=dict(env, CLAUDE_PROJECT_DIR=tmp, SANVIO_USAGE_LOG="off", LOGNAME="alice", USER="alice"))
+            lines = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual([line["event"] for line in lines], ["skill", "skill", "log_off"])
             self.assertEqual(usage_log.log_chain.verify(path), "intact")
-            self.assertEqual(set(json.loads(path.read_text().splitlines()[-1])), {"ts", "event", "prev"})
 
     def test_the_prune_keeps_the_chain_intact(self):
         now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
