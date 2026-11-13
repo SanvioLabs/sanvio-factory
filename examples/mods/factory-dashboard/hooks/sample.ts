@@ -28,6 +28,7 @@ export const SAMPLE: Doc = {
     "guard_refusals": {
       "credential-file": 1
     },
+    "log_off": 0,
     "prices_checked": "2026-10-01",
     "skill_spend": {
       "review-pr": {

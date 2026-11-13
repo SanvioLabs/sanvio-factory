@@ -90,15 +90,63 @@ class Entries(unittest.TestCase):
         self.assertIsNone(pre("Grep", pattern="KEY"))
 
 
+OFF_EVENTS = ({"hook_event_name": "SessionEnd", "session_id": "s1", "reason": "exit"},
+              {"hook_event_name": "UserPromptSubmit", "session_id": "s1", "prompt": "/learn"},
+              {"hook_event_name": "PreToolUse", "session_id": "s1", "tool_name": "Skill", "tool_input": {"skill": "learn"}},
+              {"hook_event_name": "PostToolUse", "session_id": "s1", "tool_name": "mcp__gmail__send_email",
+               "tool_input": {}})
+
+
 class TheHook(unittest.TestCase):
+    def hook(self, tmp, event, **env):
+        """The hook run on event in tmp. A *_USAGE_LOG of the developer's own never reaches it."""
+        clean = {k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}
+        return subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event), capture_output=True,
+                              text=True, env=dict(clean, CLAUDE_PROJECT_DIR=tmp, **env), timeout=30)
+
     def run_hook(self, event, **env):
         with tempfile.TemporaryDirectory() as tmp:
-            full_env = dict(os.environ, CLAUDE_PROJECT_DIR=tmp, **env)
-            result = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event),
-                                    capture_output=True, text=True, env=full_env, timeout=30)
+            result = self.hook(tmp, event, **env)
             logs = list((Path(tmp) / ".sanvio" / "usage").glob("*.jsonl"))
             lines = [json.loads(l) for p in logs for l in p.read_text().splitlines()]
             return result, lines
+
+    def test_off_writes_nothing_for_any_event_but_a_session_start(self):
+        for event in OFF_EVENTS:
+            result, lines = self.run_hook(event, SANVIO_USAGE_LOG="off")
+            self.assertEqual((result.returncode, result.stdout, lines), (0, "", []), event["hook_event_name"])
+
+    def test_off_a_session_start_writes_one_log_off_line_with_only_the_time(self):
+        result, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
+                                      SANVIO_USAGE_LOG="off")
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
+        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual(set(lines[0]), {"ts", "event", "prev"})
+        self.assertEqual(lines[0]["event"], "log_off")
+        self.assertRegex(lines[0]["ts"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def test_off_by_the_old_name_a_session_start_still_writes_its_log_off_line(self):
+        _, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"},
+                                 HARNESS_USAGE_LOG="off")
+        self.assertEqual([(set(line), line["event"]) for line in lines], [({"ts", "event", "prev"}, "log_off")])
+
+    def test_on_a_session_start_is_logged_and_not_as_off(self):
+        _, lines = self.run_hook({"hook_event_name": "SessionStart", "session_id": "s1", "source": "startup"})
+        self.assertEqual([line["event"] for line in lines], ["session_start"])
+
+    def test_off_never_touches_someone_elses_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            usage = Path(tmp) / ".sanvio" / "usage"
+            usage.mkdir(parents=True)
+            bob = usage / "bob.jsonl"
+            bob.write_text(json.dumps({"ts": "2099-01-01T00:00:00Z", "event": "skill", "name": "learn"}) + "\n")
+            before = bob.read_bytes()
+            for event in ({"hook_event_name": "SessionStart", "source": "startup"},) + OFF_EVENTS:
+                self.hook(tmp, event, SANVIO_USAGE_LOG="off", LOGNAME="alice", USER="alice")
+            self.assertEqual(bob.read_bytes(), before)
+            self.assertEqual(sorted(p.name for p in usage.glob("*.jsonl")), ["alice.jsonl", "bob.jsonl"])
+            alice = [json.loads(line) for line in (usage / "alice.jsonl").read_text().splitlines()]
+            self.assertEqual([line["event"] for line in alice], ["log_off"])
 
     def test_it_appends_a_line_and_prints_nothing(self):
         result, lines = self.run_hook({"hook_event_name": "PreToolUse", "session_id": "s1",
@@ -192,7 +240,8 @@ class Keeping(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.write(tmp, "2020-01-01T00:00:00Z")
             self.start(tmp, SANVIO_USAGE_LOG="off")
-            self.assertEqual(self.stamps(path), [])
+            # The old entry is gone, and the one line left is the session start's own log_off line.
+            self.assertEqual([json.loads(line)["event"] for line in path.read_text().splitlines()], ["log_off"])
 
     def test_a_log_it_cant_rewrite_never_stops_the_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -218,6 +267,20 @@ class Chained(unittest.TestCase):
             lines[1] = lines[1].replace("retro", "other")
             path.write_text("\n".join(lines) + "\n")
             self.assertEqual(usage_log.log_chain.verify(path), 3)
+
+    def test_the_hooks_log_off_line_keeps_the_chain_intact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = usage_log.log_path(tmp, "alice")
+            for name in ("learn", "retro"):
+                usage_log.log_chain.append(path, {"ts": "2099-01-01T00:00:00Z", "session": "s1", "event": "skill",
+                                                  "name": name})
+            env = {k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}
+            subprocess.run([sys.executable, str(HOOK)], input=json.dumps({"hook_event_name": "SessionStart"}),
+                           capture_output=True, text=True, timeout=30,
+                           env=dict(env, CLAUDE_PROJECT_DIR=tmp, SANVIO_USAGE_LOG="off", LOGNAME="alice", USER="alice"))
+            lines = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual([line["event"] for line in lines], ["skill", "skill", "log_off"])
+            self.assertEqual(usage_log.log_chain.verify(path), "intact")
 
     def test_the_prune_keeps_the_chain_intact(self):
         now = usage_log.datetime.datetime(2026, 11, 11, 12, 0, tzinfo=usage_log.datetime.timezone.utc)
@@ -263,6 +326,33 @@ class Report(unittest.TestCase):
         self.assertIn("| `credential-file` | 1 |", text)
         self.assertIn("| `mcp__gmail__send_email` | 1 | 1 |", text)
         self.assertIn("Never used here: `whats-new`", text)
+
+    def with_log_off(self, tmp):
+        """LINES read from 2026-10-01 with two log_off lines in the period and one before it."""
+        off = [{"ts": "2026-09-30T09:00:00Z", "event": "log_off"},
+               {"ts": "2026-10-04T09:00:00Z", "event": "log_off"},
+               {"ts": "2026-10-05T09:00:00Z", "event": "log_off"}]
+        path = Path(tmp) / "me.jsonl"
+        path.write_text("".join(json.dumps(line) + "\n" for line in self.LINES + off))
+        return usage_report.read(path, "2026-10-01")
+
+    def test_sessions_with_the_log_off_are_counted_in_the_period_after_the_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = usage_report.report(self.with_log_off(tmp), "2026-10-01", "2026-10-14", [])
+        self.assertIn("Sessions: 2\n\nUsage log off for 2 sessions.\n\n## Skills", text)
+
+    def test_log_off_lines_are_not_sessions(self):
+        lines = [{"ts": "2026-10-04T09:00:00Z", "event": "log_off"}, {"ts": "2026-10-05T09:00:00Z", "event": "log_off"}]
+        text = usage_report.report(lines, "2026-10-01", "2026-10-14", [])
+        self.assertIn("Sessions: 0\n", text)
+        self.assertIn("Usage log off for 2 sessions.", text)
+
+    def test_a_log_with_no_log_off_lines_says_nothing_about_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lines = usage_report.read(self.write_log(tmp), "2026-10-01")
+        text = usage_report.report(lines, "2026-10-01", "2026-10-14", ["learn"])
+        self.assertNotIn("Usage log off", text)
+        self.assertIn("Sessions: 2\n\n## Skills", text)
 
     def earlier_report(self, tmp, text):
         path = Path(tmp) / "earlier.md"

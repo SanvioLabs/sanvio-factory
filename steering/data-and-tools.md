@@ -102,6 +102,9 @@ and lines dropped from the start look the same as the 90-day prune. Agents
 can't write to, move or delete the usage log or the loop's logs at all:
 [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) refuses it.
 
+With `SANVIO_USAGE_LOG=off`, each session start still writes one `log_off`
+line holding only the time, and the usage report and the dashboard count them.
+
 Review the logs once a month: run `python3 scripts/usage_report.py --review`.
 It says whether your usage log's chain holds, counts the guard's refusals and
 asks in the last 30 days, lists the loop's errors and clean-ups by date and

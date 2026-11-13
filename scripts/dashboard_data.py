@@ -27,6 +27,8 @@
                      state, each one's round, and how many took more than one
     activity         your usage log, .sanvio/usage/<you>.jsonl, since --since: skills, agents and
                      slash commands by name, guard refusals by rule, and how many times it asked.
+                     log_off is how many sessions started with SANVIO_USAGE_LOG=off: each such
+                     start writes one line holding only the time, and nothing else is recorded.
                      chain is "intact", "unchained" (no line carries prev, as in a log written before
                      chaining), or the line number from which the log was changed after it was
                      written. It comes from scripts/log_chain.py's verify() over the whole log,
@@ -324,6 +326,7 @@ def activity(root, since):
             "commands": dict(count(lines, "command", "name").most_common()),
             "guard_refusals": dict(count(lines, "guard_deny", "rule").most_common()),
             "asks": sum(1 for l in lines if l.get("event") == "guard_ask"),
+            "log_off": sum(1 for l in lines if l.get("event") == "log_off"),
             "chain": verify(path)}
 
 

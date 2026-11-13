@@ -8,7 +8,8 @@
 
 Reads your own log, .sanvio/usage/<you>.jsonl, written by
 .claude/hooks/usage_log.py, and prints counts only: sessions, skills, agents,
-slash commands, guard refusals and asks. Nothing it prints names a file, a
+slash commands, guard refusals and asks, and how many sessions started with
+the log off. Nothing it prints names a file, a
 prompt or a line of code, because the log never holds them. The
 skills/factory-trends/ skill runs this and turns it into the report you share.
 
@@ -96,9 +97,13 @@ def report(lines, since, until, available, previous_unused=None):
     # A skill typed as /review-pr arrives as a command, not a Skill call, so both count as used.
     used = set(skills) | set(count(lines, "command", "name"))
     unused = [name for name in available if name not in used]
+    # With SANVIO_USAGE_LOG=off, each session start writes one log_off line and nothing else.
+    off = sum(1 for l in lines if l.get("event") == "log_off")
 
-    out = ["# Harness usage, {} to {}".format(since, until), "",
-           "Sessions: {}".format(sessions), "", "## Skills", ""]
+    out = ["# Harness usage, {} to {}".format(since, until), "", "Sessions: {}".format(sessions), ""]
+    if off:
+        out += ["Usage log off for {} sessions.".format(off), ""]
+    out += ["## Skills", ""]
     out += table(skills, "Skill")
     out += ["Never used here: {}".format(", ".join("`{}`".format(n) for n in unused) if unused else "none"), ""]
     if previous_unused is not None:

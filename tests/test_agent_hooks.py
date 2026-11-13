@@ -718,6 +718,26 @@ class SessionStart(unittest.TestCase):
         self.assertIn("git config core.hooksPath .githooks", context)
         self.assertEqual(payload["hookSpecificOutput"]["hookEventName"], "SessionStart")
 
+    LOG_OFF = ("The usage log is off for this session; unset SANVIO_USAGE_LOG and start a new session "
+               "to turn it back on.")
+
+    def test_with_the_log_off_and_all_passing_it_says_only_that_the_log_is_off(self):
+        payload = session_start.report([("PASS", "python 3.12", None)], log_off=True)
+        self.assertEqual(payload, {"systemMessage": "[usage] " + self.LOG_OFF})
+
+    def test_with_the_log_on_all_passing_still_says_nothing(self):
+        self.assertIsNone(session_start.report([("PASS", "python 3.12", None)], log_off=False))
+
+    def test_with_the_log_off_a_fail_still_leads_and_the_log_off_comes_after(self):
+        payload = session_start.report([
+            ("PASS", "python 3.12", None),
+            ("FAIL", "hooks: core.hooksPath is not set", "git config core.hooksPath .githooks"),
+        ], log_off=True)
+        message = payload["systemMessage"]
+        self.assertTrue(message.startswith("[setup] hooks: core.hooksPath is not set"), message)
+        self.assertTrue(message.endswith(self.LOG_OFF), message)
+        self.assertIn("git config core.hooksPath .githooks", payload["hookSpecificOutput"]["additionalContext"])
+
     def test_an_old_state_folder_is_moved_and_said_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / ".harness" / "factories").mkdir(parents=True)

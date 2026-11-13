@@ -4,7 +4,8 @@
 Wired in .claude/settings.json as a SessionStart hook. Runs the same checks as
 scripts/check_setup.py and stays silent when everything passes. When something
 fails or needs a decision, it tells the person in one line and gives the agent
-the detail, so the first reply can mention it.
+the detail, so the first reply can mention it. With the usage log switched off
+(SANVIO_USAGE_LOG=off) it says so in one more line, everything else passing or not.
 
 The failure it exists for: a pre-commit hook that never runs because one git
 config line was unset, and nothing ever says so.
@@ -20,16 +21,23 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 
-def report(results):
-    """The hook's JSON for these check results, or None when there's nothing to say."""
+LOG_OFF = ("The usage log is off for this session; unset SANVIO_USAGE_LOG and start a new session "
+           "to turn it back on.")
+
+
+def report(results, log_off=False):
+    """The hook's JSON for these check results, or None when there's nothing to say. With log_off, the
+    usage log's being off is said after any setup line."""
     open_items = [(status, line, fix) for status, line, fix in results if status != "PASS"]
     if not open_items:
-        return None
+        return {"systemMessage": "[usage] " + LOG_OFF} if log_off else None
     failed = [line for status, line, _ in open_items if status == "FAIL"]
     headline = failed[0] if failed else open_items[0][1]
     more = len(open_items) - 1
     message = "[setup] {}{}. Run /orientation or python3 scripts/check_setup.py".format(
         headline, " (+{} more)".format(more) if more else "")
+    if log_off:
+        message += "\n[usage] " + LOG_OFF
     detail = "\n".join("{} {}{}".format(status, line, "\n  {}: {}".format(
         "fix" if status == "FAIL" else "note", fix) if fix else "") for status, line, fix in open_items)
     return {
@@ -46,12 +54,13 @@ def report(results):
 def startup(root):
     """Move .harness/ to .sanvio/ if that's all there is, then the checks' JSON for this root, or None."""
     import check_setup
+    import names
     import old_names
     moved = old_names.move_old_state(root)
     results = check_setup.run(root)
     if moved and not moved.startswith("both "):  # check_old_names already names both folders
         results.insert(0, ("WARN", "names: " + moved, None))  # a move is said once: the next session has none
-    return report(results)
+    return report(results, log_off=names.logging_off())
 
 
 def main():

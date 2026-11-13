@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Usage log records when it's off
+
+With `SANVIO_USAGE_LOG=off`, each session start now writes one `log_off` line to your usage log, holding only the time and the chain's `prev`: no session id, skill, tool or path. The session's setup message says the log is off and how to turn it back on. The usage report says `Usage log off for N sessions.`, and the dashboard's `--json` has a `log_off` count under `activity`. The bundle [`scripts/export.py`](scripts/export.py) writes counts them as `usage.log_off`.
+
+Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`scripts/export.py`](scripts/export.py), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`tests/test_export.py`](tests/test_export.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-12: Monthly log review
 
 [`scripts/usage_report.py`](scripts/usage_report.py) gains `--review`, a monthly review of the factory's logs over the last 30 days.
