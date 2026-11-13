@@ -361,7 +361,16 @@ class Activity(Factory):
         self.fill()
         self.assertEqual(self.build()["activity"], {
             "skills": {"review-pr": 2, "learn": 1}, "agents": {"reviewer": 1}, "commands": {"standup": 1},
-            "guard_refusals": {"credential-file": 2}, "asks": 1, "chain": "unchained"})
+            "guard_refusals": {"credential-file": 2}, "asks": 1, "log_off": 0, "chain": "unchained"})
+
+    def test_counts_the_sessions_started_with_the_log_off_since_the_date(self):
+        lines = [{"ts": "2026-10-01T10:00:00Z", "event": "log_off"},  # before SINCE
+                 {"ts": "2026-10-20T10:00:00Z", "event": "log_off"},
+                 {"ts": "2026-10-21T10:00:00Z", "event": "session_start", "session": "s1"},
+                 {"ts": "2026-10-22T10:00:00Z", "event": "log_off"}]
+        write(log_path(self.root).parent, log_path(self.root).name,
+              "".join(json.dumps(line) + "\n" for line in lines))
+        self.assertEqual(self.build()["activity"]["log_off"], 2)
 
     def write_chained(self, path, edit=False):
         """Five lines chained with link() at path, with line 3's name changed after it was written when edit is set."""
@@ -1185,7 +1194,7 @@ CANNED = {"skills": {"review-pr": {"runs": 2, "models": {"m-a": [1000, 2000, 300
           "commands": {"standup": {"runs": 3, "models": {}}}}
 PRICE_A = {"input": 1, "output": 2, "cache_writes": 3, "cache_reads": 4}
 USAGE_COUNTS = {"skills": {"review-pr": 2, "learn": 1}, "agents": {"reviewer": 1}, "commands": {"standup": 1},
-                "guard_refusals": {"credential-file": 2}, "asks": 1, "chain": "unchained"}
+                "guard_refusals": {"credential-file": 2}, "asks": 1, "log_off": 0, "chain": "unchained"}
 
 
 class ActivitySpend(Factory):

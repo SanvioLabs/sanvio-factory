@@ -100,6 +100,9 @@ and lines dropped from the start look the same as the 90-day prune. Agents
 can't write to, move or delete the usage log or the loop's logs at all:
 [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) refuses it.
 
+With `SANVIO_USAGE_LOG=off`, each session start still writes one `log_off`
+line holding only the time, and the usage report and the dashboard count them.
+
 `SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a
 period never outranks it. Stop the loop and set a longer period until the
