@@ -41,7 +41,9 @@ it in a checkout of its own, runs the tests and opens a pull request. A second
 agent reviews that pull request, and the gates and required checks stand
 between it and a merge. You decide what goes on the queue and what merges, and
 handing an issue to another factory waits for your yes too. The loop never
-merges a pull request.
+merges a pull request unless you turn on `auto_merge`, and then only one it
+graded, by an author you trust, into a branch you name, once every check has
+passed.
 
 Another factory can take an issue through the same contract: a label on an
 issue goes in, and a pull request that closes it comes back to be reviewed.
@@ -98,7 +100,7 @@ the rest.
 ## The loop
 
 `python3 scripts/loop.py run` takes one issue through the flywheel and then
-the next. Nothing runs until you start it, and it never merges.
+the next. Nothing runs until you start it, and `run` never merges.
 
 | Step | What happens | Left behind in `.loop/issue-N/` |
 |---|---|---|
@@ -261,6 +263,7 @@ keeps its default:
 | `agent_env` | empty | Variables every agent keeps although their names look like a secret's, for a provider that signs in through them, such as `["AWS_PROFILE", "AWS_REGION"]` for Bedrock. Each is kept only where it's set. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `network_allow` | `null` | A list of domains, an empty one included, runs a `claude` build and tester agent's shell commands in Claude Code's sandbox: network only to those domains, writes only to the worktree and temp, and the home folder's credential folders (`~/.ssh`, `~/.aws`, `~/.config/gh` and others) unreadable. It fails closed and never auto-approves a command. `null` leaves it off. On Windows, on Linux without `bwrap` and `socat`, or with another build agent, the loop logs an `ERROR` and takes no issue. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `review_rubric` | [`review-rubric.json`](review-rubric.json) | The file, from the factory's root, that turns a posted review's verdict into a grade out of 10. *The grade on a review* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `auto_merge` | `{"enabled": false, "min_grade": 10, "bases": [], "method": "squash", "authors": []}` | Whether `loop.py review` merges a pull request it graded. Off, the factory never merges. On, it merges one graded at least `min_grade` on its current head, into a base in `bases`, by a login in `authors` (empty means the login the loop runs as), once every check on that commit has passed, with `method`: `merge`, `squash` or `rebase`. Empty `bases` merges nothing. Protect every base in `bases`. A key you leave out keeps its default. *Merging, when you turn it on* below has the detail. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 
 To have one model build and another review it, set the two apart:
 
@@ -617,10 +620,12 @@ otherwise give every pull request a 10. The grade is read from the trailer
 alone, never from the report above it. It's recorded as `grade` in the review's
 status row, and isn't in `--pr`'s JSON line.
 
-**What it never does:** approve, request changes, merge, push, or ask the agent
-to post. The comment goes up under your own GitHub identity. A pull request's
-diff, commit messages and files are written by whoever opened it, so the prompt
-calls them material to review, never instructions. The agent is told not to
+**What it never does:** approve, request changes, push, or ask the agent to
+post. It never merges either, unless you turn on `auto_merge`: *Merging, when
+you turn it on* below says what it merges then. The comment goes up under your
+own GitHub identity. A pull request's diff, commit messages and files are
+written by whoever opened it, so the prompt calls them material to review,
+never instructions. The agent is told not to
 edit, and whatever it edits is thrown away with the checkout. The
 `reader_agent` runs with `--restricted --strict-mcp-config --tools Read,Grep,Glob`,
 whatever tools or permissions `loop.json` gave it: it can read the checkout and
@@ -642,8 +647,55 @@ pull request can't page your team through your account. It still posts as you:
 to post as a bot, sign `gh` in as one on the machine that runs the review.
 `loop.py stop` ends it at its next step, as it does `run`.
 
-**Not in it, on purpose:** many projects in one run, voice dispatch, merge passes,
-a dashboard, model-tier routing. Each can be added by whoever needs it, reading
+**Merging, when you turn it on.** The factory never merges unless you turn on
+`auto_merge` in its own `loop.json`, or for one project in its entry under
+`"projects"` there. A project's own `loop.json` can't, since anyone who can push
+to the project could otherwise merge their own pull requests:
+
+    "auto_merge": {"enabled": true, "bases": ["main"]}
+
+A key you leave out keeps its default: `min_grade` 10, `method` `squash`, and
+`authors` empty, which means the login the loop runs as. With it on, after each
+pull request's review the watcher merges it with
+`gh pr merge <N> --<method> --match-head-commit <sha>` when all of these hold:
+
+- Its review's posted grade is at least `min_grade`, on the head it graded. A
+  grade still `pending`, or none, is never merged.
+- Its base is in `bases`. Empty `bases` merges nothing.
+- Its author is in `authors`, matched whatever the case.
+- It isn't a draft, and isn't from a fork.
+- The graded commit has at least one check run or commit status, and every one
+  of them finished passing: success, neutral or skipped for a check run,
+  success for a status. Unlike the grade, no checks isn't a pass, and the log
+  says `no checks ran`.
+
+It reads the pull request again just before the merge, for its head, base,
+draft, fork and author, and the merge names the graded commit, so GitHub refuses
+it if the head moved since. A retarget after that read isn't caught, since
+GitHub's merge pins the head and not the base, so protect every base in
+`bases`, with the checks you rely on required. The log says what happened, one
+line each:
+
+    2026-11-12T09:02:13 - MERGE #31 4f2a9c1 merged with squash, graded 10/10
+    2026-11-12T09:02:14 - MERGE #32 7be03d8 not merged: its author mallory isn't in auto_merge.authors
+
+A reason that holds a merge is logged once a run, and each poll looks again.
+When GitHub refuses the merge, such as for branch protection or a conflict, the
+line gives GitHub's reason, the review's row in `status.json` records it under
+`merge`, and that head isn't tried again until its head or base changes. A merge
+that failed for another reason, such as an outage, is held the same way: merge
+it yourself, or push a commit. `review --pr` never merges, and a `stop` asked for during a
+review merges nothing. `review_query` never finds the loop's own pull requests,
+since GitHub won't make a pull request's author its reviewer, so for `review`
+to take them set `review_label` and turn on `label_own_prs`. An `auto_merge`
+that isn't an object, names a key it doesn't have, or whose `enabled` isn't true
+or false, `method` isn't `merge`, `squash` or `rebase`, `min_grade` isn't a whole
+number from 0 to 10, or `bases` or `authors` isn't a list of names stops
+`review`, `--pr` too, with an `ERROR` line naming the key, before it takes
+anything.
+
+**Not in it, on purpose:** many projects in one run, voice dispatch, a
+dashboard, model-tier routing. Each can be added by whoever needs it, reading
 the log.
 
 ### Off your laptop
