@@ -196,6 +196,22 @@ class WhereThingsLive(unittest.TestCase):
         self.assertIn("company/COMPANY.md", text)
 
 
+class OnByDefault(unittest.TestCase):
+    """Every plugin .claude/settings.json switches on has a row saying why (NIST SP 800-53 CM-7)."""
+
+    def test_every_enabled_plugin_has_a_row(self):
+        import json
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text())
+        on = [name.split("@")[0] for name, enabled in (settings.get("enabledPlugins") or {}).items() if enabled]
+        text = (ROOT / "steering" / "data-and-tools.md").read_text()
+        self.assertIn("## On by default", text)
+        section = text.split("## On by default", 1)[1].split("\n## ", 1)[0]
+        rows = {line.split("|")[1].strip().strip("`") for line in section.splitlines() if line.startswith("| `")}
+        self.assertTrue(on)
+        for name in on:
+            self.assertIn(name, rows, "{} is on by default with no row in steering/data-and-tools.md".format(name))
+
+
 class Incidents(unittest.TestCase):
     PATH = ROOT / "steering" / "incidents.md"
     HEADINGS = ["## Stop the agent and the loop", "## Who to tell, and how soon",
