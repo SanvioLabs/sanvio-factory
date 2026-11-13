@@ -450,6 +450,34 @@ group('activity', () => {
   test("the loop's spend doesn't change with them", () => {
     expect(spend(spending())).toEqual(spend(DOC))
   })
+
+  const reviewed = (last_review: unknown, over: object = {}): Doc => ({ ...DOC, last_review, ...over })
+  const last = (doc: Doc) => activity(doc).lines.slice(-1)[0]
+  test('ends with the last log review: its date and how long ago, quiet up to 30 days and yellow after', () => {
+    expect(last(reviewed({ date: '2026-10-20', days_since: 7 }))).toEqual({ tone: 'quiet', text: 'Last log review: Oct 20, 7 days ago' })
+    expect(last(reviewed({ date: '2026-09-27', days_since: 30 }))?.tone).toBe('quiet')
+    expect(last(reviewed({ date: '2026-09-26', days_since: 31 }))).toEqual({ tone: 'now', text: 'Last log review: Sep 26, 31 days ago' })
+    expect(last(reviewed({ date: '2026-10-26', days_since: 1 }))?.text).toBe('Last log review: Oct 26, 1 day ago')
+  })
+  test('with no review yet it says so and names the command, each line within the 66 columns', () => {
+    const lines = activity(reviewed({ value: null, why: 'no review yet' })).lines.slice(-2)
+    expect(lines).toEqual([
+      { tone: 'quiet', text: 'Last log review: none yet' },
+      { tone: 'quiet', text: 'python3 scripts/usage_report.py --review runs one' },
+    ])
+    for (const l of lines) expect(l.text.length <= 66).toBe(true)
+  })
+  test("a review file it couldn't read says why", () => {
+    expect(last(reviewed({ value: null, why: 'unreadable' }))?.text).toBe('Last log review: unreadable')
+  })
+  test("a script that doesn't give it draws no line", () => {
+    expect(activity(DOC).lines).toEqual(activity(reviewed(undefined)).lines)
+    expect(text(activity(DOC).lines)).not.toContain('log review')
+  })
+  test('the line still shows when the activity itself is missing', () => {
+    const lines = activity(reviewed({ date: '2026-10-20', days_since: 7 }, { activity: { value: null, why: 'no usage log' } })).lines
+    expect(lines).toEqual([{ tone: 'quiet', text: 'no usage log' }, { tone: 'quiet', text: 'Last log review: Oct 20, 7 days ago' }])
+  })
 })
 
 group('the range', () => {

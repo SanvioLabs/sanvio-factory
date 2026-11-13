@@ -208,6 +208,10 @@ export const SAMPLE: Doc = {
     }
   },
   "generated": "2026-10-27T12:00:00+00:00",
+  "last_review": {
+    "date": "2026-10-20",
+    "days_since": 7
+  },
   "loop_history": {
     "by_day": [
       {

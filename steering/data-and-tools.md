@@ -100,6 +100,15 @@ and lines dropped from the start look the same as the 90-day prune. Agents
 can't write to, move or delete the usage log or the loop's logs at all:
 [`.claude/hooks/guard.py`](../.claude/hooks/guard.py) refuses it.
 
+Review the logs once a month: run `python3 scripts/usage_report.py --review`.
+It says whether your usage log's chain holds, counts the guard's refusals and
+asks in the last 30 days, lists the loop's errors and clean-ups by date and
+issue, and names any day the loop spent over 3 times its usual day. The
+factory dashboard shows when you last ran it. If the chain is broken, keep the
+log as it is: don't delete it and don't fix it. Treat it as an incident under
+[`incidents.md`](incidents.md). If there's a refusal nobody can explain, ask
+whoever was working that day, and treat it as an incident if nobody knows.
+
 `SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a
 period never outranks it. Stop the loop and set a longer period until the

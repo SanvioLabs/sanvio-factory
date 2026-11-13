@@ -51,6 +51,18 @@ version and scope and no path.
    If it says there's no log, tell them why it might be missing (the hook isn't
    wired, or `SANVIO_USAGE_LOG` is off) and stop. Don't guess at their usage.
 
+   Then, if `.sanvio/usage/last-review` is missing or holds a date more than
+   30 days ago, run the monthly log review:
+
+   ```bash
+   python3 scripts/usage_report.py --review
+   ```
+
+   Show them its output. Put any finding in the report: a chain that isn't
+   `intact`, a refusal, a loop error or clean-up, or a day the loop spent over
+   3 times the median. [`steering/data-and-tools.md`](../../steering/data-and-tools.md) says what to do about a
+   broken chain or a refusal nobody can explain.
+
    Then the tokens, from the same date:
 
    ```bash
