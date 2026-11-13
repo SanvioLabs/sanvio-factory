@@ -17,6 +17,9 @@ On your own? Run `/orientation` in Claude Code, or say "get me started" to
 any agent, and [`skills/orientation/`](skills/orientation/) walks you through the same five layers,
 one at a time.
 
+The whole workshop, with the deck and a walkthrough of each section, is in
+[`docs/workshop/`](docs/workshop/).
+
 ## 1. Write the instructions file (10 min)
 
 Rewrite [`AGENTS.md`](AGENTS.md) for your job. Three things only:

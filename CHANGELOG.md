@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: A workshop you can run yourself
+
+[`docs/workshop/`](docs/workshop/) has the factory workshop, written so anyone can work through it alone: the deck as a PDF, a walkthrough of each section with what it's saying and its finish line, and six one-page onboarding cards, one per session, from the first commands to your own loop. Each card names the skills that session uses and ends with what to do before the next. [`EXERCISES.md`](EXERCISES.md) points to it.
+
+Files: [`docs/workshop/README.md`](docs/workshop/README.md), [`docs/workshop/workshop-deck.pdf`](docs/workshop/workshop-deck.pdf), [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`EXERCISES.md`](EXERCISES.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To train someone, send them [`docs/workshop/`](docs/workshop/).
+
 ## 2026-11-13: A skill that runs the evals
 
 The `factory-eval` skill runs the factory's two eval scripts from a conversation. It checks whether the review agents still catch known problems, runs the whole factory through a suite and scores it, and compares two runs. It validates a suite for free first, says what a run creates and spends, starts one only on a yes, never reads a suite's key, and never deletes a run's repo. Say "eval the factory".

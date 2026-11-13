@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sanvio Factory onboarding cards</title>
+<style>
+  @page { size: letter; margin: 0.4in 0.5in; }
+  :root { --ink:#1b1f24; --muted:#5b6470; --rule:#d9dde3; --accent:#2f5d8a; --tint:#f3f6f9; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--ink); font-size: 9pt; line-height: 1.3; margin: 0; background:#fff; }
+  header { display:flex; justify-content:space-between; align-items:baseline; border-bottom: 2px solid var(--accent); padding-bottom: 4pt; margin-bottom: 8pt; }
+  h1 { font-size: 16pt; margin: 0; letter-spacing: -0.2pt; }
+  h1 .card { color: var(--accent); font-weight: 600; }
+  header .by { color: var(--muted); font-size: 8pt; }
+  .lede { color: var(--muted); margin: 0 0 8pt; }
+  h2 { font-size: 10pt; color: var(--accent); margin: 10pt 0 4pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 0 18pt; }
+  .cols { column-count: 2; column-gap: 18pt; }
+  section { break-inside: avoid; margin-bottom: 4pt; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; vertical-align: top; padding: 2.2pt 4pt 2.2pt 0; border-bottom: 0.5pt solid var(--rule); }
+  td:first-child { white-space: nowrap; padding-right: 8pt; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.6pt; background: var(--tint); padding: 0 2pt; border-radius: 2pt; }
+  p { margin: 0 0 4pt; }
+  ul, ol { margin: 0; padding-left: 13pt; }
+  li { margin-bottom: 2.5pt; }
+  .model { background: var(--tint); border-left: 3px solid var(--accent); padding: 6pt 8pt; margin-bottom: 4pt; }
+  .model b { color: var(--accent); }
+  .note { color: var(--muted); font-size: 8.6pt; margin-top: 3pt; }
+  .box { border: 0.75pt solid var(--accent); border-radius: 3pt; padding: 6pt 8pt; }
+  .steps { list-style: none; padding-left: 0; }
+  .steps li { border-bottom: 0.5pt solid var(--rule); padding-bottom: 2.5pt; }
+  .after { margin-top: 6pt; }
+  .after ol { column-count: 2; column-gap: 18pt; }
+  .lic td:first-child { width: 30%; }
+  footer { margin-top: 8pt; border-top: 0.5pt solid var(--rule); padding-top: 4pt; color: var(--muted); font-size: 8pt; display:flex; justify-content:space-between; }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+  .cover h1 { font-size: 24pt; margin: 0 0 6pt; }
+  .cover .contents td:first-child { width: 22%; }
+  .cover .contents td { padding: 5pt 6pt 5pt 0; font-size: 10pt; }
+  @media screen {
+    body { background: #e9edf1; padding: 24px 0; }
+    .page { background: #fff; max-width: 8.5in; margin: 0 auto 24px; padding: 0.4in 0.5in; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  }
+</style>
+</head>
+<body>
+<div class="page cover">
+<header>
+  <h1>Sanvio Factory: onboarding cards</h1>
+  <span class="by">github.com/SanvioLabs/sanvio-factory</span>
+</header>
+<p class="lede">Six one-page cards, one for each session of getting a team onto the factory. Each builds on the one before, from the first commands to a loop that runs without anyone driving it. Each ends with what to do before the next card.</p>
+<table class="contents">
+<tr><td><b>1 · Getting started</b></td><td>How to work with it, the setup that has to be right, and the commands you'll use every day</td></tr>
+<tr><td><b>2 · Knowledge and skills</b></td><td>Connect one source of your own knowledge, write your first skill, and vet someone else's</td></tr>
+<tr><td><b>3 · First motion</b></td><td>One real task from ticket to a pull request a person merged, through the loop</td></tr>
+<tr><td><b>4 · Gates and guards</b></td><td>Turn the agent's real mistakes into rules and checks that block</td></tr>
+<tr><td><b>5 · Specs</b></td><td>Move up from tasks to features: write, challenge, plan, build and review a spec</td></tr>
+<tr><td><b>6 · Team and your loop</b></td><td>Bring the team in, keep a sprint rhythm, and let your loop run on its own</td></tr>
+</table>
+<div class="model" style="margin-top:12pt">
+  <p style="margin:0">Skills named <code>/stelliad:&lt;name&gt;</code> come from the Stelliad skills library, which the factory switches on: <b>github.com/Stelliad/stelliad-skills</b>. The rest are in this repo's <code>skills/</code>.</p>
+</div>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 1</span> · Getting started</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">Where everyone starts: how to work with it, the setup that has to be right, and the handful of commands you'll use every day. The cards after this one build on it.</p>
+
+<div class="model">
+  <p><b>The model is the engine.</b> Claude does the reasoning, the actions and the context handling.</p>
+  <p><b>The harness</b> is what one session works inside: the rules it reads, the skills it follows, the checks that stop it.</p>
+  <p style="margin:0"><b>The factory</b> is everything between sessions: the queue of work, the loop that works it, and the review between a pull request and a merge. You decide what merges.</p>
+</div>
+
+<div class="grid">
+<div>
+<section>
+<h2>Setup, once per clone</h2>
+<ul class="steps">
+<li><code>git clone … my-factory</code><br>Your own copy, on your own account</li>
+<li><code>git config core.hooksPath .githooks</code><br>Skip it and every commit check silently does nothing</li>
+<li><code>python3 scripts/check_setup.py</code><br>PASS, WARN or FAIL for each layer</li>
+</ul>
+<p class="note">Start Claude Code from the repo root and trust the folder. Anywhere else, the rules, guards and skills don't load.</p>
+</section>
+
+<section>
+<h2>How to work with it</h2>
+<ul>
+<li><b>Ask for an outcome</b>, and say what done looks like.</li>
+<li><b>One job per session.</b> Finished, or going in circles? <code>/clear</code> and start fresh.</li>
+<li><b>When it gets something wrong, say "learn from that."</b> Every mistake is a rule missing from the harness.</li>
+<li><b>What must survive goes in a file.</b> A correction said out loud is gone next session.</li>
+<li><b>It proposes, you decide.</b> Nothing merges without a person, unless the owner turns on auto-merge.</li>
+</ul>
+</section>
+
+<section>
+<h2>What you'll see</h2>
+<ul>
+<li><b>The lens</b>, a line above the prompt naming the part of the harness that just acted.</li>
+<li><b>GitHub status</b>, a line with running actions, open pull requests and issues.</li>
+<li><b>The guard</b>, before every action it takes: credential files stay unread, and anything through a connector that isn't a plain read asks you first. A block is the harness working, not a bug.</li>
+</ul>
+</section>
+</div>
+<div>
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/orientation</code></td><td>Sets you up one layer at a time and writes a short record of your company</td></tr>
+<tr><td><code>/standup</code></td><td>Morning read of what's on you, with a suggested order for the day</td></tr>
+<tr><td><code>/learn</code></td><td>Turns the mistake it just made into a written rule</td></tr>
+<tr><td><code>/whats-new</code></td><td>What changed in the factory, and what to do to take it</td></tr>
+<tr><td><code>/stelliad:secret-scan</code></td><td>Finds exposed credentials before the agent reads your repos</td></tr>
+</table>
+<p class="note">You can also just ask: a skill runs when the request matches it. Stelliad skills come with the factory and run as <code>/stelliad:&lt;name&gt;</code>.</p>
+</section>
+
+<section>
+<h2>Three Claude commands</h2>
+<table>
+<tr><td><code>/clear</code></td><td>Start clean. A fresh context beats a long, muddled one</td></tr>
+<tr><td><code>/goal</code></td><td>Set a goal and let it run until it's met: "write tests for these bugs, make them pass, get the review to approve"</td></tr>
+<tr><td><code>/loop</code></td><td>Repeat a task on an interval: review open pull requests every 30 minutes, written to a folder you read later</td></tr>
+</table>
+</section>
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Before card 2</h2>
+<ol>
+<li>Run <code>/standup</code> each morning.</li>
+<li>Say "learn from that" at least once, and find the rule it wrote.</li>
+<li>Run <code>/stelliad:secret-scan</code> on each repo you plan to point it at.</li>
+<li>Write down one procedure you do every week. It becomes your first skill on card 2.</li>
+</ol>
+</section>
+
+<footer>
+  <span>Next: Card 2 · Your knowledge and skills</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: README.md · EXERCISES.md</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 2</span> · Your knowledge and skills</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">Before it builds anything, it should know how you work. Connect one source of your own knowledge, then teach it a procedure you already run.</p>
+
+<div class="model">
+  <p><b>Knowledge</b> is what it reads: your standards, runbooks and templates, from the place people already look things up.</p>
+  <p style="margin:0"><b>A skill</b> is what it does: one procedure you run the same way every time, written down so the agent runs it the same way too.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>Connect one source, the safe way</h2>
+<ul>
+<li><b>One named space</b>: a single wiki space or folder, not the whole wiki.</li>
+<li><b>Read-only, through your own connector</b>: the wiki or drive tool you already use.</li>
+<li><b>One row in <code>company/DATA.md</code></b>: where it lives, how it's reached, whether it's cleared. <code>company/</code> stays on your machine.</li>
+<li><b>The test</b>: ask it something only your company would know. It names the page.</li>
+</ul>
+<p class="note">If it can't name the page, it guessed. Also ask one thing your docs don't cover: it should say it can't find it.</p>
+</section>
+
+<section>
+<h2>What never goes in</h2>
+<ul>
+<li>Customer or end-user records</li>
+<li>Credentials, tokens and keys: refer to them by name, never paste them</li>
+<li>Anything regulated, until your contract says it can</li>
+<li>Correspondence with third parties</li>
+</ul>
+<p class="note">If a space mixes standards with records, pick a narrower one.</p>
+</section>
+
+<section>
+<h2>A skill has four parts</h2>
+<ol>
+<li>A name</li>
+<li>A description that says <b>when</b> to use it</li>
+<li>Numbered steps</li>
+<li>A defined output. If you can't say what it is, it isn't a skill yet</li>
+</ol>
+<p class="note">Start from <code>examples/proposal/skills/draft-proposal/</code>: copy it and rewrite it for a weekly job, such as a status update, a release note, a code review or a support reply.</p>
+</section>
+
+<section>
+<h2>One Claude command</h2>
+<table>
+<tr><td><code>/mcp</code></td><td>See the connectors this session has, and add the one for your knowledge source</td></tr>
+</table>
+</section>
+
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/orientation</code></td><td>Lists what's connected, says where to add what isn't, and drafts the <code>DATA.md</code> row. Never logs in for you</td></tr>
+<tr><td><code>/review-skill</code></td><td>Vets someone else's skill in quarantine and adopts only what fills a gap</td></tr>
+<tr><td><code>/inbox</code></td><td>What in your mail needs a reply from you, once <code>DATA.md</code> clears the mailbox. Reads only</td></tr>
+<tr><td><code>/stelliad:repo-audit</code></td><td>Checks a repo against a security and quality baseline before agents work in it</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Borrowed skills get reviewed first</h2>
+<p>A skill is someone else's instructions running with your permissions. Say "review this skill: &lt;link&gt;" and it sorts everything into:</p>
+<table>
+<tr><td><b>Covered</b></td><td>You already have this</td></tr>
+<tr><td><b>Gap</b></td><td>Adopt it, in your own conventions</td></tr>
+<tr><td><b>Conflict</b></td><td>It fights a rule you have. Leave it out</td></tr>
+</table>
+<p class="note" style="margin-top:4pt">Check the licence (MIT or Apache: adapt it; CC BY-SA: keep the licence; none: ideas only), then say "make me a local version of that, in our conventions" and commit it. Adopt the gaps, never the whole file.</p>
+</section>
+
+
+
+<section>
+<h2>Stelliad skills</h2>
+<p>A public skills library that comes with the factory, pinned to a commit that has already been reviewed. It's the one source you don't vet first. Run them as <code>/stelliad:&lt;name&gt;</code>, and browse the catalogue at <b>github.com/Stelliad/stelliad-skills</b>. Moving the pin to a newer commit is a review: read the diff first.</p>
+<p class="note">Also worth a look, reviewed first: <code>skill-creator</code> (Anthropic) writes and tests your own skills; <code>find-skill</code> searches public catalogues.</p>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Before card 3</h2>
+<ol>
+<li>Connect one space. Get two answers that name the page, and one "I can't find it".</li>
+<li>Turn the weekly procedure from card 1 into a skill, and commit it.</li>
+<li>Put one outside skill through <code>/review-skill</code>.</li>
+<li>Pick one small, real task for card 3: a bug, a doc fix or a small feature.</li>
+</ol>
+</section>
+
+<footer>
+  <span>Next: Card 3 · First motion</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: STARTER-SKILLS.md · EXERCISES.md</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 3</span> · First motion</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">One small, real task, end to end: written as a ticket, built by the loop, merged by a person. Run it on a sandbox repo, never a production one.</p>
+
+<div class="model">
+  <p><b>The loop</b> takes a labelled issue, plans it, builds it, tests it and has a second agent review it, then opens a pull request.</p>
+  <p style="margin:0"><b>It doesn't merge.</b> A person reads the pull request and decides. Only the owner can change that, with <code>auto_merge</code> in <code>loop.json</code>, and then only for work it graded, by trusted authors, with every check passed.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>From ticket to merge</h2>
+<ol>
+<li><b>Write it</b>: <code>/stelliad:create-ticket</code> turns a rough idea into an issue.</li>
+<li><b>Grade it</b>: <code>/stelliad:review-ticket</code> says READY, or exactly what's missing.</li>
+<li><b>Label it <code>loop-ready</code></b>, or say "put #12 on the loop". The label is the gate.</li>
+<li><b>The loop works it</b>: plan, build, test, review.</li>
+<li><b>It opens a pull request.</b> You read it, then merge it or send it back.</li>
+</ol>
+<p class="note">NEEDS_REFINEMENT is a good result: fix what it names and grade it again. Label only issues you wrote or have read, because a ticket is an instruction to an agent.</p>
+</section>
+
+<section>
+<h2>What the loop does</h2>
+<table>
+<tr><td><b>Discover</b></td><td>Picks the labelled issue and writes <code>ticket.md</code></td></tr>
+<tr><td><b>Shape</b></td><td>A fresh agent writes <code>plan.md</code></td></tr>
+<tr><td><b>Build</b></td><td>Another fresh agent makes the change in its own worktree</td></tr>
+<tr><td><b>Validate</b></td><td>The script runs your tests; a second agent reads the diff. FIX sends it back to Build</td></tr>
+<tr><td><b>Scale</b></td><td>Opens the pull request; what went wrong goes to <code>.loop/lessons.md</code></td></tr>
+</table>
+</section>
+
+<section>
+<h2>Watching it</h2>
+<ul>
+<li><code>/factory-floor</code>: the queue, each issue's step and round, tokens and estimated cost.</li>
+<li><code>tail -f .loop/loop.log</code>: one plain line per step.</li>
+<li>Each pull request records its own tokens and cost. <code>max_issue_tokens</code> in <code>loop.json</code> stops an issue at a budget.</li>
+</ul>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/stelliad:create-ticket</code></td><td>A rough idea into a ticket nobody has to come back and ask about</td></tr>
+<tr><td><code>/stelliad:review-ticket</code></td><td>Grades it READY, NEEDS_REFINEMENT or BLOCKED</td></tr>
+<tr><td><code>/loop-control</code></td><td>"Is #12 ready?", "start the loop", "why is #12 blocked?", "stop the loop"</td></tr>
+<tr><td><code>/review-pr</code></td><td>Reviews a pull request against your rules, findings ranked by cost. Never approves or merges</td></tr>
+<tr><td><code>/stelliad:review-intake</code></td><td>Works through review comments: fixes what's right, pushes back with evidence on what isn't</td></tr>
+<tr><td><code>/stelliad:verify-done</code></td><td>"Done" means the command that proves it ran and passed</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Read it like a reviewer</h2>
+<ul>
+<li><b>The plan</b>: did it understand the ticket?</li>
+<li><b>The diff</b>: is this the change you'd have made?</li>
+<li><b>The tests</b>: do they prove the change, or only that the code runs?</li>
+<li><b>The second agent's review</b>: what did it flag, and was it right?</li>
+</ul>
+<p class="note">Whatever you had to fix by hand is a rule or a gate that's missing. That's card 4.</p>
+</section>
+
+<section>
+<h2>Pick the right first task</h2>
+<ul>
+<li>Small enough to finish in one loop run: a bug, a doc fix, a small feature.</li>
+<li>Done is something a test can check.</li>
+<li>Real work, but nothing anyone is waiting on today.</li>
+</ul>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Before card 4</h2>
+<ol>
+<li>Take one real ticket from idea to a pull request you merged.</li>
+<li>Write down every fix you made by hand, and every place it got something wrong.</li>
+<li>Run <code>/review-pr</code> on one pull request a person wrote, and compare notes.</li>
+<li>Put a second ticket on the loop without help.</li>
+</ol>
+</section>
+
+<footer>
+  <span>Next: Card 4 · Gates and guards</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: HOW-IT-WORKS.md</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 4</span> · Gates and guards</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">Add checks where the agent actually went wrong, not where you guess it might. Your list of hand fixes from card 3 is the input.</p>
+
+<div class="model">
+  <p><b>A rule is context.</b> The agent reads it, and can still skip it.</p>
+  <p><b>A gate is enforcement.</b> A script that fails when work isn't ready, so "done" is something a script checks, not something the agent says.</p>
+  <p style="margin:0"><b>A check that doesn't block is decoration.</b></p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>Mistake to rule</h2>
+<ol>
+<li><b>Fix the output</b>, then don't stop there.</li>
+<li><b>Say "learn from that."</b> The rule goes into the file that governs it, dated, with the reason.</li>
+<li><b>Not sure why it went wrong?</b> <code>/retro</code> reads that session's own log and says why the agent didn't know.</li>
+</ol>
+<p class="note">A correction said out loud lasts one conversation. A rule in the file lasts every session after.</p>
+</section>
+
+<section>
+<h2>Where each fix goes</h2>
+<table>
+<tr><td><code>AGENTS.md</code>, <code>steering/</code></td><td>It didn't know how you work</td></tr>
+<tr><td>A skill's steps</td><td>A procedure missed a step</td></tr>
+<tr><td>A gate</td><td>It has to hold even when the agent decides otherwise</td></tr>
+<tr><td>A review agent</td><td>It needs judgement, not a script</td></tr>
+</table>
+<p class="note">A check earns a gate when a script can decide it and missing it costs more than checking it.</p>
+</section>
+
+<section>
+<h2>Where a gate runs</h2>
+<table>
+<tr><td><b>A skill's last step</b></td><td>The cheapest catch: the agent fixes it before you see the work. But an agent can skip a step</td></tr>
+<tr><td><b>The git hook</b></td><td>Every commit, from any tool. Unless the hook is off, or someone uses <code>--no-verify</code></td></tr>
+<tr><td><b>CI</b></td><td>Every push. Once it's a required check on <code>main</code>, nobody can skip it</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Example to copy</h2>
+<p><code>examples/proposal/gates/proposal_gate.py</code> blocks a commit when a rate isn't the rate card's, a total doesn't add up, or a placeholder is left in. One file, wired into the skill, the hook and CI.</p>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/learn</code></td><td>Turns the mistake it just made into a written rule, in the right file</td></tr>
+<tr><td><code>/retro</code></td><td>Why it went wrong, from the session log. Turn it on with <code>SANVIO_RETRO=on</code></td></tr>
+<tr><td><code>/review-tests</code></td><td>Breaks the code on purpose and shows which tests actually catch it</td></tr>
+<tr><td><code>/stelliad:test-first</code></td><td>No code without a failing test first</td></tr>
+<tr><td><code>/stelliad:run-gates</code></td><td>Turns your checkpoints into checks that block instead of advise</td></tr>
+<tr><td><code>/stelliad:coverage-gaps</code></td><td>Which risky code no test touches</td></tr>
+<tr><td><code>/stelliad:review-principles</code></td><td>Reviews code for DRY, KISS and single responsibility, each finding tied to a consequence</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Rules of the road</h2>
+<ul>
+<li><b>Never edit a gate to make work pass.</b> Fix the work.</li>
+<li><b>A pass goes stale.</b> A check that passed yesterday says nothing about this morning's edit. That's why the hook runs on every commit.</li>
+<li><b>Tests an agent wrote get tested too.</b> Passing isn't the same as protecting.</li>
+</ul>
+</section>
+
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Before card 5</h2>
+<ol>
+<li>Write one gate for a mistake from card 3, dated with the reason, and wire it into the hook.</li>
+<li>Try to commit something that should fail, and watch it refuse.</li>
+<li>Run <code>/review-tests</code> on tests the agent wrote.</li>
+<li>Make CI a required check on <code>main</code>, so it blocks instead of reports.</li>
+</ol>
+</section>
+
+<footer>
+  <span>Next: Card 5 · Specs</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: gates/README.md · steering/gates.md</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 5</span> · Specs</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">Move up from tasks to features. Write down what has to be true before anyone builds it, then build it one tested task at a time.</p>
+
+<div class="model">
+  <p><b>A ticket</b> is one task the loop can finish in a single run.</p>
+  <p><b>A spec</b> is a feature: what has to be true, how anyone can tell, and what's still undecided.</p>
+  <p style="margin:0"><b>Two ways to feed the factory:</b> a spec, or well-defined tickets. Both work.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>The spec loop</h2>
+<table>
+<tr><td><b>1. Write</b></td><td><code>create-spec</code> drafts <code>SPEC.md</code> from what was actually said. What wasn't said stays an open question</td></tr>
+<tr><td><b>2. Challenge</b></td><td><code>stress-test-plan</code> questions it one round at a time until the weakest assumption is named</td></tr>
+<tr><td><b>3. Plan</b></td><td><code>plan-spec</code> writes <code>PLAN.md</code> and <code>TASKS.md</code>. Every task names its requirements and a check that really exists. It never touches code</td></tr>
+<tr><td><b>4. Build</b></td><td><code>implement-spec</code> works one task at a time, test first, and stops when the spec turns out to be wrong</td></tr>
+<tr><td><b>5. Review</b></td><td><code>review-spec</code> walks every requirement to the code and test that meet it</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Where a spec starts</h2>
+<ul>
+<li><b>Your notes.</b> "Help me build a spec from these meeting notes."</li>
+<li><b>Feature size, not four-hour tasks.</b> The agent does far more per task than a developer did.</li>
+<li><b>Code with no spec?</b> <code>recover-spec</code> works backwards from what's built, and lists what nobody ever decided.</li>
+</ul>
+</section>
+
+<section>
+<h2>From spec to the loop</h2>
+<p>A task can go to the loop as a ticket with a <code>Spec: docs/specs/&lt;name&gt;</code> line. The ticket's shape is in <code>.github/ISSUE_TEMPLATE/loop-task.md</code>: objective, why, acceptance criteria, scope in and out, risk.</p>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/stelliad:create-spec</code></td><td>An idea into a draft spec, open questions left open</td></tr>
+<tr><td><code>/stelliad:stress-test-plan</code></td><td>Finds the weakest assumption before you build on it</td></tr>
+<tr><td><code>/stelliad:plan-spec</code></td><td>A ready spec into a plan and a task list</td></tr>
+<tr><td><code>/stelliad:implement-spec</code></td><td>The next unblocked task, test first and verified</td></tr>
+<tr><td><code>/stelliad:review-spec</code></td><td>Independent final review before a spec is done</td></tr>
+<tr><td><code>/stelliad:recover-spec</code></td><td>The spec an existing codebase never had</td></tr>
+</table>
+<p class="note">The whole spec loop is Stelliad, so it comes with the factory.</p>
+</section>
+
+<section>
+<h2>One Claude move</h2>
+<table>
+<tr><td><kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>Plan mode: it reads and plans, and changes nothing. Use it to think a feature through before a spec exists</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Rules of the road</h2>
+<ul>
+<li><b>An open question is better than a guess.</b> A spec that guesses gets built on the guess.</li>
+<li><b>When the spec is wrong, fix the spec first</b>, then the code.</li>
+<li><b>The spec lives in the repo</b>, next to the code it governs.</li>
+<li><b>A plan's check has to run.</b> A task whose check doesn't exist isn't planned yet.</li>
+</ul>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Before card 6</h2>
+<ol>
+<li>Draft one spec from real notes, for a real feature.</li>
+<li>Stress-test it, and answer what it asks.</li>
+<li>Plan it, then build the first two tasks, here or on the loop.</li>
+<li>Name the first person on your team who joins next.</li>
+</ol>
+</section>
+
+<footer>
+  <span>Next: Card 6 · Team and your loop</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: steering/tickets.md · docs/specs/</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 6</span> · Team and your loop</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">One person first, then the team. Then a loop that works through tickets and specs without anyone driving it, with a person at the end.</p>
+
+<div class="model">
+  <p><b>The owner owns the direction. The team pushes the edges.</b> People experiment freely inside the rails that matter, and bring back what works.</p>
+  <p style="margin:0"><b>Every sprint, the experiments come back</b>, and the owner decides what goes into the factory everyone shares.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>Bringing the team in</h2>
+<ol>
+<li><b>Before:</b> everyone has cloned it and the setup check passes.</li>
+<li><b>Open with why:</b> what the owner has stopped doing by hand, with real examples.</li>
+<li><b>One live motion:</b> the owner takes a small real task from spec to pull request while the team watches.</li>
+<li><b>Everyone tries one thing:</b> a skill, a review, a ticket.</li>
+<li><b>Close with the rules:</b> what's shared, what's yours to change, and how experiments come back.</li>
+</ol>
+</section>
+
+<section>
+<h2>The sprint rhythm</h2>
+<ul>
+<li><b>Usage is visible.</b> Each person's sessions log which skills ran and where the guard stepped in: names and counts, never content, on their own machine. <code>SANVIO_USAGE_LOG=off</code> turns it off.</li>
+<li><b>At sprint end</b>, <code>/factory-trends</code> turns that into a short report with proposals, shared as a pull request.</li>
+<li><b>The owner decides</b> what goes in, and what gets dropped.</li>
+</ul>
+</section>
+
+<section>
+<h2>Your loop, on its own</h2>
+<table>
+<tr><td><code>loop.py run</code></td><td>Takes each <code>loop-ready</code> issue as it's labelled, until stopped. Bound it with <code>--for 8h</code> or <code>--hours "Mon-Fri 09:00-17:00"</code></td></tr>
+<tr><td><code>loop.py review</code></td><td>Reviews each pull request that asks for you, once per commit</td></tr>
+<tr><td><code>max_workers</code></td><td>Several issues at once, in <code>loop.json</code>. Usage grows with each worker</td></tr>
+<tr><td><code>loop.py stop</code></td><td>Stops after the current step</td></tr>
+</table>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/factory-trends</code></td><td>A sprint's usage as trends, with one recommended change</td></tr>
+<tr><td><code>/pulse</code></td><td>The team's daily one-question check-in, with yesterday's answers as counts</td></tr>
+<tr><td><code>/work-report</code></td><td>One page of what merged, who approved it, and what the loop built</td></tr>
+<tr><td><code>/dispatch</code></td><td>Hand an issue to another team's factory, and review what comes back</td></tr>
+<tr><td><code>/factory-updates</code></td><td>What the public factory added since your copy, and what's worth taking</td></tr>
+<tr><td><code>/factory-dashboard</code></td><td>A pane, not a skill: what's waiting on you, the loop's spend and rework, token use. On by default</td></tr>
+<tr><td><code>/factory-eval</code></td><td>Whether a change made the factory better: runs a suite, scores it, compares two runs</td></tr>
+</table>
+<p class="note">The review agents (<code>reviewer</code>, <code>security-reviewer</code>, <code>cto</code>, <code>gc</code>, <code>ceo</code>, <code>cmo</code>) each read the work from one angle, and never edit it.</p>
+</section>
+
+<section>
+<h2>Claude commands</h2>
+<table>
+<tr><td><code>/model</code> · <code>/advisor</code></td><td>Pair a cheaper model that builds with a stronger one that advises. Move up only when the work gets hard</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Signs it's working</h2>
+<ul>
+<li>Pull request review turnaround drops.</li>
+<li>Tests the agent writes catch real breaks.</li>
+<li>You mostly just say "continue".</li>
+<li>Token use rises with output, not without it.</li>
+<li>Skills used, not just installed.</li>
+</ul>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">You're running it when</h2>
+<ol>
+<li>The owner runs the sprint review and decides what goes in.</li>
+<li>Work flows through your own loop, with a person at the end.</li>
+<li>The team brings proposals each sprint without being asked.</li>
+<li>Your rules and gates come from your own mistakes, not just the factory's.</li>
+</ol>
+</section>
+
+<footer>
+  <span>The next engineer starts at card 1</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: HOW-IT-WORKS.md · factories/README.md</span>
+</footer>
+</div>
+</body>
+</html>

@@ -478,6 +478,7 @@ Each one walks through a single job from start to finish, with an animation of h
 |---|---|
 | [`docs/factory-in-ci.md`](docs/factory-in-ci.md) | Run your factory in a product repo's CI: checks on every push, a review on every pull request from one factory repo, and the loop on a runner |
 | [`docs/factory-evals.md`](docs/factory-evals.md) | Measure a factory change: check a reviewer still catches what it should, run the whole factory through a suite of jobs, and compare two runs |
+| [`docs/workshop/`](docs/workshop/) | Run the workshop yourself: the deck, a walkthrough of each section with its finish line, and six one-page onboarding cards, from the first commands to your own loop |
 
 ## Your turn
 
