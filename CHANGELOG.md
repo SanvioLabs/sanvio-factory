@@ -27,7 +27,7 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-12: Onboarding cards
+## 2026-11-13: Onboarding cards
 
 [`docs/onboarding/`](docs/onboarding/) has six one-page cards for bringing a team onto the factory, one per session: getting started, knowledge and skills, first motion, gates and guards, specs, and team and your loop. Each names the skills that session uses and ends with what to do before the next. One PDF to hand out, built from one HTML file.
 
