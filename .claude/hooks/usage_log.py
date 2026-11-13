@@ -11,8 +11,10 @@ paths, no code. Each person's log is .sanvio/usage/<user>.jsonl, which is
 gitignored. What reaches the team is the summary skills/factory-trends/ writes,
 and the person reads that before it goes anywhere.
 
-Turn it off for yourself with SANVIO_USAGE_LOG=off. It never blocks a tool
-call, never prints, and never stops a session if it fails.
+Turn it off for yourself with SANVIO_USAGE_LOG=off. Each session start then
+writes one line and nothing else: the time and "event": "log_off", so a quiet
+log reads as switched off rather than unused (NIST SP 800-53 AU-2). It never
+blocks a tool call, never prints, and never stops a session if it fails.
 
 Each line carries prev, the hash of the line before it (scripts/log_chain.py),
 so an edit, a removal or an insertion shows in the usage report and the
@@ -103,6 +105,12 @@ def record(root, line, session_id="", now=None):
     log_chain.append(log_path(root), full)
 
 
+def record_off(root, now=None):
+    """The one line a session start writes with the log off: its time and event log_off, no session or name."""
+    stamp = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    log_chain.append(log_path(root), {"ts": stamp, "event": "log_off"})
+
+
 def prune(root, now=None, days=None):
     """Rewrite this person's log without the entries older than days (SANVIO_KEEP_DAYS, 90 by default).
     The new file replaces the old in one step, so a reader never sees half a log."""
@@ -143,6 +151,8 @@ def main():
             except Exception:  # a log it can't rewrite is kept as it is
                 pass
         if names.logging_off():
+            if hook == "SessionStart":
+                record_off(root)
             return 0
         line = entry(hook, event)
         if line:
