@@ -271,13 +271,13 @@ def backticked(text):
 
 
 class StarterUpdatesCapabilities(unittest.TestCase):
-    """skills/starter-updates/capabilities.md, checked only in Sanvio Factory's own repo."""
+    """skills/factory-updates/capabilities.md, checked only in Sanvio Factory's own repo."""
 
     def read(self):
         origin = check_setup.git(ROOT, "remote", "get-url", "origin")
         if skips_the_capabilities(origin):
             self.skipTest("origin isn't the public Sanvio Factory, so this copy's table can differ")
-        return (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text()
+        return (ROOT / "skills" / "factory-updates" / "capabilities.md").read_text()
 
     def rows(self):
         lines = [line for line in self.read().splitlines() if line.startswith("|")]
@@ -342,25 +342,26 @@ class StarterUpdatesCapabilities(unittest.TestCase):
         return names
 
 
-class StarterUpdatesRename(unittest.TestCase):
-    """The skill's new name, and the only places its old one may still appear."""
+class FactoryUpdatesRename(unittest.TestCase):
+    """The skill's new name, and the only places its two old ones may still appear."""
 
-    ALLOWED = {"skills/starter-updates/SKILL.md": 1, "tests/test_skills.py": 1}
+    ALLOWED = {"skills/factory-updates/SKILL.md": 2, "tests/test_skills.py": 2}
 
     def test_the_skill_has_its_new_name(self):
-        skill = ROOT / "skills" / "starter-updates" / "SKILL.md"
+        skill = ROOT / "skills" / "factory-updates" / "SKILL.md"
         self.assertTrue(skill.exists())
-        self.assertEqual(frontmatter(skill.read_text())["name"], "starter-updates")
+        self.assertEqual(frontmatter(skill.read_text())["name"], "factory-updates")
 
     def test_the_old_folder_is_gone(self):
         self.assertFalse((ROOT / "skills" / "check-starter").exists())
+        self.assertFalse((ROOT / "skills" / ("starter" + "-updates")).exists())
 
     def test_no_tracked_file_keeps_the_old_name(self):
         if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
             self.skipTest("origin isn't the public Sanvio Factory, so this copy can mention the old name")
         files = [name for name in (check_setup.git(ROOT, "ls-files", "-z") or "").split("\0") if name]
         self.assertTrue(files, "git ls-files listed nothing")
-        old_name = re.compile(r"check.?starter", re.I)
+        old_name = re.compile(r"check.?starter|starter-updates", re.I)
         for name in files:
             self.assertIsNone(old_name.search(name), name)
             path = ROOT / name
@@ -371,9 +372,9 @@ class StarterUpdatesRename(unittest.TestCase):
 
 
 class StarterUpdatesOneScreen(unittest.TestCase):
-    """Each starter-updates question fits on one screen, and the windows, answers and rules stay as they were."""
+    """Each factory-updates question fits on one screen, and the windows, answers and rules stay as they were."""
 
-    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+    SKILL = ROOT / "skills" / "factory-updates" / "SKILL.md"
 
     def text(self):
         return " ".join(self.SKILL.read_text().split())
@@ -430,12 +431,12 @@ class StarterUpdatesOneScreen(unittest.TestCase):
 
 class UpgradeGuideStaysUpstream(unittest.TestCase):
     """The upgrade guide's links point at Sanvio Factory's own files, so it's read on GitHub, and
-    starter-updates gives its address in place of a copy. Checked only in Sanvio Factory's own repo:
+    factory-updates gives its address in place of a copy. Checked only in Sanvio Factory's own repo:
     a copy that takes changes file by file doesn't have the guide."""
 
     URL = "https://github.com/SanvioLabs/sanvio-factory/blob/main/docs/upgrading-to-sanvio-factory.md"
     GUIDE = ROOT / "docs" / "upgrading-to-sanvio-factory.md"
-    SKILL = ROOT / "skills" / "starter-updates" / "SKILL.md"
+    SKILL = ROOT / "skills" / "factory-updates" / "SKILL.md"
 
     def setUp(self):
         if skips_the_capabilities(check_setup.git(ROOT, "remote", "get-url", "origin")):
@@ -459,7 +460,7 @@ class UpgradeGuideStaysUpstream(unittest.TestCase):
             self.assertIn(kept, guide)
 
     def test_no_capability_window_asks_about_the_guide(self):
-        table = (ROOT / "skills" / "starter-updates" / "capabilities.md").read_text()
+        table = (ROOT / "skills" / "factory-updates" / "capabilities.md").read_text()
         self.assertNotIn("upgrading-to-sanvio-factory", table)
 
 

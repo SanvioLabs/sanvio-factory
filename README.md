@@ -92,7 +92,7 @@ Others pushing to your copy? Ask your agent "what's new", or run `/whats-new`
 in Claude Code. It compares your [`CHANGELOG.md`](CHANGELOG.md) with the one on your copy's own
 remote and tells you what you don't have yet and what to do to take it.
 For what the public Sanvio Factory has shipped since you copied it, ask "check
-the starter": [`skills/starter-updates/`](skills/starter-updates/) asks what you want to bring over, then lists
+the starter": [`skills/factory-updates/`](skills/factory-updates/) asks what you want to bring over, then lists
 each commit and says which to take.
 
 Copied before 2026-11-08, when this repo was `sanvio-harness-starter`?
