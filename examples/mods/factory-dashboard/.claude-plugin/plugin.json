@@ -1,6 +1,6 @@
 {
   "name": "factory-dashboard",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A pane with the factory's numbers: what's waiting on you, the loop's spend and rework, evals and tokens",
   "types": "./types/index.d.ts"
 }

@@ -1,4 +1,7 @@
 """Run with: python3 -m unittest discover -s tests"""
+import contextlib
+import datetime
+import io
 import json
 import os
 import subprocess
@@ -453,6 +456,148 @@ class Report(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertIn("# Harness usage", result.stdout)
             self.assertNotIn("changed after it was written", result.stdout)
+
+
+class Review(unittest.TestCase):
+    """usage_report.py --review: the monthly log review, over the 30 days to TODAY, in a temporary root."""
+
+    TODAY = datetime.date(2026, 11, 12)  # the 30 days run from 2026-10-14
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.log = usage_log.log_path(self.root)
+
+    def usage(self, *entries):
+        """The person's own log, each entry chained as the hook writes it."""
+        for entry in entries:
+            usage_log.log_chain.append(self.log, entry)
+
+    def loop_log(self, *lines):
+        path = self.root / ".loop" / "loop.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(line + "\n" for line in lines))
+
+    def spent(self, *days):
+        """One loop run a day, each (YYYY-MM-DD, dollars), each under its own issue."""
+        for n, (day, cost) in enumerate(days):
+            path = self.root / ".loop" / "issue-{}".format(n + 1) / "usage.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps([{"step": "build", "run_started": day + "T09:00:00", "cost_usd": cost}]))
+
+    def review(self):
+        return usage_report.review(self.root, self.TODAY, self.log).splitlines()
+
+    def main(self, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = usage_report.main(list(args), root=self.root)
+        return code, out.getvalue()
+
+    def last_review(self):
+        return self.root / ".sanvio" / "usage" / "last-review"
+
+    def test_an_intact_chain_says_so(self):
+        self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": "learn"},
+                   {"ts": "2026-11-02T10:00:00Z", "event": "skill", "name": "retro"})
+        self.assertIn("Usage log chain: intact", self.review())
+
+    def test_an_edited_line_gives_the_line_number(self):
+        for name in ("learn", "retro", "standup"):
+            self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": name})
+        lines = self.log.read_text().splitlines()
+        lines[1] = lines[1].replace("retro", "other")
+        self.log.write_text("\n".join(lines) + "\n")
+        self.assertIn("Usage log chain: changed after it was written, from line 3", self.review())
+
+    def test_no_log_is_missing(self):
+        self.assertIn("Usage log chain: missing", self.review())
+
+    def test_refusals_and_asks_are_counted_in_the_30_days_and_not_before(self):
+        self.usage({"ts": "2026-10-13T23:59:59Z", "event": "guard_deny", "rule": "credential-file"},
+                   {"ts": "2026-10-13T12:00:00Z", "event": "guard_ask", "rule": "connector-write"},
+                   {"ts": "2026-10-14T00:00:00Z", "event": "guard_deny", "rule": "credential-file"},
+                   {"ts": "2026-11-12T09:00:00Z", "event": "guard_deny", "rule": "headless"},
+                   {"ts": "2026-11-01T09:00:00Z", "event": "guard_ask", "rule": "connector-write"},
+                   {"ts": "2026-11-01T09:00:00Z", "event": "skill", "name": "learn"})
+        lines = self.review()
+        self.assertIn("Guard refusals: 2", lines)
+        self.assertIn("Guard asks: 1", lines)
+
+    def test_errors_and_clean_ups_are_listed_and_nothing_else(self):
+        self.loop_log("2026-11-03T08:00:00 #12 ERROR the build failed",
+                      "2026-11-04T08:00:00 - CLEANUP removed an old worktree",
+                      "2026-11-04T09:00:00 #12 INFO started",
+                      "2026-11-04T10:00:00 #12 PR https://github.com/o/r/pull/9",
+                      "2026-10-13T08:00:00 #3 ERROR too old to list")
+        lines = self.review()
+        self.assertIn("2026-11-03 #12 ERROR", lines)
+        self.assertIn("2026-11-04 - CLEANUP", lines)
+        text = "\n".join(lines)
+        for left_out in ("INFO", " PR", "#3", "2026-10-13"):
+            self.assertNotIn(left_out, text)
+
+    def test_a_loop_line_prints_its_date_issue_and_level_and_nothing_of_its_text(self):
+        self.loop_log("2026-11-02T10:00:00 #7 ERROR could not read /Users/x/secret.txt --flag")
+        lines = self.review()
+        self.assertIn("2026-11-02 #7 ERROR", lines)
+        text = "\n".join(lines)
+        for leak in ("/Users", "secret", "--flag"):
+            self.assertNotIn(leak, text)
+
+    def test_a_day_over_3_times_the_median_is_listed_and_one_at_exactly_3_is_not(self):
+        # The days with spend are 1, 1, 1, 3 and 4 dollars, so the median day is $1.
+        self.spent(("2026-11-01", 1), ("2026-11-02", 1), ("2026-11-03", 1), ("2026-11-04", 3), ("2026-11-05", 4))
+        lines = self.review()
+        self.assertIn("2026-11-05 $4.00", lines)
+        self.assertFalse(any(line.startswith("2026-11-04") for line in lines))
+
+    def test_days_with_no_spend_dont_pull_the_median_down(self):
+        self.spent(("2026-11-01", 2), ("2026-11-05", 3))
+        text = "\n".join(self.review())
+        self.assertNotIn("$", text)
+
+    def test_a_missing_usage_log_still_reviews_and_records_the_date(self):
+        self.loop_log("2026-11-03T08:00:00 #12 ERROR the build failed")
+        code, out = self.main("--review")
+        self.assertEqual(code, 0)
+        self.assertIn("No usage log, so no guard refusals or asks to count.", out)
+        self.assertNotIn(str(self.root), out)
+        self.assertTrue(self.last_review().is_file())
+
+    def test_a_missing_loop_log_still_reviews_and_records_the_date(self):
+        self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": "learn"})
+        code, out = self.main("--review")
+        self.assertEqual(code, 0)
+        self.assertIn("No loop log, so no loop errors or clean-ups to list.", out)
+        self.assertNotIn(str(self.root), out)
+        self.assertTrue(self.last_review().is_file())
+
+    def test_last_review_holds_today(self):
+        self.main("--review")
+        self.assertEqual(self.last_review().read_text(), datetime.date.today().isoformat() + "\n")
+
+    def test_another_persons_log_is_not_counted(self):
+        other = self.log.parent / "someone-else.jsonl"
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_text(json.dumps({"ts": "2026-11-01T10:00:00Z", "event": "guard_deny", "rule": "x"}) + "\n")
+        self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": "learn"})
+        self.assertIn("Guard refusals: 0", self.review())
+
+    def test_the_persons_own_log_is_unchanged(self):
+        self.usage({"ts": "2026-11-01T10:00:00Z", "event": "guard_deny", "rule": "x"},
+                   {"ts": "2026-11-02T10:00:00Z", "event": "guard_ask", "rule": "connector-write"})
+        self.loop_log("2026-11-03T08:00:00 #12 ERROR the build failed")
+        before = (self.log.read_bytes(), (self.root / ".loop" / "loop.log").read_bytes())
+        self.main("--review")
+        self.assertEqual((self.log.read_bytes(), (self.root / ".loop" / "loop.log").read_bytes()), before)
+
+    def test_a_run_without_review_writes_no_last_review(self):
+        self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": "learn"})
+        code, _ = self.main()
+        self.assertEqual(code, 0)
+        self.assertFalse(self.last_review().exists())
 
 
 if __name__ == "__main__":

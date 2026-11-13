@@ -204,7 +204,7 @@ class Layout(Factory):
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
                                        "evals", "conversations", "waiting", "loop_rework", "stage_times",
-                                       "loop_history", "work_by_type"])
+                                       "loop_history", "work_by_type", "last_review"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -926,6 +926,32 @@ class WorkByType(Factory):
         self.assertIn("\n    work_by_type ", dashboard_data.__doc__)
 
 
+class LastReview(Factory):
+    """When usage_report.py --review last ran, from the date it wrote to .sanvio/usage/last-review."""
+
+    def mark(self, text):
+        write(self.root, ".sanvio/usage/last-review", text)
+
+    def test_the_date_and_the_days_since_it(self):
+        self.mark("2026-10-20\n")
+        self.assertEqual(self.build()["last_review"], {"date": "2026-10-20", "days_since": 7})
+
+    def test_no_file_is_no_review_yet(self):
+        self.assertEqual(self.build()["last_review"], {"value": None, "why": "no review yet"})
+
+    def test_a_file_without_a_date_is_unreadable(self):
+        for text in ("not a date\n", "2026-13-45\n", "", "2026-10-20T09:00:00\n"):
+            self.mark(text)
+            self.assertEqual(self.build()["last_review"], {"value": None, "why": "unreadable"}, text)
+
+    def test_a_folder_in_its_place_is_unreadable(self):
+        (self.root / ".sanvio" / "usage" / "last-review").mkdir(parents=True)
+        self.assertEqual(self.build()["last_review"], {"value": None, "why": "unreadable"})
+
+    def test_the_docstring_lists_the_section(self):
+        self.assertIn("\n    last_review ", dashboard_data.__doc__)
+
+
 class MissingOrCorrupt(Factory):
     def test_every_source_missing_gives_null_and_why_and_exits_0(self):
         code, out = self.main()
@@ -1545,6 +1571,8 @@ class Sample(GitHarness):
                    {"ts": "2026-10-26T15:00:00Z", "event": "guard_ask", "rule": "connector-write",
                     "tool": "mcp__github__create_pull_request"}]
         write(log_path(self.root).parent, log_path(self.root).name, "".join(json.dumps(e) + "\n" for e in events))
+        # The last monthly log review, a week before TODAY.
+        write(self.root, ".sanvio/usage/last-review", "2026-10-20\n")
 
         # Each reviewer's saved result reads a folder of cases committed before it was saved. The reviewer's
         # brief is committed again after, so the reviewer is stale with the file that changed and the other fresh.

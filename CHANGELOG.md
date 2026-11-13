@@ -35,6 +35,20 @@ Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hoo
 
 **Do:** nothing.
 
+## 2026-11-12: Monthly log review
+
+[`scripts/usage_report.py`](scripts/usage_report.py) gains `--review`, a monthly review of the factory's logs over the last 30 days.
+It says whether your usage log's chain holds, counts the guard's refusals and asks, lists each `ERROR` and
+`CLEANUP` line in the loop's `.loop/loop.log` by date, issue and level only, and names any day the loop spent
+over 3 times its median day with spend. It writes the date to `.sanvio/usage/last-review`. The factory
+dashboard's **Activity** section now ends with when you last ran it, in yellow after 30 days, from a new
+`last_review` section in [`scripts/dashboard_data.py`](scripts/dashboard_data.py). [`steering/data-and-tools.md`](steering/data-and-tools.md) says what to do about a
+broken chain or a refusal nobody can explain, and the factory-trends sprint run does a review when one is due.
+
+Files: [`scripts/usage_report.py`](scripts/usage_report.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run python3 scripts/usage_report.py --review once a month.
+
 ## 2026-11-12: Work by type on the factory dashboard
 
 The factory dashboard's **Loop spend** section gains a **Merged by type** table. It counts this repo's

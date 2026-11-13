@@ -42,7 +42,9 @@ plan and the date you checked it:
 | _your coding agent_ | _personal, business, enterprise or API_ | _the date you checked_ |
 
 `python3 scripts/check_setup.py` compares the MCP servers in `.mcp.json`, [`.claude/settings.json`](../.claude/settings.json) and
-`.claude/settings.local.json` against this table, and warns about any it doesn't list.
+`.claude/settings.local.json` against this table, and warns about any it doesn't list. `enableAllProjectMcpServers` is
+false in [`.claude/settings.json`](../.claude/settings.json), so Claude Code asks before it starts a server a
+`.mcp.json` names, rather than starting every one.
 
 `company/DATA.md` says which sources are cleared for which tool.
 
@@ -102,6 +104,15 @@ can't write to, move or delete the usage log or the loop's logs at all:
 
 With `SANVIO_USAGE_LOG=off`, each session start still writes one `log_off`
 line holding only the time, and the usage report and the dashboard count them.
+
+Review the logs once a month: run `python3 scripts/usage_report.py --review`.
+It says whether your usage log's chain holds, counts the guard's refusals and
+asks in the last 30 days, lists the loop's errors and clean-ups by date and
+issue, and names any day the loop spent over 3 times its usual day. The
+factory dashboard shows when you last ran it. If the chain is broken, keep the
+log as it is: don't delete it and don't fix it. Treat it as an incident under
+[`incidents.md`](incidents.md). If there's a refusal nobody can explain, ask
+whoever was working that day, and treat it as an incident if nobody knows.
 
 `SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a
