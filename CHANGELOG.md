@@ -27,13 +27,13 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-13: Onboarding cards
+## 2026-11-13: A workshop you can run yourself
 
-[`docs/onboarding/`](docs/onboarding/) has six one-page cards for bringing a team onto the factory, one per session: getting started, knowledge and skills, first motion, gates and guards, specs, and team and your loop. Each names the skills that session uses and ends with what to do before the next. One PDF to hand out, built from one HTML file.
+[`docs/workshop/`](docs/workshop/) has the factory workshop, written so anyone can work through it alone: the deck as a PDF, a walkthrough of each section with what it's saying and its finish line, and six one-page onboarding cards, one per session, from the first commands to your own loop. Each card names the skills that session uses and ends with what to do before the next. [`EXERCISES.md`](EXERCISES.md) points to it.
 
-Files: [`docs/onboarding/README.md`](docs/onboarding/README.md), [`docs/onboarding/onboarding-cards.html`](docs/onboarding/onboarding-cards.html), [`docs/onboarding/onboarding-cards.pdf`](docs/onboarding/onboarding-cards.pdf), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`docs/workshop/README.md`](docs/workshop/README.md), [`docs/workshop/workshop-deck.pdf`](docs/workshop/workshop-deck.pdf), [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`EXERCISES.md`](EXERCISES.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
 
-**Do:** nothing. To onboard someone, send them the PDF.
+**Do:** nothing. To train someone, send them [`docs/workshop/`](docs/workshop/).
 
 ## 2026-11-13: A skill that runs the evals
 
