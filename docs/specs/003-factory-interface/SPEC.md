@@ -51,8 +51,8 @@ not safely:
   collaborators. In a caller's repo, that's the caller's people, so their
   issue text becomes instructions to a build agent running here, and nothing
   on this side reads it first.
-- **Callers aren't kept apart.** A build agent in one `projects/` clone can
-  read a sibling clone: the guard keeps `company/`, `factories/` and the
+- **Callers aren't kept apart.** A build agent in one [`projects/`](../../../projects/) clone can
+  read a sibling clone: the guard keeps `company/`, [`factories/`](../../../factories/) and the
   credential files out of reach, not other projects.
 - **The caller can't see what ran.** A pull request records each step's model,
   tokens and cost, but not which factory commit built it or the account tier
@@ -139,11 +139,11 @@ Not Affected:
 
 | ID | Requirement | Criteria | Verification |
 |---|---|---|---|
-| AC-001 | REQ-001 to REQ-003 | #421's acceptance criteria pass as written | Tests in `tests/test_loop.py` with a stand-in `gh` and two local remotes |
+| AC-001 | REQ-001 to REQ-003 | #421's acceptance criteria pass as written | Tests in [`tests/test_loop.py`](../../../tests/test_loop.py) with a stand-in `gh` and two local remotes |
 | AC-002 | REQ-004, REQ-005 | An unaccepted issue on a caller project is never planned; one accepted by someone outside `acceptors` isn't either; one accepted by someone in it is | Unit test |
 | AC-003 | REQ-006 | An issue edited after acceptance, and one holding an HTML comment, each block with the reason | Unit test |
 | AC-004 | REQ-007 | An issue missing acceptance criteria blocks before any agent runs, naming what's missing | Unit test that records every agent call |
-| AC-005 | REQ-008 | The guard refuses a caller build agent's read of a sibling project's file and of the factory's `loop.json`, and allows its own worktree | Test in `tests/test_agent_hooks.py` |
+| AC-005 | REQ-008 | The guard refuses a caller build agent's read of a sibling project's file and of the factory's `loop.json`, and allows its own worktree | Test in [`tests/test_agent_hooks.py`](../../../tests/test_agent_hooks.py) |
 | AC-006 | REQ-009 | A caller project with no `network_allow`, or with `max_issue_tokens` of 0, is refused at start | Unit test |
 | AC-007 | REQ-010 | With `auto_merge` on and a caller project's base in `bases`, no merge call is made | Unit test that records every `gh` call |
 | AC-008 | REQ-011 | A caller's pull request body names the factory commit, each model, the account tier and the cost | Unit test |
@@ -194,7 +194,7 @@ Not Affected:
 
 ## Open Questions
 
-Resolved by Pat on 2026-11-13:
+None. All resolved by Pat on 2026-11-13:
 
 - [x] Q1: The spec lives in this repo, public. Who a caller is, and the
   commercial terms, stay outside it.
@@ -202,20 +202,14 @@ Resolved by Pat on 2026-11-13:
 - [x] Q3: v1 is the contract plus the GitHub transport, proved by one outside
   setup's ticket coming back as a reviewed pull request (AC-009).
 - [x] Q4: v1 runs on invented data only.
-
-Open:
-
-- [ ] Q5: Which account runs this factory for callers? Recommended: a machine
-  user that holds triage on each caller's repo and owns the forks, so no
-  person's own login has write access anywhere a caller can see.
-- [ ] Q6: Acceptance, REQ-005. Recommended as written: a person here labels
-  each work order. The alternative is an allowlist of the caller's logins who
-  may label, read from the label event, with no person here, which is faster
-  and lets a caller's text reach an agent unread.
-- [ ] Q7: Isolation, REQ-008. Is confining the build agent to its worktree
-  enough for invented data, with a separate machine per caller once real
-  material comes in? Recommended: yes.
-- [ ] Q8: The work-order check, REQ-007. A fixed check in `loop.py`, which is
-  cheap and predictable, or a call to the Stelliad `review-ticket` skill, which
-  grades like a reviewer and spends tokens on every issue? Recommended: the
-  fixed check in v1.
+- [x] Q5: A machine user runs this factory for callers. It holds triage on
+  each caller's repo and owns the forks, so no person's own login has access
+  anywhere a caller can see, and access is revoked caller by caller.
+- [x] Q6: A person here accepts each work order by label (REQ-005). An
+  allowlist of the caller's own logins is a later lever, once the work-order
+  check has caught what the person would have.
+- [x] Q7: In v1, confining the build agent to its worktree (REQ-008) keeps
+  callers apart. Once real material comes in, each caller gets a separate
+  machine.
+- [x] Q8: The work-order check (REQ-007) is a fixed check in
+  [`scripts/loop.py`](../../../scripts/loop.py), with no model call.

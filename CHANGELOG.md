@@ -29,7 +29,7 @@ fine).
 
 ## 2026-11-13: Factory interface spec, draft
 
-[`docs/specs/003-factory-interface/SPEC.md`](docs/specs/003-factory-interface/SPEC.md) drafts the other direction of [`factories/README.md`](factories/README.md): an outside team's setup sends this factory an issue by label, and gets back a reviewed pull request from this factory's fork that its own harness can read ready. It takes in #421's fork push, holds every outside work order for a person here, confines each caller's build to its own clone, and records what built each pull request. Four open questions remain; nothing is built yet.
+[`docs/specs/003-factory-interface/SPEC.md`](docs/specs/003-factory-interface/SPEC.md) drafts the other direction of [`factories/README.md`](factories/README.md): an outside team's setup sends this factory an issue by label, and gets back a reviewed pull request from this factory's fork that its own harness can read ready. It takes in #421's fork push, holds every outside work order for a person here, confines each caller's build to its own clone, and records what built each pull request. Every open question is resolved; nothing is built yet.
 
 Files: [`docs/specs/003-factory-interface/SPEC.md`](docs/specs/003-factory-interface/SPEC.md), [`CHANGELOG.md`](CHANGELOG.md).
 
