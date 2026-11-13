@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-12: Starter-updates is now factory-updates
+
+The `starter-updates` skill is now `factory-updates`, so `/factory-updates` runs it, the last command that still said "starter". What it does hasn't changed. "check the starter" and "starter updates" still trigger it, and so do "factory updates", "check the factory" and "what's new in Sanvio Factory". Its scratch clone is now `${TMPDIR:-/tmp}/factory-updates/factory`. The `starter:` line in this file's header keeps its name.
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md), [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`README.md`](README.md), [`AGENTS.md`](AGENTS.md), `CHANGELOG.md`.
+
+**Do:** run `git mv skills/starter-updates skills/factory-updates`, then take Sanvio Factory's files over it. Take [`tests/test_skills.py`](tests/test_skills.py), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_pulse.py`](tests/test_pulse.py), [`tests/test_upgrade_guide.py`](tests/test_upgrade_guide.py) and the lines naming the skill in [`AGENTS.md`](AGENTS.md), [`README.md`](README.md), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md) and [`skills/whats-new/SKILL.md`](skills/whats-new/SKILL.md) in the same step. Until you do, your old skill still works against Sanvio Factory, but finds no capabilities table there and lists the commits alone.
+
 ## 2026-11-12: Why each default plugin is on
 
 [`steering/data-and-tools.md`](steering/data-and-tools.md) has an *On by default* table: each of the five plugins

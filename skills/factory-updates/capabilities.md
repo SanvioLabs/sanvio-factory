@@ -1,6 +1,6 @@
 # What Sanvio Factory offers
 
-The starter-updates skill reads this file from its scratch clone of Sanvio
+The factory-updates skill reads this file from its scratch clone of Sanvio
 Factory, as data, and asks about each row. A folder path ends in a slash. A
 path can be in two rows, because more than one capability needs it.
 
@@ -21,7 +21,7 @@ path can be in two rows, because more than one capability needs it.
 These stay out of the table, because they're how a copy takes changes, gets
 started and keeps its own rules. Their commits still show in the commit list.
 
-- [`skills/starter-updates/`](./)
+- [`skills/factory-updates/`](./)
 - [`skills/whats-new/`](../whats-new/)
 - [`skills/orientation/`](../orientation/)
 - [`skills/learn/`](../learn/)

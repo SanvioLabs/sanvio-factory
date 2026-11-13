@@ -58,7 +58,7 @@ forked it, and pull its `main` into yours. Follow the steps below as written.
 
 **Your copy takes changes file by file with "check the starter"**, because
 you made it from the template or adapted it heavily. Its
-[`skills/starter-updates/`](../skills/starter-updates/) still reaches Sanvio Factory through GitHub's
+[`skills/factory-updates/`](../skills/factory-updates/) still reaches Sanvio Factory through GitHub's
 redirect, so leave its address as it is: taking this release brings the new
 one. In place of step 2, and for item 6 also step 11:
 
@@ -134,7 +134,7 @@ Some of the rename's files also carry changes from other features. Taking
 those files brings these changes too. The table covers changes whose
 [`CHANGELOG.md`](../CHANGELOG.md) heading is dated 2026-11-08 or 2026-11-09, each
 named by its entry so you can read its **Do:** line. For anything later, the
-starter-updates skill lists each other commit on a file it names as "also
+factory-updates skill lists each other commit on a file it names as "also
 brings".
 
 | File | Also brings | Entry |
@@ -145,7 +145,7 @@ brings".
 | [`.gitignore`](../.gitignore) | `reports/standup/*` is ignored | `2026-11-08: Standup remembers what you already settled` |
 | [`scripts/factories.py`](../scripts/factories.py) | The whole dispatch feature, and its later fixes | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A hand-edited record that hides what it merges no longer reads`, `2026-11-08: A review that posts no verdict waits for a new commit` |
 | [`scripts/loop.py`](../scripts/loop.py), [`scripts/check_setup.py`](../scripts/check_setup.py) | A round on an open pull request, and `review --pr N` | `2026-11-08: The loop takes a round on an open pull request` |
-| [`skills/starter-updates/capabilities.md`](../skills/starter-updates/capabilities.md) | The Factories row | `2026-11-08: Hand an issue to another factory` |
+| [`skills/factory-updates/capabilities.md`](../skills/factory-updates/capabilities.md) | The Factories row | `2026-11-08: Hand an issue to another factory` |
 | [`README.md`](../README.md), [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), [`AGENTS.md`](../AGENTS.md) | Text for dispatch and the headless search | `2026-11-08: Hand an issue to another factory`, `2026-11-08: A headless search leaves out company/ and factories/` |
 | [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md) | Text for a round on an open pull request | `2026-11-08: The loop takes a round on an open pull request` |
 | [`skills/standup/SKILL.md`](../skills/standup/SKILL.md) | Standup keeps its answers in `reports/standup/answers.jsonl` and doesn't ask again about an item you settled | `2026-11-08: Standup remembers what you already settled` |

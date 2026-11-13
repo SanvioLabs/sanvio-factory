@@ -34,7 +34,7 @@ def table_rows():
 
 class WhatElseTheRenamesFilesCarry(unittest.TestCase):
     """Checked only in Sanvio Factory's own repo: a copy keeps its own CHANGELOG.md, which
-    starter-updates never copies, and may not have the guide at all."""
+    factory-updates never copies, and may not have the guide at all."""
 
     def setUp(self):
         if a_copy():
