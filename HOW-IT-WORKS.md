@@ -526,6 +526,15 @@ user folder) fails inside it: point the cache at the worktree or temp, or leave
 `builder_runs_tests` off. Checked live on macOS with Claude Code 2.1.322; Linux
 uses bubblewrap and socat and wasn't tried.
 
+The sandbox also refuses the shell any write under [`skills/`](skills/). Claude Code
+protects [`.claude/skills`](.claude/skills) from sandboxed commands, and here [`.claude/skills`](.claude/skills)
+points at [`skills/`](skills/), so the protection follows it there. `allowWrite` can't lift
+it. The agent's Edit and Write tools aren't sandboxed, so it still edits and
+creates skill files. A `mv`, `git mv` or generated file under [`skills/`](skills/) fails,
+though, so a ticket that moves or renames a skill is finished by hand. Checked
+on macOS with Claude Code 2.1.323: from the shell, `touch` under [`skills/`](skills/) got
+`Operation not permitted`, and it worked once the link was gone.
+
 **Reviewing pull requests.** The issues are half the queue; pull requests waiting
 on your review are the other half. Start it on the machine the loop runs on, in
 its own tmux session. It takes the same lock as `run`, so one process works a
