@@ -9,6 +9,9 @@ scripts measure it instead.
 | [`scripts/eval_agents.py`](../scripts/eval_agents.py) | Does a review agent, or the review-pr skill, still find what it should in work with known problems? | One real session per case per run, two runs by default |
 | [`scripts/eval_factory.py`](../scripts/eval_factory.py) | Does the whole factory still deliver: from issues to merged pull requests, scored by checks its agents can't see? | A new private repo per run, and the factory's model tokens |
 
+In Claude Code, the [`factory-eval`](../skills/factory-eval/SKILL.md) skill runs both for you: say "eval the
+factory". It checks a suite first and asks before anything spends tokens.
+
 Run the first after you change an agent's file, a skill, a job's brief or the
 model. Run the second before and after a change to the factory itself, then
 compare the two runs. Neither is part of the gate, and neither runs in CI: a

@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: A skill that runs the evals
+
+The `factory-eval` skill runs the factory's two eval scripts from a conversation. It checks whether the review agents still catch known problems, runs the whole factory through a suite and scores it, and compares two runs. It validates a suite for free first, says what a run creates and spends, starts one only on a yes, never reads a suite's key, and never deletes a run's repo. Say "eval the factory".
+
+Files: [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`docs/factory-evals.md`](docs/factory-evals.md), [`tests/test_skills.py`](tests/test_skills.py), [`AGENTS.md`](AGENTS.md), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-12: Starter-updates is now factory-updates
 
 The `starter-updates` skill is now `factory-updates`, so `/factory-updates` runs it, the last command that still said "starter". What it does hasn't changed. "check the starter" and "starter updates" still trigger it, and so do "factory updates", "check the factory" and "what's new in Sanvio Factory". Its scratch clone is now `${TMPDIR:-/tmp}/factory-updates/factory`. The `starter:` line in this file's header keeps its name.
