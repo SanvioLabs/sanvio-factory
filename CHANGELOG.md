@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: slug() takes a maximum length
+
+The TypeScript example's `slug()` takes an optional `maxLength`, which cuts the slug at the last whole word that fits with no trailing hyphen, cuts a single longer word at the limit, and throws a `RangeError` for anything that isn't a positive whole number.
+
+Files: [`examples/typescript/src/slug.ts`](examples/typescript/src/slug.ts), [`examples/typescript/src/slug.test.ts`](examples/typescript/src/slug.test.ts), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-13: A workshop you can run yourself
 
 [`docs/workshop/`](docs/workshop/) has the factory workshop, written so anyone can work through it alone: the deck as a PDF, a walkthrough of each section with what it's saying and its finish line, and six one-page onboarding cards, one per session, from the first commands to your own loop. Each card names the skills that session uses and ends with what to do before the next. [`EXERCISES.md`](EXERCISES.md) points to it.
