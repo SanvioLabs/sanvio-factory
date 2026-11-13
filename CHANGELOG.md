@@ -33,6 +33,12 @@ The `factory-eval` skill runs the factory's two eval scripts from a conversation
 
 Files: [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`docs/factory-evals.md`](docs/factory-evals.md), [`tests/test_skills.py`](tests/test_skills.py), [`AGENTS.md`](AGENTS.md), `CHANGELOG.md`.
 
+## 2026-11-13: Refused auto-merges are tried again
+
+A merge GitHub refuses is now tried again on the same head and base once the pull request's review decision changes, such as when someone approves it, or once a day has passed since the refusal. Every other check still runs first, the log says which of the two let it try again, and a merged one is never tried again.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
 **Do:** nothing.
 
 ## 2026-11-12: Starter-updates is now factory-updates
