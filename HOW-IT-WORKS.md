@@ -691,9 +691,16 @@ line each:
 A reason that holds a merge is logged once a run, and each poll looks again.
 When GitHub refuses the merge, such as for branch protection or a conflict, the
 line gives GitHub's reason, the review's row in `status.json` records it under
-`merge`, and that head isn't tried again until its head or base changes. A merge
-that failed for another reason, such as an outage, is held the same way: merge
-it yourself, or push a commit. `review --pr` never merges, and a `stop` asked for during a
+`merge` with the pull request's review decision and the time. That head and base
+are tried again once its review decision changes, such as when someone approves
+it, or once a day has passed since GitHub refused it. Every other check runs
+first, and the log says which of the two let it try again:
+
+    2026-11-13T10:15:02 - MERGE #32 7be03d8 tried again: its review decision changed
+
+A merge that failed for another reason, such as an outage, is held the same
+way, so merge it yourself or push a commit if you can't wait. A merged one is
+never tried again. `review --pr` never merges, and a `stop` asked for during a
 review merges nothing. `review_query` never finds the loop's own pull requests,
 since GitHub won't make a pull request's author its reviewer, so for `review`
 to take them set `review_label` and turn on `label_own_prs`. An `auto_merge`
