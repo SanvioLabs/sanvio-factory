@@ -4134,7 +4134,7 @@ class TestAPass(unittest.TestCase):
     def own_commands(self, calls):
         """The sh calls that ran test_command, generate_command or setup_command, as (how, command, partial),
         how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way:
-        the test environment, and in the sandbox that with GIT_CONFIG_GLOBAL=/dev/null."""
+        the test environment, and in the sandbox that with sandbox_env's git settings."""
         found = []
         for cmd, kwargs in calls:
             if isinstance(cmd, list) and cmd[:1] == [loop.SANDBOX_EXEC]:
@@ -4150,7 +4150,8 @@ class TestAPass(unittest.TestCase):
             self.assertEqual(kwargs["timeout"], self.cfg["test_timeout"])
             env = loop.env_for_tests(os.environ)
             if how == "sandbox":
-                env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+                env = loop.sandbox_env(env)
+                self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
             self.assertEqual(kwargs["env"], env)
             found.append((how, command, kwargs.get("partial", False)))
         return found
@@ -4662,24 +4663,49 @@ class TestSandbox(unittest.TestCase):
         for path in [home / n for n in beside] + [root / "companyx"]:
             self.assertNotIn(str(path.resolve()), self.denied(profile) + self.guarded(profile), path)
 
-    def test_no_folder_above_a_denied_path_can_be_renamed_and_nothing_else_is_guarded(self):
+    def test_no_folder_from_home_down_to_a_denied_path_can_be_renamed_and_nothing_above_home_is(self):
         home = self.root / "home"
         root = home / "Documents" / "factory"
         profile = loop.sandbox_profile(home, root, {})
-        guarded, real = self.guarded(profile), home.resolve()
-        for folder in (real, real / ".config", real / ".m2", real / ".claude", real / "Library",
-                       real / "Documents", root.resolve(), root.resolve() / ".claude"):
-            self.assertIn(str(folder), guarded)
-        # Every folder up to the top, so moving the one that holds home or the factory doesn't help either.
-        for folder in real.parents:
-            if folder != Path(folder.anchor):
-                self.assertIn(str(folder), guarded)
-        self.assertNotIn("/", guarded)
-        self.assertEqual(len(guarded), len(set(guarded)))
+        guarded, real, factory = self.guarded(profile), home.resolve(), root.resolve()
+        # From home down to each denied path's parent, once each, the folders that hold the factory included,
+        # so moving Documents aside doesn't uncover company/; and nothing above home.
+        self.assertEqual(guarded, [str(f) for f in (real, real / ".config", real / ".m2", real / ".claude",
+                                                    real / "Library", real / "Documents", factory,
+                                                    factory / ".claude")])
         denied = self.denied(profile)
         self.assertFalse(set(guarded) & set(denied))
         for folder in guarded:
             self.assertTrue(any(p.startswith(folder + "/") for p in denied), folder)
+        # A factory outside home is guarded from its own folder down, not from the folder that holds it.
+        outside = self.root / "elsewhere" / "factory"
+        guarded = self.guarded(loop.sandbox_profile(home, outside, {}))
+        self.assertIn(str(outside.resolve()), guarded)
+        self.assertNotIn(str(outside.resolve().parent), guarded)
+
+    def test_where_a_link_takes_a_denied_path_outside_home_only_its_parent_is_guarded(self):
+        home, elsewhere = self.root / "home", self.root / "dotfiles" / "config"
+        elsewhere.mkdir(parents=True)
+        home.mkdir()
+        (home / ".config").symlink_to(elsewhere)
+        profile = loop.sandbox_profile(home, self.root / "factory", {})
+        real = elsewhere.resolve()
+        self.assertIn(str(real / "gh"), self.denied(profile))
+        self.assertIn(str(real), self.guarded(profile))
+        self.assertNotIn(str(real.parent), self.guarded(profile))
+
+    def test_sandbox_env_points_git_away_from_the_home_folder_after_any_config_already_set(self):
+        plain = loop.sandbox_env({"PATH": "/bin"})
+        self.assertEqual(plain, {"PATH": "/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "2",
+                                 "GIT_CONFIG_KEY_0": "core.excludesFile", "GIT_CONFIG_VALUE_0": "/dev/null",
+                                 "GIT_CONFIG_KEY_1": "core.attributesFile", "GIT_CONFIG_VALUE_1": "/dev/null"})
+        given = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Tester"}
+        added = loop.sandbox_env(given)
+        self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
+        self.assertEqual((added["GIT_CONFIG_KEY_0"], added["GIT_CONFIG_VALUE_0"]), ("user.name", "Tester"))
+        self.assertEqual((added["GIT_CONFIG_COUNT"], added["GIT_CONFIG_KEY_1"], added["GIT_CONFIG_KEY_2"]),
+                         ("3", "core.excludesFile", "core.attributesFile"))
+        self.assertEqual(loop.sandbox_env({"GIT_CONFIG_COUNT": "x"})["GIT_CONFIG_COUNT"], "2")
 
     def test_a_path_that_cant_be_looked_at_is_denied_not_an_error(self):
         # As inside the sandbox itself, where the suite runs under the loop: stat on a denied path is refused.
@@ -4711,6 +4737,10 @@ class TestSandbox(unittest.TestCase):
         self.assertEqual(sorted(added({"XDG_CONFIG_HOME": "/x/cfg"})),
                          ["/x/cfg/gcloud", "/x/cfg/gh", "/x/cfg/git", "/x/cfg/op"])
         self.assertEqual(added({"GH_CONFIG_DIR": "/y/gh"}), ["/y/gh"])
+        # Renaming the folder that holds them is guarded: XDG_CONFIG_HOME itself, and GH_CONFIG_DIR's parent.
+        for environ, folder in (({"XDG_CONFIG_HOME": "/x/cfg"}, "/x/cfg"), ({"GH_CONFIG_DIR": "/y/gh"}, "/y")):
+            guarded = self.guarded(loop.sandbox_profile(home, root, environ))
+            self.assertEqual([f for f in guarded if f not in self.guarded(plain)], [folder], environ)
         with mock.patch.dict(os.environ, {"GH_CONFIG_DIR": "/y/gh"}):  # os.environ unless one is given
             self.assertIn("/y/gh", self.denied(loop.sandbox_profile(home, root)))
         for environ in ({"XDG_CONFIG_HOME": "", "GH_CONFIG_DIR": ""}, {"XDG_CONFIG_HOME": "cfg", "GH_CONFIG_DIR": "gh"},
@@ -4789,7 +4819,7 @@ class TestSandbox(unittest.TestCase):
     def test_where_sandbox_exec_cant_apply_a_profile_one_warn_follows_start_saying_why(self):
         lines = self.logged(True, probe="sandbox_apply: Operation not permitted")
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
-        self.assertIn(" - WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can", lines[1])
+        self.assertIn(" - WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again", lines[1])
         self.assertEqual(self.probe.call_count, 1)
 
     def real_sandbox(self):
@@ -4801,8 +4831,8 @@ class TestSandbox(unittest.TestCase):
 
     def real_home(self):
         """(home, tree, a Loop) for a real-Mac test, home holding a key, gh's folder, and git's global config,
-        which it stops on where reading it is refused, and its default ignore file. The caller patches HOME
-        to home, not just Path.home: git finds its global config through it."""
+        which it stops on where reading it is refused, and its default ignore and attributes files. The caller
+        patches HOME to home, not just Path.home: git finds its global config through it."""
         home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
         for folder in (home / ".ssh", home / ".config" / "gh", home / ".config" / "git", tree, factory):
             folder.mkdir(parents=True)
@@ -4810,6 +4840,7 @@ class TestSandbox(unittest.TestCase):
         (home / ".gitconfig").write_text("[user]\n\tname = Home\n")
         (home / ".config" / "git" / "config").write_text("[user]\n\tname = Xdg\n")
         (home / ".config" / "git" / "ignore").write_text("*.ignored\n")
+        (home / ".config" / "git" / "attributes").write_text("*.txt text\n")
         return home, tree, loop.Loop(factory, dict(loop.DEFAULTS))
 
     def at_home(self, home):
@@ -4824,7 +4855,7 @@ class TestSandbox(unittest.TestCase):
             code, out = lp.own_command("git init -q && git status", tree)
         self.assertEqual(code, 0, out)
         # Git reads ~/.config/git/ignore and attributes whatever GIT_CONFIG_GLOBAL says, and warns where
-        # reading them is refused: a warning that lands in every sandboxed git command's output.
+        # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
         self.assertNotIn("unable to access", out)
 
     def test_on_a_real_mac_a_denied_path_cant_be_renamed_or_made_and_the_rest_can(self):

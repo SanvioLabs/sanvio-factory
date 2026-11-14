@@ -870,10 +870,14 @@ SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/
                        ".gitconfig", ".m2/settings.xml", ".terraform.d", ".claude/.credentials.json",
                        "Library/Keychains")
 SANDBOX_ROOT_DENIED = ("company", "local-data", ".inbox", ".claude/settings.local.json")
+# What git reads from the home folder whatever GIT_CONFIG_GLOBAL says: its default ignore and attributes files
+# under ~/.config/git, or XDG_CONFIG_HOME's git folder. It warns on every command where reading one is refused,
+# so in the sandbox both point at /dev/null instead.
+SANDBOX_GIT_CONFIG = (("core.excludesFile", os.devnull), ("core.attributesFile", os.devnull))
 SANDBOX_PROBE_TIMEOUT = 10
 NOT_PROBED = object()  # Loop.sandbox_error before sandbox_probe() has run
 # The loop's WARN when it starts with the sandbox on and sandbox_probe() finding it can't apply a profile.
-SANDBOX_PROBE_WARN = "sandbox-exec can't apply a profile here ({error}), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can"
+SANDBOX_PROBE_WARN = "sandbox-exec can't apply a profile here ({error}), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again"
 
 
 def sandbox_available():
@@ -898,6 +902,21 @@ def sandbox_probe():
     return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
 
 
+def sandbox_env(env):
+    """A copy of env for a command run in the sandbox: GIT_CONFIG_GLOBAL=/dev/null, so git reads no global
+    config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
+    GIT_CONFIG_VALUE_n after any entries env's GIT_CONFIG_COUNT already holds, so git doesn't warn that it
+    can't read its default ignore and attributes files."""
+    env = dict(env, GIT_CONFIG_GLOBAL=os.devnull)
+    count = env.get("GIT_CONFIG_COUNT", "")
+    start = int(count) if count.isdigit() else 0
+    for number, (key, value) in enumerate(SANDBOX_GIT_CONFIG, start):
+        env["GIT_CONFIG_KEY_{}".format(number)] = key
+        env["GIT_CONFIG_VALUE_{}".format(number)] = value
+    env["GIT_CONFIG_COUNT"] = str(start + len(SANDBOX_GIT_CONFIG))
+    return env
+
+
 def sandbox_profile(home, root, environ=None):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
@@ -907,29 +926,36 @@ def sandbox_profile(home, root, environ=None):
     Every path is denied whether or not it exists, so one made after the profile is built is covered too.
     Each is resolved first, since the sandbox matches the real path (macOS's /var is /private/var); a missing
     path or one that can't be looked at resolves as far as it can, never raising. subpath matches a file as
-    well as a folder, and never a neighbour such as .sshx. Then each folder above a denied path, up to but not
-    /, may not be unlinked, which is what renaming it needs: moving ~/.config or the folder that holds the
-    factory aside would otherwise take what's under it out of the deny. Files can still be made beside a
-    denied path, and the folders still written to."""
+    well as a folder, and never a neighbour such as .sshx. Then each folder from a denied path's base down to
+    its parent may not be unlinked, which is what renaming it needs: moving ~/.config aside would otherwise
+    take what's under it out of the deny. The base is home; for root's paths, home where root is inside it, so
+    the folders that hold the factory can't be moved either, and root itself where it isn't; XDG_CONFIG_HOME;
+    and GH_CONFIG_DIR's parent. Where a link takes the path outside its base, only its parent is guarded, and /
+    never is. Files can still be made beside a denied path, and the folders still written to."""
     environ = os.environ if environ is None else environ
-    paths = [Path(home) / name for name in SANDBOX_HOME_DENIED]
+    paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED]
+    home_real, root_real = Path(home).resolve(), Path(root).resolve()
+    root_base = Path(home) if root_real == home_real or home_real in root_real.parents else Path(root)
     xdg = environ.get("XDG_CONFIG_HOME") or ""
     if os.path.isabs(xdg):
-        paths += [Path(xdg) / name.split("/", 1)[1] for name in SANDBOX_HOME_DENIED if name.startswith(".config/")]
+        paths += [(Path(xdg) / name.split("/", 1)[1], Path(xdg))
+                  for name in SANDBOX_HOME_DENIED if name.startswith(".config/")]
     gh = environ.get("GH_CONFIG_DIR") or ""
     if os.path.isabs(gh):
-        paths.append(Path(gh))
-    paths += [Path(root) / name for name in SANDBOX_ROOT_DENIED]
+        paths.append((Path(gh), None))  # None: its parent is its base
+    paths += [(Path(root) / name, root_base) for name in SANDBOX_ROOT_DENIED]
 
     def quoted(path):
         return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
     denied, folders = [], []
-    for path in paths:
+    for path, base in paths:
         real = path.resolve()
+        base = real.parent if base is None else base.resolve()
         if real not in denied:
             denied.append(real)
-        for folder in reversed(real.parents):
+        above = [folder for folder in reversed(real.parents) if folder == base or base in folder.parents]
+        for folder in above or [real.parent]:
             if folder != Path(folder.anchor) and folder not in folders:
                 folders.append(folder)
     rules = ["(version 1)(allow default)"]
@@ -2253,13 +2279,13 @@ class Loop:
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
-        sandbox_profile denies, with GIT_CONFIG_GLOBAL=/dev/null, so git reads no global config rather than
-        stopping on the denied ~/.gitconfig. Anything else runs it as before: only true turns the sandbox on."""
+        sandbox_profile denies, with sandbox_env's git settings, so git neither stops on the denied
+        ~/.gitconfig nor warns about ~/.config/git. Anything else runs it as before: only true turns the
+        sandbox on."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
         if self.sandboxed():
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
-            env["GIT_CONFIG_GLOBAL"] = os.devnull
-            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+            return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
