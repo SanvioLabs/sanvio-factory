@@ -51,34 +51,34 @@ const home = (index: number, columns: number): number => Math.round(stationX(ind
 group('a step, its station and its word', () => {
   test('each step goes to its station and has its word', () => {
     const steps: [string, Station, string][] = [
-      ['SHAPE', 'plan', 'planning'], ['TEST', 'test', 'writing tests'], ['BUILD', 'build', 'building'],
-      ['VALIDATE', 'check', 'checking'], ['SCALE', 'ship', 'opening the pull request'],
+      ['SHAPE', 'shape', 'shape'], ['TEST', 'test', 'test'], ['BUILD', 'build', 'build'],
+      ['VALIDATE', 'validate', 'validate'], ['SCALE', 'scale', 'scale'],
     ]
     for (const [step, station, text] of steps) {
       expect(stationOf(step)).toBe(station)
       expect(word(step)).toBe(text)
     }
   })
-  test('the stations run start to ship, left to right', () => {
-    expect(STATIONS).toEqual(['start', 'plan', 'test', 'build', 'check', 'ship'])
+  test('the stations are the loop\'s steps, discover to scale, left to right', () => {
+    expect(STATIONS).toEqual(['discover', 'shape', 'test', 'build', 'validate', 'scale'])
   })
-  test('an empty step is starting, at the start', () => {
-    expect(word('')).toBe('starting')
-    expect(stationOf('')).toBe('start')
+  test('an empty step is discover, at discover', () => {
+    expect(word('')).toBe('discover')
+    expect(stationOf('')).toBe('discover')
   })
-  test('an unknown step is lowercased as written, at the start', () => {
+  test('an unknown step is lowercased as written, at discover', () => {
     expect(word('DEPLOY')).toBe('deploy')
-    expect(stationOf('DEPLOY')).toBe('start')
+    expect(stationOf('DEPLOY')).toBe('discover')
   })
   test("a step named like an object's own property is still unknown", () => {
     expect(word('constructor')).toBe('constructor')
-    expect(stationOf('constructor')).toBe('start')
+    expect(stationOf('constructor')).toBe('discover')
   })
   test('a zero round says nothing, and any other says its number', () => {
     expect(roundText(0)).toBe('')
     expect(roundText(2)).toBe('round 2')
-    expect(stepLine(row({ step: 'BUILD', round: 2 }))).toBe('building, round 2')
-    expect(stepLine(row({ step: 'SHAPE', round: 0 }))).toBe('planning')
+    expect(stepLine(row({ step: 'BUILD', round: 2 }))).toBe('build, round 2')
+    expect(stepLine(row({ step: 'SHAPE', round: 0 }))).toBe('shape')
   })
 })
 
@@ -123,8 +123,8 @@ group('the figures', () => {
       expect(at).toEqual([[1, 0]])
     }
   })
-  test('the start has one pose and every other station two to four, each held a while', () => {
-    expect(ACTS.start.length).toBe(1)
+  test('discover has one pose and every other station two to four, each held a while', () => {
+    expect(ACTS.discover.length).toBe(1)
     for (const station of STATIONS.slice(1)) {
       expect(ACTS[station].length).toBeGreaterThanOrEqual(2)
       expect(ACTS[station].length).toBeLessThanOrEqual(4)
@@ -138,11 +138,11 @@ group('the figures', () => {
     }
   })
   test('a pose holds for its time, and the act wraps', () => {
-    const [first, second] = ACTS.plan
-    expect(poseAt(ACTS.plan, 0)).toBe(0)
-    expect(poseAt(ACTS.plan, first!.ms - 1)).toBe(0)
-    expect(poseAt(ACTS.plan, first!.ms)).toBe(1)
-    expect(poseAt(ACTS.plan, first!.ms + second!.ms)).toBe(0)
+    const [first, second] = ACTS.shape
+    expect(poseAt(ACTS.shape, 0)).toBe(0)
+    expect(poseAt(ACTS.shape, first!.ms - 1)).toBe(0)
+    expect(poseAt(ACTS.shape, first!.ms)).toBe(1)
+    expect(poseAt(ACTS.shape, first!.ms + second!.ms)).toBe(0)
   })
   test('a station\'s work stays in the 5 rows above the rail and its 7 columns, and never uses the head colour', () => {
     for (const station of STATIONS) {
@@ -207,7 +207,7 @@ group('the walks', () => {
   test('a walker stands at its station once there, and goes back as the mirror image of going forward', () => {
     const walk = { from: 3, to: 1, start: NOW, end: NOW + 820 }
     const columns = 72
-    const at = (ms: number) => heads(laneCells({ row: row({}), station: 'plan', walk }, columns, NOW + ms), columns)
+    const at = (ms: number) => heads(laneCells({ row: row({}), station: 'shape', walk }, columns, NOW + ms), columns)
     expect(at(0)).toEqual([home(3, columns)])
     expect(at(410)[0]!).toBeLessThan(home(3, columns))
     expect(at(410)[0]!).toBeGreaterThan(home(1, columns))
@@ -235,8 +235,8 @@ group('walking out', () => {
     expect(out.figures).toEqual([])
     expect(out.outs.map(o => [o.row.number, o.walk.from, o.walk.to, o.walk.isOut, o.walk.end - NOW])).toEqual([[12, 3, 5, true, OUT_MS]])
   })
-  test('its lane says it is opening the pull request, keeping its round, until the walk ends', () => {
-    expect(lanesOf(out, NOW).map(l => [l.row.number, l.station, stepLine(l.row)])).toEqual([[12, 'ship', 'opening the pull request, round 1']])
+  test('its lane says scale, keeping its round, until the walk ends', () => {
+    expect(lanesOf(out, NOW).map(l => [l.row.number, l.station, stepLine(l.row)])).toEqual([[12, 'scale', 'scale, round 1']])
     expect(lanesOf(out, NOW + OUT_MS)).toEqual([])
   })
   test('it holds back only the one message, and only until the walk ends', () => {
@@ -263,12 +263,12 @@ group('walking out', () => {
 
 group('the words', () => {
   test('a lane says its number, its title and where it has got to', () => {
-    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2 }))).toEqual({ number: '#12', title: 'Job 12', status: '· building, round 2' })
+    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2 }))).toEqual({ number: '#12', title: 'Job 12', status: '· build, round 2' })
   })
   test('cut to a width, the title gives way and the status never does', () => {
     const words = laneWords(row({ number: 1, title: 'x'.repeat(100), step: 'BUILD', round: 1 }), 40)
-    expect(words.status).toBe('· building, round 1')
-    expect(words.title).toBe(`${'x'.repeat(16)}…`)
+    expect(words.status).toBe('· build, round 1')
+    expect(words.title).toBe(`${'x'.repeat(19)}…`)
     expect(words.number.length + words.title.length + words.status.length + 2).toBe(40)
   })
   test('as many lanes as fit, or as many as leave one row for "and n more", never fewer than one', () => {
@@ -300,8 +300,8 @@ group('the Raster cells', () => {
   test('the rail is lit in the colour of each station up to the figure, and dotted after it', () => {
     const cells = decode(laneCells(lane('test'), 72, NOW))
     const bottom = cells.slice(2 * 72, 3 * 72).map(([code, fg, bg]) => (code === 0x2580 ? bg : code === 0x2584 ? fg : -1))
-    expect(bottom[home(0, 72)]).toBe(ACCENT.start)
-    expect(bottom[home(1, 72)]).toBe(ACCENT.plan)
+    expect(bottom[home(0, 72)]).toBe(ACCENT.discover)
+    expect(bottom[home(1, 72)]).toBe(ACCENT.shape)
     expect(bottom[home(4, 72)]).toBe(DARK.rail)
   })
   test('a light theme paints its own head and rail colours', () => {
@@ -317,8 +317,16 @@ group('the Raster cells', () => {
     expect(inkFor('auto')).toBe(DARK)
     expect(inkFor(undefined)).toBe(DARK)
   })
-  test(`at ${MIN_COLUMNS} columns and over, the header's station names never touch`, () => {
+  test(`at ${MIN_COLUMNS} columns and over, the header's station names never touch, and each is its name or the start of it`, () => {
     for (let columns = MIN_COLUMNS; columns <= 120; columns++) {
+      const text = decode(headCells([], columns)).map(([code]) => String.fromCodePoint(code)).join('')
+      const names = text.trim().split(/ +/)
+      expect(names.length).toBe(STATIONS.length)
+      names.forEach((name, i) => expect(STATIONS[i]!.startsWith(name) && name.length >= 4).toBe(true))
+    }
+  })
+  test('from 56 columns, the header names every station in full', () => {
+    for (let columns = 56; columns <= 120; columns++) {
       const text = decode(headCells([], columns)).map(([code]) => String.fromCodePoint(code)).join('')
       expect(text.trim().split(/ +/)).toEqual(STATIONS)
     }
@@ -381,18 +389,18 @@ group('the Svg', () => {
   })
   test('a figure walking out slides off past the edge and does no work', () => {
     const walk = { from: 3, to: 5, start: NOW, end: NOW + OUT_MS, isOut: true }
-    const source = laneSvg({ row: row({}), station: 'ship', walk }, NOW)
+    const source = laneSvg({ row: row({}), station: 'scale', walk }, NOW)
     expect(source).toContain(`<g transform="translate(${SVG_COLUMNS + 1} 0)">`)
     expect(source).not.toContain('to="none"')
   })
   test('no title or unknown step reaches a source or alt, only the number and the station', () => {
-    const odd = lane('start', { number: 7, title: '<script>alert(1)</script>', step: '<b>X</b>' })
+    const odd = lane('discover', { number: 7, title: '<script>alert(1)</script>', step: '<b>X</b>' })
     for (const text of [laneSvg(odd, NOW), headSvg([odd]), laneAlt(odd)]) {
       expect(text).not.toContain('script')
       expect(text).not.toContain('<b>')
       expect(text).not.toContain('alert')
     }
-    expect(laneAlt(odd)).toBe('Issue #7 at start')
+    expect(laneAlt(odd)).toBe('Issue #7 at discover')
     // Nor text in the times: a step name, a value or a start time, whether a Row built in code carries it
     // or the status file does.
     const times = { step_seconds: { '<script>alert(1)</script>': 5, BUILD: '<b>X</b>' as unknown as number }, step_started: '<b>X</b><script>alert(1)</script>' }
@@ -423,7 +431,7 @@ function local(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-const STEP_OF: Record<Station, string> = { start: '', plan: 'SHAPE', test: 'TEST', build: 'BUILD', check: 'VALIDATE', ship: 'SCALE' }
+const STEP_OF: Record<Station, string> = { discover: '', shape: 'SHAPE', test: 'TEST', build: 'BUILD', validate: 'VALIDATE', scale: 'SCALE' }
 
 // A lane whose row records times, its current step begun `ago` ms before NOW, or not counting at null.
 const timed = (station: Station, seconds: Record<string, number>, ago: number | null, walk: Walk | null = null): Lane =>
@@ -476,14 +484,14 @@ group('the times', () => {
     ]
     for (const [seconds, text] of cases) expect(timeText(seconds)).toBe(text)
   })
-  test('each station takes its time from its step, and the start never has one', () => {
+  test('each station takes its time from its step, and discover never has one', () => {
     const all = { SHAPE: 10, TEST: 20, BUILD: 30, VALIDATE: 40, SCALE: 50 }
-    expect(stageTimes(timed('build', all, null), NOW)).toEqual({ start: null, plan: 10, test: 20, build: 30, check: 40, ship: 50 })
-    expect(stageTimes(timed('start', all, 5000), NOW)).toEqual({ start: null, plan: 10, test: 20, build: 30, check: 40, ship: 50 })
+    expect(stageTimes(timed('build', all, null), NOW)).toEqual({ discover: null, shape: 10, test: 20, build: 30, validate: 40, scale: 50 })
+    expect(stageTimes(timed('discover', all, 5000), NOW)).toEqual({ discover: null, shape: 10, test: 20, build: 30, validate: 40, scale: 50 })
   })
   test('a station with no entry has no time, unless it is the current one and counting', () => {
-    expect(stageTimes(timed('build', { SHAPE: 10 }, null), NOW)).toEqual({ start: null, plan: 10, test: null, build: null, check: null, ship: null })
-    expect(stageTimes(timed('build', { SHAPE: 10 }, 5000), NOW)).toEqual({ start: null, plan: 10, test: null, build: 5, check: null, ship: null })
+    expect(stageTimes(timed('build', { SHAPE: 10 }, null), NOW)).toEqual({ discover: null, shape: 10, test: null, build: null, validate: null, scale: null })
+    expect(stageTimes(timed('build', { SHAPE: 10 }, 5000), NOW)).toEqual({ discover: null, shape: 10, test: null, build: 5, validate: null, scale: null })
   })
   test('a row from an older loop, with neither field, has no times at all', () => {
     for (const station of STATIONS) {
@@ -497,7 +505,7 @@ group('the times', () => {
     expect(stageTimes(counting, NOW + 999).build).toBe(72)
     expect(stageTimes(counting, NOW + 1000).build).toBe(73)
     // Only the current step counts.
-    expect(stageTimes(counting, NOW + 60_000).plan).toBe(10)
+    expect(stageTimes(counting, NOW + 60_000).shape).toBe(10)
     expect(stageTimes(counting, NOW + 60_000).test).toBeNull()
     // A step begun after the clock's now adds nothing.
     expect(stageTimes(timed('build', { BUILD: 30 }, -60_000), NOW).build).toBe(30)
@@ -508,20 +516,20 @@ group('the times', () => {
     // A Row built in code can carry one, and it mustn't set the other surfaces redrawing for nothing.
     expect(isCounting(odd)).toBe(false)
   })
-  test('a lane counts when it is not walking out, is past the start, and its step has begun', () => {
+  test('a lane counts when it is not walking out, is past discover, and its step has begun', () => {
     expect(isCounting(timed('build', {}, 1000))).toBe(true)
     expect(isCounting(timed('build', {}, 1000, { from: 1, to: 3, start: NOW, end: NOW + 820 }))).toBe(true)
-    expect(isCounting(timed('start', {}, 1000))).toBe(false)
+    expect(isCounting(timed('discover', {}, 1000))).toBe(false)
     expect(isCounting(timed('build', {}, null))).toBe(false)
-    expect(isCounting(timed('ship', {}, 1000, OUT))).toBe(false)
+    expect(isCounting(timed('scale', {}, 1000, OUT))).toBe(false)
   })
   test('a lane walking out shows its times with nothing counting', () => {
-    const leaving = timed('ship', { BUILD: 300, SCALE: 4 }, 1000, OUT)
-    expect(stageTimes(leaving, NOW)).toEqual({ start: null, plan: null, test: null, build: 300, check: null, ship: 4 })
+    const leaving = timed('scale', { BUILD: 300, SCALE: 4 }, 1000, OUT)
+    expect(stageTimes(leaving, NOW)).toEqual({ discover: null, shape: null, test: null, build: 300, validate: null, scale: 4 })
     expect(stageTimes(leaving, NOW + 60_000)).toEqual(stageTimes(leaving, NOW))
     expect(timeRowOf(laneCells(leaving, 72, NOW + 600), 72)).toEqual(timeRowOf(laneCells(leaving, 72, NOW), 72))
-    // Its current stage is ship, in ship's colour.
-    expect(timeRowOf(laneCells(leaving, 72, NOW), 72)[labelAt(5, 72)]![1]).toBe(ACCENT.ship)
+    // Its current stage is scale, in scale's colour.
+    expect(timeRowOf(laneCells(leaving, 72, NOW), 72)[labelAt(5, 72)]![1]).toBe(ACCENT.scale)
   })
   test("the other surfaces draw 3 columns for each of the pane's, from 64 to 240", () => {
     expect(svgColumns(42)).toBe(126)
@@ -649,28 +657,28 @@ const spendRowOf = (cells: string, columns: number): [number, number, number][] 
 group('the spend', () => {
   test('only the current run counts, each step at its station, and the retro and the other run add nothing', () => {
     const spend = parseSpend(USAGE, STARTED)!
-    expect(spend.plan).toEqual({ tokens: 85_000, cost: 0.29 })
+    expect(spend.shape).toEqual({ tokens: 85_000, cost: 0.29 })
     expect(spend.test).toEqual({ tokens: 253_898, cost: 1.15 })
     expect(spend.build.tokens).toBe(6_208_489)
     near(spend.build.cost!, 1.729)
     // The review's second round reported nothing, so only the first counts.
-    expect(spend.check).toEqual({ tokens: 40_000, cost: 0.2 })
-    expect([spend.start, spend.ship]).toEqual([NONE, NONE])
+    expect(spend.validate).toEqual({ tokens: 40_000, cost: 0.2 })
+    expect([spend.discover, spend.scale]).toEqual([NONE, NONE])
     // The earlier run, read for its own start, has only its own.
-    expect(parseSpend(USAGE, EARLIER)).toEqual({ start: NONE, plan: { tokens: 36, cost: 5 }, test: NONE, build: { tokens: 900_000, cost: 3 }, check: NONE, ship: NONE })
+    expect(parseSpend(USAGE, EARLIER)).toEqual({ discover: NONE, shape: { tokens: 36, cost: 5 }, test: NONE, build: { tokens: 900_000, cost: 3 }, validate: NONE, scale: NONE })
   })
   test("an unreported entry gives null when it is a station's only one", () => {
-    expect(parseSpend(JSON.stringify([unreported('review', 1, STARTED)]), STARTED)!.check).toEqual(NONE)
-    expect(parseSpend(JSON.stringify([entry('review', 1, STARTED, [1, 2, 3, 4], 0.5, { cost_usd: null })]), STARTED)!.check).toEqual({ tokens: 10, cost: null })
+    expect(parseSpend(JSON.stringify([unreported('review', 1, STARTED)]), STARTED)!.validate).toEqual(NONE)
+    expect(parseSpend(JSON.stringify([entry('review', 1, STARTED, [1, 2, 3, 4], 0.5, { cost_usd: null })]), STARTED)!.validate).toEqual({ tokens: 10, cost: null })
     expect(hasSpend(parseSpend(JSON.stringify([unreported('build', 1, STARTED)]), STARTED))).toBe(false)
   })
-  test('start and ship never have spend, whatever the steps say', () => {
-    const steps = ['start', 'ship', 'SCALE', 'SHAPE', 'retro', 'deploy']
+  test('discover and scale never have spend, whatever the steps say', () => {
+    const steps = ['discover', 'scale', 'SCALE', 'SHAPE', 'retro', 'deploy']
     const spend = parseSpend(JSON.stringify(steps.map(step => entry(step, 0, STARTED, [1, 1, 1, 1], 1))), STARTED)!
-    expect(spend).toEqual({ start: NONE, plan: NONE, test: NONE, build: NONE, check: NONE, ship: NONE })
+    expect(spend).toEqual({ discover: NONE, shape: NONE, test: NONE, build: NONE, validate: NONE, scale: NONE })
   })
   test('a field of the wrong type counts nothing, and an entry that is not an object is skipped', () => {
-    expect(parseSpend(ODD_USAGE, STARTED)).toEqual({ start: NONE, plan: { tokens: 100, cost: null }, test: NONE, build: NONE, check: NONE, ship: NONE })
+    expect(parseSpend(ODD_USAGE, STARTED)).toEqual({ discover: NONE, shape: { tokens: 100, cost: null }, test: NONE, build: NONE, validate: NONE, scale: NONE })
   })
   test("text that isn't a JSON array, or a row with no started, is no spend", () => {
     for (const text of [null, '', '{not json', '{"a": 1}', 'null', '"x"']) expect(parseSpend(text, STARTED)).toBeNull()

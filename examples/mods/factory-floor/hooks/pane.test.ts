@@ -548,7 +548,7 @@ group('a job in the pane', () => {
     const ui = await $.ui.mount(PANE)
     const clockRow = JSON.stringify(await ui.find({ key: 'clock-12' }))
     expect(clockRow).toContain(`started ${p(d.getHours())}:${p(d.getMinutes())}`)
-    expect(clockRow).not.toContain('building')
+    expect(clockRow).not.toContain('build')
     expect(JSON.stringify(await ui.drawn())).not.toContain(' · started')
     await ui.unmount()
   })

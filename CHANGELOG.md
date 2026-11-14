@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: The factory floor uses the loop's step names
+
+The [`factory-floor`](examples/mods/factory-floor/) mod's Crew stations and the words in both views are now the loop's own step names, as `.loop/loop.log` writes them: `discover`, `shape`, `test`, `build`, `validate` and `scale`, in place of `start`, `plan`, `check` and `ship` and the words `planning`, `building`, `checking` and `opening the pull request`. A lane at `build, round 2` now matches the log's `BUILD round 2`. A terminal pane under 56 columns cuts the longer names to fit, `disco` and `valid` at 42. The mod is 0.5.0.
+
+Files: [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), their tests, [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** update the factory-floor mod: /plugin update, then /reload-plugins or a new session.
+
 ## 2026-11-13: Caller projects hold outside work for a person
 
 `caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.

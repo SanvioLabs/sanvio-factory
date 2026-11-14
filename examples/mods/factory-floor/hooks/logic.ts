@@ -91,11 +91,13 @@ export function loopCounts(loops: Seen[]): string | null {
   return null
 }
 
+// The loop's own step names, as .loop/loop.log writes them, in lower case.
 const STEPS: Record<string, string> = {
-  SHAPE: 'planning',
-  BUILD: 'building',
-  VALIDATE: 'checking',
-  SCALE: 'opening the pull request',
+  SHAPE: 'shape',
+  TEST: 'test',
+  BUILD: 'build',
+  VALIDATE: 'validate',
+  SCALE: 'scale',
 }
 
 const ENDED: Record<string, { tone: Tone; text: string }> = {
@@ -328,7 +330,7 @@ export function describe(row: Row, isRunning: boolean): { head: Line; detail: st
   } else if (row.state === 'working' && !isRunning) {
     head = { tone: 'fail', text: `left at ${STEPS[row.step] ?? 'an unknown step'}` }
   } else {
-    const step = STEPS[row.step] ?? (row.step.toLowerCase() || 'starting')
+    const step = STEPS[row.step] ?? (row.step.toLowerCase() || 'discover')
     const round = row.round > 0 ? `, round ${row.round}${row.max_rounds ? ` of ${row.max_rounds}` : ''}` : ''
     head = { tone: 'now', text: step + round }
   }

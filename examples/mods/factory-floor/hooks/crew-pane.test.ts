@@ -203,13 +203,13 @@ group('the board', () => {
     expect([head?.props.columns, head?.props.rows]).toEqual([72, 1])
     const label = decode(String(head?.props.cells)).map(([code]) => String.fromCodePoint(code)).join('')
     for (const station of STATIONS) expect(label).toContain(station)
-    for (const [number, station] of [[12, 'build'], [13, 'check']] as const) {
+    for (const [number, station] of [[12, 'build'], [13, 'validate']] as const) {
       const lane = await (ui as unknown as Finds).find({ key: `lane-${number}` })
       expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 5])
       expect(heads(String(lane?.props.cells), 72)).toEqual([home(at(station), 72)])
     }
     const drawn = JSON.stringify(await ui.drawn())
-    for (const words of ['#12', 'Job 12', '· building', '#13', 'Job 13', '· checking, round 2']) expect(drawn).toContain(words)
+    for (const words of ['#12', 'Job 12', '· build', '#13', 'Job 13', '· validate, round 2']) expect(drawn).toContain(words)
     expect(drawn.indexOf('lane-12')).toBeLessThan(drawn.indexOf('lane-13'))
     await ui.unmount()
     await close()
@@ -220,7 +220,7 @@ group('the board', () => {
       await say($, '', pane(72, 40, surface))
       const ui = await $.ui.mount(pane(72, 40, surface))
       const all = await svgs(ui)
-      expect(all.map(s => s.props.alt)).toEqual(["The loop's steps, left to right", 'Issue #12 at build', 'Issue #13 at check'])
+      expect(all.map(s => s.props.alt)).toEqual(["The loop's steps, left to right", 'Issue #12 at build', 'Issue #13 at validate'])
       for (const lane of all.slice(1)) {
         expect([lane.props.width, lane.props.height, lane.props.isInteractive]).toEqual([undefined, undefined, true])
         const source = String(lane.props.source)
@@ -229,7 +229,7 @@ group('the board', () => {
         expect(source).not.toContain('<animateTransform')
       }
       const drawn = JSON.stringify(await ui.drawn())
-      for (const words of ['#12', 'Job 12', '· building', '#13', '· checking, round 2']) expect(drawn).toContain(words)
+      for (const words of ['#12', 'Job 12', '· build', '#13', '· validate, round 2']) expect(drawn).toContain(words)
       await ui.unmount()
       await close()
     })
@@ -305,9 +305,9 @@ group('the board', () => {
     await say($, '', pane(42, 20))
     const ui = await $.ui.mount(pane(42, 20))
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain(`${'x'.repeat(18)}…`)
-    expect(drawn).not.toContain('x'.repeat(19))
-    expect(drawn).toContain('· building, round 1')
+    expect(drawn).toContain(`${'x'.repeat(21)}…`)
+    expect(drawn).not.toContain('x'.repeat(22))
+    expect(drawn).toContain('· build, round 1')
     await ui.unmount()
     await close()
   })
@@ -338,7 +338,7 @@ group('the walk', () => {
     files.set(STATUS, statusText(job(12, 'TEST')))
     await clock.advance(2000)
     await drain()
-    const [from, to] = [home(at('plan'), 72), home(at('test'), 72)]
+    const [from, to] = [home(at('shape'), 72), home(at('test'), 72)]
     const seen: number[] = []
     for (let i = 0; i < 10; i++) {
       await clock.advance(80)
@@ -424,12 +424,12 @@ group('the walk', () => {
     files.set(STATUS, statusText(job(12, 'SCALE'), job(13, 'SHAPE')))
     await say($, '', desk, ui)
     await ui.redraw()
-    expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #12 at ship', 'Issue #13 at plan'])
+    expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #12 at scale', 'Issue #13 at shape'])
     expect(await walks(ui)).toBe(0)
     await ui.unmount()
     await close()
   })
-  test('a new issue walks in from the start', async ($, on) => {
+  test('a new issue walks in from discover', async ($, on) => {
     const files = working(job(12, 'SHAPE'))
     const { clock, close } = world(on, files)
     await say($)
@@ -441,9 +441,9 @@ group('the walk', () => {
     await drain()
     await ui.redraw()
     const midway = heads(await cellsOf(ui, 'lane-14'), 72)[0]!
-    expect(midway).toBeGreaterThan(home(at('start'), 72))
+    expect(midway).toBeGreaterThan(home(at('discover'), 72))
     expect(midway).toBeLessThan(home(at('test'), 72))
-    expect(heads(await cellsOf(ui, 'lane-12'), 72)).toEqual([home(at('plan'), 72)])
+    expect(heads(await cellsOf(ui, 'lane-12'), 72)).toEqual([home(at('shape'), 72)])
     await clock.advance(walkMs(0, 2))
     await drain()
     await ui.redraw()
@@ -468,7 +468,7 @@ group('walking out', () => {
     expect(invalidated.length).toBe(first + 1)
     expect(await (ui as unknown as Finds).find({ key: 'lane-12' })).toBeDefined()
     let drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('· opening the pull request, round 1')
+    expect(drawn).toContain('· scale, round 1')
     expect(drawn).not.toContain('Nothing being built right now.')
 
     await clock.advance(OUT_MS / 2)
@@ -533,7 +533,7 @@ group('walking out', () => {
     await clock.advance(2000)
     await drain()
     const lanes = await laneSvgs(ui)
-    expect(lanes.map(s => s.props.alt)).toEqual(['Issue #12 at ship'])
+    expect(lanes.map(s => s.props.alt)).toEqual(['Issue #12 at scale'])
     expect(String(lanes[0]!.props.source)).toContain('<animateTransform')
     await clock.advance(OUT_MS)
     await drain()
@@ -672,7 +672,7 @@ group('the poll', () => {
     await clock.advance(2000)
     await drain()
     expect(invalidated.length).toBe(first + 1)
-    expect(JSON.stringify(await ui.drawn())).toContain('· opening the pull request')
+    expect(JSON.stringify(await ui.drawn())).toContain('· scale')
     await ui.unmount()
     await close()
   })

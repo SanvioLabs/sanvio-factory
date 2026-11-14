@@ -261,12 +261,12 @@ group('a waiting issue', () => {
 group('an issue', () => {
   test('in progress: the step and the round, and the last round under it', () => {
     const { head, detail } = describe(ROW, true)
-    expect(head).toEqual({ tone: 'now', text: 'building, round 2 of 5' })
+    expect(head).toEqual({ tone: 'now', text: 'build, round 2 of 5' })
     expect(detail).toBe('tests failed (1), review FIX')
   })
-  test('planning has no round yet', () => {
+  test('shape has no round yet', () => {
     expect(describe({ ...ROW, step: 'SHAPE', round: 0, tests: null, review: null }, true)).toEqual({
-      head: { tone: 'now', text: 'planning' }, detail: null,
+      head: { tone: 'now', text: 'shape' }, detail: null,
     })
   })
   test('ended: a pull request, a block with its reason', () => {
@@ -276,7 +276,7 @@ group('an issue', () => {
     expect(blocked.detail).toBe('tests failed (1), review FIX. still failing after 5 rounds')
   })
   test('working with no loop running was left part way', () => {
-    expect(describe(ROW, false).head).toEqual({ tone: 'fail', text: 'left at building' })
+    expect(describe(ROW, false).head).toEqual({ tone: 'fail', text: 'left at build' })
   })
 })
 

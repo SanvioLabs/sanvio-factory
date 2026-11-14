@@ -23,14 +23,14 @@ starter                                ● Running 2 · up 1h 04m
 
 ● #14 Gate: an empty Role cell passes
   started 14:22 · running 6m 12s · 840k tokens · ~$3.40 · opus-5-5
-  building, round 2 of 5
+  build, round 2 of 5
   tests failed (1), review FIX
 
   [ Watch ]
 
 ● #15 Proposal: stamp the phase
   started 14:27 · running 1m 03s · 95k tokens · ~$0.41 · sonnet-5-5
-  planning
+  shape
 
 
   [ Watch ]
@@ -127,7 +127,7 @@ it.
 | **Watch it** | On a Mac, opens a new Terminal window attached to that session, read-only: you see the loop work and can't type into it. Close the window and the loop keeps running. If the window can't open, it copies the read-only attach command instead. It shows only while the loop runs in tmux on macOS |
 | The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
 | **Queue** | Ready issues the loop will take next, lowest first. One that depends on an open issue says **waiting on** and which |
-| **Active** | Issues being worked: what each is on (planning, building, checking, opening the pull request) with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
+| **Active** | Issues being worked: what each is on, named as `.loop/loop.log` names the step (shape, test, build, validate, scale), with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
 | **Finished** | Issues that reached an end in the last 24 hours: a pull request, blocked, stopped or skipped. Older ones drop off; `.loop/status.json` still has them |
 | Under an issue | The last round's test and review results, and why it was blocked |
 | **Open pull request** | Opens the issue's pull request in the browser. It copies the link instead when the link isn't an `https://` link or no browser opens |
@@ -171,19 +171,22 @@ Neither button closes the pane, writes the session's focus or changes the
 loop.
 
 A lane's figure runs to its step's station when the step changes and works
-there:
+there. The stations and the words are the loop's own step names, as
+`.loop/loop.log` writes them, so a lane at `build, round 2` matches the log's
+`BUILD round 2`:
 
 | Station | Step | The figure | The work beside it | The words |
 |---|---|---|---|---|
-| `start` | No step yet, or any other step | Standing | Three dots taking turns | `starting`, or the step lowercased |
-| `plan` | `SHAPE` | Holding a pen | Two lines being ruled | `planning` |
-| `test` | `TEST` | Raising and lowering a pen | Four checks turning green | `writing tests` |
-| `build` | `BUILD` | Swinging a hammer | Bricks dropping into a stack | `building` |
-| `check` | `VALIDATE` | Holding something up to read | A bar reading across a page | `checking` |
-| `ship` | `SCALE` | Stepping with a parcel | A parcel sliding off along the rail | `opening the pull request` |
+| `discover` | No step yet (the loop logs `DISCOVER` as it picks the issue), or any other step | Standing | Three dots taking turns | `discover`, or the step lowercased |
+| `shape` | `SHAPE` | Holding a pen | Two lines being ruled | `shape` |
+| `test` | `TEST` | Raising and lowering a pen | Four checks turning green | `test` |
+| `build` | `BUILD` | Swinging a hammer | Bricks dropping into a stack | `build` |
+| `validate` | `VALIDATE` | Holding something up to read | A bar reading across a page | `validate` |
+| `scale` | `SCALE` | Stepping with a parcel | A parcel sliding off along the rail | `scale` |
 
 Over the lanes, a header names the stations, each in its colour while an issue
-is working there and dim otherwise. Each lane has a line of words,
+is working there and dim otherwise. A terminal pane under 56 columns cuts each
+name to fit before the next, `disco` and `valid` at 42. Each lane has a line of words,
 `#<n> <title> · <step's words>, round <r>`, with the round left off at 0, then
 the rail, lit up to the figure and dotted beyond it. Under it, one row gives
 how long the issue has spent at each step, and one what each step cost and how
@@ -191,8 +194,8 @@ many tokens it used, from `.loop/issue-N/usage.json`. A dash means none yet.
 
 ```
 [ List ] [ Crew ]
- start   plan   test   build   check   ship
-#14 Gate: an empty Role cell passes · building, round 2
+ discover  shape  test  build  validate  scale
+#14 Gate: an empty Role cell passes · build, round 2
   (the lane: a figure at build, each step's time and spend under it)
 ```
 
