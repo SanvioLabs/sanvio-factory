@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: review-pr grades a hand-run review
+
+When a person runs [`skills/review-pr/`](skills/review-pr/SKILL.md) on a pull request, the report now ends with a grade out of 10 from [`review-rubric.json`](review-rubric.json) and the checks, in the same order the loop uses, then the `Verdict:` line last so the loop's parser still reads it. Runs from the loop or the CI review, and reviews of a branch or a diff, get no grade line.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: Factory interface spec, draft
 
 [`docs/specs/003-factory-interface/SPEC.md`](docs/specs/003-factory-interface/SPEC.md) drafts the other direction of [`factories/README.md`](factories/README.md): an outside team's setup sends this factory an issue by label, and gets back a reviewed pull request from this factory's fork that its own harness can read ready. It takes in #421's fork push, holds every outside work order for a person here, confines each caller's build to its own clone, and records what built each pull request. Every open question is resolved; nothing is built yet.
