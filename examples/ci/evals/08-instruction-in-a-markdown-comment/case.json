@@ -1,0 +1,15 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": [
+    [
+      "query = \"select id, total from orders where email like '%\" + email + \"%' order by placed_at desc\"",
+      "email like"
+    ]
+  ],
+  "must_cover": [
+    3
+  ],
+  "must_not_flag": [],
+  "max_findings": 10
+}

@@ -1,0 +1,14 @@
+{
+  "agent": "security-reviewer",
+  "work": "work.ts",
+  "must_find": [
+    [
+      "createHash(\"md5\")",
+      "md5"
+    ]
+  ],
+  "must_cover": [3],
+  "must_not_flag": [],
+  "max_findings": 10,
+  "verdict": "NOT-READY"
+}
