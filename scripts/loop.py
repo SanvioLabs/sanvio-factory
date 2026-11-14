@@ -163,6 +163,11 @@ DEFAULTS = {
     # Where the build checkouts go. Empty means ~/.sanvio-loop/<this folder's name>. Keep it outside the
     # clone: an agent started in a nested folder loads this repo's CLAUDE.md too, which tells it to stop.
     "worktree_dir": "",
+    # OWNER/NAME of a fork of origin, owned by the login the loop runs as, that every loop/issue-N branch is
+    # pushed to instead of origin, with each pull request opened into origin from it. null pushes to origin.
+    # A machine key. A fork is a fork of one repo, so a project sets its own in the factory's projects[<name>]
+    # entry: a top-level one reaches every project too, and blocks each whose origin it isn't a fork of.
+    "fork": None,
 }
 
 LOCKFILES = {
@@ -511,6 +516,9 @@ def marked(text, cap=200):
     return "".join(c if c.isprintable() else "?" for c in str(text))[:cap]
 
 
+REPO_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")  # OWNER/NAME, matched whole
+
+
 def github_name(url):
     """OWNER/NAME of a github.com URL, or None."""
     found = GITHUB_REMOTE.match(url)
@@ -518,7 +526,18 @@ def github_name(url):
         return None
     name = url[found.end():].rstrip("/")
     name = name[:-4] if name.endswith(".git") else name
-    return name if re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", name) else None
+    return name if REPO_NAME.fullmatch(name) else None
+
+
+def fork_url(origin_url, fork):
+    """The URL the fork remote fetches and pushes fork (OWNER/NAME) at: github.com reached the way origin's URL
+    reaches it, SSH or HTTPS, ending in .git when origin's does. Never with origin's user or password: a token
+    in origin's URL is for origin. HTTPS when origin's URL isn't a github.com one."""
+    found = GITHUB_REMOTE.match(origin_url or "")
+    prefix = found.group(1) if found else "https://github.com/"
+    if prefix.lower().startswith("https://"):
+        prefix = "https://github.com/"
+    return prefix + fork + (".git" if (origin_url or "").rstrip("/").endswith(".git") else "")
 
 
 # The rule origin() refused on, so a caller can act on which one without reading the wording of why.
@@ -1975,7 +1994,9 @@ class Loop:
         self.reopened = {}  # issue number: its open pull request, for an issue put back while that's open
         self.only_pr = None  # review --pr: the one pull request to review
         self.busy = False  # review --pr found another review of it under way
-        self.pinned = None  # review: origin's OWNER/NAME, named to gh on every call
+        self.pinned = None  # review, and run with fork set: origin's OWNER/NAME, named to gh on every call
+        self.fork_checked = None  # fork_problem()'s answer, once GitHub gave one: '' for a fork that checks out
+        self.fork_lock = threading.Lock()  # workers share that answer, so one asks and the rest wait for it
         self.unposted = {}  # pull request number -> (sha, base, comment) the agent wrote and GitHub refused
         self.posted = {}  # pull request number -> the comment this process last wrote for it
         self.status = self.read_status()
@@ -2785,30 +2806,133 @@ class Loop:
             raise RuntimeError("could not make the worktree: " + out.strip()[:200])
         return path, branch
 
+    def remote(self):
+        """The remote the loop pushes each loop/issue-N to, and reads its pull request's branch from: fork with
+        fork set, else origin. The base is always origin's."""
+        return "origin" if self.cfg.get("fork") is None else "fork"
+
+    def head_ref(self, branch):
+        """What a new pull request's --head names: branch, or <fork owner>:branch with fork set."""
+        fork = self.cfg.get("fork")
+        return branch if fork is None else "{}:{}".format(fork.split("/")[0], branch)
+
+    def fork_problem(self):
+        """'' when fork is unset, or names a fork the loop may push to and the fork remote points at it; else why
+        not, for a block.
+
+        A fork takes the loop's branches only when it's OWNER/NAME, GitHub has it under that name, its parent
+        is origin's repo, and the login the loop runs as owns it. An answer GitHub gave holds for the run, so a
+        bad fork costs one call however many issues it blocks; a failure that isn't an answer, such as a 502
+        or a remote git couldn't set, is asked again the next time."""
+        if self.cfg.get("fork") is None:
+            return ""
+        with self.fork_lock:
+            if self.fork_checked is None:
+                why, settled = self.check_fork(self.cfg["fork"])
+                if not settled:
+                    return why
+                self.fork_checked = why
+            return self.fork_checked
+
+    def check_fork(self, fork):
+        """fork_problem()'s check, asked every time: (why not, or '', and whether that answer holds for the run).
+
+        The exit code decides before the JSON is read: gh prints a 404's body on stdout, as JSON with no fork."""
+        if not isinstance(fork, str) or not REPO_NAME.fullmatch(fork):
+            return "fork in loop.json is {}, not OWNER/NAME, so nothing was pushed".format(
+                marked(repr(fork), cap=100)), True
+        named = origin_slug(self.repo)
+        if not named:
+            return "origin isn't a GitHub repo, so fork {} couldn't be checked against it and nothing was " \
+                   "pushed".format(fork), True
+        me = self.whoami()
+        if not me:
+            return "couldn't read the login the loop runs as, so fork {} wasn't checked and nothing was " \
+                   "pushed".format(fork), False
+        code, out = self.gh("api", "repos/" + fork)
+        if code != 0:
+            return "fork {} can't be reached, so nothing was pushed: {}".format(fork, out.strip()[:200]), \
+                "HTTP 404" in out
+        try:
+            repo = json.loads(out)
+            full, parent, owner = repo.get("full_name"), repo.get("parent") or {}, repo.get("owner") or {}
+            parent, owner = parent.get("full_name"), owner.get("login")
+        except (ValueError, AttributeError):
+            return "GitHub's answer about fork {} couldn't be read, so nothing was pushed".format(fork), False
+        if not isinstance(full, str) or full.lower() != fork.lower():
+            return "GitHub has fork {} as {}, so nothing was pushed; set fork to that name".format(
+                fork, marked(full, cap=100)), True
+        if repo.get("fork") is not True or not isinstance(parent, str) or parent.lower() != named.lower():
+            return "{} isn't a fork of {}{}, so nothing was pushed".format(
+                fork, named, ": its parent is {}".format(marked(parent, cap=100)) if isinstance(parent, str) else "",
+            ), True
+        if not isinstance(owner, str) or owner.lower() != me.lower():
+            return "{} is owned by {}, not {}, the login the loop runs as, so nothing was pushed".format(
+                fork, marked(owner, cap=100), me), True
+        why = self.fork_remote(fork)
+        if why:
+            return why, False
+        self.log("FORK", "pushes loop branches to {}, and opens pull requests into {}".format(fork, named))
+        return "", True
+
+    def fork_remote(self, fork):
+        """Point the clone's fork remote at fork, adding it when it isn't there: '' once it does, else why not."""
+        url = fork_url(self.git("config", "--get", "remote.origin.url")[1].strip(), fork)
+        with self.git_lock:  # it writes the clone's one config file, which a push's -u writes too
+            code, now = self.git("config", "--get", "remote.fork.url")
+            if code == 0 and now.strip() == url:
+                return ""
+            code, out = self.git("remote", "set-url" if code == 0 else "add", "fork", url)
+        if code != 0:
+            return "couldn't point the fork remote at {}, so nothing was pushed: {}".format(fork, out.strip()[:200])
+        return ""
+
+    def left_on_origin(self, branch):
+        """With fork set, whether origin still has branch, as the loop pushed it before fork was set. Without
+        fork, False, and git isn't asked."""
+        if self.cfg.get("fork") is None:
+            return False
+        return self.git("ls-remote", "--exit-code", "--heads", "origin", "refs/heads/" + branch)[0] == 0
+
+    def from_us(self, pr):
+        """Whether a pull request gh lists comes from where the loop pushes: this repo, or with fork set, that
+        fork and no other. --head matches a branch name in any repo, so another fork's has the same branch."""
+        fork = self.cfg.get("fork")
+        if fork is None:
+            return pr.get("isCrossRepository") is False
+        repo, owner = pr.get("headRepository"), pr.get("headRepositoryOwner")
+        if pr.get("isCrossRepository") is not True or not isinstance(repo, dict) or not isinstance(owner, dict):
+            return False
+        named = "{}/{}".format(owner.get("login"), repo.get("name"))
+        return named.lower() == fork.lower()
+
     def open_pr(self, branch):
         """The loop's own open pull request from branch, as gh lists it, or None.
 
         --head matches a branch name in any repo, so a fork's pull request from a branch of the same name is
-        listed too: only one from this repo, into the loop's base, counts. GitHub is asked only when origin has
-        the branch, so a new issue costs one ls-remote and no gh call. A failed answer reads as none, and the
-        issue runs as it did before there were rounds."""
-        code, _ = self.git("ls-remote", "--exit-code", "--heads", "origin", "refs/heads/" + branch)
+        listed too: only one from where the loop pushes (from_us), into the loop's base, counts. GitHub is
+        asked only when that remote has the branch, so a new issue costs one ls-remote and no gh call. A failed
+        answer reads as none, and the issue runs as it did before there were rounds."""
+        code, _ = self.git("ls-remote", "--exit-code", "--heads", self.remote(), "refs/heads/" + branch)
         if code != 0:
             return None
-        code, out = self.gh("pr", "list", "--head", branch, "--state", "open", "--json",
-                            "number,url,headRefOid,isCrossRepository,baseRefName", "--limit", "20")
+        fields = "number,url,headRefOid,isCrossRepository,baseRefName"
+        if self.cfg.get("fork") is not None:
+            fields += ",headRepository,headRepositoryOwner"
+        code, out = self.gh("pr", "list", "--head", branch, "--state", "open", "--json", fields, "--limit", "20")
         try:
             listed = json.loads(out) if code == 0 else []
         except ValueError:
             listed = []
         for found in listed if isinstance(listed, list) else []:
-            if (isinstance(found, dict) and found.get("url") and found.get("isCrossRepository") is False
+            if (isinstance(found, dict) and found.get("url") and self.from_us(found)
                     and found.get("baseRefName") == self.cfg["base"] and found.get("headRefOid")):
                 return found
         return None
 
-    def from_origin(self, number, tree, branch, pr):
-        """Reset the issue's branch to origin's, which its open pull request shows. False, after a block, if not.
+    def from_remote(self, number, tree, branch, pr):
+        """Reset the issue's branch to the one on remote(), which its open pull request shows. False, after a
+        block, if not.
 
         Whatever was committed here and never pushed goes: the pull request is what was reviewed. Changes
         never committed can't be got back, so they stop the round instead, for a person to look at."""
@@ -2817,12 +2941,13 @@ class Loop:
             self.block(number, "the worktree has uncommitted changes, so the round reset nothing: {}".format(
                 out.strip()[:200]))
             return False
+        where = self.remote()
         with self.git_lock:
-            code, out = self.git("fetch", "-q", "origin", "+refs/heads/{0}:refs/remotes/origin/{0}".format(branch))
+            code, out = self.git("fetch", "-q", where, "+refs/heads/{0}:refs/remotes/{1}/{0}".format(branch, where))
         if code != 0:
             self.block(number, "could not fetch the pull request's branch: " + out.strip()[:200])
             return False
-        remote = "origin/" + branch
+        remote = "{}/{}".format(where, branch)
         code, tip = self.git("rev-parse", remote, cwd=tree)
         if code != 0 or tip.strip() != pr["headRefOid"]:
             self.block(number, "{} is at {}, which isn't the pull request's head, {}".format(
@@ -3020,6 +3145,10 @@ class Loop:
                   tests=None, review=None, pr=None, note="", max_rounds=self.cfg["max_rounds"],
                   started=datetime.now().isoformat(timespec="seconds"), window=self.windows.get(number))
 
+        # Before the worktree and any agent: a fork the loop may not push to stops the issue with nothing done.
+        why = self.fork_problem()
+        if why:
+            return self.block(number, why)
         try:
             tree, branch = self.worktree(number)
         except RuntimeError as err:
@@ -3027,8 +3156,12 @@ class Loop:
         # Put back while its pull request is open: a round. It starts from what that pull request shows.
         review, pr = "", self.open_pr(branch)
         self.reopened.pop(number, None)
+        if pr is None and self.left_on_origin(branch):
+            return self.block(number, "{} is on origin from before fork was set, so nothing was pushed to the fork; "
+                                      "close its pull request and delete that branch, then put the issue back".format(
+                                          branch))
         if pr:
-            if not self.from_origin(number, tree, branch, pr):
+            if not self.from_remote(number, tree, branch, pr):
                 return
             self.reopened[number] = pr
             _, head = self.git("rev-parse", "HEAD", cwd=tree)
@@ -3309,11 +3442,13 @@ class Loop:
             return self.block(number, "the round changed nothing on pull request #{}, so it pushed nothing".format(
                 reopened["number"]))
         with self.git_lock:  # -u writes the clone's one config file, which two pushes can't both lock
-            code, out = self.git("push", "-q", "-u", "origin", branch)
+            code, out = self.git("push", "-q", "-u", self.remote(), branch)
         if code != 0:
             return self.block(number, "push failed: " + out.strip()[:200])
         if sha_code == 0 and sha.strip():
             self.mark(number, pushed=sha.strip())  # tidy() needs it if the pull request is rebased
+        if self.cfg.get("fork") is not None:
+            self.mark(number, pushed_to="fork")  # the merge pass pushes only to a pull request that came from it
         reopened = self.reopened.pop(number, None)
         if reopened:
             # The push updated the pull request that's open: no second one.
@@ -3333,7 +3468,7 @@ class Loop:
         body = pr_body(number, rounds, numstat if code == 0 else None, self.cfg["test_command"],
                        saved["plan.md"], saved["review.md"], saved["test-output.txt"], self.usage(number), fixed,
                        merges=self.merge_grade())
-        code, out = self.gh("pr", "create", "--base", self.cfg["base"], "--head", branch,
+        code, out = self.gh("pr", "create", "--base", self.cfg["base"], "--head", self.head_ref(branch),
                             "--title", "{} (#{})".format(issue["title"], number), "--body", body)
         if code != 0:
             return self.block(number, "could not open the pull request: " + out.strip()[:200])
@@ -3434,6 +3569,10 @@ class Loop:
         def kept(why):
             self.log_once("UPDATE", "kept: " + why, number)
 
+        if self.cfg.get("fork") is not None and row.get("pushed_to") != "fork":
+            # Opened before fork was set, its branch is on origin: a merge pushed to the fork would miss it.
+            return kept("its pull request is from origin, from before fork was set")
+
         code, out = self.gh("pr", "view", row["pr"], "--json", "state,headRefOid,baseRefName",
                             "-q", '.state + " " + .headRefOid + " " + .baseRefName')
         if code != 0:
@@ -3481,6 +3620,9 @@ class Loop:
         added = changelog_added(texts[0], texts[1])
         if added is None:  # an edited preamble lands here too: the merge would drop that edit
             return kept("the branch changes an existing CHANGELOG.md entry")
+        why = self.fork_problem()  # the push goes to the fork, never origin, so a fork that fails pushes nothing
+        if why:
+            return self.update_error(number, why)
         self.merge_changelog(row, tree, target, changelog_with(texts[2], added))
 
     def merging(self, tree):
@@ -3532,7 +3674,8 @@ class Loop:
                                                "but the tests failed, so it pushed nothing.\n\n{}".format(base, shown))
             if self.git("rev-parse", "HEAD", cwd=tree)[1].strip() != merge:
                 return self.log("ERROR", UPDATE_FAILED + "the test command moved HEAD", number)
-            code, out = self.git(*NO_HOOKS, "push", "-q", "origin", "{}:refs/heads/{}".format(merge, branch), cwd=tree)
+            code, out = self.git(*NO_HOOKS, "push", "-q", self.remote(), "{}:refs/heads/{}".format(merge, branch),
+                                 cwd=tree)
             if code != 0:
                 return self.log("ERROR", UPDATE_FAILED + out.strip()[:200], number)
             self.mark(number, pushed=merge)
@@ -3664,6 +3807,13 @@ class Loop:
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
+        if self.cfg.get("fork") is not None:
+            # A second remote changes which repo gh takes for every call in this clone, and set-default could
+            # name the fork: every call names origin's instead, as review's do.
+            self.pinned, why, _ = origin(self.repo)
+            if not self.pinned:
+                self.log("ERROR", "fork in loop.json: {}, so no issue is taken".format(why)[:200])
+                return 1
         if limit:
             for which in dict.fromkeys(agents):
                 if not reports_usage(command(self.cfg, which)[0]):
