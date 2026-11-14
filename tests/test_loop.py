@@ -5135,7 +5135,7 @@ class TestForkPush(unittest.TestCase):
         self.assertEqual(git(self.fork, "show", "loop/issue-12:CHANGELOG.md").stdout,
                          head + TestAPass.BRANCH_ENTRY + TestAPass.BASE_ENTRY + old)
         self.assertEqual(git(self.fork, "log", "-1", "--format=%s", merged).stdout.strip(), TestAPass.MERGE_SUBJECT)
-        self.assertEqual(self.row()["pushed"], merged)
+        self.assertEqual((self.row()["pushed"], self.row()["pushed_to"]), (merged, "fork"))
         self.assertFalse(self.has(self.origin), "the merge reached origin")
 
     def test_the_merge_pass_pushes_nothing_when_the_fork_no_longer_checks_out(self):
@@ -5145,6 +5145,37 @@ class TestForkPush(unittest.TestCase):
         self.assertEqual(self.fork_head(), sha)
         self.assertFalse(self.has(self.origin))
         self.assertTrue(any("ERROR" in l and "fork pat/r can't be reached" in l for l in self.lines()), self.lines())
+
+    def test_a_branch_left_on_origin_from_before_fork_was_set_blocks_the_issue(self):
+        self.cfg["fork"] = None
+        self.assertEqual(self.go(), 0)
+        before = git(self.origin, "rev-parse", "loop/issue-12").stdout.strip()
+        self.cfg["fork"] = "pat/r"
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.row()["state"], "blocked")
+        self.assertIn("loop/issue-12 is on origin from before fork was set", self.row()["note"])
+        self.assertFalse(self.has(self.fork), "the branch went to the fork beside origin's")
+        self.assertEqual(git(self.origin, "rev-parse", "loop/issue-12").stdout.strip(), before)
+        self.assertEqual(len(self.pr_creates()), 1, "a second pull request was opened")
+
+    def test_a_pull_request_opened_before_fork_was_set_gets_no_merge_pass(self):
+        head, old = TestAPass.CHANGELOG_HEAD, TestAPass.OLD_ENTRY
+        self.cfg["fork"] = None
+        TestAPass.commit_and_push(self, self.work, "main", "CHANGELOG.md", head + old)
+        self.assertEqual(self.go(), 0)
+        (self.state / "issues.json").write_text("[]")
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        sha = TestAPass.commit_and_push(self, tree, "loop/issue-12", "CHANGELOG.md", head + TestAPass.BRANCH_ENTRY + old)
+        loop.Loop(self.work, self.cfg).mark(12, pushed=sha)
+        (self.state / "pr-head").write_text(sha)
+        TestAPass.commit_and_push(self, self.work, "main", "CHANGELOG.md", head + TestAPass.BASE_ENTRY + old)
+        self.cfg["fork"] = "pat/r"
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(git(self.origin, "rev-parse", "loop/issue-12").stdout.strip(), sha)
+        self.assertFalse(self.has(self.fork))
+        self.assertFalse(any(c.startswith("pr comment") for c in self.calls()), self.calls())
+        self.assertTrue(any("kept: its pull request is from origin, from before fork was set" in l
+                            for l in self.lines()), self.lines())
 
     # -- a fork that doesn't check out -------------------------------------------
 
@@ -5238,6 +5269,8 @@ class TestWithoutFork(unittest.TestCase):
         self.assertTrue(any(c.startswith("pr create --base main --head loop/issue-12 ") for c in self.calls()))
         self.assertFalse(any(c.startswith("api repos/") for c in self.calls()), self.calls())
         self.assertFalse(any(" -R " in " {} ".format(c) for c in self.calls()), self.calls())
+        row = json.loads((self.work / ".loop" / "status.json").read_text())["issues"][0]
+        self.assertNotIn("pushed_to", row)
 
 
 class TestForkUrl(unittest.TestCase):

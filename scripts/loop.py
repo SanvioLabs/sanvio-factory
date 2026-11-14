@@ -2887,6 +2887,13 @@ class Loop:
             return "couldn't point the fork remote at {}, so nothing was pushed: {}".format(fork, out.strip()[:200])
         return ""
 
+    def left_on_origin(self, branch):
+        """With fork set, whether origin still has branch, as the loop pushed it before fork was set. Without
+        fork, False, and git isn't asked."""
+        if self.cfg.get("fork") is None:
+            return False
+        return self.git("ls-remote", "--exit-code", "--heads", "origin", "refs/heads/" + branch)[0] == 0
+
     def from_us(self, pr):
         """Whether a pull request gh lists comes from where the loop pushes: this repo, or with fork set, that
         fork and no other. --head matches a branch name in any repo, so another fork's has the same branch."""
@@ -3149,6 +3156,10 @@ class Loop:
         # Put back while its pull request is open: a round. It starts from what that pull request shows.
         review, pr = "", self.open_pr(branch)
         self.reopened.pop(number, None)
+        if pr is None and self.left_on_origin(branch):
+            return self.block(number, "{} is on origin from before fork was set, so nothing was pushed to the fork; "
+                                      "close its pull request and delete that branch, then put the issue back".format(
+                                          branch))
         if pr:
             if not self.from_remote(number, tree, branch, pr):
                 return
@@ -3436,6 +3447,8 @@ class Loop:
             return self.block(number, "push failed: " + out.strip()[:200])
         if sha_code == 0 and sha.strip():
             self.mark(number, pushed=sha.strip())  # tidy() needs it if the pull request is rebased
+        if self.cfg.get("fork") is not None:
+            self.mark(number, pushed_to="fork")  # the merge pass pushes only to a pull request that came from it
         reopened = self.reopened.pop(number, None)
         if reopened:
             # The push updated the pull request that's open: no second one.
@@ -3555,6 +3568,10 @@ class Loop:
 
         def kept(why):
             self.log_once("UPDATE", "kept: " + why, number)
+
+        if self.cfg.get("fork") is not None and row.get("pushed_to") != "fork":
+            # Opened before fork was set, its branch is on origin: a merge pushed to the fork would miss it.
+            return kept("its pull request is from origin, from before fork was set")
 
         code, out = self.gh("pr", "view", row["pr"], "--json", "state,headRefOid,baseRefName",
                             "-q", '.state + " " + .headRefOid + " " + .baseRefName')
