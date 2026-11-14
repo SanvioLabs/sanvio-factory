@@ -819,6 +819,20 @@ elif args[:2] == ["api", "--paginate"] and args[2].endswith("/comments"):
     path = os.path.join(state, "pr-comments.json")
     for row in (json.load(open(path)) if os.path.exists(path) else []):
         print(json.dumps(row))
+elif args[0] == "api" and len(args) == 2 and len(args[1].split("/")) == 3 and "{" not in args[1]:
+    # A repo by OWNER/NAME, as gh api repos/OWNER/NAME answers: repos.json, {"OWNER/NAME": {...}}; any repo not
+    # in it isn't there, its 404 body on stdout as gh prints it. repos-fail fails it as a 502 would.
+    import json
+    if os.path.exists(os.path.join(state, "repos-fail")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    path = os.path.join(state, "repos.json")
+    found = (json.load(open(path)) if os.path.exists(path) else {}).get(args[1][len("repos/"):])
+    if found is None:
+        print('{"message": "Not Found"}')
+        print("gh: Not Found (HTTP 404)", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(found))
 elif args[0] == "api" and args[1].startswith("repos/{owner}/{repo}/issues/"):
     # One issue by number from deps.json, {"N": {...}}; any number not in it isn't there.
     import json
@@ -4921,6 +4935,331 @@ class TestRoundOnOpenPullRequest(unittest.TestCase):
                         self.lines())
 
 
+# What GitHub says of the fork the tests set, pat/r: a fork of origin's o/r, owned by pat, the login the fake gh is.
+FORK_OF_ORIGIN = {"full_name": "pat/r", "fork": True, "parent": {"full_name": "o/r"}, "owner": {"login": "pat"}}
+
+
+class TestForkPush(unittest.TestCase):
+    """fork set: each loop/issue-N goes to the fork and never to origin, its pull request comes from the fork into
+    origin's base, a round starts from the fork's branch and updates the same pull request, and a fork that doesn't
+    check out blocks the issue with nothing pushed. Two bare remotes: origin, and the fork, which git reaches at
+    the URL the loop gives it through an insteadOf rule."""
+
+    lines, raw_lines, status, calls, go = (
+        TestAPass.lines, TestAPass.raw_lines, TestAPass.status, TestAPass.calls, TestAPass.go)
+    review = TestRoundOnOpenPullRequest.review
+    URL = "https://example.test/pull/5"
+    OPENED = "https://example.test/pull/1"
+
+    def setUp(self):
+        TestAPass.setUp(self)
+        self.fork = Path(self.tmp.name) / "fork.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(self.origin), str(self.fork)], check=True,
+                       capture_output=True)
+        # origin is a bare folder, so origin() is told it's o/r, as ReviewFixture does. The fork's URL then falls
+        # back to https, ending in .git as origin's folder name does.
+        named = mock.patch.object(loop, "origin", return_value=("o/r", "", None))
+        named.start()
+        self.addCleanup(named.stop)
+        git(self.work, "config", "url.{}.insteadOf".format(self.fork), "https://github.com/pat/r.git")
+        self.cfg["fork"] = "pat/r"
+        self.repos({"pat/r": FORK_OF_ORIGIN})
+
+    tearDown = TestAPass.tearDown
+
+    def again(self):
+        """A fresh clone, fork and state, for the next case of a test that tries several."""
+        self.doCleanups()
+        self.tearDown()
+        self.setUp()
+
+    def repos(self, repos):
+        (self.state / "repos.json").write_text(json.dumps(repos))
+
+    def has(self, bare, branch="loop/issue-12"):
+        return subprocess.run(["git", "-C", str(bare), "rev-parse", "--verify", "-q", branch],
+                              capture_output=True).returncode == 0
+
+    def fork_remote(self):
+        """The clone's fork remote URL, or None when there's no fork remote."""
+        done = subprocess.run(["git", "-C", str(self.work), "config", "--get", "remote.fork.url"],
+                              capture_output=True, text=True)
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    def fork_head(self):
+        return git(self.fork, "rev-parse", "loop/issue-12").stdout.strip()
+
+    def pr(self, **changes):
+        """The loop's own open pull request from pat/r's loop/issue-12, its head the fork's branch as it is now."""
+        found = {"number": 5, "url": self.URL, "isCrossRepository": True, "baseRefName": "main",
+                 "headRefOid": self.fork_head(), "headRepository": {"id": "R_1", "name": "r"},
+                 "headRepositoryOwner": {"id": "U_1", "login": "pat"}}
+        found.update(changes)
+        return found
+
+    def open_pr(self, *prs):
+        (self.state / "open-prs.json").write_text(json.dumps({"loop/issue-12": list(prs) or [self.pr()]}))
+
+    def comments(self, *rows):
+        (self.state / "pr-comments.json").write_text(json.dumps([list(r) for r in rows]))
+
+    def push_from_other(self, name="other.txt", start="origin/main"):
+        """One commit on the fork's loop/issue-12 from a clone of the fork, as a person working there. Its sha."""
+        other = Path(self.tmp.name) / "other"
+        if not other.exists():
+            subprocess.run(["git", "clone", "-q", str(self.fork), str(other)], check=True, capture_output=True)
+            git(other, "config", "user.email", "o@example.test")
+            git(other, "config", "user.name", "Other")
+        git(other, "fetch", "-q", "origin")
+        git(other, "checkout", "-q", "-B", "loop/issue-12", start)
+        (other / name).write_text("from the other clone")
+        git(other, "add", name)
+        git(other, "commit", "-q", "-m", "Add " + name)
+        git(other, "push", "-q", "-f", "origin", "loop/issue-12")
+        return git(other, "rev-parse", "HEAD").stdout.strip()
+
+    def pr_creates(self):
+        """Each pr create call, its body and all, up to the next issue call the loop made."""
+        text = (self.state / "gh-calls").read_text() if (self.state / "gh-calls").exists() else ""
+        return [chunk.split("\nissue ", 1)[0] for chunk in text.split("pr create ")[1:]]
+
+    def row(self):
+        return [r for r in self.status()["issues"] if r["number"] == 12][0]
+
+    def nothing_pushed(self):
+        self.assertFalse(self.has(self.origin), "loop/issue-12 reached origin")
+        self.assertFalse(self.has(self.fork), "loop/issue-12 reached the fork")
+        self.assertEqual(self.pr_creates(), [])
+        self.assertFalse((self.state / "agents-started").exists(), "an agent ran")
+        self.assertFalse((Path(self.cfg["worktree_dir"]) / "issue-12").exists(), "a worktree was made")
+        self.assertEqual(self.row()["state"], "blocked")
+
+    # -- pushing and opening -------------------------------------------------
+
+    def test_the_branch_goes_to_the_fork_and_the_pull_request_comes_from_it_into_origin(self):
+        self.assertEqual(self.go(), 0)
+        self.assertTrue(self.has(self.fork))
+        self.assertFalse(self.has(self.origin), "loop/issue-12 reached origin")
+        self.assertEqual(self.fork_remote(), "https://github.com/pat/r.git")
+        creates = self.pr_creates()
+        self.assertEqual(len(creates), 1)
+        self.assertTrue(creates[0].startswith("--base main --head pat:loop/issue-12 "), creates[0])
+        self.assertTrue(creates[0].rstrip().endswith(" -R o/r"), creates[0][-200:])
+        # Every other call names origin's repo too: with a second remote, gh could take the fork's.
+        for call in self.calls():
+            if call.startswith(("issue edit", "issue list", "pr list")):
+                self.assertTrue(call.endswith(" -R o/r"), call)
+        self.assertIn("api repos/pat/r", self.calls())
+        self.assertEqual((self.row()["state"], self.row()["pr"], self.row()["pushed"]),
+                         ("pr", self.OPENED, self.fork_head()))
+        self.assertTrue(any(l.split()[2] == "FORK" and "pat/r" in l for l in self.lines()), self.lines())
+
+    def test_a_fork_remote_pointing_elsewhere_is_pointed_at_the_fork(self):
+        git(self.work, "remote", "add", "fork", "https://github.com/someone/else.git")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.fork_remote(), "https://github.com/pat/r.git")
+        self.assertTrue(self.has(self.fork))
+        self.assertFalse(self.has(self.origin))
+
+    # -- rounds ----------------------------------------------------------------
+
+    def test_a_round_starts_from_the_fork_s_branch_and_updates_its_pull_request(self):
+        self.assertEqual(self.go(), 0)
+        pushed = self.push_from_other(start="origin/loop/issue-12")
+        other_fork = self.pr(number=9, url="https://example.test/sam/pull/9",
+                             headRepositoryOwner={"id": "U_2", "login": "sam"})
+        self.open_pr(other_fork, self.pr())
+        self.comments(self.review(pushed, "NEWEST-REVIEW-PHRASE"))
+        self.assertEqual(self.go(), 0)
+        self.assertIn("NEWEST-REVIEW-PHRASE", (self.state / "plan-prompt").read_text())
+        self.assertEqual(subprocess.run(["git", "-C", str(self.fork), "merge-base", "--is-ancestor", pushed,
+                                         self.fork_head()]).returncode, 0, "the round didn't build on the fork's commit")
+        self.assertNotEqual(self.fork_head(), pushed, "the round pushed nothing on top")
+        self.assertEqual(len(self.pr_creates()), 1, "a second pull request was opened")
+        self.assertIn("PR updated " + self.URL, self.lines()[-1])
+        self.assertFalse(self.has(self.origin), "loop/issue-12 reached origin")
+        self.assertTrue(any(c.startswith("pr list --head loop/issue-12") and "headRepository,headRepositoryOwner" in c
+                            for c in self.calls()), self.calls())
+
+    def test_a_fork_s_login_and_name_are_matched_whatever_their_case(self):
+        self.assertEqual(self.go(), 0)
+        self.push_from_other(start="origin/loop/issue-12")
+        self.open_pr(self.pr(headRepository={"id": "R_1", "name": "R"},
+                             headRepositoryOwner={"id": "U_1", "login": "Pat"}))
+        self.assertEqual(self.go(), 0)
+        self.assertIn("PR updated " + self.URL, self.lines()[-1])
+
+    def test_a_pull_request_from_any_other_fork_or_from_origin_is_never_taken_for_the_loop_s(self):
+        head = self.push_from_other()
+        self.comments(self.review(head, "NEWEST-REVIEW-PHRASE"))
+        self.open_pr(self.pr(number=9, url="https://example.test/sam/pull/9",
+                             headRepositoryOwner={"id": "U_2", "login": "sam"}),
+                     self.pr(number=8, url="https://example.test/other-name/pull/8",
+                             headRepository={"id": "R_2", "name": "r2"}),
+                     self.pr(number=7, url="https://example.test/same-repo/pull/7", isCrossRepository=False,
+                             headRepository={"id": "R_0", "name": "r"}, headRepositoryOwner={"id": "U_0", "login": "o"}),
+                     self.pr(number=6, url="https://example.test/no-repo/pull/6", headRepository=None,
+                             headRepositoryOwner=None))
+        self.go()
+        self.assertNotIn("NEWEST-REVIEW-PHRASE", (self.state / "plan-prompt").read_text())
+        for url in ("sam/pull/9", "other-name/pull/8", "same-repo/pull/7", "no-repo/pull/6"):
+            self.assertFalse(any(url in l for l in self.lines()), self.lines())
+        self.assertFalse(any("PR updated" in l for l in self.lines()), self.lines())
+
+    # -- the merge pass ----------------------------------------------------------
+
+    def changelog_conflict(self):
+        """An open pull request for #12 from the fork and nothing ready, conflicting with main in CHANGELOG.md
+        alone, as TestAPass.changelog_conflict sets up against origin. Returns the commit pushed to the fork."""
+        head, old = TestAPass.CHANGELOG_HEAD, TestAPass.OLD_ENTRY
+        TestAPass.commit_and_push(self, self.work, "main", "CHANGELOG.md", head + old)
+        self.assertEqual(self.go(), 0)
+        (self.state / "issues.json").write_text("[]")
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        (tree / "CHANGELOG.md").write_text(head + TestAPass.BRANCH_ENTRY + old)
+        git(tree, "add", "CHANGELOG.md")
+        git(tree, "commit", "-q", "-m", "change CHANGELOG.md")
+        git(tree, "push", "-q", "fork", "loop/issue-12")
+        sha = git(tree, "rev-parse", "HEAD").stdout.strip()
+        loop.Loop(self.work, self.cfg).mark(12, pushed=sha)
+        (self.state / "pr-head").write_text(sha)
+        TestAPass.commit_and_push(self, self.work, "main", "CHANGELOG.md", head + TestAPass.BASE_ENTRY + old)
+        return sha
+
+    def test_the_merge_pass_that_keeps_both_changelog_entries_pushes_to_the_fork(self):
+        sha = self.changelog_conflict()
+        self.assertEqual(self.go(), 0)
+        merged = self.fork_head()
+        self.assertNotEqual(merged, sha)
+        head, old = TestAPass.CHANGELOG_HEAD, TestAPass.OLD_ENTRY
+        self.assertEqual(git(self.fork, "show", "loop/issue-12:CHANGELOG.md").stdout,
+                         head + TestAPass.BRANCH_ENTRY + TestAPass.BASE_ENTRY + old)
+        self.assertEqual(git(self.fork, "log", "-1", "--format=%s", merged).stdout.strip(), TestAPass.MERGE_SUBJECT)
+        self.assertEqual(self.row()["pushed"], merged)
+        self.assertFalse(self.has(self.origin), "the merge reached origin")
+
+    def test_the_merge_pass_pushes_nothing_when_the_fork_no_longer_checks_out(self):
+        sha = self.changelog_conflict()
+        self.repos({})
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.fork_head(), sha)
+        self.assertFalse(self.has(self.origin))
+        self.assertTrue(any("ERROR" in l and "fork pat/r can't be reached" in l for l in self.lines()), self.lines())
+
+    # -- a fork that doesn't check out -------------------------------------------
+
+    def test_a_fork_github_can_t_find_blocks_the_issue_saying_why_and_pushes_nothing(self):
+        self.repos({})
+        self.assertEqual(self.go(), 0)
+        self.nothing_pushed()
+        self.assertIn("fork pat/r can't be reached", self.row()["note"])
+        comments = TestAPass.comments(self)
+        self.assertEqual(len(comments), 1)
+        self.assertIn("fork pat/r can't be reached, so nothing was pushed", comments[0])
+        self.assertIn("issue edit 12 --add-label loop:blocked -R o/r", self.calls())
+        self.assertIsNone(self.fork_remote())
+
+    def test_a_repo_that_isn_t_a_fork_of_origin_or_isn_t_the_loop_s_blocks_and_pushes_nothing(self):
+        for i, (fork, answer, why) in enumerate((
+                ("pat/r", dict(FORK_OF_ORIGIN, fork=False, parent=None), "pat/r isn't a fork of o/r, so"),
+                ("pat/r", dict(FORK_OF_ORIGIN, parent={"full_name": "x/y"}),
+                 "pat/r isn't a fork of o/r: its parent is x/y"),
+                ("sam/r", dict(FORK_OF_ORIGIN, full_name="sam/r", owner={"login": "sam"}),
+                 "sam/r is owned by sam, not pat, the login the loop runs as"),
+                ("pat/old", dict(FORK_OF_ORIGIN), "GitHub has fork pat/old as pat/r"))):
+            if i:
+                self.again()
+            with self.subTest(fork=fork, why=why):
+                self.cfg["fork"] = fork
+                self.repos({fork: answer})
+                self.assertEqual(self.go(), 0)
+                self.nothing_pushed()
+                self.assertIn(why, self.row()["note"])
+                self.assertIn(why, TestAPass.comments(self)[0])
+                self.assertIsNone(self.fork_remote())
+
+    def test_a_fork_that_isn_t_owner_name_blocks_without_asking_github(self):
+        for i, fork in enumerate(("pat", "pat/r/x", "", 3, "pat/r; rm")):
+            if i:
+                self.again()
+            with self.subTest(fork=fork):
+                self.cfg["fork"] = fork
+                self.assertEqual(self.go(), 0)
+                self.nothing_pushed()
+                self.assertIn("not OWNER/NAME", self.row()["note"])
+                self.assertFalse(any(c.startswith("api repos/") for c in self.calls()), self.calls())
+
+    def check(self, run):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return run.fork_problem()
+
+    def asked(self):
+        return self.calls().count("api repos/pat/r")
+
+    def test_github_s_answer_is_kept_for_the_run_and_a_failure_that_isn_t_one_is_asked_again(self):
+        run = loop.Loop(self.work, self.cfg)
+        self.assertEqual((self.check(run), self.check(run)), ("", ""))
+        self.assertEqual(self.asked(), 1)
+        self.repos({})
+        run = loop.Loop(self.work, self.cfg)
+        self.assertIn("can't be reached", self.check(run))
+        self.assertIn("can't be reached", self.check(run))
+        self.assertEqual(self.asked(), 2, "a 404 is GitHub's answer, kept for the run")
+        (self.state / "repos-fail").write_text("")
+        run = loop.Loop(self.work, self.cfg)
+        self.assertIn("can't be reached, so nothing was pushed: HTTP 502", self.check(run))
+        (self.state / "repos-fail").unlink()
+        self.repos({"pat/r": FORK_OF_ORIGIN})
+        self.assertEqual(self.check(run), "")
+        self.assertEqual(self.asked(), 4, "a 502 isn't an answer, so it was asked again")
+
+    def test_with_origin_off_github_a_run_with_fork_set_takes_no_issue(self):
+        with mock.patch.object(loop, "origin", return_value=(None, "origin, as git fetches it (/x), isn't on "
+                                                                   "github.com", loop.ORIGIN_OFF_GITHUB)):
+            self.assertEqual(self.go(), 1)
+        self.assertTrue(any("ERROR" in l and "fork in loop.json" in l for l in self.lines()), self.lines())
+        self.assertFalse((self.state / "agents-started").exists())
+        self.assertFalse(self.has(self.origin))
+        self.assertFalse(self.has(self.fork))
+
+
+class TestWithoutFork(unittest.TestCase):
+    """fork unset, as it is by default: the loop pushes to origin as it always has, with no fork remote, no repo
+    looked up and no repo named to gh."""
+
+    setUp, tearDown, calls, go = TestAPass.setUp, TestAPass.tearDown, TestAPass.calls, TestAPass.go
+
+    def test_the_branch_goes_to_origin_and_no_fork_remote_is_added(self):
+        self.assertIsNone(self.cfg["fork"])
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(git(self.origin, "rev-parse", "--verify", "-q", "loop/issue-12").returncode, 0)
+        self.assertNotEqual(subprocess.run(["git", "-C", str(self.work), "config", "--get", "remote.fork.url"],
+                                           capture_output=True).returncode, 0)
+        self.assertTrue(any(c.startswith("pr create --base main --head loop/issue-12 ") for c in self.calls()))
+        self.assertFalse(any(c.startswith("api repos/") for c in self.calls()), self.calls())
+        self.assertFalse(any(" -R " in " {} ".format(c) for c in self.calls()), self.calls())
+
+
+class TestForkUrl(unittest.TestCase):
+    """fork_url(): github.com the way origin reaches it, and never origin's user or password."""
+
+    def test_it_follows_origin_s_scheme_and_suffix(self):
+        for origin_url, url in (
+                ("https://github.com/o/r.git", "https://github.com/pat/r.git"),
+                ("https://github.com/o/r", "https://github.com/pat/r"),
+                ("git@github.com:o/r.git", "git@github.com:pat/r.git"),
+                ("ssh://git@github.com/o/r", "ssh://git@github.com/pat/r"),
+                ("/some/bare.git", "https://github.com/pat/r.git"),
+                ("", "https://github.com/pat/r")):
+            with self.subTest(origin=origin_url):
+                self.assertEqual(loop.fork_url(origin_url, "pat/r"), url)
+
+    def test_a_token_in_origin_s_url_isn_t_copied(self):
+        url = loop.fork_url("https://x:" + TOKEN + "@github.com/o/r.git", "pat/r")
+        self.assertEqual(url, "https://github.com/pat/r.git")
+        self.assertNotIn(TOKEN, url)
+
+
 class TestReviewedCommit(unittest.TestCase):
     """reviewed_commit() reads the sha only from the trailer the loop writes last, never from the report."""
 
@@ -7058,6 +7397,35 @@ class TestReviewLabelIsAMachineKey(unittest.TestCase):
                 self.assertTrue(err.startswith("ERROR "), err)
                 self.assertIn(key, err)
                 built.assert_not_called()
+
+
+class TestForkKey(unittest.TestCase):
+    """fork is a machine key: off by default, set only in the factory's loop.json, a project's entry first."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_it_is_a_machine_key_and_off_by_default(self):
+        self.assertIsNone(loop.DEFAULTS["fork"])
+        self.assertIn("fork", loop.MACHINE_KEYS)
+        self.assertNotIn("fork", loop.PROJECT_KEYS)
+
+    def test_a_project_whose_loop_json_sets_it_is_refused_naming_it(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "fork": "pat/site"}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("fork", err)
+        built.assert_not_called()
+
+    def test_a_project_s_entry_sets_it_over_the_factory_s(self):
+        self.harness_config({"fork": "pat/harness", "projects": {"app": {"fork": "pat/app"}, "site": {}}})
+        self.assertEqual(loop.load_project_config(self.harness, self.project)["fork"], "pat/app")
+        self.assertEqual(loop.load_project_config(self.harness, self.harness / "projects" / "site")["fork"],
+                         "pat/harness")
+        self.assertEqual(loop.load_config(self.harness)["fork"], "pat/harness")
 
 
 class TestGrade(unittest.TestCase):

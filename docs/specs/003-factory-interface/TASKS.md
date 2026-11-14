@@ -18,36 +18,42 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 
 ## Phase 1: Fork push and rounds (#421)
 
-- [ ] T001 Add the `fork` machine key. At start, check it's `OWNER/NAME`, reachable, a fork of `origin`, and owned by the login the loop runs as. Otherwise block each issue with a comment saying why, and push nothing
+- [x] T001 Add the `fork` machine key. At start, check it's `OWNER/NAME`, reachable, a fork of `origin`, and owned by the login the loop runs as. Otherwise block each issue with a comment saying why, and push nothing
   - Requirements: REQ-001, REQ-003
   - Acceptance: AC-001
   - Security: SEC-002
   - Depends on: None
   - Verification: `TESTS`
-- [ ] T002 With `fork` set, add it as a `fork` remote in the clone and push each `loop/issue-N` there (line 3312), never to `origin`. The merge pass that keeps both [`CHANGELOG.md`](../../../CHANGELOG.md) entries (line 3535) pushes there too
+  - Done 2026-11-13: `fork` in `DEFAULTS`, a machine key like the others, a project's entry over the factory's top-level value. `Loop.fork_problem()` and `check_fork()` check it before `worktree()` in `process()`; `TestForkPush` and `TestForkKey`
+- [x] T002 With `fork` set, add it as a `fork` remote in the clone and push each `loop/issue-N` there (line 3312), never to `origin`. The merge pass that keeps both [`CHANGELOG.md`](../../../CHANGELOG.md) entries (line 3535) pushes there too
   - Requirements: REQ-001
   - Acceptance: AC-001
   - Depends on: T001
   - Verification: `TESTS`, with two bare local remotes
-- [ ] T003 Open the pull request into `origin`'s base from `<fork owner>:loop/issue-N`
+  - Done 2026-11-13: `Loop.fork_remote()` adds or repoints the `fork` remote; `scale()` and `merge_changelog()` push to `Loop.remote()`; `TestForkPush`, with origin and the fork as two bare remotes
+- [x] T003 Open the pull request into `origin`'s base from `<fork owner>:loop/issue-N`
   - Requirements: REQ-001
   - Acceptance: AC-001
   - Depends on: T002
   - Verification: `TESTS`
-- [ ] T004 `open_pr` checks the fork for the branch, and takes a cross-repository pull request only when its head repository is the configured fork. Any other fork's is still refused
+  - Done 2026-11-13: `gh pr create --head` from `Loop.head_ref()`, and with `fork` set `work()` pins every `gh` call to `origin`'s repo; `TestForkPush`
+- [x] T004 `open_pr` checks the fork for the branch, and takes a cross-repository pull request only when its head repository is the configured fork. Any other fork's is still refused
   - Requirements: REQ-002
   - Acceptance: AC-001
   - Depends on: T003
   - Verification: `TESTS`
-- [ ] T005 A round resets from the fork's branch, not `origin`'s, and updates the same pull request
+  - Done 2026-11-13: `open_pr()` asks `ls-remote` on the fork and adds `headRepository,headRepositoryOwner`; `Loop.from_us()` takes only the configured fork's pull request; `TestForkPush`
+- [x] T005 A round resets from the fork's branch, not `origin`'s, and updates the same pull request
   - Requirements: REQ-002
   - Acceptance: AC-001
   - Depends on: T004
   - Verification: `TESTS`
-- [ ] T006 Without `fork`, the loop pushes to `origin` as today, and every existing test passes unchanged
+  - Done 2026-11-13: `from_remote()`, renamed from `from_origin()`, fetches and resets from the fork's branch; `TestForkPush`
+- [x] T006 Without `fork`, the loop pushes to `origin` as today, and every existing test passes unchanged
   - Requirements: NFR-002
   - Depends on: T005
   - Verification: `python3 -m unittest discover -s tests`
+  - Done 2026-11-13: `TestWithoutFork`, and `python3 -m unittest discover -s tests`: 2255 tests OK, 3 skipped, with every test that was there before unchanged
 
 ## Phase 2: Caller intake
 
@@ -141,9 +147,9 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 
 | Requirement | Tasks | Acceptance | Status |
 |---|---|---|---|
-| REQ-001 | T001, T002, T003 | AC-001 | open |
-| REQ-002 | T004, T005 | AC-001 | open |
-| REQ-003 | T001 | AC-001 | open |
+| REQ-001 | T001, T002, T003 | AC-001 | done |
+| REQ-002 | T004, T005 | AC-001 | done |
+| REQ-003 | T001 | AC-001 | done |
 | REQ-004 | T007 | AC-002 | open |
 | REQ-005 | T008 | AC-002 | open |
 | REQ-006 | T009 | AC-003 | open |
@@ -155,4 +161,4 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 | REQ-012 | T016 | none | open |
 | REQ-013 | T018, T021 | AC-010 | open |
 | AC-009 | T020 | AC-009 | open |
-| NFR-002 | T006 | none | open |
+| NFR-002 | T006 | none | done |
