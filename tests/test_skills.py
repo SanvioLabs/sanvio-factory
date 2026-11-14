@@ -647,7 +647,7 @@ class UpgradeGuideStaysUpstream(unittest.TestCase):
         self.assertIn(self.URL, " ".join(skill.split()))
 
     def test_starter_updates_still_copies_other_files(self):
-        self.assertIn('cp "$clone/$path" "$path"', self.SKILL.read_text())
+        self.assertIn('cp "$clone/$target" "$target"', self.SKILL.read_text())
 
     def test_the_guide_keeps_its_instructions_for_file_by_file_copies(self):
         guide = self.GUIDE.read_text()

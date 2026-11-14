@@ -1,11 +1,26 @@
 """Run with: python3 -m unittest discover -s tests"""
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
 NEEDS = re.compile(r"^\*\*Needs:\*\* (.+)$", re.M)
+
+# zsh ties these lowercase names to special variables: `path=x` empties PATH, so the next git isn't found.
+ZSH_TIED = ("path", "cdpath", "fignore", "fpath", "mailpath", "manpath", "module_path", "psvar")
+_TIED = "|".join(ZSH_TIED)
+ZSH_TIED_USE = re.compile(
+    r"(?<![\w$-])(?:{0})="          # an assignment, as in `path=<file>;`, but not `--path=` or `$path=`
+    r"|\$\{{?(?:{0})(?!\w)"          # a read, as in "$path" or ${path}, but not $module_paths
+    r"|`(?:{0})`\s+to\b".format(_TIED))  # an instruction, as in "set `path` to it"
+
+
+def zsh_tied_names(text):
+    """Each use of a name zsh ties to a special variable, as a shell variable a skill's commands set or read."""
+    return [match.group(0) for match in ZSH_TIED_USE.finditer(text)]
 
 
 def entries(text):
@@ -234,9 +249,29 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.assertEqual(found, [self.sha["B"] + " log", self.sha["C"] + " log"])
 
     def test_an_edited_file_is_adapted_and_an_untouched_one_isnt(self):
-        cmd = self.command('git -C "$clone" show "$base:$path" |') + " && echo same || echo adapted"
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), ["adapted"])
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), ["same"])
+        cmd = self.command('git -C "$clone" show "$base:$target" |') + " && echo same || echo adapted"
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="one.md"), ["adapted"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="two.md"), ["same"])
+
+    @unittest.skipUnless(shutil.which("zsh"), "zsh isn't installed here")
+    def test_the_adapted_check_works_in_zsh_as_in_bash(self):
+        cmd = self.command('git -C "$clone" show "$base:$target" |') + " && echo same || echo adapted"
+        line = "base={} target=one.md; {}".format(self.sha["A"], cmd)
+        # ZDOTDIR keeps this machine's own zsh startup files out of the run.
+        env = dict(self.env, ZDOTDIR=self.tmp.name)
+
+        def run(shell, text):
+            done = subprocess.run([shell, "-c", text], cwd=self.copy, env=env, capture_output=True, text=True)
+            return [out for out in done.stdout.splitlines() if out], done.stderr
+
+        for shell in ("zsh", "bash"):
+            out, err = run(shell, line)
+            self.assertEqual(out, ["adapted"], shell + ": " + err)
+            self.assertNotIn("command not found", err, shell)
+        # The sharpness check: with the old name, zsh's tied path empties PATH, so git and cmp aren't found.
+        # The builtin echo still prints "adapted", so it's the stderr check above that catches the bug.
+        out, err = run("zsh", line.replace("target", "path"))
+        self.assertIn("command not found", err)
 
     def test_one_files_commits_leave_out_another_files(self):
         found = {}
@@ -247,8 +282,8 @@ class StarterUpdatesCommands(unittest.TestCase):
             found[name] = self.head(self.starter)
         self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
         cmd = self.command("git -C \"$clone\" log --format='%H %s' \"$base\"..origin/main --")
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), [found["two.md"] + " touch two.md"])
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), [found["one.md"] + " touch one.md"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="two.md"), [found["two.md"] + " touch two.md"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="one.md"), [found["one.md"] + " touch one.md"])
 
     CAPABILITIES = 'git -C "$clone" show origin/main:skills/factory-updates/capabilities.md'
 
@@ -293,7 +328,7 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.git(self.starter, "commit", "-q", "-m", "edit lines")
         sha = self.head(self.starter)
         self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
-        hunks = self.run_with(self.command('git -C "$clone" show -U0'), sha=sha, path="lines.md")
+        hunks = self.run_with(self.command('git -C "$clone" show -U0'), sha=sha, target="lines.md")
         self.assertEqual(hunks, ["0 0", "2 1"])  # an added line, then "from B" changed
         blame = self.command('git -C "$clone" blame')
         blamed = set()
@@ -301,11 +336,34 @@ class StarterUpdatesCommands(unittest.TestCase):
             start, count = hunk.split()
             if count == "0":
                 continue
-            for line in self.run_with(blame, sha=sha, path="lines.md", start=start, count=count):
+            for line in self.run_with(blame, sha=sha, target="lines.md", start=start, count=count):
                 blamed.add(line.split()[0].lstrip("^"))
         self.assertEqual(len(blamed), 1, blamed)
         self.assertFalse(self.sha["A"].startswith(next(iter(blamed))))
         self.assertTrue(self.sha["B"].startswith(next(iter(blamed))))
+
+
+class ZshTiedVariables(unittest.TestCase):
+    """No skill's commands use a shell variable zsh gives a special meaning, so they run the same in zsh and bash."""
+
+    def test_no_skill_uses_a_zsh_tied_name(self):
+        skills = sorted((ROOT / "skills").glob("*/SKILL.md"))
+        self.assertTrue(skills)
+        for skill in skills:
+            hits = zsh_tied_names(skill.read_text())
+            self.assertEqual(hits, [], "{} uses {}".format(skill.relative_to(ROOT), hits))
+
+    def test_each_name_is_caught_in_each_form(self):
+        for name in ZSH_TIED:
+            for text in (name + "=/a cmd", name + "=<file>;", '"$' + name + '"', "set `" + name + "` to it"):
+                with self.subTest(text=text):
+                    self.assertTrue(zsh_tied_names(text), text)
+
+    def test_ordinary_text_isnt_flagged(self):
+        for text in ("PATH=/usr/bin", "$PATH", "git log --path=x", "a table path", "target=<file>",
+                     "$module_paths"):
+            with self.subTest(text=text):
+                self.assertEqual(zsh_tied_names(text), [])
 
 
 if __name__ == "__main__":
