@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: The loop records why each review said FIX
+
+The loop's reviewer now writes a `REASONS:` line just above its verdict, naming the reasons for FIX that apply from `tests-failed`, `untested-requirement`, `worked-around-tests` and `real-cost`, or `REASONS: none` on a PASS. Each `.loop/history.jsonl` line gains two fields with one entry per round, beside `tests` and `verdicts`: `fix_reasons`, the known reasons in that order (`[]` for a PASS, `["unstated"]` for a FIX that named none), and `tests_changed`, whether the branch changed or deleted a test file its base already had (`null` when git couldn't say, or `test_paths` in `loop.json` isn't a list of strings). [`scripts/export.py`](scripts/export.py) carries both. Older lines don't have them, and the reasons never change the verdict.
+
+**Needs:** 2026-11-05: The loop's review sends a build back only for what would cost something; 2026-10-25: Loop run history; 2026-10-25: Local export
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/loop.py`](scripts/loop.py), [`scripts/export.py`](scripts/export.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_export.py`](tests/test_export.py).
+
+**Do:** nothing. The fields start with the next run that ends.
+
 ## 2026-11-14: Factory updates warns about code beside an untaken entry's
 
 [`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.

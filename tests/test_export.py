@@ -16,8 +16,8 @@ import usage_log  # noqa: E402 (same reason)
 
 # Fixed here rather than read from export.py, so a key added there fails until it's added here too.
 TOP_KEYS = ["exported", "loop", "since", "usage", "user", "v"]
-LOOP_KEYS = ["agent", "cost_usd", "ended", "issue", "outcome", "project", "reviewer", "rounds", "run",
-             "started", "tests", "tokens", "v", "verdicts"]
+LOOP_KEYS = ["agent", "cost_usd", "ended", "fix_reasons", "issue", "outcome", "project", "reviewer", "rounds", "run",
+             "started", "tests", "tests_changed", "tokens", "v", "verdicts"]
 USAGE_KEYS = ["agents", "ask_approved", "commands", "guard_ask", "guard_deny", "log_off", "sessions", "skills"]
 COUNT_KEYS = ("sessions", "log_off")  # plain numbers; every other usage key is counts by name
 EMPTY_USAGE = {"sessions": 0, "skills": {}, "agents": {}, "commands": {}, "guard_deny": {},
@@ -110,6 +110,14 @@ class Bundle(unittest.TestCase):
         self.assertEqual([line["issue"] for line in got["loop"]], [223])
         self.assertTrue(all(line["project"] is None for line in got["loop"]))
         self.assertNotIn("acme", json.dumps(got))
+
+    def test_fix_reasons_and_tests_changed_are_copied_and_an_older_line_has_them_as_none(self):
+        self.history([run_line(1, "2026-10-21T10:00:00"),
+                      run_line(2, "2026-10-21T11:00:00", fix_reasons=[["tests-failed"], []],
+                               tests_changed=[False, True])])
+        got = export.bundle(self.root, "2026-10-14", "2026-10-25")["loop"]
+        self.assertEqual([(line["fix_reasons"], line["tests_changed"]) for line in got],
+                         [(None, None), ([["tests-failed"], []], [False, True])])
 
     def test_missing_files_give_an_empty_bundle(self):
         got = export.bundle(self.root, "2026-10-14", "2026-10-25")
