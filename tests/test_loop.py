@@ -4111,9 +4111,10 @@ class TestAPass(unittest.TestCase):
 
     # -- the sandbox ---------------------------------------------------------
 
-    def sandboxed_run(self, available=True):
-        """go() with sandbox_available() saying available. Returns (exit code, each sh call as (cmd, kwargs),
-        each Popen's argv). A sandbox-exec call runs its command in the shell, so the run is the same on any OS."""
+    def sandboxed_run(self, available=True, probe=None):
+        """go() with sandbox_available() saying available and sandbox_probe() answering probe, kept as
+        self.probe to count its calls. Returns (exit code, each sh call as (cmd, kwargs), each Popen's argv).
+        A sandbox-exec call runs its command in the shell, so the run is the same on any OS."""
         calls, popens = [], []
         sh, popen = loop.Loop.sh, subprocess.Popen
 
@@ -4128,13 +4129,15 @@ class TestAPass(unittest.TestCase):
             return popen(*args, **kwargs)
 
         with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop, "sandbox_probe", return_value=probe) as self.probe, \
                 mock.patch.object(loop.Loop, "sh", spy), mock.patch.object(loop.subprocess, "Popen", side_effect=seen):
             code = self.go()
         return code, calls, popens
 
     def own_commands(self, calls):
         """The sh calls that ran test_command, generate_command or setup_command, as (how, command, partial),
-        how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way."""
+        how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way:
+        the test environment, and in the sandbox that with sandbox_env's git settings."""
         found = []
         for cmd, kwargs in calls:
             if isinstance(cmd, list) and cmd[:1] == [loop.SANDBOX_EXEC]:
@@ -4148,7 +4151,11 @@ class TestAPass(unittest.TestCase):
                 continue
             self.assertEqual(Path(kwargs["cwd"]).resolve(), self.tree().resolve())
             self.assertEqual(kwargs["timeout"], self.cfg["test_timeout"])
-            self.assertEqual(kwargs["env"], loop.env_for_tests(os.environ))
+            env = loop.env_for_tests(os.environ)
+            if how == "sandbox":
+                env = loop.sandbox_env(env)
+                self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
+            self.assertEqual(kwargs["env"], env)
             found.append((how, command, kwargs.get("partial", False)))
         return found
 
@@ -4188,6 +4195,25 @@ class TestAPass(unittest.TestCase):
                     continue
                 self.assertEqual(code, 0)
                 self.assertEqual(self.own_commands(calls), [("shell", c, p) for c, p in expected])
+                self.probe.assert_not_called()
+
+    def test_the_probe_runs_once_a_loop_however_many_commands_run(self):
+        expected = self.every_own_command()
+        self.cfg["sandbox_commands"] = True
+        code, calls, _ = self.sandboxed_run()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.own_commands(calls)), len(expected))
+        self.assertEqual(self.probe.call_count, 1)
+
+    def test_where_the_probe_fails_each_command_runs_in_the_shell(self):
+        expected = self.every_own_command()
+        self.cfg["sandbox_commands"] = True
+        code, calls, _ = self.sandboxed_run(probe="sandbox_apply: Operation not permitted")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.own_commands(calls), [("shell", c, p) for c, p in expected])
+        self.assertEqual(self.probe.call_count, 1)
+        self.assertIn("WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted)",
+                      "\n".join(self.lines()))
 
     def test_the_tests_after_a_changelog_merge_go_through_the_sandbox_too(self):
         for on, available, how in ((True, True, "sandbox"), (False, True, "shell"), (True, False, "shell")):
@@ -4588,8 +4614,10 @@ class TestSandbox(unittest.TestCase):
     """sandbox_commands: on a Mac, test_command, generate_command and setup_command run inside sandbox-exec,
     which keeps them from reading credential files and the factory's own data. The runs are in TestAPass."""
 
-    SUBPATH = re.compile(r'\(deny file-read\* \(subpath "((?:[^"\\]|\\.)*)"\)\)')
-    FILES = (".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", ".claude/settings.local.json")
+    SUBPATH = re.compile(r'\(deny file-read\* file-write\* \(subpath "((?:[^"\\]|\\.)*)"\)\)')
+    LITERAL = re.compile(r'\(deny file-write-unlink \(literal "((?:[^"\\]|\\.)*)"\)\)')
+    FILES = (".netrc", ".npmrc", ".pypirc", ".git-credentials", ".gitconfig", ".m2/settings.xml",
+             ".claude/.credentials.json", ".claude/settings.local.json")
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -4608,47 +4636,151 @@ class TestSandbox(unittest.TestCase):
             else:
                 path.mkdir(parents=True, exist_ok=True)
 
-    def denied(self, profile):
-        """The paths a profile denies reading, unquoted."""
-        return [re.sub(r"\\(.)", r"\1", quoted) for quoted in self.SUBPATH.findall(profile)]
+    def unquoted(self, pattern, profile):
+        return [re.sub(r"\\(.)", r"\1", quoted) for quoted in pattern.findall(profile)]
 
-    def test_the_profile_denies_each_listed_path_that_exists_quoted_and_nothing_beside_it(self):
+    def denied(self, profile):
+        """The paths a profile denies reading and writing, unquoted."""
+        return self.unquoted(self.SUBPATH, profile)
+
+    def guarded(self, profile):
+        """The folders a profile denies unlinking, which renaming them needs, unquoted."""
+        return self.unquoted(self.LITERAL, profile)
+
+    def test_the_profile_denies_each_listed_path_there_or_not_quoted_and_nothing_beside_it(self):
         base = self.root / 'a "quoted" \\ name'
         home, root = base / "home dir", base / 'the "factory"'
         missing_home, missing_root = ".kube", ".inbox"
-        self.make(home, [n for n in loop.SANDBOX_HOME_DENIED if n != missing_home] + [".sshx", ".config/ghx"])
+        beside = [".sshx", ".config/ghx", ".gitconfigx", ".config/gitx", ".m2/repository"]
+        self.make(home, [n for n in loop.SANDBOX_HOME_DENIED if n != missing_home] + beside)
         self.make(root, [n for n in loop.SANDBOX_ROOT_DENIED if n != missing_root] + ["companyx"])
-        profile = loop.sandbox_profile(home, root)
+        profile = loop.sandbox_profile(home, root, {})
         self.assertTrue(profile.startswith("(version 1)(allow default)"), profile)
-        expected = [str((home / n).resolve()) for n in loop.SANDBOX_HOME_DENIED if n != missing_home]
-        expected += [str((root / n).resolve()) for n in loop.SANDBOX_ROOT_DENIED if n != missing_root]
+        # A path that isn't there is denied too, so one made after the profile is built is covered.
+        expected = [str((home / n).resolve()) for n in loop.SANDBOX_HOME_DENIED]
+        expected += [str((root / n).resolve()) for n in loop.SANDBOX_ROOT_DENIED]
         self.assertEqual(self.denied(profile), expected)
-        # One rule a line, and every " or \ in a path escaped: unescaped, the pattern above couldn't match them.
-        self.assertEqual(len(profile.splitlines()), 1 + len(expected))
+        # One rule a line, and every " or \ in a path escaped: unescaped, the patterns above couldn't match them.
+        self.assertEqual(len(profile.splitlines()), 1 + len(expected) + len(self.guarded(profile)))
         self.assertIn('\\"quoted\\" \\\\ name', profile)
-        for name in (".sshx", ".config/ghx", "companyx", missing_home, missing_root):
-            self.assertFalse([p for p in self.denied(profile) if p.endswith("/" + name)], name)
+        for path in [home / n for n in beside] + [root / "companyx"]:
+            self.assertNotIn(str(path.resolve()), self.denied(profile) + self.guarded(profile), path)
 
-    def test_a_path_that_cant_be_looked_at_is_left_out_not_an_error(self):
+    def test_no_folder_from_home_down_to_a_denied_path_can_be_renamed_and_nothing_above_home_is(self):
+        home = self.root / "home"
+        root = home / "Documents" / "factory"
+        profile = loop.sandbox_profile(home, root, {})
+        guarded, real, factory = self.guarded(profile), home.resolve(), root.resolve()
+        # From home down to each denied path's parent, once each, the folders that hold the factory included,
+        # so moving Documents aside doesn't uncover company/; and nothing above home.
+        self.assertEqual(guarded, [str(f) for f in (real, real / ".config", real / ".m2", real / ".claude",
+                                                    real / "Library", real / "Documents", factory,
+                                                    factory / ".claude")])
+        denied = self.denied(profile)
+        self.assertFalse(set(guarded) & set(denied))
+        for folder in guarded:
+            self.assertTrue(any(p.startswith(folder + "/") for p in denied), folder)
+        # A factory outside home is guarded from its own folder down, not from the folder that holds it.
+        outside = self.root / "elsewhere" / "factory"
+        guarded = self.guarded(loop.sandbox_profile(home, outside, {}))
+        self.assertIn(str(outside.resolve()), guarded)
+        self.assertNotIn(str(outside.resolve().parent), guarded)
+
+    def test_where_a_link_takes_a_denied_path_outside_home_only_its_parent_is_guarded(self):
+        home, elsewhere = self.root / "home", self.root / "dotfiles" / "config"
+        elsewhere.mkdir(parents=True)
+        home.mkdir()
+        (home / ".config").symlink_to(elsewhere)
+        profile = loop.sandbox_profile(home, self.root / "factory", {})
+        real = elsewhere.resolve()
+        self.assertIn(str(real / "gh"), self.denied(profile))
+        self.assertIn(str(real), self.guarded(profile))
+        self.assertNotIn(str(real.parent), self.guarded(profile))
+
+    def test_sandbox_env_points_git_away_from_the_home_folder_after_any_config_already_set(self):
+        plain = loop.sandbox_env({"PATH": "/bin"})
+        self.assertEqual(plain, {"PATH": "/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "2",
+                                 "GIT_CONFIG_KEY_0": "core.excludesFile", "GIT_CONFIG_VALUE_0": "/dev/null",
+                                 "GIT_CONFIG_KEY_1": "core.attributesFile", "GIT_CONFIG_VALUE_1": "/dev/null"})
+        given = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Tester"}
+        added = loop.sandbox_env(given)
+        self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
+        self.assertEqual((added["GIT_CONFIG_KEY_0"], added["GIT_CONFIG_VALUE_0"]), ("user.name", "Tester"))
+        self.assertEqual((added["GIT_CONFIG_COUNT"], added["GIT_CONFIG_KEY_1"], added["GIT_CONFIG_KEY_2"]),
+                         ("3", "core.excludesFile", "core.attributesFile"))
+        self.assertEqual(loop.sandbox_env({"GIT_CONFIG_COUNT": "x"})["GIT_CONFIG_COUNT"], "2")
+
+    def test_a_path_that_cant_be_looked_at_is_denied_not_an_error(self):
         # As inside the sandbox itself, where the suite runs under the loop: stat on a denied path is refused.
         self.make(self.root, [".ssh", ".aws"])
-        stat_of = os.stat
+        ssh, aws = str((self.root / ".ssh").resolve()), str((self.root / ".aws").resolve())
+        stat_of, lstat_of = os.stat, os.lstat
 
-        def refuse(path, *args, **kwargs):
-            if str(path).endswith("/.ssh"):
-                raise PermissionError(1, "Operation not permitted", str(path))
-            return stat_of(path, *args, **kwargs)
+        def refusing(real):
+            def refuse(path, *args, **kwargs):
+                if str(path).endswith("/.ssh"):
+                    raise PermissionError(1, "Operation not permitted", str(path))
+                return real(path, *args, **kwargs)
+            return refuse
 
-        with mock.patch.object(loop.os, "stat", side_effect=refuse):
-            profile = loop.sandbox_profile(self.root, self.root / "factory")
-        self.assertEqual(self.denied(profile), [str((self.root / ".aws").resolve())])
+        with mock.patch.object(loop.os, "stat", side_effect=refusing(stat_of)), \
+                mock.patch.object(loop.os, "lstat", side_effect=refusing(lstat_of)):
+            profile = loop.sandbox_profile(self.root, self.root / "factory", {})
+        self.assertIn(ssh, self.denied(profile))
+        self.assertIn(aws, self.denied(profile))
+
+    def test_xdg_config_home_and_gh_config_dir_add_the_folders_they_move_credentials_to(self):
+        home, root = self.root / "home", self.root / "factory"
+        plain = loop.sandbox_profile(home, root, {})
+
+        def added(environ):
+            return [p for p in self.denied(loop.sandbox_profile(home, root, environ)) if p not in self.denied(plain)]
+
+        # The credential folders under it, not the folder itself, where every tool keeps its config.
+        self.assertEqual(sorted(added({"XDG_CONFIG_HOME": "/x/cfg"})),
+                         ["/x/cfg/gcloud", "/x/cfg/gh", "/x/cfg/git", "/x/cfg/op"])
+        self.assertEqual(added({"GH_CONFIG_DIR": "/y/gh"}), ["/y/gh"])
+        # Renaming the folder that holds them is guarded: XDG_CONFIG_HOME itself, and GH_CONFIG_DIR's parent.
+        for environ, folder in (({"XDG_CONFIG_HOME": "/x/cfg"}, "/x/cfg"), ({"GH_CONFIG_DIR": "/y/gh"}, "/y")):
+            guarded = self.guarded(loop.sandbox_profile(home, root, environ))
+            self.assertEqual([f for f in guarded if f not in self.guarded(plain)], [folder], environ)
+        with mock.patch.dict(os.environ, {"GH_CONFIG_DIR": "/y/gh"}):  # os.environ unless one is given
+            self.assertIn("/y/gh", self.denied(loop.sandbox_profile(home, root)))
+        for environ in ({"XDG_CONFIG_HOME": "", "GH_CONFIG_DIR": ""}, {"XDG_CONFIG_HOME": "cfg", "GH_CONFIG_DIR": "gh"},
+                        {"XDG_CONFIG_HOME": "./cfg", "GH_CONFIG_DIR": "~/gh"}):
+            with self.subTest(environ=environ):
+                self.assertEqual(loop.sandbox_profile(home, root, environ), plain)
+        under_root = str(root.resolve()) + "/"
+        both = loop.sandbox_profile(home, root, {"XDG_CONFIG_HOME": "/x/cfg", "GH_CONFIG_DIR": "/y/gh"})
+        self.assertEqual([p for p in self.denied(both) if p.startswith(under_root)],
+                         [p for p in self.denied(plain) if p.startswith(under_root)])
 
     def test_the_profile_lists_the_planned_paths(self):
         self.assertEqual(set(loop.SANDBOX_HOME_DENIED), {
-            ".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg", ".netrc",
-            ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains"})
+            ".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/git", ".config/op", ".azure", ".kube",
+            ".docker", ".gnupg", ".netrc", ".npmrc", ".pypirc", ".git-credentials", ".gitconfig",
+            ".m2/settings.xml", ".terraform.d", ".claude/.credentials.json", "Library/Keychains"})
         self.assertEqual(set(loop.SANDBOX_ROOT_DENIED), {"company", "local-data", ".inbox",
                                                          ".claude/settings.local.json"})
+
+    def test_the_probe_says_nothing_where_a_profile_applies_and_otherwise_why(self):
+        def ran(code, err=b"", out=b""):
+            return subprocess.CompletedProcess([], code, out, err)
+
+        for done, why in ((ran(0), None),
+                          (ran(71, b"sandbox-exec: sandbox_apply: Operation not permitted\nmore\n"),
+                           "sandbox-exec: sandbox_apply: Operation not permitted"),
+                          (ran(1, b"x" * 300), "x" * 200), (ran(1, out=b"said on stdout\n"), "said on stdout"),
+                          (ran(71), "exit 71")):
+            with self.subTest(why=why), mock.patch.object(loop.subprocess, "run", return_value=done) as run:
+                self.assertEqual(loop.sandbox_probe(), why)
+                self.assertEqual(run.call_args[0][0],
+                                 [loop.SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"])
+                self.assertEqual(run.call_args[1]["timeout"], 10)
+        for err, why in ((subprocess.TimeoutExpired("sandbox-exec", 10), "no answer in 10 seconds"),
+                         (FileNotFoundError(2, "No such file or directory"), "[Errno 2] No such file or directory")):
+            with self.subTest(why=why), mock.patch.object(loop.subprocess, "run", side_effect=err):
+                self.assertEqual(loop.sandbox_probe(), why)
 
     def test_the_sandbox_is_on_by_default_and_only_on_a_mac_with_sandbox_exec(self):
         self.assertIs(loop.DEFAULTS["sandbox_commands"], True)
@@ -4657,11 +4789,13 @@ class TestSandbox(unittest.TestCase):
                     mock.patch.object(loop.os.path, "exists", return_value=exists):
                 self.assertIs(loop.sandbox_available(), available)
 
-    def logged(self, available, **cfg):
-        """The log of a run inside tmux with nothing to work, sandbox_available() saying available."""
+    def logged(self, available, probe=None, **cfg):
+        """The log of a run inside tmux with nothing to work, sandbox_available() saying available and
+        sandbox_probe() answering probe, kept as self.probe to count its calls."""
         root = Path(tempfile.mkdtemp(dir=self.tmp.name))
         lp = loop.Loop(root, dict(loop.DEFAULTS, **cfg))
         with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop, "sandbox_probe", return_value=probe) as self.probe, \
                 mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
                 mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
             self.assertEqual(lp.locked(lambda: None), 0)
@@ -4671,23 +4805,82 @@ class TestSandbox(unittest.TestCase):
         lines = self.logged(False)
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN test_command, generate_command and setup_command run without a sandbox here", lines[1])
+        self.probe.assert_not_called()
 
     def test_with_the_sandbox_there_is_no_warn_and_off_a_mac_turning_it_off_adds_none(self):
         self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
+        self.assertEqual(self.probe.call_count, 1)
         self.assertEqual([l.split()[2] for l in self.logged(False, sandbox_commands=False)], ["START"])
+        self.probe.assert_not_called()
 
     def test_turning_the_sandbox_off_on_a_mac_is_one_warn_after_start(self):
         lines = self.logged(True, sandbox_commands=False)
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN sandbox_commands is false in the factory's loop.json", lines[1])
+        self.probe.assert_not_called()
 
-    def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
+    def test_where_sandbox_exec_cant_apply_a_profile_one_warn_follows_start_saying_why(self):
+        lines = self.logged(True, probe="sandbox_apply: Operation not permitted")
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again", lines[1])
+        self.assertEqual(self.probe.call_count, 1)
+
+    def real_sandbox(self):
+        """Skips the test unless sandbox-exec can apply a profile here: a Mac, and not inside another sandbox."""
         if not loop.sandbox_available():
             self.skipTest("needs macOS's sandbox-exec")
-        probe = subprocess.run([loop.SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
-                               capture_output=True)
-        if probe.returncode != 0:
+        if loop.sandbox_probe() is not None:
             self.skipTest("sandbox-exec can't start a sandbox here, as inside another sandbox")
+
+    def real_home(self):
+        """(home, tree, a Loop) for a real-Mac test, home holding a key, gh's folder, and git's global config,
+        which it stops on where reading it is refused, and its default ignore and attributes files. The caller
+        patches HOME to home, not just Path.home: git finds its global config through it."""
+        home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
+        for folder in (home / ".ssh", home / ".config" / "gh", home / ".config" / "git", tree, factory):
+            folder.mkdir(parents=True)
+        (home / ".ssh" / "key").write_text("x")
+        (home / ".gitconfig").write_text("[user]\n\tname = Home\n")
+        (home / ".config" / "git" / "config").write_text("[user]\n\tname = Xdg\n")
+        (home / ".config" / "git" / "ignore").write_text("*.ignored\n")
+        (home / ".config" / "git" / "attributes").write_text("*.txt text\n")
+        return home, tree, loop.Loop(factory, dict(loop.DEFAULTS))
+
+    def at_home(self, home):
+        """os.environ with HOME at home, and no XDG_CONFIG_HOME or GH_CONFIG_DIR to move what's denied."""
+        environ = {k: v for k, v in os.environ.items() if k not in ("XDG_CONFIG_HOME", "GH_CONFIG_DIR")}
+        return mock.patch.dict(os.environ, dict(environ, HOME=str(home)), clear=True)
+
+    def test_on_a_real_mac_git_runs_without_its_global_config_and_says_nothing_about_it(self):
+        self.real_sandbox()
+        home, tree, lp = self.real_home()
+        with self.at_home(home):
+            code, out = lp.own_command("git init -q && git status", tree)
+        self.assertEqual(code, 0, out)
+        # Git reads ~/.config/git/ignore and attributes whatever GIT_CONFIG_GLOBAL says, and warns where
+        # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
+        self.assertNotIn("unable to access", out)
+
+    def test_on_a_real_mac_a_denied_path_cant_be_renamed_or_made_and_the_rest_can(self):
+        self.real_sandbox()
+        home, tree, lp = self.real_home()
+        at_home = "cd {} && ".format(shlex.quote(str(home)))
+        with self.at_home(home):
+            for command in ("mv .ssh .ssh2", "mv .config .c2"):
+                code, out = lp.own_command(at_home + command, tree)
+                self.assertNotEqual(code, 0, command)
+                self.assertIn("Operation not permitted", out, command)
+            self.assertTrue((home / ".ssh" / "key").exists() and (home / ".config" / "gh").is_dir())
+            # .netrc isn't there: what's written where it would be can't be written or read back.
+            code, out = lp.own_command(at_home + "printf MADE-HERE > .netrc; cat .netrc", tree)
+            self.assertNotEqual(code, 0)
+            self.assertNotIn("MADE-HERE", out)
+            self.assertFalse(os.path.exists(home / ".netrc"))
+            self.assertEqual(lp.own_command(at_home + "mkdir -p .config/other .m2/repository/x && printf made", tree),
+                             (0, "made"))
+
+    def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
+        self.real_sandbox()
         home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
         for folder in (home / ".ssh", home / ".cache", tree, factory):
             folder.mkdir(parents=True)
