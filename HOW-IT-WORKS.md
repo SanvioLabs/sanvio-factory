@@ -612,7 +612,10 @@ grade isn't the reviewer's: it comes from the verdict and the checks, scored by
 each of five keys a whole number from 0 to 10: `ready`, `ready with nits` and
 `changes needed` for the verdicts, `failing` for a reviewed commit with a check
 run that finished and didn't pass (success, neutral and skipped pass), and
-`unreadable` for a verdict that isn't one of the three. The checks are the
+`unreadable` for a verdict that isn't one of the three. When a person runs
+`review-pr` by hand on a pull request, the skill grades from the same rubric in
+the same order, and ends with the grade line and then a `Verdict:` line; the
+loop and CI grade their own runs. The checks are the
 reviewed commit's check runs, not the pull request's newer head. A commit with
 no check runs counts as passing, and the grade says `no checks ran`. While a
 check is still running, or GitHub can't say, the trailer reads `Grade pending:
