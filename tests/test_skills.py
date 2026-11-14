@@ -816,5 +816,65 @@ class OrientationRecordTest(unittest.TestCase):
         self.assertIn("anyone other than the person in this session", step)
 
 
+class OrientationDataSourcesTest(unittest.TestCase):
+    """Orientation records each source's owner, quality and last-checked date in company/DATA.md."""
+
+    SKILL = ROOT / "skills" / "orientation" / "SKILL.md"
+    COLUMNS = ["Source", "What's there", "How you reach it", "Cleared for this tool", "Owner", "Quality", "Last checked"]
+    QUALITY = ("source of record", "copy", "partial", "unknown")
+
+    def raw_step(self, start, end):
+        text = self.SKILL.read_text()
+        self.assertIn(start, text, "orientation has no {}".format(start))
+        return text[text.index(start):text.index(end)]
+
+    def step(self, start, end):
+        return " ".join(self.raw_step(start, end).split())
+
+    def cells(self, line):
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+    def header(self):
+        lines = [line for line in self.raw_step("### 4.", "### 5.").splitlines() if line.startswith("| Source")]
+        self.assertTrue(lines, "step 4 has no DATA.md table")
+        return self.cells(lines[0])
+
+    def rows(self):
+        lines = [line for line in self.raw_step("### 4.", "### 5.").splitlines()
+                 if line.startswith("|") and not line.startswith("| Source") and not line.startswith("|---")]
+        self.assertTrue(lines, "step 4's table has no example rows")
+        return [self.cells(line) for line in lines]
+
+    def test_the_header_has_the_seven_columns_in_order(self):
+        self.assertEqual(self.header(), self.COLUMNS)
+
+    def test_the_cleared_column_did_not_move_and_never_holds_unknown(self):
+        self.assertEqual(self.header().index("Cleared for this tool"), 3)
+        for row in self.rows():
+            self.assertIn(row[3], ("yes", "unconfirmed"), row)
+            self.assertNotEqual(row[3], "unknown", row)
+
+    def test_each_example_row_has_seven_cells_a_quality_and_a_date(self):
+        for row in self.rows():
+            self.assertEqual(len(row), 7, row)
+            self.assertIn(row[5], self.QUALITY, row)
+            self.assertRegex(row[6], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_step_4_states_the_date_format(self):
+        self.assertIn("YYYY-MM-DD", self.step("### 4.", "### 5."))
+
+    def test_step_3_asks_owner_and_quality_for_each_source(self):
+        step = self.step("### 3.", "### 4.")
+        for words in ("who owns it", "the source of record or a copy", "unknown", "rather than guessing"):
+            self.assertIn(words, step)
+        for value in self.QUALITY:
+            self.assertIn("`{}`".format(value), step)
+
+    def test_step_3_left_the_clearance_question_alone(self):
+        step = self.step("### 3.", "### 4.")
+        self.assertIn("Then ask two things, once, for the whole list", step)
+        self.assertIn("mark the source `unconfirmed`", step)
+
+
 if __name__ == "__main__":
     unittest.main()
