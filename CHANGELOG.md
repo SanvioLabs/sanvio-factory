@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: The sandbox denies more and can't be stepped around
+
+The sandbox around `test_command`, `generate_command` and `setup_command` now denies writing as well as reading, and covers `~/.git-credentials`, `~/.gitconfig`, `~/.config/git`, `~/.m2/settings.xml`, `~/.terraform.d` and `~/.config/op`, plus the credential folders under `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` where those are set. A path that isn't there yet is denied too, and no folder from your home folder down to a denied path can be renamed, the folders holding the factory included, so a command can't make or move its way to one. Because `~/.gitconfig` is out of reach, those commands run with `GIT_CONFIG_GLOBAL=/dev/null`, and with git's `core.excludesFile` and `core.attributesFile` at `/dev/null`, so git doesn't warn about the files under `~/.config/git`. When the loop starts, it checks that `sandbox-exec` can apply a profile; where it can't, as inside another sandbox, it logs one `WARN` line saying why and runs the commands without it, rather than failing every one.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** restart the loop. A project whose tests rely on `~/.gitconfig`, say for `user.name` when they commit, sets it in the tests' own setup or through `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`.
+
 ## 2026-11-13: Caller projects hold outside work for a person
 
 `caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
