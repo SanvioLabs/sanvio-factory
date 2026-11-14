@@ -242,5 +242,97 @@ class Incidents(unittest.TestCase):
             self.assertNotIn("incidents.md", bullet, bullet.splitlines()[0])
 
 
+class Decisions(unittest.TestCase):
+    """steering/decisions.md points at the rule for each step a person decides; it never restates one."""
+    PATH = ROOT / "steering" / "decisions.md"
+    HEADER = "| Decision | Who decides | Where the rule lives |"
+    LINK = re.compile(r"\]\(([^)]+)\)")
+    # (Decision, Who decides, the files its third cell links to, from the repo root)
+    ROWS = [
+        ("Sending, emailing or publishing anything", "A person, who sends it themselves",
+         {"AGENTS.md"}),
+        ("A connector call that sends, edits, deletes or shares", "The person in the session, a yes to that one call",
+         {"AGENTS.md"}),
+        ("Merging a pull request", "A person, unless the factory's owner has turned on `auto_merge`",
+         {"AGENTS.md", "HOW-IT-WORKS.md"}),
+        ("Turning on `auto_merge`", "The factory's owner, never the agent",
+         {"AGENTS.md"}),
+        ("A price, a contract, a send to a customer",
+         "The person named under `## Who decides` in the company record",
+         {"skills/orientation/COMPANY.example.md"}),
+        ("Using a data source marked `unconfirmed`", "A person, in this session",
+         {"skills/orientation/SKILL.md"}),
+        ("Editing a gate to make work pass",
+         "Nobody: it isn't done. Changing a gate is a person's deliberate change",
+         {"AGENTS.md", "steering/gates.md"}),
+        ("Writing a new rule from a lesson", "The person, a yes to the rule as shown",
+         {"skills/learn/SKILL.md"}),
+        ("Turning off the usage log",
+         "The person running the session, unless an administrator's managed setting keeps it on",
+         {"steering/data-and-tools.md"}),
+        ("Turning off the loop's command sandbox", "The factory's owner, in the factory's `loop.json`",
+         {"HOW-IT-WORKS.md"}),
+        ("Adding an AI tool or MCP server",
+         "Whoever agrees it with the customer, before any customer information reaches it",
+         {"steering/data-and-tools.md"}),
+        ("Deploying to production", "A person, a yes to that one deploy",
+         {"steering/deploying.md"}),
+        ("Deleting or overwriting data, test data included", "A person, asked first",
+         {"steering/deploying.md"}),
+    ]
+
+    def rows(self):
+        return [line for line in self.PATH.read_text().splitlines() if line.startswith("|")]
+
+    def cells(self):
+        """Each body row's cells, keyed by its Decision cell."""
+        body = [line for line in self.rows()[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
+        found = {}
+        for line in body:
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            found[cells[0]] = cells
+        return found
+
+    def target(self, link):
+        return (ROOT / "steering" / link).resolve().relative_to(ROOT.resolve()).as_posix()
+
+    def test_header_row(self):
+        self.assertTrue(self.PATH.is_file(), "no steering/decisions.md")
+        self.assertEqual(self.rows()[:1], [self.HEADER])
+
+    def test_each_decision_has_its_row(self):
+        found = self.cells()
+        for decision, who, files in self.ROWS:
+            self.assertIn(decision, found, "no row for: " + decision)
+            cells = found[decision]
+            self.assertEqual(len(cells), 3, decision)
+            self.assertEqual(cells[1], who, decision)
+            self.assertEqual({self.target(link) for link in self.LINK.findall(cells[2])}, files, decision)
+
+    def test_every_link_resolves(self):
+        links = self.LINK.findall(self.PATH.read_text())
+        self.assertTrue(links)
+        for link in links:
+            self.assertTrue((ROOT / "steering" / link).is_file(), link)
+
+    def test_linked_file_wins(self):
+        self.assertIn("the linked file wins", self.PATH.read_text())
+
+    def test_decisions_is_read_when_not_imported(self):
+        """An @ import would load it in every session, and Kiro's check would then want it linked."""
+        imported = {Path(target).name for target in IMPORT.findall(AGENTS)}
+        self.assertNotIn("decisions.md", imported)
+
+    def test_existing_rules_unchanged(self):
+        text = " ".join(AGENTS.split())
+        self.assertIn("Never send, email or publish anything.", text)
+        self.assertIn("never edit a gate to make work pass", text)
+
+    def test_rules_line_points_at_it(self):
+        rules = section(AGENTS, "## Rules", "## ")
+        self.assertIn("steering/decisions.md", rules)
+        self.assertIn("who decides", rules)
+
+
 if __name__ == "__main__":
     unittest.main()

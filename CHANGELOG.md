@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: What the agent never decides alone
+
+[`steering/decisions.md`](steering/decisions.md) lists, in one table, the steps the agent never takes alone (sending, merging, deploying, deleting and the rest), who decides each and the file where its rule lives, and a new line in [`AGENTS.md`](AGENTS.md)'s Rules says to stop and name who decides before any of them.
+
+Files: [`steering/decisions.md`](steering/decisions.md), [`AGENTS.md`](AGENTS.md), [`tests/test_steering.py`](tests/test_steering.py).
+
+**Do:** nothing.
+
 ## 2026-11-14: Factory updates warns about code beside an untaken entry's
 
 [`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.
