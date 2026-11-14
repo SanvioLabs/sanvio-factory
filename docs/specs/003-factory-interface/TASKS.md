@@ -24,7 +24,7 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
   - Security: SEC-002
   - Depends on: None
   - Verification: `TESTS`
-- [ ] T002 With `fork` set, add it as a `fork` remote in the clone and push each `loop/issue-N` there (line 3312), never to `origin`. The merge pass that keeps both `CHANGELOG.md` entries (line 3535) pushes there too
+- [ ] T002 With `fork` set, add it as a `fork` remote in the clone and push each `loop/issue-N` there (line 3312), never to `origin`. The merge pass that keeps both [`CHANGELOG.md`](../../../CHANGELOG.md) entries (line 3535) pushes there too
   - Requirements: REQ-001
   - Acceptance: AC-001
   - Depends on: T001

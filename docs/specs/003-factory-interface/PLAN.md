@@ -22,9 +22,9 @@ Read for this plan:
   - `SANDBOX_DENY_READ` and `sandbox_settings()` (lines 873 and 877), `env_for_agents()` (line 918), and `Loop.argv()` (line 2346), which builds a build agent's `--settings`
   - `Loop.discover()` and `Loop.fresh()` (lines 2578 and 2620), where an issue is picked and then vouched for
   - `Loop.open_pr()` (line 2788), which takes only a pull request with `isCrossRepository` false, and `Loop.from_origin()`
-  - the two pushes: an issue's branch (line 3312) and the merge pass that keeps both `CHANGELOG.md` entries (line 3535)
+  - the two pushes: an issue's branch (line 3312) and the merge pass that keeps both [`CHANGELOG.md`](../../../CHANGELOG.md) entries (line 3535)
   - `pr_body()` (line 1440), `auto_merge_problem()` (line 1643) and `Loop.merge_when_ready()` (line 4194)
-- [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py): `PRIVATE_FOLDERS` and the headless rules. It keeps `company/`, `local-data/`, `.inbox/` and `factories/` from a headless run, and nothing keeps one `projects/` clone from another.
+- [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py): `PRIVATE_FOLDERS` and the headless rules. It keeps `company/`, `local-data/`, `.inbox/` and [`factories/`](../../../factories/) from a headless run, and nothing keeps one [`projects/`](../../../projects/) clone from another.
 - [`factories/README.md`](../../../factories/README.md): the contract from the caller's side, and *Getting to ready*.
 - [`scripts/factories.py`](../../../scripts/factories.py): how a caller's harness reads ready. Unchanged here.
 - Factory issue #421, which this spec takes in whole.
