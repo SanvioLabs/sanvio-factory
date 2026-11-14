@@ -46,6 +46,16 @@ Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/loop.py`](scripts/loop.py), [`s
 
 **Do:** nothing. The fields start with the next run that ends.
 
+## 2026-11-14: Raise a concern
+
+A *Raise a concern* issue template lets anyone flag a worry about what the agent did or produced, labelled `concern` and routed by [`steering/incidents.md`](steering/incidents.md) to the AI risk owner the company record names under `## Who decides`.
+
+**Needs:** 2026-11-11: Incident steering file; 2026-10-29: Tickets carry a type label
+
+Files: [`.github/ISSUE_TEMPLATE/concern.md`](.github/ISSUE_TEMPLATE/concern.md), [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md), [`steering/incidents.md`](steering/incidents.md), [`steering/tickets.md`](steering/tickets.md), [`tests/test_steering.py`](tests/test_steering.py).
+
+**Do:** run `gh label create concern --description "A worry about what the agent did"`, and name the AI risk owner under `## Who decides` in `company/COMPANY.md`.
+
 ## 2026-11-14: Owner, quality and date in DATA.md
 
 [`skills/orientation/`](skills/orientation/SKILL.md) now asks, for each data source, who owns it and whether it's the source of record, a copy, partial or unknown, and writes `unknown` rather than guessing. The `company/DATA.md` it drafts gains Owner, Quality and Last checked columns after Cleared for this tool, which stays where inbox, standup and pulse read it.
