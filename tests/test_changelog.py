@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+NEEDS = re.compile(r"^\*\*Needs:\*\* (.+)$", re.M)
 
 
 def entries(text):
@@ -32,6 +33,13 @@ def problems(text):
     for _, name, body in items:
         if "**Do:**" not in body:
             found.append("'{}' has no **Do:** line".format(name))
+    # A Needs item that isn't an older entry's heading would read as "not taken" in every copy.
+    headings = ["{}: {}".format(date, name) for date, name, _ in items]
+    for i, (_, name, body) in enumerate(items):
+        for line in NEEDS.findall(body):
+            for need in line.split("; "):
+                if need not in headings[i + 1:]:
+                    found.append("'{}' needs '{}', and no entry below it has that heading".format(name, need))
     return found
 
 
@@ -67,6 +75,14 @@ class Changelog(unittest.TestCase):
 
     def test_a_log_with_no_entries_fails(self):
         self.assertTrue(problems("# What's new\n\nNothing yet.\n"))
+
+    def test_each_needs_item_is_the_heading_of_an_entry_below_it(self):
+        good = GOOD.replace("Adds a thing.\n", "Adds a thing.\n\n**Needs:** 2026-10-08: First\n")
+        self.assertEqual(problems(good), [])
+        typo = good.replace("**Needs:** 2026-10-08: First", "**Needs:** 2026-10-08: Frist")
+        self.assertEqual(problems(typo), ["'Second' needs '2026-10-08: Frist', and no entry below it has that heading"])
+        above = GOOD.replace("**Do:** run the setup check.", "**Needs:** 2026-10-08: Second\n\n**Do:** run the setup check.")
+        self.assertEqual(problems(above), ["'First' needs '2026-10-08: Second', and no entry below it has that heading"])
 
 
 class WhatsNewCommands(unittest.TestCase):
@@ -177,12 +193,16 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.git(tmp, "init", "-q", "-b", "main", str(starter))
         (starter / "one.md").write_text("one\n")
         (starter / "two.md").write_text("two\n")
-        self.git(starter, "add", "one.md", "two.md")
+        (starter / "lines.md").write_text("from A\n")
+        self.git(starter, "add", "one.md", "two.md", "lines.md")
         self.commit(starter, self.LOG)
         self.sha = {"A": self.head(starter)}
-        for name in ("B", "C"):
-            self.add_heading(starter, "## 2026-10-0{}: {}".format(" ABC".index(name), name))
-            self.sha[name] = self.head(starter)
+        (starter / "lines.md").write_text("from A\nfrom B\n")
+        self.git(starter, "add", "lines.md")
+        self.add_heading(starter, "## 2026-10-02: B")
+        self.sha["B"] = self.head(starter)
+        self.add_heading(starter, "## 2026-10-03: C\n\nx\n\n**Needs:** 2026-10-02: B")
+        self.sha["C"] = self.head(starter)
         self.git(tmp, "clone", "-q", str(starter), self.env["clone"])
         self.git(tmp, "init", "-q", "-b", "main", str(self.copy))
         (self.copy / "one.md").write_text("one, adapted\n")
@@ -244,6 +264,48 @@ class StarterUpdatesCommands(unittest.TestCase):
     def test_an_upstream_without_the_capabilities_table_fails_the_command(self):
         cmd = self.command(self.CAPABILITIES) + " && echo found || echo missing"
         self.assertEqual(self.run_with(cmd), ["missing"])
+
+    def test_an_entrys_needs_are_listed_and_one_without_lists_nothing(self):
+        cmd = self.command('git -C "$clone" show "$sha" -- CHANGELOG.md | sed')
+        self.assertEqual(self.run_with(cmd, sha=self.sha["C"]), ["2026-10-02: B"])
+        self.assertEqual(self.run_with(cmd, sha=self.sha["B"]), [])
+
+    def test_a_needed_entry_in_the_baseline_is_taken(self):
+        need_sha = self.run_with(self.command('git -C "$clone" log --reverse --format=%H -S'),
+                                 heading="## 2026-10-02: B")
+        self.assertEqual(need_sha, [self.sha["B"]])
+        cmd = self.command('git -C "$clone" merge-base --is-ancestor') + " && echo taken || echo not"
+        self.assertEqual(self.run_with(cmd, need_sha=need_sha[0], base=self.sha["B"]), ["taken"])
+        self.assertEqual(self.run_with(cmd, need_sha=need_sha[0], base=self.sha["A"]), ["not"])
+
+    def test_a_needed_entry_the_copys_log_names_is_taken(self):
+        cmd = self.command('grep -qF -- "$need" CHANGELOG.md') + " && echo taken || echo not"
+        log = self.copy / "CHANGELOG.md"
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["taken"])
+        log.write_text("# What's new\n\n## 2026-10-04: Copy-only\n\n- Took \"2026-10-02: B\" from Sanvio Factory.\n")
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["taken"])
+        log.write_text("# What's new\n\n## 2026-10-04: Copy-only\n\nx\n")
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["not"])
+
+    def test_the_blame_backstop_names_the_commit_whose_lines_a_commit_changes(self):
+        (self.starter / "lines.md").write_text("new first line\nfrom A\nfrom B, edited\n")
+        self.git(self.starter, "add", "lines.md")
+        self.git(self.starter, "commit", "-q", "-m", "edit lines")
+        sha = self.head(self.starter)
+        self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
+        hunks = self.run_with(self.command('git -C "$clone" show -U0'), sha=sha, path="lines.md")
+        self.assertEqual(hunks, ["0 0", "2 1"])  # an added line, then "from B" changed
+        blame = self.command('git -C "$clone" blame')
+        blamed = set()
+        for hunk in hunks:
+            start, count = hunk.split()
+            if count == "0":
+                continue
+            for line in self.run_with(blame, sha=sha, path="lines.md", start=start, count=count):
+                blamed.add(line.split()[0].lstrip("^"))
+        self.assertEqual(len(blamed), 1, blamed)
+        self.assertFalse(self.sha["A"].startswith(next(iter(blamed))))
+        self.assertTrue(self.sha["B"].startswith(next(iter(blamed))))
 
 
 if __name__ == "__main__":
