@@ -242,5 +242,76 @@ class Incidents(unittest.TestCase):
             self.assertNotIn("incidents.md", bullet, bullet.splitlines()[0])
 
 
+def front_matter(text):
+    """The lines between a file's opening --- and the next ---."""
+    match = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    return match.group(1).splitlines() if match else []
+
+
+def paragraph(text, start):
+    """The blank-line-separated paragraph that begins with start."""
+    return next((p for p in re.split(r"\n\s*\n", text) if p.startswith(start)), "")
+
+
+class Concern(unittest.TestCase):
+    TEMPLATES = ROOT / ".github" / "ISSUE_TEMPLATE"
+    TEMPLATE = TEMPLATES / "concern.md"
+    INCIDENTS = ROOT / "steering" / "incidents.md"
+    TICKETS = ROOT / "steering" / "tickets.md"
+    COMPANY = ROOT / "skills" / "orientation" / "COMPANY.example.md"
+    TYPES = ("bug", "enhancement", "documentation", "chore")
+
+    def labels(self, path):
+        lines = [line for line in front_matter(path.read_text()) if line.startswith("labels:")]
+        self.assertEqual(len(lines), 1, "{} has no single labels: line".format(path.name))
+        return lines[0][len("labels:"):].strip()
+
+    def test_the_template_is_named_and_labelled_concern(self):
+        self.assertTrue(self.TEMPLATE.is_file(), "no .github/ISSUE_TEMPLATE/concern.md")
+        lines = front_matter(self.TEMPLATE.read_text())
+        self.assertIn("name: Raise a concern", lines)
+        self.assertIn("labels: concern", lines)
+
+    def test_the_template_has_its_three_sections_in_order(self):
+        headings = [line for line in self.TEMPLATE.read_text().splitlines() if line.startswith("## ")]
+        self.assertEqual(headings, ["## What happened", "## Where", "## What harm you think it does"])
+
+    def test_the_template_sends_vulnerabilities_elsewhere_and_keeps_secrets_and_data_out(self):
+        text = self.TEMPLATE.read_text()
+        for phrase in (".github/SECURITY.md", "credential", "personal data", "documents"):
+            self.assertIn(phrase, text)
+
+    def test_the_template_carries_no_type_or_loop_label(self):
+        labels = {label.strip() for label in self.labels(self.TEMPLATE).split(",")}
+        for name in ("loop-ready",) + self.TYPES:
+            self.assertNotIn(name, labels)
+
+    def test_the_task_template_still_has_no_label(self):
+        self.assertEqual(self.labels(self.TEMPLATES / "loop-task.md"), '""')
+
+    def test_incidents_routes_a_concern_to_the_ai_risk_owner(self):
+        text = section(self.INCIDENTS.read_text(), "## Who to tell, and how soon", "## ")
+        for phrase in ("concern", "AI risk owner", "Who decides", "incident"):
+            self.assertIn(phrase, text)
+
+    def test_the_incident_contact_still_comes_from_the_incidents_section(self):
+        text = section(self.INCIDENTS.read_text(), "## Who to tell, and how soon", "## ")
+        self.assertIn("from the `## Incidents`", text)
+
+    def test_tickets_gives_a_concern_no_type_label(self):
+        self.assertIn("concern", paragraph(self.TICKETS.read_text(), "**One type label.**"))
+
+    def test_every_other_issue_still_takes_exactly_one_type(self):
+        text = paragraph(self.TICKETS.read_text(), "**One type label.**")
+        self.assertIn("exactly one of", text)
+        for name in self.TYPES:
+            self.assertIn("`{}`".format(name), text)
+
+    def test_the_company_template_asks_who_owns_ai_risk(self):
+        text = section(self.COMPANY.read_text(), "## Who decides", "## ")
+        self.assertIn("AI risk", text)
+        self.assertIn("concern", text)
+
+
 if __name__ == "__main__":
     unittest.main()

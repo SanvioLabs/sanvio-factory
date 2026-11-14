@@ -36,7 +36,7 @@ section empty rather than guess: an empty section tells the agent to ask.
 
 ## Who decides
 
-<!-- Who approves a price, a contract, a send to a customer. The agent asks them, never decides for them. -->
+<!-- Who approves a price, a contract, a send to a customer. The agent asks them, never decides for them. Also who owns AI risk: the person who reads concerns raised with the `concern` label. -->
 
 ## Words that mean something here
 
