@@ -324,7 +324,7 @@ class StarterUpdatesCommands(unittest.TestCase):
 
     HUNKS = 'git -C "$clone" show -U0'
     BLAME = 'git -C "$clone" blame -s -L "$start'
-    RANGES = 'git -C "$clone" cat-file -e'
+    RANGES = 'git -C "$clone" cat-file -e "$sha^'
     NEARBY_BLAME = 'git -C "$clone" blame -s -L "$first'
 
     def upstream_commit(self, name, text, message):
