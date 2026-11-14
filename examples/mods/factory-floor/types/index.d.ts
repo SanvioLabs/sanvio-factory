@@ -85,4 +85,4 @@ declare module 'claude-code' {
 
 // Each station's tokens and cost in the current run, from usage.json. Null: no entry reported one.
 // The stations are crew-logic.ts's Station, written out: this contract has to stand alone.
-export type CrewSpend = Record<'start' | 'plan' | 'test' | 'build' | 'check' | 'ship', { tokens: number | null; cost: number | null }>
+export type CrewSpend = Record<'discover' | 'shape' | 'test' | 'build' | 'validate' | 'scale', { tokens: number | null; cost: number | null }>

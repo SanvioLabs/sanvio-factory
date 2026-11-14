@@ -14,24 +14,26 @@ export function isListed(loops: Seen[], value: string): boolean {
   return loops.some(loop => (loop.project ?? '') === value)
 }
 
+// The loop's own step names, as .loop/loop.log writes them, in lower case: what the lane says matches the log.
 const WORDS: Record<string, string> = {
-  SHAPE: 'planning',
-  TEST: 'writing tests',
-  BUILD: 'building',
-  VALIDATE: 'checking',
-  SCALE: 'opening the pull request',
+  SHAPE: 'shape',
+  TEST: 'test',
+  BUILD: 'build',
+  VALIDATE: 'validate',
+  SCALE: 'scale',
 }
 
-// What a step reads as. A step this doesn't know is shown lowercased, as written.
+// What a step reads as. A step this doesn't know is shown lowercased, as written, and no step yet is
+// discover: the loop logs DISCOVER when it picks an issue, before the row has a step.
 export function word(step: string): string {
-  return Object.keys(WORDS).includes(step) ? WORDS[step]! : step.toLowerCase() || 'starting'
+  return Object.keys(WORDS).includes(step) ? WORDS[step]! : step.toLowerCase() || 'discover'
 }
 
 export function roundText(round: number): string {
   return round > 0 ? `round ${round}` : ''
 }
 
-// A lane's step words: building, round 2. The word alone at round 0.
+// A lane's step words: build, round 2. The word alone at round 0.
 export function stepLine(row: Row): string {
   return [word(row.step), roundText(row.round)].filter(Boolean).join(', ')
 }
@@ -48,27 +50,28 @@ export function scene(seen: Seen | null): { message: string | null; rows: Row[] 
   return rows.length ? { message: null, rows } : { message: NOTHING, rows: [] }
 }
 
-export type Station = 'start' | 'plan' | 'test' | 'build' | 'check' | 'ship'
+// Named for the loop's steps, so the header reads as .loop/loop.log does.
+export type Station = 'discover' | 'shape' | 'test' | 'build' | 'validate' | 'scale'
 
 // The order along the loop's path, which is the order left to right.
-export const STATIONS: Station[] = ['start', 'plan', 'test', 'build', 'check', 'ship']
+export const STATIONS: Station[] = ['discover', 'shape', 'test', 'build', 'validate', 'scale']
 const LAST = STATIONS.length - 1
 
-const STEP_STATIONS: Record<string, Station> = { SHAPE: 'plan', TEST: 'test', BUILD: 'build', VALIDATE: 'check', SCALE: 'ship' }
+const STEP_STATIONS: Record<string, Station> = { SHAPE: 'shape', TEST: 'test', BUILD: 'build', VALIDATE: 'validate', SCALE: 'scale' }
 
-// Where a step is worked. An empty step and any step this doesn't know wait at the start.
+// Where a step is worked. An empty step and any step this doesn't know wait at discover.
 export function stationOf(step: string): Station {
-  return Object.keys(STEP_STATIONS).includes(step) ? STEP_STATIONS[step]! : 'start'
+  return Object.keys(STEP_STATIONS).includes(step) ? STEP_STATIONS[step]! : 'discover'
 }
 
 // Each station's colour, cool to warm along the path, so a lane's lit rail shows how far it has come.
 export const ACCENT: Record<Station, number> = {
-  start: 0x94a3b8,
-  plan: 0xa78bfa,
+  discover: 0x94a3b8,
+  shape: 0xa78bfa,
   test: 0x22d3ee,
   build: 0xfbbf24,
-  check: 0x34d399,
-  ship: 0xf472b6,
+  validate: 0x34d399,
+  scale: 0xf472b6,
 }
 export const accentText = (station: Station): string => hex(ACCENT[station])
 
@@ -125,8 +128,8 @@ export type Pose = { ms: number; frame: string[] }
 
 const STAND = ['.h.', 'aaa', '.a.', 'a.a', 'a.a']
 export const ACTS: Record<Station, Pose[]> = {
-  start: [{ ms: 1000, frame: STAND }],
-  plan: [
+  discover: [{ ms: 1000, frame: STAND }],
+  shape: [
     { ms: 520, frame: ['.h..', 'aaat', '.a..', 'a.a.', 'a.a.'] },
     { ms: 320, frame: ['.h..', 'aaa.', '.a.t', 'a.a.', 'a.a.'] },
   ],
@@ -139,11 +142,11 @@ export const ACTS: Record<Station, Pose[]> = {
     { ms: 90, frame: ['.h..', 'aatt', '.a..', 'a.a.', 'a.a.'] },
     { ms: 160, frame: ['.h..', 'aaa.', '.a.t', 'a.a.', 'a.a.'] },
   ],
-  check: [
+  validate: [
     { ms: 700, frame: ['.h.t', 'aaa.', '.a..', 'a.a.', 'a.a.'] },
     { ms: 700, frame: ['.h..', 'aaat', '.a..', 'a.a.', 'a.a.'] },
   ],
-  ship: [
+  scale: [
     { ms: 260, frame: ['.h..', 'aaat', '.a.t', 'a.a.', 'a.a.'] },
     { ms: 260, frame: ['.h..', 'aaat', '.a.t', '.a..', 'a.a.'] },
   ],
@@ -179,16 +182,16 @@ const easeOut = (t: number): number => 1 - (1 - t) ** 3
 const easeIn = (t: number): number => t * t * t
 const fadeEnd = (ms: number, length: number, last = 280): number => clamp01((length - ms) / last)
 
-const EFFECT_CYCLE: Record<Station, number> = { start: 1200, plan: 1680, test: 2000, build: 2400, check: 1400, ship: 1440 }
+const EFFECT_CYCLE: Record<Station, number> = { discover: 1200, shape: 1680, test: 2000, build: 2400, validate: 1400, scale: 1440 }
 
 // Two lines of a plan being ruled in. Every effect stays in the 5 rows above the rail, mostly in its
 // station's colour, so the work reads at a glance and nothing flickers.
 function planEffect(ms: number): Px[] {
   const out: Px[] = []
-  const fade = fadeEnd(ms, EFFECT_CYCLE.plan)
+  const fade = fadeEnd(ms, EFFECT_CYCLE.shape)
   ;[[1, 6, 0], [3, 4, 420]].forEach(([y, length, delay]) => {
     const drawn = Math.floor(easeOut(clamp01((ms - delay!) / 520)) * length!)
-    for (let x = 0; x < drawn; x++) out.push({ x, y: y!, colour: ACCENT.plan, alpha: fade })
+    for (let x = 0; x < drawn; x++) out.push({ x, y: y!, colour: ACCENT.shape, alpha: fade })
   })
   return out
 }
@@ -223,9 +226,9 @@ function buildEffect(ms: number): Px[] {
 // A page of three lines and a bar reading across and back.
 function checkEffect(ms: number, ink: Ink): Px[] {
   const out: Px[] = []
-  const t = ms / EFFECT_CYCLE.check
+  const t = ms / EFFECT_CYCLE.validate
   const bar = Math.round((t < 0.5 ? easeInOut(t * 2) : easeInOut(2 - t * 2)) * 5)
-  for (const y of [0, 2, 4]) for (let x = 0; x < 6; x++) out.push({ x, y, colour: x === bar ? ACCENT.check : ink.rail, alpha: 1 })
+  for (const y of [0, 2, 4]) for (let x = 0; x < 6; x++) out.push({ x, y, colour: x === bar ? ACCENT.validate : ink.rail, alpha: 1 })
   return out
 }
 
@@ -235,23 +238,23 @@ function shipEffect(ms: number): Px[] {
   const go = clamp01(ms / 900)
   const place = ms < 900 ? Math.round(easeIn(go) * 4) : 0
   const alpha = ms < 900 ? (go < 0.8 ? 1 : clamp01((1 - go) / 0.2)) : clamp01((ms - 1100) / 300)
-  for (let y = 2; y < 5; y++) for (let x = 0; x < 3; x++) out.push({ x: place + x, y, colour: ACCENT.ship, alpha })
+  for (let y = 2; y < 5; y++) for (let x = 0; x < 3; x++) out.push({ x: place + x, y, colour: ACCENT.scale, alpha })
   return out
 }
 
 // Three dots taking turns: waiting to begin.
 function startEffect(ms: number): Px[] {
   return [0, 1, 2].map(i => {
-    const wave = Math.sin(((ms / EFFECT_CYCLE.start) - i / 6) * Math.PI * 2)
-    return { x: i * 2, y: 4, colour: ACCENT.start, alpha: 0.25 + 0.75 * Math.max(0, wave) }
+    const wave = Math.sin(((ms / EFFECT_CYCLE.discover) - i / 6) * Math.PI * 2)
+    return { x: i * 2, y: 4, colour: ACCENT.discover, alpha: 0.25 + 0.75 * Math.max(0, wave) }
   })
 }
 
 // What a station's work draws this far into its cycle, in pixels from where the work plays.
 export function effectAt(station: Station, ms: number, ink: Ink): Px[] {
   const at = ((ms % EFFECT_CYCLE[station]) + EFFECT_CYCLE[station]) % EFFECT_CYCLE[station]
-  const drawn = station === 'plan' ? planEffect(at) : station === 'test' ? testEffect(at, ink) : station === 'build' ? buildEffect(at)
-    : station === 'check' ? checkEffect(at, ink) : station === 'ship' ? shipEffect(at) : startEffect(at)
+  const drawn = station === 'shape' ? planEffect(at) : station === 'test' ? testEffect(at, ink) : station === 'build' ? buildEffect(at)
+    : station === 'validate' ? checkEffect(at, ink) : station === 'scale' ? shipEffect(at) : startEffect(at)
   return drawn.filter(px => px.alpha > 0.01)
 }
 
@@ -316,18 +319,18 @@ export function showsBoard(message: string | null, placement: Placement, now: nu
 export type Lane = { row: Row; station: Station; walk: Walk | null }
 
 export function lanesOf(placement: Placement, now: number): Lane[] {
-  const out = walkingOut(placement, now).map((o): Lane => ({ row: o.row, station: 'ship', walk: o.walk }))
+  const out = walkingOut(placement, now).map((o): Lane => ({ row: o.row, station: 'scale', walk: o.walk }))
   return [...placement.figures, ...out].sort((a, b) => a.row.number - b.row.number)
 }
 
-// The step each station's time comes from. The start has none.
-const STATION_STEPS: Record<Station, string | null> = { start: null, plan: 'SHAPE', test: 'TEST', build: 'BUILD', check: 'VALIDATE', ship: 'SCALE' }
+// The step each station's time comes from. Discover has none.
+const STATION_STEPS: Record<Station, string | null> = { discover: null, shape: 'SHAPE', test: 'TEST', build: 'BUILD', validate: 'VALIDATE', scale: 'SCALE' }
 
 // Whether a lane's current step is still being timed: not walking out, past the start, and started at a
 // time Date.parse reads. A Row built in code can carry one it can't, and that one never counts.
 export function isCounting(lane: Lane): boolean {
   const started = lane.row.step_started
-  return !lane.walk?.isOut && lane.station !== 'start' && typeof started === 'string' && !Number.isNaN(Date.parse(started))
+  return !lane.walk?.isOut && lane.station !== 'discover' && typeof started === 'string' && !Number.isNaN(Date.parse(started))
 }
 
 // Each station's time in seconds, or null for none. The current step, while it counts, adds the time
@@ -371,7 +374,7 @@ export type StageSpend = Spend[Station]
 
 // The usage.json step each station's spend comes from. Any other step, retro among them, counts for no
 // station, and start and ship never have spend.
-const SPEND_STATIONS: Record<string, Station> = { plan: 'plan', test: 'test', build: 'build', review: 'check' }
+const SPEND_STATIONS: Record<string, Station> = { plan: 'shape', test: 'test', build: 'build', review: 'validate' }
 const TOKEN_FIELDS = ['input_tokens', 'output_tokens', 'cache_write_tokens', 'cache_read_tokens']
 const isAmount = (v: unknown): v is number => isCount(v) && v >= 0
 
@@ -544,7 +547,7 @@ export function walkLeft(walk: Walk, columns: number, now: number): number {
 function paintRunner(canvas: Canvas, lane: Lane, now: number): void {
   const walk = lane.walk!
   const left = walkLeft(walk, canvas.columns, now)
-  const suit = walk.isOut ? ACCENT.ship : suitAt(unitsAt(walk, now))
+  const suit = walk.isOut ? ACCENT.scale : suitAt(unitsAt(walk, now))
   const stride = RUN[Math.floor((now - walk.start) / STRIDE_MS) % RUN.length]!
   paintFrame(canvas, walk.to < walk.from ? mirror(stride) : stride, Math.round(left), suit)
 }
@@ -632,16 +635,18 @@ export function spendCells(lane: Lane, columns: number, ink: Ink = DARK, spend?:
 }
 
 // The header: the stations left to right, over their nodes, each in its colour while anyone is working
-// there and dim otherwise.
+// there and dim otherwise. Each name is cut to its room, as the rows under it are, so a narrow terminal
+// keeps a blank column before the next: every name fits whole from 56 columns.
 export function headCells(lanes: Lane[], columns: number, ink: Ink = DARK): string {
   const out = new Uint32Array(columns * 3)
   for (let x = 0; x < columns; x++) out.set([0x20, DEFAULT_COLOUR, DEFAULT_COLOUR], x * 3)
   const busy = new Set(lanes.map(lane => lane.station))
   STATIONS.forEach((station, index) => {
     const start = labelColumn(index, columns)
+    const room = (index < LAST ? labelColumn(index + 1, columns) - 1 : columns) - start
     const colour = busy.has(station) ? ACCENT[station] : ink.dim
     ;[...station].forEach((letter, i) => {
-      if (start + i < columns) out.set([letter.charCodeAt(0), colour, DEFAULT_COLOUR], (start + i) * 3)
+      if (i < room && start + i < columns) out.set([letter.charCodeAt(0), colour, DEFAULT_COLOUR], (start + i) * 3)
     })
   })
   return encode(out)
