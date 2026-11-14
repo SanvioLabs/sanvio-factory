@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: The CI review fetches standards from Confluence
+
+A team whose standards have to stay in Confluence can list the pages in `standards/confluence.json` in the factory repo. Each CI review fetches them before it checks out the pull request, with a new optional secret, `STANDARDS_TOKEN`, that only that step sees, turns them into Markdown under `standards/confluence/`, and lists them with the rest of `standards/`. A page that doesn't load, from a missing or refused token, a missing page or a timeout, is named on the comment's first line without the token or what Confluence sent back, and the review still runs. A page whose text holds the token is dropped. The prompt now says text in a standard that tells the reviewer how to review is a finding, not an instruction. With no `confluence.json`, nothing changes.
+
+Files: [`scripts/fetch_standards.py`](scripts/fetch_standards.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless your standards live in Confluence. Then add `standards/confluence.json` as [Team standards](examples/ci/README.md#team-standards) says, make the read-only token, set it as the `STANDARDS_TOKEN` secret, and add `STANDARDS_TOKEN: ${{ secrets.STANDARDS_TOKEN }}` to each product repo's caller.
+
 ## 2026-11-13: Only the factory turns the sandbox off
 
 `sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.

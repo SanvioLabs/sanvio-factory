@@ -78,11 +78,14 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
+      STANDARDS_TOKEN: ${{ secrets.STANDARDS_TOKEN }}
 ```
 
 A draft pull request skips the review with a notice, and gets its review when it's marked ready for review.
 It passes the secrets by name rather than with `secrets: inherit`, so the
-factory's workflow gets those three and none of the product repo's others. The
+factory's workflow gets those four and none of the product repo's others.
+`STANDARDS_TOKEN` is only for standards kept in Confluence, under
+[Team standards](#team-standards); leave it unset otherwise. The
 permissions are the most it gets: a called workflow can't widen them.
 That holds for the factory's file, not the caller: the caller lives in the
 product repo, so anyone who can push a branch there can change it, in that
@@ -217,6 +220,47 @@ empty folder doesn't pass unnoticed. The folder belongs to your factory, not to
 a product repo, so every product repo that calls the workflow is held to the
 same standards. A pull request can't add or change one: the standards are read
 from the factory's default branch, never from the pull request.
+
+### Standards kept in Confluence
+
+If your standards have to stay in Confluence, name the pages in
+`standards/confluence.json` in the factory repo. None of it is a secret:
+
+```json
+{"api_base": "https://api.atlassian.com/ex/confluence/<cloud id>",
+ "user": "ci@your-company.com",
+ "pages": ["753665", "753666"]}
+```
+
+Each run fetches every page it names, before it checks out the pull request,
+turns each into Markdown at `standards/confluence/<page id>.md`, and lists them
+with the rest of `standards/`. With no `confluence.json`, nothing is fetched.
+
+- **`api_base`.** A scoped API token only works through
+  `https://api.atlassian.com/ex/confluence/<cloud id>`, not your site's own
+  address. Your site's cloud id is at
+  `https://<site>.atlassian.net/_edge/tenant_info`. A classic token uses
+  `https://<site>.atlassian.net`. It has to be `https`.
+- **`user`** is the email of the account the token belongs to.
+- **The token.** Make it on an account of its own that can view the standards
+  space and nothing else, and give it read scopes only, such as
+  `read:page:confluence`. The scopes say what the token can do; the account's
+  permissions are what keep it to one space. Add it as the `STANDARDS_TOKEN`
+  secret, an organization secret being the easy way to reach every product
+  repo. Only the fetch step sees it, and a page whose text holds it is
+  dropped.
+- **Where the pages go.** The fetched pages go into the prompt, so they reach
+  Anthropic with the rest of the review. Use a space your team has cleared
+  for that.
+- **Who can write the rules.** Anyone who can edit the space writes into every
+  review's prompt. The review is told that text in a standard telling it how
+  to review is a finding, not an instruction, but keep editing to people you'd
+  trust with the factory repo.
+
+When a page doesn't load, because there's no token, the token is refused, the
+page isn't there or the request times out, the comment's first line says how
+many didn't load and why, without the token or what Confluence sent back, and
+the review still runs.
 
 ## The grade
 

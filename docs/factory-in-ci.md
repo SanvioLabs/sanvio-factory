@@ -80,7 +80,9 @@ Set it up in this order. Each step links to its detail in
    harness commit it reviewed with.
 7. **Add your team's standards**, if you have them written down, as Markdown
    files in a `standards/` folder at the factory repo's root. A finding then
-   names the file and heading of the standard it breaks.
+   names the file and heading of the standard it breaks. Standards that have
+   to stay in Confluence are fetched on each run instead, from the pages a
+   `standards/confluence.json` names, with a read-only `STANDARDS_TOKEN`.
    [Team standards](../examples/ci/README.md#team-standards)
 
 ### When the first review fails
