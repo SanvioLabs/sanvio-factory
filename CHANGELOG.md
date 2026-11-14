@@ -35,6 +35,14 @@ Files: [`skills/respond-to-review/SKILL.md`](skills/respond-to-review/SKILL.md),
 
 **Do:** nothing.
 
+## 2026-11-13: The loop can push to its own fork
+
+`fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`factories/README.md`](factories/README.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: Factory interface spec, draft
 
 [`docs/specs/003-factory-interface/SPEC.md`](docs/specs/003-factory-interface/SPEC.md) drafts the other direction of [`factories/README.md`](factories/README.md): an outside team's setup sends this factory an issue by label, and gets back a reviewed pull request from this factory's fork that its own harness can read ready. It takes in #421's fork push, holds every outside work order for a person here, confines each caller's build to its own clone, and records what built each pull request. Every open question is resolved; nothing is built yet.

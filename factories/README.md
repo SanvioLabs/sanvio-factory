@@ -67,13 +67,23 @@ machine, never a project's own:
 {
   "ready_label": "<the step's submit_label>",
   "blocked_label": "<the step's stopped_label>",
-  "review_logins": ["<your GitHub login>"]
+  "review_logins": ["<your GitHub login>"],
+  "fork": "<factory_login>/<the repo's name>"
 }
 ```
 
 `review_logins` is whose review its round reads: yours, since `review` posts
 the review under your login. Left empty, it reads only its own login's, and
 your review never reaches its planner.
+
+`fork` is what lets its runs read `ready for a person`: its loop then pushes
+each branch to that fork and opens the pull request from it, and takes a round
+only on a pull request from that fork. The factory's machine runs as
+`factory_login`, which owns the fork and holds triage on the repo, so a person
+creates the fork before the first run. The loop checks the fork before it works
+an issue, and one that isn't a fork of the repo, or that `factory_login`
+doesn't own, stops the issue with the stopped label and says why. Left out, its
+loop pushes to the repo itself.
 
 ## Before you add one
 
@@ -104,10 +114,12 @@ your review never reaches its planner.
 - **Know what ready means.** It's what this repo can read, not proof:
   [*Getting to ready*](#getting-to-ready) says what it requires and what it
   can't show.
-- **A factory that's a copy of this repo works in the same repo.** Its
-  loop takes a round only on its own pull request from a branch in the repo,
-  so its runs read `checks pass, not independent` and a person weighs its
-  checks. A round on a pull request from its own fork is still to decide.
+- **A factory that's a copy of this repo works from its fork once `fork` is
+  set.** With `fork` in its `loop.json` (above), its loop pushes to that fork,
+  opens its pull request from there, and takes its rounds on that pull
+  request, so its runs can read `ready for a person`. Without it, the loop
+  works in the same repo, its runs read `checks pass, not independent`, and a
+  person weighs its checks.
 - **A local factory runs as you.** It can change this repo's files on this
   machine, run records included, so a local factory is one you already trust
   with this clone.
@@ -193,8 +205,8 @@ comment-triggered workflows that run pull request code off every branch,
 leaves the factory the fewest ways in.
 
 Only a factory that works from its own fork gets there. A copy of this
-repo pushes its branches to the repo, so its runs read
-`checks pass, not independent` at best.
+repo does once its `loop.json` sets `fork`; without it, it pushes its branches
+to the repo, so its runs read `checks pass, not independent` at best.
 
 ### Setting it up
 
