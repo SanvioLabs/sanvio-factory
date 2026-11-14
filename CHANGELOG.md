@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: Owner, quality and date in DATA.md
+
+[`skills/orientation/`](skills/orientation/SKILL.md) now asks, for each data source, who owns it and whether it's the source of record, a copy, partial or unknown, and writes `unknown` rather than guessing. The `company/DATA.md` it drafts gains Owner, Quality and Last checked columns after Cleared for this tool, which stays where inbox, standup and pulse read it.
+
+**Needs:** 2026-11-13: A workshop you can run yourself
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`tests/test_skills.py`](tests/test_skills.py).
+
+**Do:** add the Owner, Quality and Last checked columns to your existing `company/DATA.md`, after Cleared for this tool, and fill one row at a time with what you know, `unknown` where you don't.
+
 ## 2026-11-14: Factory updates warns about code beside an untaken entry's
 
 [`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.

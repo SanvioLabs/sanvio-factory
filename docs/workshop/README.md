@@ -124,8 +124,8 @@ Connect one source, the safe way:
 - **Read-only, through your own connector**: the wiki or drive tool you already
   use. `/mcp` in Claude Code shows what's connected and adds what isn't.
 - **One row in `company/DATA.md`**: where it lives, how it's reached, whether
-  it's cleared. Run `/orientation` and it drafts the row. It never logs in for
-  you.
+  it's cleared, its owner, its quality, and when it was last checked. Run
+  `/orientation` and it drafts the row. It never logs in for you.
 
 What never goes in: customer or end-user records, credentials (refer to them by
 name, never paste them), anything regulated until your contract says it can,
