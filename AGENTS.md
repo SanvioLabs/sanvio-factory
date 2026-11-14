@@ -74,6 +74,7 @@ steps in order.
 | Skill | Use when |
 |---|---|
 | [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md) | Asked to review a pull request, a branch or a diff, or whether a change is ready to merge |
+| [`skills/respond-to-review/SKILL.md`](skills/respond-to-review/SKILL.md) | You opened a pull request and want its review comments answered: each judged with evidence, then changes, a push and replies, each only on its own yes |
 | [`skills/review-tests/SKILL.md`](skills/review-tests/SKILL.md) | Asked whether tests are any good or would catch a regression, or after tests were written by an agent |
 | [`skills/review-skill/SKILL.md`](skills/review-skill/SKILL.md) | Asked to install, add, try or review a skill from outside this repo |
 | [`skills/learn/SKILL.md`](skills/learn/SKILL.md) | The agent got something wrong and the person wants it to stick: "learn from that", "don't do that again", "make that a rule" |

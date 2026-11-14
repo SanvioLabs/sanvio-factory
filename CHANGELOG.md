@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: A skill that answers review comments
+
+[`skills/respond-to-review/`](skills/respond-to-review/) answers the review comments on a pull request you opened: it judges each one with evidence and shows a table, then makes the changes, pushes and posts the replies, each only on its own yes, and never resolves threads, approves, merges or closes.
+
+Files: [`skills/respond-to-review/SKILL.md`](skills/respond-to-review/SKILL.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: review-pr grades a hand-run review
 
 When a person runs [`skills/review-pr/`](skills/review-pr/SKILL.md) on a pull request, the report now ends with a grade out of 10 from [`review-rubric.json`](review-rubric.json) and the checks, in the same order the loop uses, then the `Verdict:` line last so the loop's parser still reads it. Runs from the loop or the CI review, and reviews of a branch or a diff, get no grade line.
