@@ -300,7 +300,17 @@ that machine's `.loop/`, `cat` of a file under it (`status.json`, `lock`, and
 `issue-N/usage.json` for a working issue's spend), and `kill -0` on the
 process its lock names. It never writes, starts or stops anything on another
 machine, never watches or attaches to its tmux, and never sets up SSH keys or
-config. It reads `machines.json` again at each two-second read, so an edit
+config. `ls` and `cat` follow links, so a link on that machine under `.loop/`
+can make them read a file elsewhere there; what they read stays in the pane.
+
+Each `ssh` overrides your own SSH config to forward nothing (no agent, X11 or
+ports), to run no local command, and to take no stdin, since it runs in the
+background every 30 seconds. It connects only to a host already in your
+`known_hosts`, so connect to each machine once by hand first. The `ssh` value
+may hold only a host name's characters, with a user before `@`; the path
+can't hold a `'` or a `\`; and a project folder there is listed only if its
+name is letters, digits, `_`, `.` and `-`. Text read from a machine has its
+control characters removed before it's drawn. It reads `machines.json` again at each two-second read, so an edit
 shows without reopening the pane.
 
 ## Changing it

@@ -2,7 +2,7 @@ import { describe as group, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { changes, loopOptions } from './logic'
-import { catCommand, killCommand, lsCommand, parseMachines, q, remoteNames, sshArgv } from './remote'
+import { SSH_OPTIONS, catCommand, killCommand, lsCommand, parseMachines, q, remoteNames, scrubbed, sshArgv } from './remote'
 
 // Other machines' loops, read over ssh. No test here opens a connection: every process.run is answered
 // by a stand-in that reads a made-up machine's files from a map.
@@ -61,6 +61,9 @@ group('machines.json', () => {
         { label: 'tilde', ssh: 'u@tilde', path: '~/factory' },
         { label: 'good', ssh: 'u@good', path: '/g' },
         { label: 'half' },
+        { label: 'spaced', ssh: 'u@h %h', path: '/f' },
+        { label: 'quoted', ssh: 'u@q', path: "/f'x" },
+        { label: 'slashed', ssh: 'u@s', path: '/f\\x' },
       ],
     })
     expect(parseMachines(text)).toEqual({
@@ -69,6 +72,9 @@ group('machines.json', () => {
         'machines.json: "-oProxyCommand=x" starts with "-", so evil isn\'t read',
         'machines.json: tilde\'s path "~/factory" isn\'t absolute, so it isn\'t read',
         "machines.json: machine 4 needs a label, an ssh and a path, so it isn't read",
+        'machines.json: spaced\'s ssh "u@h %h" holds a character a host name can\'t, so it isn\'t read',
+        'machines.json: quoted\'s path "/f\'x" holds a \' or a \\, so it isn\'t read',
+        'machines.json: slashed\'s path "/f\\x" holds a \' or a \\, so it isn\'t read',
       ],
     })
   })
@@ -82,7 +88,12 @@ group('machines.json', () => {
 
 group('the commands', () => {
   test('ssh never prompts, gives up connecting in 5 seconds, and reads the destination after --', () => {
-    expect(sshArgv('u@h', "ls -1A '/f/.loop'")).toEqual(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '--', 'u@h', "ls -1A '/f/.loop'"])
+    expect(sshArgv('u@h', "ls -1A '/f/.loop'")).toEqual(['ssh', ...SSH_OPTIONS, '--', 'u@h', "ls -1A '/f/.loop'"])
+    const options = SSH_OPTIONS.join(' ')
+    for (const set of ['-n', '-T', 'BatchMode=yes', 'ConnectTimeout=5', 'StrictHostKeyChecking=yes', 'ForwardAgent=no',
+      'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no', 'ServerAliveInterval=3', 'ServerAliveCountMax=2']) {
+      expect(options).toContain(set)
+    }
   })
   test('a path and a project with spaces, quotes and ; are one word each', () => {
     const path = "/a b/it's;x"
@@ -94,6 +105,15 @@ group('the commands', () => {
   })
   test('a listing drops . and .., and any name with a /', () => {
     expect(remoteNames('beta\n.\n..\nalpha\na/b\n\n')).toEqual(['alpha', 'beta'])
+  })
+  test("a listing keeps only names a project here could have, so none can step out of fish's quotes either", () => {
+    expect(remoteNames("a\\';id;#\nok\np q\nx'y\n\u001b]52;c;x\u0007\n-dash\nv1.2_x-y\na..b")).toEqual(['ok', 'v1.2_x-y'])
+  })
+  test("a remote file's strings lose their control characters, and what isn't JSON reads as nothing", () => {
+    expect(scrubbed(JSON.stringify({ issues: [{ title: 'a\u001b]52;c;eA==\u0007b\u009bc', number: 1 }] }))).toBe(
+      JSON.stringify({ issues: [{ title: 'a]52;c;eA==bc', number: 1 }] }))
+    expect(scrubbed('not json')).toBeNull()
+    expect(scrubbed(null)).toBeNull()
   })
 })
 
@@ -245,8 +265,8 @@ group('reading other machines', () => {
     await close()
   })
   test('every ssh never prompts, times out under the poll, and runs only ls, cat and kill -0, with each value one word', async ($, on) => {
-    const path = "/a b/it's;x"
-    const project = "p q;'r"
+    const path = '/a b/x;y'
+    const project = 'p.q-r'
     const files = new Map([
       [`${ROOT}/.loop/status.json`, statusText('here')],
       [MACHINES, JSON.stringify({ machines: [{ label: 'far', ssh: 'u@far', path }] })],
@@ -260,18 +280,18 @@ group('reading other machines', () => {
     expect(calls.length).toBeGreaterThan(0)
     const allowed = [/^ls -1A '.*\/\.loop(\/.*)?'$/s, /^cat '.*\/\.loop\/.*'$/s, /^kill -0 \d+$/]
     for (const { argv, init } of calls) {
-      expect(argv.slice(0, 5)).toEqual(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'])
-      expect(argv[5]).toBe('--')
-      expect(argv[6]).toBe('u@far')
-      expect(argv.length).toBe(8)
+      const end = argv.indexOf('--')
+      expect(argv.slice(0, end)).toEqual(['ssh', ...SSH_OPTIONS])
+      expect(argv[end + 1]).toBe('u@far')
+      expect(argv.length).toBe(end + 3)
       expect(Number(init?.timeoutMs)).toBeLessThan(30_000)
-      const command = argv[7]!
+      const command = argv[end + 2]!
       expect(allowed.some(pattern => pattern.test(command))).toBe(true)
       const split = words(command)
       expect(split.length).toBe(command.startsWith('cat ') ? 2 : 3)
       if (!command.startsWith('kill ')) expect(split[split.length - 1]!.startsWith(`${path}/.loop`)).toBe(true)
     }
-    const commands = calls.map(c => c.argv[7])
+    const commands = calls.map(c => c.argv[c.argv.length - 1])
     expect(commands).toContain(lsCommand(`${path}/.loop/projects/${project}`))
     expect(commands).toContain('kill -0 77')
     expect(commands).toContain(catCommand(`${path}/.loop/issue-12/usage.json`))
@@ -292,7 +312,7 @@ group('reading other machines', () => {
     const ui = await $.ui.mount(PANE)
     await pastFirstRead(clock)
     expect(calls.length).toBeGreaterThan(0)
-    expect([...new Set(calls.map(c => c.argv[6]))]).toEqual(['u@good'])
+    expect([...new Set(calls.map(c => c.argv[c.argv.indexOf('--') + 1]))]).toEqual(['u@good'])
     expect(calls.some(c => c.argv.some(word => word.includes('ProxyCommand')))).toBe(false)
     const lines = (await (ui as unknown as Finds).findAll({ type: 'Text', text: /^machines\.json/ })).map(t => t.text)
     expect(lines).toEqual([
@@ -336,7 +356,7 @@ group('reading other machines', () => {
       [MACHINES, JSON.stringify({ machines: [{ label: 'ok', ssh: 'u@ok', path: '/o' }] })],
     ])
     const { clock, calls, panes, close } = world(on, files, { 'u@ok': factoryAt('/o', 'app') })
-    const firsts = () => calls.filter(c => c.argv[7] === lsCommand('/o/.loop')).length
+    const firsts = () => calls.filter(c => c.argv[c.argv.length - 1] === lsCommand('/o/.loop')).length
     await open($)
     const ui = await $.ui.mount(PANE)
     // The first read is at the poll's first tick, half a second in.

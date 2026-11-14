@@ -38,7 +38,7 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 ## 2026-11-14: Factory floor on other machines
 
-[`examples/mods/factory-floor/`](examples/mods/factory-floor/) can list other machines' loops in its picker, in the List and the Crew, read over SSH from the machines named in `.sanvio/factory-floor/machines.json`. Each machine is read at most every 30 seconds while the pane is open, in the background. Each read only lists, cats and runs `kill -0` under that machine's `.loop/`. A machine that doesn't answer within 10 seconds shows as down. With no file, nothing changes and nothing runs `ssh`.
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/) can list other machines' loops in its picker, in the List and the Crew, read over SSH from the machines named in `.sanvio/factory-floor/machines.json`. Each machine is read at most every 30 seconds while the pane is open, in the background. Each read only lists, cats and runs `kill -0` under that machine's `.loop/`. A machine that doesn't answer within 10 seconds shows as down. With no file, nothing changes and nothing runs `ssh`. Each `ssh` forwards nothing, takes no stdin and connects only to a host already in `known_hosts`, whatever your own SSH config says, and what a machine sends back has its control characters removed and its folder names held to a project's characters.
 
 **Needs:** 2026-11-13: The factory floor uses the loop's step names; 2026-11-12: Why each default plugin is on; 2026-11-09: Factory floor; 2026-11-09: factory-floor reads loops once; 2026-11-09: Crew view in factory-floor; 2026-11-09: Factory floor mod
 

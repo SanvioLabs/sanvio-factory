@@ -4,10 +4,13 @@
 //
 // It only reads. Every remote command is one of three: ls -1A of a folder under the machine's .loop/,
 // cat of a file under it, and kill -0 on the process its lock names. Each runs as its own ssh, with
-// every value from machines.json or the machine single-quoted for the remote shell.
+// every value from machines.json or the machine single-quoted for the remote shell. Those values are
+// held to characters that need no escaping inside single quotes, so the quoting holds in a login shell
+// that isn't POSIX, such as fish, too. ls and cat follow a link, so a link the machine puts under .loop/
+// can make them read a file elsewhere there. What they read only ever lands in this pane.
 import type { EngineInterface } from 'claude-code'
 
-import { PROJECTS_DIR, lockPid, loopDir, loopValue, parseStatus } from './logic'
+import { PROJECTS_DIR, lockPid, loopDir, loopValue, parseStatus, projectName } from './logic'
 import type { Down } from './logic'
 import type { Row, Seen } from '../types'
 
@@ -23,8 +26,13 @@ const CONNECT_TIMEOUT_S = 5
 // connects, and the factory's folder there.
 export type Machine = { index: number; label: string; ssh: string; path: string }
 
+// Control characters, C1's among them: a remote machine's text could otherwise steer the terminal.
+const CONTROL = /[\x00-\x1f\x7f-\x9f]/g
 // A value worth reading: text with something in it and no control characters, a newline among them.
-const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '' && !/[\x00-\x1f\x7f]/.test(v)
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '' && !new RegExp(CONTROL.source).test(v)
+// What an ssh destination may hold: a host name or address, a user before @ and a port after :. Nothing
+// a shell, or ssh's own %-tokens in a ProxyCommand, would read as anything else.
+const SSH_DEST = /^[A-Za-z0-9._@:[\]-]+$/
 
 // The machines machines.json lists that can be read, and a line for each one it skips, saying why. No
 // file is no machines and nothing to say.
@@ -48,9 +56,14 @@ export function parseMachines(text: string | null): { machines: Machine[]; refus
     } else if (ssh.startsWith('-')) {
       // ssh would read it as an option, -oProxyCommand=… among them, not as where to connect.
       refusals.push(`machines.json: "${ssh}" starts with "-", so ${label} isn't read`)
+    } else if (!SSH_DEST.test(ssh)) {
+      refusals.push(`machines.json: ${label}'s ssh "${ssh}" holds a character a host name can't, so it isn't read`)
     } else if (!path.startsWith('/')) {
       // A ~ or a relative path would be read by the remote shell or from the login folder: neither is quoted.
       refusals.push(`machines.json: ${label}'s path "${path}" isn't absolute, so it isn't read`)
+    } else if (/['\\]/.test(path)) {
+      // A shell that isn't POSIX, such as fish, reads a backslash inside single quotes, so neither goes in one.
+      refusals.push(`machines.json: ${label}'s path "${path}" holds a ' or a \\, so it isn't read`)
     } else {
       machines.push({ index, label, ssh, path: path.replace(/\/+$/, '') || '/' })
     }
@@ -63,11 +76,21 @@ export function q(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
-// The whole ssh command line. BatchMode never asks for a password or a host key, so a machine without
-// key-based SSH fails at once instead of waiting on a prompt nobody sees. -- ends ssh's options, so the
-// destination is only ever read as one.
+// ssh's options. BatchMode never asks for a password, so a machine without key-based SSH fails at once
+// instead of waiting on a prompt nobody sees, and StrictHostKeyChecking only connects to a host already in
+// known_hosts. The rest override the person's own ssh config, which applies to every read in the background:
+// no agent, X11 or port forwarding for a machine that may be compromised, no local command, no terminal and
+// no stdin, and a connection that stops answering is dropped in about 6 seconds.
+export const SSH_OPTIONS = [
+  '-n', '-T',
+  '-o', 'BatchMode=yes', '-o', `ConnectTimeout=${CONNECT_TIMEOUT_S}`, '-o', 'StrictHostKeyChecking=yes',
+  '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'ClearAllForwardings=yes', '-o', 'PermitLocalCommand=no',
+  '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2',
+]
+
+// The whole ssh command line. -- ends ssh's options, so the destination is only ever read as one.
 export function sshArgv(dest: string, command: string): string[] {
-  return ['ssh', '-o', 'BatchMode=yes', '-o', `ConnectTimeout=${CONNECT_TIMEOUT_S}`, '--', dest, command]
+  return ['ssh', ...SSH_OPTIONS, '--', dest, command]
 }
 
 // The three remote commands, and the only ones this file builds.
@@ -75,13 +98,33 @@ export const lsCommand = (dir: string): string => `ls -1A ${q(dir)}`
 export const catCommand = (file: string): string => `cat ${q(file)}`
 export const killCommand = (pid: number): string => `kill -0 ${Math.trunc(pid)}`
 
-// The folders a remote ls of .loop/projects/ names. A name with a / is dropped, and so are . and ..,
-// which could reach outside it; a newline can't be in one, since the listing is split on them.
+// The folders a remote ls of .loop/projects/ names that a project here could be called, by projectName's
+// rule: letters, digits, _, . and -, and no .. . Anything else is dropped, a quote, a backslash, a / or a
+// control character among them, so no name a machine makes can step out of its quotes.
 export function remoteNames(listing: string): string[] {
   return listing
     .split('\n')
-    .filter(name => name !== '' && name !== '.' && name !== '..' && !name.includes('/'))
+    .filter(name => {
+      const named = projectName(name)
+      return 'name' in named && named.name === name
+    })
     .sort((a, b) => a.localeCompare(b))
+}
+
+// A remote JSON file with every control character taken out of its strings, or null when it isn't JSON.
+// The views draw these strings, and a machine could otherwise put terminal escapes in a title.
+export function scrubbed(text: string | null): string | null {
+  if (text === null) return null
+  const clean = (v: unknown): unknown =>
+    typeof v === 'string' ? v.replace(CONTROL, '')
+      : Array.isArray(v) ? v.map(clean)
+      : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k.replace(CONTROL, ''), clean(x)]))
+      : v
+  try {
+    return JSON.stringify(clean(JSON.parse(text)))
+  } catch {
+    return null
+  }
 }
 
 type Ran = { exitCode: number; stdout: string; stderr: string }
@@ -125,7 +168,7 @@ async function lookRemote($: EngineInterface, machine: Machine, project: string 
     ...(project ? { project } : {}),
     machine: machine.label,
     machineIndex: machine.index,
-    status: parseStatus(status && status.exitCode === 0 ? status.stdout : null),
+    status: parseStatus(scrubbed(status && status.exitCode === 0 ? status.stdout : null)),
     isLocked: alive === true,
     isStaleLock: alive === false,
     isStopping: names.has('STOP'),
@@ -168,7 +211,7 @@ async function readMachine($: EngineInterface, machine: Machine, before: Map<str
         continue
       }
       const read = await ssh($, machine, catCommand(`${seen.root}/${loopDir(seen.project)}/issue-${row.number}/usage.json`))
-      usage.set(key, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, text: read.exitCode === 0 ? read.stdout : null })
+      usage.set(key, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, text: scrubbed(read.exitCode === 0 ? read.stdout : null) })
     }
   }
   return { loops, usage }
