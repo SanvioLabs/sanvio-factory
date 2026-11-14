@@ -27,6 +27,25 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+One optional line in an entry, after its description and before `Files:`:
+`**Needs:** 2026-11-11: The build agent's shell can run in Claude Code's sandbox; 2026-11-11: The loop's files and guard on Windows`
+Each item is an earlier entry's heading without the `## `, exactly as written. `; ` separates items.
+
+Write it when your change edits code an earlier entry added, so a copy without that entry would get a conflict or a change that doesn't work. Don't write it for "reads better after".
+The test for the author: if your diff changes lines that an entry from the last 30 days added (`git blame` on the parent commit shows it), name that entry.
+
+**When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
+
+## 2026-11-13: An entry can name the entries it needs
+
+An entry can now carry a `**Needs:**` line naming the earlier entries whose code it edits, and the header above says when to write one. [`skills/factory-updates/`](skills/factory-updates/SKILL.md) reads it: a commit whose entry needs one this copy hasn't taken is recommended **take X first**, said before any command to apply it, and a blame of the lines it changes adds "probably needs X" as a hint. An entry counts as taken when its commit is in the baseline or this copy's log names its heading anywhere. The entries since 2026-11-09 that touch [`scripts/loop.py`](scripts/loop.py) carry the `Needs:` lines blame confirms.
+
+**Needs:** 2026-11-10: Starter updates fit on one screen; 2026-11-08: Every link points at SanvioLabs/sanvio-factory; 2026-10-30: Check-starter asks what's worth bringing over; 2026-10-22: Check the starter
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py).
+
+**Do:** when you take an entry from Sanvio Factory, keep its heading text in your own [`CHANGELOG.md`](CHANGELOG.md), as a heading or a line such as `Took "2026-11-13: An entry can name the entries it needs"`, so the next check knows you have it.
+
 ## 2026-11-13: The factory floor uses the loop's step names
 
 The [`factory-floor`](examples/mods/factory-floor/) mod's Crew stations and the words in both views are now the loop's own step names, as `.loop/loop.log` writes them: `discover`, `shape`, `test`, `build`, `validate` and `scale`, in place of `start`, `plan`, `check` and `ship` and the words `planning`, `building`, `checking` and `opening the pull request`. A lane at `build, round 2` now matches the log's `BUILD round 2`. A terminal pane under 56 columns cuts the longer names to fit, `disco` and `valid` at 42. The mod is 0.5.0. The Crew view now has the List's buttons as well: **Watch it** and **Copy attach command** at the top, and **Watch** and **Open pull request** on each lane, drawn by both views from one copy in [`hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx).
@@ -39,6 +58,8 @@ Files: [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory
 
 The sandbox around `test_command`, `generate_command` and `setup_command` now denies writing as well as reading, and covers `~/.git-credentials`, `~/.gitconfig`, `~/.config/git`, `~/.m2/settings.xml`, `~/.terraform.d` and `~/.config/op`, plus the credential folders under `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` where those are set. A path that isn't there yet is denied too, and no folder from your home folder down to a denied path can be renamed, the folders holding the factory included, so a command can't make or move its way to one. Because `~/.gitconfig` is out of reach, those commands run with `GIT_CONFIG_GLOBAL=/dev/null`, and with git's `core.excludesFile` and `core.attributesFile` at `/dev/null`, so git doesn't warn about the files under `~/.config/git`. When the loop starts, it checks that `sandbox-exec` can apply a profile; where it can't, as inside another sandbox, it logs one `WARN` line saying why and runs the commands without it, rather than failing every one.
 
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** restart the loop. A project whose tests rely on `~/.gitconfig`, say for `user.name` when they commit, sets it in the tests' own setup or through `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`.
@@ -47,6 +68,8 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 `caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
 
+**Needs:** 2026-11-08: The docs and pictures call it Sanvio Factory; 2026-10-23: Project loop.json sets project keys only; 2026-10-15: The loop works several issues at once; 2026-10-14: The loop checks whose issue it builds from
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
@@ -54,6 +77,8 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 ## 2026-11-13: Only the factory turns the sandbox off
 
 `sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.
+
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -78,6 +103,8 @@ Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_re
 ## 2026-11-13: The loop can push to its own fork
 
 `fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-15: The loop works several issues at once
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`factories/README.md`](factories/README.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -119,6 +146,8 @@ Files: [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/
 
 A merge GitHub refuses is now tried again on the same head and base once the pull request's review decision changes, such as when someone approves it, or once a day has passed since the refusal. Every other check still runs first, the log says which of the two let it try again, and a merged one is never tried again.
 
+**Needs:** 2026-11-12: Auto-merge for graded pull requests; 2026-11-09: Review pull requests that carry a label
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** nothing.
@@ -143,6 +172,8 @@ one isn't merged, and a merge GitHub refuses isn't tried again until the head or
 base changes. Off, which is the default, the factory still never merges, and
 `review --pr` never does. A project's own `loop.json` can't set it. A pull
 request the loop opens says who may merge it.
+
+**Needs:** 2026-11-08: New names for the state folder, the variables and bin/harness; 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-10-31: Tests written first; 2026-10-22: Loop pull requests describe themselves; 2026-10-13: loop.py review
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md),
 [`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
@@ -211,6 +242,8 @@ reading files only: the network and the keychain's API are still in reach, and t
 aren't in it. A new key, `sandbox_commands`, on by default, turns it off with `false`, and a project's own
 `loop.json` may set it. Off a Mac nothing changes, and the loop logs one `WARN` line when it starts. A
 value other than `true` or `false` stops the run with an `ERROR` line before any issue is taken.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-31: Tests written first; 2026-10-30: Loop setup command; 2026-10-30: Generated files in the loop's commit; 2026-10-14: The loop checks whose issue it builds from
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -304,6 +337,8 @@ reason on the line above, and [`scripts/old_names.py`](scripts/old_names.py) ask
 back to `/tmp`, still reading `TMPDIR` first. To move the version, change it in the CI step and in
 [`tests/test_ci_example.py`](tests/test_ci_example.py) together.
 
+**Needs:** 2026-10-14: The loop checks whose issue it builds from
+
 Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`scripts/loop.py`](scripts/loop.py), [`scripts/old_names.py`](scripts/old_names.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing, unless your copy adds Python that Bandit flags at medium or higher. Fix it, or add `# nosec <ID>` with a reason on the line above.
@@ -316,6 +351,8 @@ temp, and the home folder's credential folders unreadable. The sandbox fails clo
 command, so the agent can run nothing it couldn't run before. Off by default. Where the sandbox can't run
 (Windows, Linux without `bwrap` and `socat`, another build agent), the loop logs an `ERROR` and takes no issue.
 The loop's own test, setup and generate commands still run outside it.
+
+**Needs:** 2026-10-31: Tests written first; 2026-10-22: Loop works a project
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -360,6 +397,8 @@ agent, keeping only the agent's own sign-in. Before, an agent had your whole env
 instead of letting it through with a warning nobody reads. A new machine key, `agent_env`, names
 variables to keep for a provider that signs in through them.
 
+**Needs:** 2026-11-08: New names for the state folder, the variables and bin/harness; 2026-10-14: The loop checks whose issue it builds from
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** restart the loop to take it. If your agents sign in to Bedrock or Vertex through environment
@@ -387,6 +426,8 @@ system's default encoding, and reads what git, gh and the agents print, and writ
 UTF-8 too. While a reader such as one of the mods holds `status.json` open, it tries the
 write up to five times, 0.2s apart, then logs a `WARN` line and goes on. A project's build agent
 runs `guard.py` with the Python running the loop, not `python3`, which Windows doesn't have.
+
+**Needs:** 2026-11-11: The loop's lock and stops on Windows; 2026-11-09: Every posted review carries a grade; 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-31: Tests written first; 2026-10-30: Loop setup command; 2026-10-30: Loop retro classifies its lessons; 2026-10-25: Loop run history; 2026-10-23: Project loop.json sets project keys only; 2026-10-22: Loop records each issue's usage; 2026-10-22: Loop works a project; 2026-10-22: Loop pull requests describe themselves; 2026-10-15: Loop pane header and a Watch button per job; 2026-10-15: The loop works several issues at once; 2026-10-14: The loop checks whose issue it builds from; 2026-10-13: loop.py review
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -426,6 +467,8 @@ there, following `agent.log` with PowerShell's `Get-Content -Wait`. Everywhere e
 still runs tmux and `tail -f`. The loop-control skill gives the psmux command to start
 the loop and to attach to it.
 
+**Needs:** 2026-10-15: The loop works several issues at once; 2026-10-14: Loop pane opens a window on the loop; 2026-10-12: loop-control starts the loop in tmux
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing on macOS or Linux. On Windows, install psmux and start the loop inside
@@ -437,6 +480,8 @@ On Windows, [`scripts/loop.py`](scripts/loop.py) now checks whether the pid in i
 the signals Windows has, stops an agent and everything it started, and takes `FileLock`
 with Windows' own file lock, so `review --pr` and `factories.py` run there too. macOS and Linux make the same calls as before. A new
 `windows-latest` CI job runs these tests on a real Windows.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Session retro; 2026-10-15: The loop works several issues at once
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/factories.py`](scripts/factories.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -723,6 +768,8 @@ If the label can't be added, the log gets an `ERROR` line and the issue isn't
 blocked. Only the factory's `loop.json` or its `projects` entry can set these
 keys. A project's own `loop.json` that sets one is refused.
 
+**Needs:** 2026-10-13: loop.py review
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing. To use it, set `review_label` in the factory's `loop.json`,
@@ -742,6 +789,8 @@ the same comment with no agent. A missing or invalid rubric grades 0 and names
 the file. A project sets its own with `review_rubric` in the factory
 `loop.json`'s `projects` entry. Comments written without a grade, and the
 verdict `factories.py` reads, are unchanged.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-13: loop.py review
 
 Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_factories.py`](tests/test_factories.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 

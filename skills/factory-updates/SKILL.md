@@ -25,7 +25,8 @@ person decides and runs every command that changes a file here.
 2. **Fetch Sanvio Factory into a scratch clone.** Say first that this
    downloads the public Sanvio Factory into a temporary folder and changes none
    of their files. Nothing in that clone is ever run. The commands below use
-   `$clone`, `$base`, `$heading`, `$sha` and `$path`. Each shell call starts
+   `$clone`, `$base`, `$heading`, `$sha`, `$path`, `$need`, `$need_sha`,
+   `$start` and `$count`. Each shell call starts
    fresh, so set the ones a command uses at the start of the same call, as in
    `base=<sha> path=<file>;` before it. The clone always lives here:
 
@@ -208,12 +209,64 @@ person decides and runs every command that changes a file here.
    | **merge by hand** | It touches an adapted file |
    | **skip** | It changes something this copy removed |
    | **ask** | A line in it weakens a guard or a gate, sends data off the machine, or runs downloaded code. Quote that line |
+   | **take X first** | Its entry's `**Needs:**` line names an entry X this copy hasn't taken. Name X. If they said no to X, it's **merge by hand** instead. **ask** and **skip** still win over it |
 
    "This copy covers it already" and general caution aren't reasons. If the
    copy covers it its own way, that's step 8.
 
+   **What an entry needs.** An entry's `**Needs:**` line names the earlier
+   entries it edits code from. This lists them, one per line:
+
+   ```bash
+   git -C "$clone" show "$sha" -- CHANGELOG.md | sed -n 's/^+\*\*Needs:\*\* //p' | awk -F'; ' '{for(i=1;i<=NF;i++) print $i}'
+   ```
+
+   For each, set `need` to it and `heading` to `## ` followed by it, whole, and
+   run step 3's `-S"$heading"` command. What it prints is `need_sha`. If it
+   prints nothing, say the item names no upstream entry. The entry is
+   **taken** if either holds, and otherwise it isn't:
+
+   - Its commit is in the baseline, whichever way step 3 found it:
+
+     ```bash
+     git -C "$clone" merge-base --is-ancestor "$need_sha" "$base"
+     ```
+
+   - This copy's log names it anywhere, as a heading, a bullet or a line,
+     checked from the harness root:
+
+     ```bash
+     grep -qF -- "$need" CHANGELOG.md
+     ```
+
+   **A backstop for what a `Needs:` line missed.** For each file the commit
+   touches other than [`CHANGELOG.md`](../../CHANGELOG.md), set `path` to it. This prints each of
+   its hunks as `start count`, from `@@ -start,count`:
+
+   ```bash
+   git -C "$clone" show -U0 --format= "$sha" -- "$path" | awk '/^@@ /{n=split(substr($2,2),a,","); print a[1], (n>1 ? a[2] : 1)}'
+   ```
+
+   Skip a hunk whose count is 0: it only adds lines. For each other, set
+   `start` and `count`, and this names the commit that wrote each line it
+   changes, first on each line, with any leading `^` dropped:
+
+   ```bash
+   git -C "$clone" blame -s -L "$start,+$count" "$sha^" -- "$path"
+   ```
+
+   Each blamed commit that has an entry (step 4's [`CHANGELOG.md`](../../CHANGELOG.md) command, with
+   `sha` set to it) this copy hasn't taken, by the two rules above with
+   `need_sha` set to that commit and `need` to its heading without the `## `,
+   gets "probably needs X" beside the commit, X being that entry's name. It's
+   a hint and never changes the answer.
+
+   Say each **take X first** before naming any command in step 9, so the
+   person sees it before they apply anything.
+
    The answers stay as this table has them, and what the person said in step 6
-   never changes one. It only adds a note beside the answer. A commit touching
+   never changes one, except the no that turns **take X first** into **merge
+   by hand**. It only adds a note beside the answer. A commit touching
    an item they said no to says so, as "(you said no to The loop)", and one
    touching an undecided item as "(undecided: Standup)". One whose answer is
    **skip** because of a path they said yes to says "(covered by bringing over
@@ -314,7 +367,8 @@ The baseline and how it was found. Then, leaving out any with nothing in it:
 
 Then each commit, oldest first, as one line, with no prose between commits:
 its subject, its changelog entry name, its recommendation with its reason and
-any note from step 7, its **Do:** line, and any adapted files it touches. Leave
+any note from step 7, any **take X first** and "probably needs X", its **Do:**
+line, and any adapted files it touches. Leave
 out a name or **Do:** line it doesn't have. Then any competing build with its direction
 and `Go:` line, the commands to take each file under no table path, and the
 `starter:` line to add. End there: the next step is theirs to run.
