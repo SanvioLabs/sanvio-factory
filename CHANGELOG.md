@@ -46,6 +46,16 @@ Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/loop.py`](scripts/loop.py), [`s
 
 **Do:** nothing. The fields start with the next run that ends.
 
+## 2026-11-14: Owner, quality and date in DATA.md
+
+[`skills/orientation/`](skills/orientation/SKILL.md) now asks, for each data source, who owns it and whether it's the source of record, a copy, partial or unknown, and writes `unknown` rather than guessing. The `company/DATA.md` it drafts gains Owner, Quality and Last checked columns after Cleared for this tool, which stays where inbox, standup and pulse read it.
+
+**Needs:** 2026-11-13: A workshop you can run yourself
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`tests/test_skills.py`](tests/test_skills.py).
+
+**Do:** add the Owner, Quality and Last checked columns to your existing `company/DATA.md`, after Cleared for this tool, and fill one row at a time with what you know, `unknown` where you don't.
+
 ## 2026-11-14: What the agent never decides alone
 
 [`steering/decisions.md`](steering/decisions.md) lists, in one table, the steps the agent never takes alone (sending, merging, deploying, deleting and the rest), who decides each and the file where its rule lives, and a new line in [`AGENTS.md`](AGENTS.md)'s Rules says to stop and name who decides before any of them.
