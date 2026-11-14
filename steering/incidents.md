@@ -33,6 +33,12 @@ when. Never name a default contact, and never guess one.
 `company/COMPANY.md` is gitignored. Never quote it into a tracked file, this
 one included.
 
+An issue with the `concern` label goes to the AI risk owner named under
+`## Who decides` in `company/COMPANY.md`. If nobody is named there, ask the
+person running this session who reads concerns, and never guess one. A concern
+that turns out to be an exposure is an incident: handle it with these steps,
+starting at *Stop the agent and the loop*, and tell the incident contact too.
+
 ## Rotate secrets and record it
 
 Rotate every secret the exposure touched. Also rotate the token of each
