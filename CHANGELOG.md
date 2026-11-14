@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-13: Factory updates' commands work in zsh
+
+[`skills/factory-updates/`](skills/factory-updates/SKILL.md) names its file variable `target` instead of `path`, which zsh ties to `PATH`, so its commands no longer lose `git` when run in zsh, and a test now fails any skill that sets or reads a variable zsh treats as special.
+
+**Needs:** 2026-11-13: An entry can name the entries it needs
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_skills.py`](tests/test_skills.py).
+
+**Do:** nothing, unless you took factory-updates; then take this too.
+
 ## 2026-11-13: An entry can name the entries it needs
 
 An entry can now carry a `**Needs:**` line naming the earlier entries whose code it edits, and the header above says when to write one. [`skills/factory-updates/`](skills/factory-updates/SKILL.md) reads it: a commit whose entry needs one this copy hasn't taken is recommended **take X first**, said before any command to apply it, and a blame of the lines it changes adds "probably needs X" as a hint. An entry counts as taken when its commit is in the baseline or this copy's log names its heading anywhere. The entries since 2026-11-09 that touch [`scripts/loop.py`](scripts/loop.py) carry the `Needs:` lines blame confirms.

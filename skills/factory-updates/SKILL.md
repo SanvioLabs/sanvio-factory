@@ -25,10 +25,10 @@ person decides and runs every command that changes a file here.
 2. **Fetch Sanvio Factory into a scratch clone.** Say first that this
    downloads the public Sanvio Factory into a temporary folder and changes none
    of their files. Nothing in that clone is ever run. The commands below use
-   `$clone`, `$base`, `$heading`, `$sha`, `$path`, `$need`, `$need_sha`,
+   `$clone`, `$base`, `$heading`, `$sha`, `$target`, `$need`, `$need_sha`,
    `$start` and `$count`. Each shell call starts
    fresh, so set the ones a command uses at the start of the same call, as in
-   `base=<sha> path=<file>;` before it. The clone always lives here:
+   `base=<sha> target=<file>;` before it. The clone always lives here:
 
    ```bash
    clone="${TMPDIR:-/tmp}/factory-updates/factory"
@@ -106,31 +106,31 @@ person decides and runs every command that changes a file here.
    upstream is still offered what it lacks. Stop there only if no capability has
    a path missing, or the table isn't there to say.
 
-   For one file, set `path` to it and run:
+   For one file, set `target` to it and run:
 
    ```bash
-   git -C "$clone" log --format='%H %s' "$base"..origin/main -- "$path"
+   git -C "$clone" log --format='%H %s' "$base"..origin/main -- "$target"
    ```
 
    It lists every commit since the baseline that touches one file. Step 9
    uses it.
 5. **Find the files this copy adapted.** For each file a commit touches, set
-   `path` to it and check, from the harness root:
+   `target` to it and check, from the harness root:
    - Did it exist at the baseline? If not, it's new upstream. If a file
-     of that name is here anyway (`test -f "$path"`), this copy built its own:
+     of that name is here anyway (`test -f "$target"`), this copy built its own:
      that's step 8, never a `cp`.
 
      ```bash
-     git -C "$clone" cat-file -e "$base:$path"
+     git -C "$clone" cat-file -e "$base:$target"
      ```
 
-   - If it did, is it still here (`test -f "$path"`)? If not, this copy
+   - If it did, is it still here (`test -f "$target"`)? If not, this copy
      removed it.
    - If it is, does it still match the baseline? This fails when this copy
      changed it, and that file is **adapted**:
 
      ```bash
-     git -C "$clone" show "$base:$path" | cmp -s - "$path"
+     git -C "$clone" show "$base:$target" | cmp -s - "$target"
      ```
 
    Flag each commit that touches an adapted file, and list those files under
@@ -148,11 +148,11 @@ person decides and runs every command that changes a file here.
 
    If the file isn't there, say so and go on with the commit list alone. Only
    the table's rows are asked about, never the list under it. When you set
-   `path` to a folder, drop the table's trailing slash, so `cp -R`, `dirname`
+   `target` to a folder, drop the table's trailing slash, so `cp -R`, `dirname`
    and `cat-file` act on the folder itself.
 
    - **A new window** for each capability with any path missing here
-     (`test -e "$path"` is false). Its title is the chip. Its question opens
+     (`test -e "$target"` is false). Its title is the chip. Its question opens
      with the name and kind, as "The loop (a script, a skill and a pane):",
      then what it gives, then "Bring it over?". Its options are **Yes, bring it
      over**, **No, leave it**, **Tell me more** and **Skip the rest**.
@@ -173,7 +173,7 @@ person decides and runs every command that changes a file here.
    - **A [`.claude/agents/`](../../.claude/agents/) wrapper** gets no window of its own. It follows its
      agent's update window, and with no such window it counts as undecided.
    - **If the path didn't exist at the baseline**
-     (`git -C "$clone" cat-file -e "$base:$path"` fails), the update window's
+     (`git -C "$clone" cat-file -e "$base:$target"` fails), the update window's
      question says this copy built its own, and a yes goes to step 8. Check
      this first: such a path isn't adapted.
    - **If the path is adapted,** the update window's question says so, and its
@@ -181,7 +181,7 @@ person decides and runs every command that changes a file here.
      A folder is adapted if any file this lists fails step 5's `cmp` check:
 
      ```bash
-     git -C "$clone" ls-tree -r --name-only "$base" -- "$path"
+     git -C "$clone" ls-tree -r --name-only "$base" -- "$target"
      ```
 
    Windows use `AskUserQuestion`, one question per call, waiting for the
@@ -240,11 +240,11 @@ person decides and runs every command that changes a file here.
      ```
 
    **A backstop for what a `Needs:` line missed.** For each file the commit
-   touches other than [`CHANGELOG.md`](../../CHANGELOG.md), set `path` to it. This prints each of
+   touches other than [`CHANGELOG.md`](../../CHANGELOG.md), set `target` to it. This prints each of
    its hunks as `start count`, from `@@ -start,count`:
 
    ```bash
-   git -C "$clone" show -U0 --format= "$sha" -- "$path" | awk '/^@@ /{n=split(substr($2,2),a,","); print a[1], (n>1 ? a[2] : 1)}'
+   git -C "$clone" show -U0 --format= "$sha" -- "$target" | awk '/^@@ /{n=split(substr($2,2),a,","); print a[1], (n>1 ? a[2] : 1)}'
    ```
 
    Skip a hunk whose count is 0: it only adds lines. For each other, set
@@ -252,7 +252,7 @@ person decides and runs every command that changes a file here.
    changes, first on each line, with any leading `^` dropped:
 
    ```bash
-   git -C "$clone" blame -s -L "$start,+$count" "$sha^" -- "$path"
+   git -C "$clone" blame -s -L "$start,+$count" "$sha^" -- "$target"
    ```
 
    Each blamed commit that has an entry (step 4's [`CHANGELOG.md`](../../CHANGELOG.md) command, with
@@ -287,22 +287,22 @@ person decides and runs every command that changes a file here.
    this copy's file:
 
    ```bash
-   cp "$clone/$path" "$path"
+   cp "$clone/$target" "$target"
    ```
 
    For an adapted file, offer upstream's change since the baseline
    instead, to merge by hand:
 
    ```bash
-   git -C "$clone" diff "$base" origin/main -- "$path"
+   git -C "$clone" diff "$base" origin/main -- "$target"
    ```
 
    - **A missing path brought over:** make its parent, then copy it, with
      `cp -R` for a folder or the `cp` above for a file:
 
      ```bash
-     mkdir -p "$(dirname "$path")"
-     cp -R "$clone/$path" "$path"
+     mkdir -p "$(dirname "$target")"
+     cp -R "$clone/$target" "$target"
      ```
 
    - **A yes on an update window:** the merge command above for an adapted
