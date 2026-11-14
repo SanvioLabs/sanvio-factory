@@ -421,6 +421,14 @@ stays made. So does a round that leaves the branch where the pull request
 already is. It asks GitHub only when `origin` has the branch, so a new issue
 runs as before.
 
+**Answering a review yourself.** [`skills/review-pr/`](skills/review-pr/) reviews: it reports
+findings and never posts. The loop's round reads only the marked review and
+posts nothing back to the comments. [`skills/respond-to-review/`](skills/respond-to-review/) is the author's
+own pass, run by a person in a session, for a pull request they opened: it
+judges each review comment with evidence and shows a table, then changes the
+code, pushes and replies, each only on its own yes. It has no headless run
+and the loop never starts it.
+
 **What the review can see.** The reviewer gets the plan, the diff and the
 script's test output. With the default `reader_agent` it can't run commands,
 so it checks the rest by reading the code. If the proof is a command, put
