@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { PAGE,PROJECTS_DIR, TABS, attach, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, isWebLink, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn, watch, watchCommand } from './logic'
+import { PAGE,PROJECTS_DIR, TABS, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
+import { issueButtons, loopButtons } from './buttons'
 import type { Lists, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
 import { MIN_COLUMNS } from './crew-logic'
@@ -77,31 +78,6 @@ const EMPTY: Record<Tab, string> = {
 }
 
 let stopPolling: (() => void) | null = null
-
-// A watch file opens a read-only Terminal window; closing it leaves the loop running. When it can't
-// open, the buttons copy the command that does the same.
-const WATCH_TOAST = "Couldn't open a window, so the read-only attach command is copied"
-
-// Open a target with the first opener that works; when none does, copy what stands in for it and say
-// so. A rejected run counts as that opener failing, so a missing `open` still reaches the next.
-function openOrCopy($: EngineInterface, target: string, openers: string[], copy: () => Promise<unknown>, toast: string): void {
-  void (async () => {
-    for (const opener of openers) {
-      const ran = await $.process.run([opener, target]).catch(() => null)
-      if (ran?.exitCode === 0) return
-    }
-    await copy()
-    $.ui.toast(toast)
-  })().catch(() => {})
-}
-
-// Open a job's pull request in the browser. A link that isn't a web link reaches no opener, since
-// `open` would run a local file or app: it's only copied.
-function openPullRequest($: EngineInterface, link: string, surface: Parameters<EngineInterface['ui']['copy']>[0]['surface']): void {
-  const copy = () => $.ui.copy({ text: link, surface })
-  if (!isWebLink(link)) openOrCopy($, link, [], copy, "That pull request link isn't a web link, so it's copied")
-  else openOrCopy($, link, ['open', 'xdg-open'], copy, "Couldn't open the browser, so the pull request link is copied")
-}
 
 // The tab in view and its first job, kept inside the list. Before the person picks, the busiest tab.
 function current(view: View | null, l: Lists, bodyRows?: number): View {
@@ -437,11 +413,7 @@ export const register: Register = on => {
     if (isCrew) {
       drawnView = 'crew'
       stopList()
-      return renderCrew($, e, (
-        <Box key="modes" flexDirection="row" columnGap={1}>
-          {modeButtons}
-        </Box>
-      ))
+      return renderCrew($, e, modeButtons)
     }
     drawnView = 'list'
     stopCrew()
@@ -470,8 +442,6 @@ export const register: Register = on => {
         <Text {...COLORS[top.right.tone]}>{top.right.text.slice(1)}</Text>
       </Box>
     )
-    const tmux = attach(seen)
-    const watchFile = watch(seen)
     const l = lists(seen.status, now)
     const view = current(await read($, viewAtom), l, bodyRows)
     const queue = page(l.queue, view.start, pageSize('queue', bodyRows))
@@ -487,7 +457,7 @@ export const register: Register = on => {
       const mark = dot(row, seen.isLocked)
       const time = clock(row, seen.isLocked, now)
       const stateText = fit(state.text, inner)
-      const jobCommand = jobAttach(seen, row)
+      const buttons = issueButtons($, Button, seen, row, fit('Open pull request', inner))
       // Every job has a dot, in the same column, so a title never moves as its job starts or ends.
       return (
         <Box key={`issue-${row.number}`} flexDirection="column" marginTop={1} height={wraps ? undefined : JOB_ROWS}>
@@ -504,24 +474,9 @@ export const register: Register = on => {
             <Box key={`detail-${row.number}`} height={wraps ? undefined : 2} overflow={wraps ? undefined : 'hidden'}>
               <Text dimColor>{detail ? fit(detail, inner * 2) : ' '}</Text>
             </Box>
-            {jobCommand || row.pr ? (
+            {buttons.elements.length ? (
               <Box flexDirection="row" columnGap={1}>
-                {jobCommand && (
-                  <Button
-                    key={`watch-${row.number}`}
-                    label="Watch"
-                    onPress={press =>
-                      openOrCopy($, `${seen.root}/${jobWatchFile(row.number, seen.project)}`, ['open'], () =>
-                        $.ui.copy({ text: jobCommand, surface: press.surface }), WATCH_TOAST)}
-                  />
-                )}
-                {row.pr ? (
-                  <Button
-                    key={`pr-${row.number}`}
-                    label={fit('Open pull request', inner)}
-                    onPress={press => openPullRequest($, row.pr ?? '', press.surface)}
-                  />
-                ) : null}
+                {buttons.elements}
               </Box>
             ) : (
               <Text> </Text>
@@ -550,21 +505,7 @@ export const register: Register = on => {
         {/* the List takes no row more than before. */}
         <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={1}>
           {modeButtons}
-          {tmux && watchFile && (
-            <Button
-              key="watch"
-              label="Watch it"
-              onPress={press =>
-                openOrCopy($, watchFile, ['open'], () => $.ui.copy({ text: watchCommand(seen) ?? '', surface: press.surface }), WATCH_TOAST)}
-            />
-          )}
-          {tmux && (
-            <Button
-              key="tmux"
-              label="Copy attach command"
-              onPress={press => $.ui.copy({ text: tmux, surface: press.surface })}
-            />
-          )}
+          {loopButtons($, Button, seen).elements}
         </Box>
         <Text dimColor>{'─'.repeat(width)}</Text>
         {Select && loops.length > 1 ? (

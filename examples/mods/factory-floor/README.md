@@ -193,11 +193,17 @@ how long the issue has spent at each step, and one what each step cost and how
 many tokens it used, from `.loop/issue-N/usage.json`. A dash means none yet.
 
 ```
-[ List ] [ Crew ]
+[ List ] [ Crew ] [ Watch it ] [ Copy attach command ]
  discover  shape  test  build  validate  scale
-#14 Gate: an empty Role cell passes · build, round 2
+#14 Gate: an empty Role cell passes · build, round 2 [ Watch ] [ Open pull request ]
   (the lane: a figure at build, each step's time and spend under it)
 ```
+
+The Crew has the list's buttons too, and they do the same: **Watch it** and
+**Copy attach command** beside List and Crew while the loop runs in tmux, and on
+each lane's line **Watch** while the issue has its own window and **Open pull
+request** once it has one. On a narrow terminal the top row wraps and a lane's
+title is cut to leave room for its buttons.
 
 With more than one loop, the Crew view has its own loop picker under the
 buttons. It follows the
@@ -241,7 +247,8 @@ at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the proje
 
 [`hooks/logic.ts`](hooks/logic.ts) holds the decisions as plain functions, so they can be tested.
 [`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. The Crew view is
-[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), brought over from the retired `loop-crew` mod. Both views read
+[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), brought over from the retired `loop-crew` mod. Both views draw
+their watch and pull request buttons from one copy, [`hooks/buttons.tsx`](hooks/buttons.tsx). Both views read
 loops through one copy: the Crew imports `parseStatus`, the picker's labels and
 the focus rules from [`hooks/logic.ts`](hooks/logic.ts), and takes a loop as the same `Seen` and `Row`
 in [`types/index.d.ts`](types/index.d.ts). [`tests/test_factory_floor.py`](../../../tests/test_factory_floor.py) fails if a second copy comes back.

@@ -4,6 +4,7 @@ import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Placement } from './crew-logic'
 import type { CrewSpend as Spend, Row, Seen } from '../types'
+import { buttonRows, buttonsWidth, issueButtons, loopButtons } from './buttons'
 
 // The Crew view: loop-crew's hooks/register.tsx moved into factory-floor's pane, with its own saved
 // values under factory-floor's name. register.tsx draws it when the person presses Crew. One installed
@@ -400,18 +401,28 @@ export function stopCrew(): void {
   isOnScreen = false
 }
 
-// The pane's drawing in the Crew view, loop-crew's ui.render as it stood. `top` is register.tsx's row of
-// view buttons, drawn first, and the row it takes is counted out of the room for lanes.
-export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, top: RenderElement) {
+// The pane's drawing in the Crew view, loop-crew's ui.render as it stood. `modes` is register.tsx's List
+// and Crew buttons, drawn first with the loop's own buttons beside them, as in the List, and the rows
+// they take are counted out of the room for lanes.
+export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, modes: RenderElement[]) {
   isOnScreen = true
   startPolling($)
   const elements = $.ui.resolve(e)
-  const { Box, Text } = elements
+  const { Box, Button, Text } = elements
   const isTerminal = e.surface === 'terminal'
   if (isTerminal) startBoard($)
   else startRedraw($)
   const seen = await read($, seenAtom)
   if (isTerminal) mounted = null
+  const loopRow = seen ? loopButtons($, Button, seen) : { labels: [], elements: [] }
+  const top = (
+    <Box key="modes" flexDirection="row" flexWrap="wrap" columnGap={1}>
+      {modes}
+      {loopRow.elements}
+    </Box>
+  )
+  // On the terminal, the rows the view and loop buttons take: one, or two once they wrap.
+  const topRows = isTerminal ? buttonRows(['List', 'Crew', ...loopRow.labels], e.props.bodyColumns) : 1
   if (!seen) {
     return (
       <Box flexDirection="column">
@@ -443,13 +454,18 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, top
   const lanes = lanesOf(placement, now)
 
   // A lane's words: where it has got to in the colour of that step, and on a terminal never the part cut.
+  // Then the issue's own buttons, Watch and Open pull request, as the List has them: on a terminal the
+  // title gives way to them, so the lane keeps its one line.
   const words = (lane: Lane, width?: number) => {
-    const { number, title, status } = laneWords(lane.row, width)
+    const buttons = issueButtons($, Button, seen, lane.row)
+    const room = width === undefined || !buttons.labels.length ? width : width - buttonsWidth(buttons.labels) - 1
+    const { number, title, status } = laneWords(lane.row, room)
     return (
       <Box key={`line-${lane.row.number}`} flexDirection="row" columnGap={1}>
         <Text weight="bold">{number}</Text>
         <Text>{title}</Text>
         <Text color={accentText(lane.station)}>{status}</Text>
+        {buttons.elements}
       </Box>
     )
   }
@@ -459,8 +475,8 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, top
     const { Raster } = elements
     const columns = boardColumns(e.props.bodyColumns)
     const bodyRows = e.props.scroll?.bodyRows
-    // The view buttons' row, the header's and the picker's come out of the room.
-    const room = bodyRows === undefined ? undefined : bodyRows - 1 - (columns ? 1 : 0) - (picks ? 1 : 0)
+    // The buttons' rows, the header's and the picker's come out of the room.
+    const room = bodyRows === undefined ? undefined : bodyRows - topRows - (columns ? 1 : 0) - (picks ? 1 : 0)
     const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
     const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
     const more = lanes.length - shown.length
