@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: Factory updates warns about code beside an untaken entry's
+
+[`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.
+
+**Needs:** 2026-11-13: Factory updates' commands work in zsh; 2026-11-13: An entry can name the entries it needs
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py).
+
+**Do:** nothing, unless you took factory-updates; then take this too.
+
 ## 2026-11-13: Factory updates' commands work in zsh
 
 [`skills/factory-updates/`](skills/factory-updates/SKILL.md) names its file variable `target` instead of `path`, which zsh ties to `PATH`, so its commands no longer lose `git` when run in zsh, and a test now fails any skill that sets or reads a variable zsh treats as special.
