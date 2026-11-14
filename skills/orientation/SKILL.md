@@ -130,6 +130,12 @@ sort each source into one of four:
 | **Export** | No connector, but files can be exported | Put exports in `local-data/`, which is gitignored, and never commit them |
 | **By hand** | None of the above | They paste what a task needs into the conversation, each time |
 
+For each source, ask who owns it, by name or role, and whether it's the
+source of record or a copy. The owner goes in Owner. Quality is one of
+`source of record`, `copy`, `partial` (it holds only some of what the job
+needs) or `unknown`. If they don't know the owner or the quality, mark it
+`unknown` rather than guessing.
+
 Then ask two things, once, for the whole list:
 
 - **Is it cleared for this tool?** Company data reaching an AI tool is the
@@ -152,10 +158,10 @@ Draft `company/DATA.md`:
 ```markdown
 # Where company data lives
 
-| Source | What's there | How you reach it | Cleared for this tool |
-|---|---|---|---|
-| Google Drive, "Clients" folder | Signed proposals, briefs | Google Drive connector, read-only | yes |
-| Billing system | Hours logged per client | CSV export into `local-data/` | unconfirmed |
+| Source | What's there | How you reach it | Cleared for this tool | Owner | Quality | Last checked |
+|---|---|---|---|---|---|---|
+| Google Drive, "Clients" folder | Signed proposals, briefs | Google Drive connector, read-only | yes | Head of Delivery | source of record | 2026-11-14 |
+| Billing system | Hours logged per client | CSV export into `local-data/` | unconfirmed | unknown | copy | 2026-11-14 |
 
 - Read it where it lives. Never copy its contents into a tracked file.
 - Exports go in `local-data/` and are never committed.
@@ -164,7 +170,8 @@ Draft `company/DATA.md`:
 - Never write to any of these without a human saying so in this session.
 ```
 
-Fill it from the person's answers, not the example rows. Write on a yes.
+Fill it from the person's answers, not the example rows. Last checked is the
+day orientation writes the row, in `YYYY-MM-DD` form. Write on a yes.
 
 Say once that `company/` is gitignored, so this stays on their machine, and that
 every session reads it: the next agent that opens the repo knows where to look
