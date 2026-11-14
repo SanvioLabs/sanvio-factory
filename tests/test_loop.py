@@ -7910,6 +7910,9 @@ class TestCallerConfinement(unittest.TestCase):
 
     def test_a_callers_build_and_tester_deny_the_sibling_the_factory_and_their_worktrees(self):
         tree = self.layout()
+        (self.harness / ".git").mkdir(exist_ok=True)
+        loop.state_dir(self.harness, None).mkdir(parents=True, exist_ok=True)
+        (loop.state_dir(self.harness, None) / "loop.log").write_text("")
         runner = self.runner()
         for which in ("agent", "tester_agent"):
             settings = self.settings(runner, which)
@@ -7920,7 +7923,8 @@ class TestCallerConfinement(unittest.TestCase):
                          self.harness / "factories", self.harness / "local-data", self.harness / ".inbox",
                          self.harness / ".claude" / "settings.local.json", loop.state_dir(self.harness, "other"),
                          self.trees / "other", self.elsewhere / "other",
-                         names.loop_home() / self.harness.name / "other"):
+                         names.loop_home() / self.harness.name / "other", self.harness / ".git",
+                         loop.state_dir(self.harness, None) / "loop.log"):
                 with self.subTest(which=which, path=path):
                     self.assertIn(os.path.realpath(str(path)), denied)
                     self.assertIn("Read(/{})".format(os.path.realpath(str(path))), rules)

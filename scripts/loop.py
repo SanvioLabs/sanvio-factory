@@ -1056,6 +1056,17 @@ def caller_denied(root, own):
     root = Path(root).absolute()
     own = os.path.realpath(str(own))
     paths = [root / name for name in CALLER_ROOT_DENIED]
+    if os.path.realpath(str(root)) != own:
+        # The factory's own .git (a remote URL there can hold a token) and its own loop's state, everything in
+        # .loop/ but the projects/ folder each project's state sits in: the guard alone covered them, and a path a
+        # script builds at run time gets past the guard. The caller's clone has its own .git under projects/, so
+        # git in its worktree never needs the root's.
+        paths.append(root / ".git")
+        try:
+            paths += [state_dir(root, None) / name for name in sorted(os.listdir(str(state_dir(root, None))))
+                      if name != "projects"]
+        except OSError:
+            pass
     try:
         harness = json.loads((root / "loop.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
