@@ -2,8 +2,9 @@
 
 The decisions below are never the agent's to make alone. Before any of these
 steps, stop and name who decides it. Each row names the file where the rule
-lives and doesn't restate it. Where this page and the linked file disagree, the
-linked file wins.
+lives and doesn't restate it.
+
+Where this page and the linked file disagree, the linked file wins.
 
 | Decision | Who decides | Where the rule lives |
 |---|---|---|

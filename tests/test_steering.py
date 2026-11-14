@@ -313,7 +313,8 @@ class Decisions(unittest.TestCase):
         links = self.LINK.findall(self.PATH.read_text())
         self.assertTrue(links)
         for link in links:
-            self.assertTrue((ROOT / "steering" / link).is_file(), link)
+            path = link.split("#", 1)[0]
+            self.assertTrue((ROOT / "steering" / path).is_file(), link)
 
     def test_linked_file_wins(self):
         self.assertIn("the linked file wins", self.PATH.read_text())
