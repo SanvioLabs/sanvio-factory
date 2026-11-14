@@ -477,6 +477,65 @@ class RespondToReview(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         self.assertIn("Nothing changes until the person says yes", body)
 
+    STEPS = ("1. **Resolve.**", "2. **Read.**", "3. **Judge.**", "4. **Table, then stop.**", "5. **Apply**",
+             "6. **Push**", "7. **Replies.**", "8. **Secrets.**", "## Output")
+
+    def step(self, number):
+        body = self.body()
+        start = body.index(self.STEPS[number - 1])
+        return body[start:body.index(self.STEPS[number], start)]
+
+    def assertInOrder(self, text, phrases):
+        for phrase in phrases:
+            self.assertIn(phrase, text)
+        order = [text.index(phrase) for phrase in phrases]
+        self.assertEqual(order, sorted(order), phrases)
+
+    def test_resolve_records_the_head_and_the_linked_issue(self):
+        step = self.step(1)
+        fields = re.search(r"gh pr view <n> --repo <owner>/<repo> --json ([\w,]+)", step)
+        self.assertIsNotNone(fields)
+        for field in ("headRefOid", "headRefName", "isCrossRepository", "closingIssuesReferences"):
+            self.assertIn(field, fields.group(1).split(","))
+        self.assertIn("Record `headRefOid`, `headRefName` and `isCrossRepository`", step)
+        self.assertIn("For each issue in `closingIssuesReferences`, read it", step)
+
+    def test_the_table_has_its_six_columns(self):
+        self.assertIn("| Comment | Author | Write access | Verdict | Evidence | Proposed action |", self.step(4))
+
+    def test_apply_runs_the_gate_asks_again_for_an_extra_fix_then_commits(self):
+        self.assertInOrder(self.step(5), (
+            "on a yes, only the rows it covers",
+            "run the project's gate and tests and show the output",
+            "If they then need a fix nobody agreed to, show it: it gets its own yes.",
+            "Then commit",
+            "Nothing is pushed yet."))
+
+    def test_the_push_checks_the_recorded_head_first_and_stops_on_a_fork(self):
+        step = self.step(6)
+        self.assertIn("on a separate yes", step)
+        self.assertIn("if `isCrossRepository` is true, stop", step)
+        self.assertInOrder(step, (
+            "gh pr view <n> --repo <owner>/<repo> --json headRefOid",
+            "still gives the recorded `headRefOid`",
+            "`git rev-parse HEAD^` gives it too",
+            "If any differs",
+            "say so and stop",
+            "git push origin HEAD:<headRefName>"))
+
+    def test_replies_are_drafted_after_the_commit_and_posted_on_their_own_yes(self):
+        self.assertInOrder(self.step(7), (
+            "Draft them once the commit exists",
+            "show each in full",
+            "Post only on a separate yes, and only the text shown",
+            "gh api -X POST"))
+
+    def test_a_secret_is_named_by_where_it_is_flagged_for_rotation_and_stops_everything(self):
+        step = self.step(8)
+        for words in ("credential, token or key", "don't quote it", "Name it by file and line",
+                      "say it needs rotating", "stop: no changes, no push, no replies"):
+            self.assertIn(words, step)
+
 
 class FactoryUpdatesRename(unittest.TestCase):
     """The skill's new name, and the only places its two old ones may still appear."""
