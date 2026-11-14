@@ -35,6 +35,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** restart the loop. A project whose tests rely on `~/.gitconfig`, say for `user.name` when they commit, sets it in the tests' own setup or through `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`.
 
+## 2026-11-13: Caller projects hold outside work for a person
+
+`caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: Only the factory turns the sandbox off
 
 `sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.

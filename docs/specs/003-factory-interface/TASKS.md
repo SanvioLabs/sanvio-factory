@@ -57,29 +57,33 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 
 ## Phase 2: Caller intake
 
-- [ ] T007 Add the `caller`, `accept_label`, `acceptors` and `account_tier` machine keys. In caller mode, take `ready_label` and `blocked_label` from the factory's entry and ignore them in the project's own `loop.json`. Refuse to start a caller project with no `network_allow`, a `max_issue_tokens` of 0, or no `account_tier`
+- [x] T007 Add the `caller`, `accept_label`, `acceptors` and `account_tier` machine keys. In caller mode, take `ready_label` and `blocked_label` from the factory's entry and ignore them in the project's own `loop.json`. Refuse to start a caller project with no `network_allow`, a `max_issue_tokens` of 0, or no `account_tier`
   - Requirements: REQ-004, REQ-009
   - Acceptance: AC-006
   - Security: SEC-004
   - Depends on: None
   - Verification: `TESTS`
-- [ ] T008 Add `actor { login }` to `ISSUE_QUERY`'s `LabeledEvent`. In caller mode, hold an issue (a queue row, a `HELD` log line, no comment) until it carries `accept_label` added by a login in `acceptors`
+  - Done 2026-11-13: the four keys in `DEFAULTS`, machine keys. `load_project_config()` takes a caller project's `ready_label` and `blocked_label` from the factory's top level then its entry, never the project's own file, and `project_root()` lets a caller's entry name them. `caller_config_problem()` refuses at start, before `sandbox_problem()`, a `caller` that isn't a bool and a caller project with no `network_allow`, no `max_issue_tokens` budget, no `account_tier`, or `acceptors` or `accept_label` it can't read; `TestCallerKeys`, `TestAcceptance`, `TestCallerIntake`
+- [x] T008 Add `actor { login }` to `ISSUE_QUERY`'s `LabeledEvent`. In caller mode, hold an issue (a queue row, a `HELD` log line, no comment) until it carries `accept_label` added by a login in `acceptors`
   - Requirements: REQ-005
   - Acceptance: AC-002
   - Security: SEC-001
   - Depends on: T007
   - Verification: `TESTS`
-- [ ] T009 In caller mode, block an accepted issue that changed after the accept label or holds an HTML comment, naming which, whoever wrote it
+  - Done 2026-11-13: the hold sits in `discover()` (`Loop.accepted()`), ahead of the dependency check and the pick, so an unaccepted issue is never picked, never starts a worker, and can't hold up an accepted one behind it. `accepted_by()` reads the newest event adding `accept_label` and its actor; GitHub is asked only when the label is on the issue. `fresh()` checks again on its re-read and holds, not blocks, one no longer accepted. `HELD` and `ACCEPT` log lines, the reason as `note` on the queue row; `TestAcceptance`, `TestCallerIntake`
+- [x] T009 In caller mode, block an accepted issue that changed after the accept label or holds an HTML comment, naming which, whoever wrote it
   - Requirements: REQ-006
   - Acceptance: AC-003
   - Security: SEC-001
   - Depends on: T008
   - Verification: `TESTS`
-- [ ] T010 The work-order check: before the plan step, a caller issue needs `## Objective`, `## Acceptance Criteria`, `## Scope` and `## Verification` sections, each with text. One that doesn't is blocked naming what's missing, before any agent runs
+  - Done 2026-11-13: `caller_problem()` in `fresh()`, measured from the newest acceptance with no `authorAssociation` trust. It shares `unread()` with `vouch()`, whose behaviour is unchanged; `TestAcceptance`, `TestCallerIntake`
+- [x] T010 The work-order check: before the plan step, a caller issue needs `## Objective`, `## Acceptance Criteria`, `## Scope` and `## Verification` sections, each with text. One that doesn't is blocked naming what's missing, before any agent runs
   - Requirements: REQ-007
   - Acceptance: AC-004
   - Depends on: T009
   - Verification: `TESTS`, recording every agent call
+  - Done 2026-11-13: `work_order_missing()`, a regex over `##` headings read as `SCOPE` reads Scope, in `fresh()` after acceptance and before any worktree or agent. An `ORDER` line says `complete` or names what's missing, and the block names it; `TestWorkOrder`, `TestCallerIntake`
 
 ## Phase 3: Isolation
 
@@ -150,12 +154,12 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 | REQ-001 | T001, T002, T003 | AC-001 | done |
 | REQ-002 | T004, T005 | AC-001 | done |
 | REQ-003 | T001 | AC-001 | done |
-| REQ-004 | T007 | AC-002 | open |
-| REQ-005 | T008 | AC-002 | open |
-| REQ-006 | T009 | AC-003 | open |
-| REQ-007 | T010 | AC-004 | open |
+| REQ-004 | T007 | AC-002 | done |
+| REQ-005 | T008 | AC-002 | done |
+| REQ-006 | T009 | AC-003 | done |
+| REQ-007 | T010 | AC-004 | done |
 | REQ-008 | T011, T012, T013 | AC-005 | open |
-| REQ-009 | T007 | AC-006 | open |
+| REQ-009 | T007 | AC-006 | done |
 | REQ-010 | T014 | AC-007 | open |
 | REQ-011 | T015 | AC-008 | open |
 | REQ-012 | T016 | none | open |
