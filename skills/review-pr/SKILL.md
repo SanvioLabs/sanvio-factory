@@ -71,6 +71,41 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
    merges today. A cost a user, the data or the next person pays is a block;
    a cost of tidiness is a nit. If you still can't tell, call it a block and
    say why, so a person decides.
+6. **Grade it (only when a person runs this).** Grade only when a person ran
+   this skill on a GitHub PR number and `gh pr checks <n>` works: `gh` is
+   installed and can see the PR. Read the state column, not the exit code,
+   which isn't zero when a check failed, is pending or none ran. Write **no
+   grade line** in two cases:
+   - the prompt that ran this skill names the report's last line itself (the
+     loop and the CI review both do, and grade their own runs)
+   - `gh` isn't available
+
+   The same goes for a branch, a diff or "my current changes": no grade line.
+
+   **The rubric.** Find the factory's root from this SKILL.md's own path.
+   Resolve symlinks first, since `.claude/skills/review-pr` may be a link. The
+   root is three levels above the resolved file, and the rubric is
+   `<root>/review-rubric.json`. Never read a rubric from the working folder or
+   from the repo under review. A valid rubric is a JSON object with exactly
+   the keys `ready`, `ready with nits`, `changes needed`, `failing` and
+   `unreadable`, each a whole number from 0 to 10.
+
+   **The checks.** From `gh pr checks <n>`: any `fail` or `cancel` is
+   failing; otherwise any `pending` is pending; no checks reported is none;
+   otherwise passing.
+
+   **The grade.** Take the first of these that applies:
+   1. The rubric is missing or invalid: grade `0`, with a reason naming the
+      file, such as `review-rubric.json is missing`.
+   2. A check failed: the rubric's `failing`, with the reason
+      `<verdict>, a check failed`. If the verdict isn't one of the three, the
+      reason is `unreadable, a check failed`.
+   3. The verdict isn't one of the three: the rubric's `unreadable`, with the
+      reason `the verdict is unreadable`.
+   4. Checks are pending: no number, the line is
+      `Grade pending: checks still running.`
+   5. Otherwise: the rubric's value for the verdict, with the reason
+      `<verdict>, checks passing` or `<verdict>, no checks ran`.
 
 ## Output
 
@@ -80,6 +115,14 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
   line `**Kind:** blocks` or `**Kind:** nit`, then what's wrong, what it
   costs, and the smallest fix
 - What you didn't review and why, if anything
+- When step 6 grades, the report ends with one of the two grade lines, then
+  the verdict line last, with nothing after it:
+
+  ```text
+  Grade <n>/10: <reason>.
+  Grade pending: checks still running.
+  Verdict: <ready | ready with nits | changes needed>.
+  ```
 
 ## On every pull request
 

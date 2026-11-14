@@ -35,6 +35,14 @@ Files: [`skills/respond-to-review/SKILL.md`](skills/respond-to-review/SKILL.md),
 
 **Do:** nothing.
 
+## 2026-11-13: review-pr grades a hand-run review
+
+When a person runs [`skills/review-pr/`](skills/review-pr/SKILL.md) on a pull request, the report now ends with a grade out of 10 from [`review-rubric.json`](review-rubric.json) and the checks, in the same order the loop uses, then the `Verdict:` line last so the loop's parser still reads it. Runs from the loop or the CI review, and reviews of a branch or a diff, get no grade line.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: The loop can push to its own fork
 
 `fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
