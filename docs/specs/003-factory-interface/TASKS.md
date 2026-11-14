@@ -87,22 +87,40 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 
 ## Phase 3: Isolation
 
-- [ ] T011 For a caller project's build and tester agents, add to `--settings`: sandbox `denyRead` and `permissions.deny` `Read(...)` rules for the factory's private folders and `loop.json`, every other project's clone, and every other project's state folder and worktrees. Set `SANVIO_CONFINE` to the issue's worktree and the clone's `.git`
+- [x] T011 For a caller project's build and tester agents, add to `--settings`: sandbox `denyRead` and `permissions.deny` `Read(...)` rules for the factory's private folders and `loop.json`, every other project's clone, and every other project's state folder and worktrees. Set `SANVIO_CONFINE` to the issue's worktree and the clone's `.git`
   - Requirements: REQ-008
   - Acceptance: AC-005
   - Security: SEC-003
   - Depends on: T007
   - Verification: `TESTS`, reading the settings `argv()` builds
-- [ ] T012 In the guard, with `SANVIO_CONFINE` set, refuse a Read, Edit, Write, Grep or Glob path outside the named folders, and a Bash command naming one
+  - Done 2026-11-13: `caller_denied()` lists, as written and resolved, the root's private folders, `loop.json` and `.claude/settings.local.json` (`CALLER_ROOT_DENIED`), then each other entry under [`projects/`](../../../projects/) as listed when the settings are built: its clone, its state folder, and its worktree folder under its entry's `worktree_dir`, the top-level one and the default. A path that doesn't exist yet is named anyway. `Loop.argv()` adds them to the sandbox's `denyRead` and, as `Read(//...)` and `Edit(//...)` rules with and without `/**` (`caller_deny_rules()`), to `permissions.deny`. `Loop.held_to()` gives the worktree and the clone's `.git`, resolved, which `env_for_agents(held_to=)` sets as `SANVIO_CONFINE` from `agent()` and `stream()`. The caller's own clone, its `.git`, its worktrees and its state are never named. Outside caller mode, and for a reader or an agent that isn't claude, the settings and environment are as before; `TestCallerConfinement`
+- [x] T012 In the guard, with `SANVIO_CONFINE` set, refuse a Read, Edit, Write, Grep or Glob path outside the named folders, and a Bash command naming one
   - Requirements: REQ-008
   - Acceptance: AC-005
   - Depends on: None
   - Verification: `python3 -m unittest tests.test_agent_hooks`
-- [ ] T013 Live check on this machine's Claude Code, with T011's settings in a scratch layout of two projects: the shell's `cat` and the Read tool on the sibling's file are both refused, and the agent's own worktree works. Record the Claude Code version and the result here
+  - Done 2026-11-13: [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py), job 5. `confined_folders()` reads `SANVIO_CONFINE`; `confined_outside()` refuses a Read, Edit, Write, MultiEdit, NotebookEdit, Grep or Glob whose path, resolved from cwd with links followed, is outside the folders (a Glob by its fixed parts, and any `..` after a wildcard), except a Read of its own session folder under `~/.claude/projects/`, where Claude Code keeps a tool output too long to show. `shell_outside()` refuses a command naming an absolute, `~` or `$HOME` path outside the folders and `SYSTEM_PATHS`, the tool homes and the guard's own Python prefix, any path in the factory's root outside them even under temp, and any `..` that climbs out. An absolute path is checked only when its first folder exists, so `grep '/api/users'` and `awk '/^x/'` pass. A backstop: a path a command builds at run time isn't seen. Unset or empty, nothing changes; `Confined`
+- [x] T013 Live check on this machine's Claude Code, with T011's settings in a scratch layout of two projects: the shell's `cat` and the Read tool on the sibling's file are both refused, and the agent's own worktree works. Record the Claude Code version and the result here
   - Requirements: REQ-008
   - Acceptance: AC-005
   - Depends on: T011, T012
   - Verification: the recorded run
+  - Done 2026-11-13 on Claude Code 2.1.325 (`claude --version`), macOS, model `claude-haiku-5-5`. A scratch factory under the session's temp folder held `projects/a` and `projects/b`, each its own git repo with one file of made-up text, `loop.json` naming `worktree_dir`, and copies of [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py) and [`.claude/settings.json`](../../../.claude/settings.json); `a`'s worktree for issue 1 sat outside it, as `~/.sanvio-loop` keeps them. The command and settings came from `Loop(factory, cfg, project=projects/a).argv("agent")` with `caller: true`, `network_allow: []` and `agent` set to `claude -p --permission-mode acceptEdits --model haiku`, and the environment from `env_for_agents(os.environ, (), held_to("agent", worktree))`, less `CLAUDECODE` and every `CLAUDE_CODE_*` variable but the sign-in token, so the run behaved as one started from a terminal rather than from inside the session doing the check. Each probe was one run, cwd the worktree, a one-line prompt naming one tool call, and the outcome read from the tool result: `claude -p --permission-mode acceptEdits --model haiku --settings '<the JSON argv() built>' --output-format stream-json --verbose --max-turns 3`, with `--allowedTools Read,Grep,Glob,Bash(cat:*),Bash(python3:*)` added for the rows that say the tools were allowed, and for a one-layer row `--settings` holding only that layer's key. The sessions' own folders under `~/.claude/projects/` were named as the guard's `session_folder()` works them out. Refusals are each layer's own message:
+
+    | Settings | Probe | Result |
+    |---|---|---|
+    | As `argv()` builds them | Read `b`'s file | refused: "File is in a directory that is denied by your permission settings" (the deny rules) |
+    | As `argv()` builds them | `cat` `b`'s file, and `cat` the factory's `loop.json` | refused by the guard: "is outside this build's worktree" |
+    | As `argv()` builds them | Read the factory's `loop.json` | refused by the deny rules |
+    | As `argv()` builds them | Read and `cat` its own worktree's file | read |
+    | Those, plus `--allowedTools Read,Grep,Glob,Bash(cat:*),Bash(python3:*)` | Read, Grep, Glob and `python3 -c "open(...)"` on `b`, Read on `loop.json` | all refused: Read by the deny rules, the rest by the guard |
+    | Deny rules alone, the tools allowed | Read `b`'s file and `loop.json`; Grep and Glob on `b`'s folder | all refused: "denied by your permission settings", and for Grep and Glob "Permission to read ... has been denied", so a `Read(//...)` rule holds both |
+    | Guard and `SANVIO_CONFINE` alone, the tools allowed | Read, Grep, Glob and `python3 -c "open(...)"` on `b` | all refused by the guard; its own file read |
+    | Sandbox block alone, `Bash(python3:*)` allowed | `python3 -c "open(...)"` on `b`'s file and on `loop.json` | both `PermissionError: [Errno 1] Operation not permitted`; its own file read |
+    | Control: `caller: false`, the same tools allowed | Read, Grep and `python3 -c "open(...)"` on `b` | all three read `b`'s text |
+    | Control: `caller: false`, as `argv()` builds them | Read and `cat` on `b` | both refused by Claude Code itself: the Read asks for permission, which `-p` can't give, and `cat` outside the working folders is blocked whatever is allowed |
+
+    So each layer refuses the sibling on its own, and the control shows that without them an allowed tool reads it. The control also shows `-p` already refuses an unallowed Read and any `cat` outside the working folders, which is why the per-layer runs allow the tools first. The sandbox started with `denyRead` paths that didn't exist, and with the sandbox on, `cat` on the worktree's own file ran with no `--allowedTools`. With the settings as built, haiku once answered the Grep probe with `ToolSearch` instead of calling Grep; the runs with Grep allowed cover it
 
 ## Phase 4: What comes back
 
@@ -158,7 +176,7 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 | REQ-005 | T008 | AC-002 | done |
 | REQ-006 | T009 | AC-003 | done |
 | REQ-007 | T010 | AC-004 | done |
-| REQ-008 | T011, T012, T013 | AC-005 | open |
+| REQ-008 | T011, T012, T013 | AC-005 | done |
 | REQ-009 | T007 | AC-006 | done |
 | REQ-010 | T014 | AC-007 | open |
 | REQ-011 | T015 | AC-008 | open |

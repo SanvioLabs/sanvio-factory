@@ -122,7 +122,7 @@ def interactive_env():
     """This environment as a person's session has it: no switch that makes the guard stricter, so a test
     reads the same whether a person runs it or a loop agent does."""
     return {k: v for k, v in os.environ.items()
-            if k not in ("SANVIO_HEADLESS", "HARNESS_HEADLESS", "SANVIO_UNATTENDED")}
+            if k not in ("SANVIO_HEADLESS", "HARNESS_HEADLESS", "SANVIO_UNATTENDED", "SANVIO_CONFINE")}
 
 
 class Unattended(unittest.TestCase):
@@ -701,6 +701,129 @@ class HeadlessPrivate(unittest.TestCase):
 
     def test_the_root_ignores_bare_repos(self):
         self.assertIn("*.git/", (ROOT / ".gitignore").read_text().splitlines())
+
+
+class Confined(unittest.TestCase):
+    """A caller project's build agent (SANVIO_CONFINE set to its worktree and its clone's .git): no file tool or
+    shell path outside them, the sibling project's clone and the factory's loop.json above all (SPEC-003 AC-005).
+    The layout is a made-up factory: the worktree outside it, as ~/.sanvio-loop keeps them, and two projects."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(os.path.realpath(self.tmp.name))
+        self.factory = base / "factory"
+        self.own = self.factory / "projects" / "a"
+        self.sibling = self.factory / "projects" / "b"
+        self.tree = base / "trees" / "a" / "issue-12"
+        self.other_tree = base / "trees" / "b" / "issue-3"
+        for folder in (self.own / ".git", self.sibling, self.tree, self.other_tree):
+            folder.mkdir(parents=True)
+        (self.sibling / "notes.txt").write_text("made-up text\n")
+        (self.factory / "loop.json").write_text("{}\n")
+        (self.tree / "app.py").write_text("x = 1\n")
+        # The guard's root is the factory, as a copy of guard.py in the made-up factory would have it.
+        root = mock.patch.object(guard, "ROOT", str(self.factory))
+        root.start()
+        self.addCleanup(root.stop)
+        held = os.pathsep.join([str(self.tree), str(self.own / ".git")])
+        env = mock.patch.dict(os.environ, dict(interactive_env(), SANVIO_UNATTENDED="1", SANVIO_CONFINE=held),
+                              clear=True)
+        env.start()
+        self.addCleanup(env.stop)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def call(self, tool, **tool_input):
+        return guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": str(self.tree)})
+
+    def assertRefused(self, verdict, why):
+        self.assertIsNotNone(verdict)
+        self.assertEqual(verdict[0], "deny")
+        self.assertIn("SANVIO_CONFINE", verdict[1])
+        self.assertIn(why, verdict[1])
+
+    def test_a_file_tool_on_the_sibling_project_or_the_factory_is_refused(self):
+        for tool in ("Read", "Edit", "Write", "MultiEdit"):
+            for path in (self.sibling / "notes.txt", self.factory / "loop.json", self.other_tree / "x.py"):
+                with self.subTest(tool=tool, path=path):
+                    self.assertRefused(self.call(tool, file_path=str(path)), "held to its own worktree")
+        self.assertRefused(self.call("NotebookEdit", notebook_path=str(self.sibling / "n.ipynb")), "worktree")
+        self.assertRefused(self.call("Read", file_path="../../b/issue-3/x.py"), "worktree")
+        self.assertRefused(self.call("Grep", pattern="made", path=str(self.sibling)), "worktree")
+        self.assertRefused(self.call("Glob", pattern="*", path=str(self.factory)), "worktree")
+        self.assertRefused(self.call("Glob", pattern="../../../factory/projects/b/*"), "worktree")
+        self.assertRefused(self.call("Glob", pattern=str(self.sibling) + "/**"), "worktree")
+        self.assertRefused(self.call("Glob", pattern="src/*/../../../x"), "worktree")
+
+    def test_a_link_in_the_worktree_to_the_sibling_is_refused(self):
+        (self.tree / "peek").symlink_to(self.sibling / "notes.txt")
+        self.assertRefused(self.call("Read", file_path="peek"), "worktree")
+
+    def test_its_own_worktree_and_the_clones_git_are_allowed(self):
+        self.assertIsNone(self.call("Read", file_path=str(self.tree / "app.py")))
+        self.assertIsNone(self.call("Read", file_path="app.py"))
+        self.assertIsNone(self.call("Edit", file_path="src/new.py"))
+        self.assertIsNone(self.call("Grep", pattern="x"))
+        self.assertIsNone(self.call("Glob", pattern="**/*.py"))
+        self.assertIsNone(self.call("Read", file_path=str(self.own / ".git" / "HEAD")))
+
+    def test_its_own_session_folder_can_be_read_and_nothing_else_there(self):
+        sessions = Path(os.path.expanduser("~")) / ".claude" / "projects"
+        own = sessions / re.sub(r"[^A-Za-z0-9]", "-", str(self.tree))
+        self.assertIsNone(self.call("Read", file_path=str(own / "s1" / "tool-results" / "out.txt")))
+        self.assertRefused(self.call("Edit", file_path=str(own / "s1" / "x.txt")), "worktree")
+        self.assertRefused(self.call("Read", file_path=str(sessions / "-elsewhere" / "s.jsonl")), "worktree")
+
+    def test_a_shell_command_naming_the_sibling_or_the_factory_is_refused(self):
+        for command in ("cat {}".format(self.sibling / "notes.txt"), "ls {}".format(self.factory),
+                        "cd {} && cat notes.txt".format(self.sibling), "python3 -c 1 < {}".format(
+                            self.factory / "loop.json"),
+                        "cat ../../b/issue-3/x.py", "cat ~/.zshrc", "cat $HOME/notes", "cat ${HOME}/notes",
+                        "cd ~", "cat /etc/passwd", "git --git-dir={}/.git log".format(self.sibling)):
+            with self.subTest(command=command):
+                self.assertRefused(self.call("Bash", command=command), "outside this build's worktree")
+
+    def test_the_factory_stays_refused_when_it_sits_under_temp(self):
+        # This layout is itself under temp, which the shell may name: the factory's root still wins.
+        self.assertTrue(guard.within(str(self.factory), guard.tool_paths()))
+        self.assertRefused(self.call("Bash", command="cat {}".format(self.sibling / "notes.txt")), "outside")
+
+    def test_ordinary_build_commands_and_system_paths_are_allowed(self):
+        for command in ("python3 -m unittest discover -s tests", "git status", "git log -1", "ls -la",
+                        "cat {}".format(self.tree / "app.py"), "cat app.py", "/usr/bin/env python3 -V",
+                        "ls /usr/bin", "echo hi > /dev/null", "PATH=/usr/bin:/bin ls", "ls /",
+                        "curl -sS https://pypi.org/simple/requests/", "grep -rn '/api/users' .",
+                        "awk '/^x/ {print}' app.py", "node -e '1 // 2'", "echo $((4 / 2))",
+                        "mktemp -d {}/x.XXXX".format(tempfile.gettempdir()), "ls ~/.pyenv/versions",
+                        "git -C {} log -1".format(self.own / ".git")):
+            with self.subTest(command=command):
+                self.assertIsNone(self.call("Bash", command=command))
+
+    def test_credentials_are_still_refused_inside(self):
+        self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
+        self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")
+
+    def test_unset_or_empty_the_guard_is_as_it_was(self):
+        for value in (None, ""):
+            env = {k: v for k, v in os.environ.items() if k != "SANVIO_CONFINE"}
+            if value is not None:
+                env["SANVIO_CONFINE"] = value
+            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True):
+                self.assertIsNone(guard.confined_folders())
+                self.assertIsNone(self.call("Read", file_path=str(self.sibling / "notes.txt")))
+                self.assertIsNone(self.call("Glob", pattern="*", path=str(self.factory)))
+                self.assertIsNone(self.call("Bash", command="cat {}".format(self.sibling / "notes.txt")))
+                self.assertIsNone(self.call("Bash", command="cat ~/.zshrc"))
+
+    def test_the_hook_refuses_the_sibling_end_to_end(self):
+        event = {"tool_name": "Read", "tool_input": {"file_path": str(self.sibling / "notes.txt")},
+                 "cwd": str(self.tree)}
+        result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input=json.dumps(event),
+                                capture_output=True, text=True, env=dict(os.environ), timeout=30)
+        out = json.loads(result.stdout)["hookSpecificOutput"]
+        self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
+                         ("deny", guard.CONFINED_OUTSIDE))
 
 
 class SessionStart(unittest.TestCase):

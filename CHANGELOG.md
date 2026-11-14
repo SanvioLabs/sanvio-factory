@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: A caller's build can't read another project
+
+A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325. Without `caller`, nothing changes.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: Caller projects hold outside work for a person
 
 `caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
