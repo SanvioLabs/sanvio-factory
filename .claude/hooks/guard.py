@@ -583,8 +583,9 @@ CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to
 # What a held build's shell may still name outside its folders: system and tool install paths it reads to run
 # at all, temp, and the device files a command writes to. Each a folder with all it holds, or a file. Nothing
 # here holds a project, a token or the factory's data. The home folder only through the tool homes below it.
+# Bandit reads the temp paths as a temp file the code makes (B108); they're names a command may reach, never opened.
 SYSTEM_PATHS = ("/usr", "/bin", "/sbin", "/opt/homebrew", "/opt/local", "/System", "/Library/Developer",
-                "/Library/Frameworks/Python.framework", "/Applications/Xcode.app", "/tmp", "/private/tmp",
+                "/Library/Frameworks/Python.framework", "/Applications/Xcode.app", "/tmp", "/private/tmp",  # nosec B108
                 "/var/folders", "/private/var/folders", "/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr",
                 "/dev/tty", "/dev/fd", "/dev/zero", "/dev/random", "/dev/urandom")
 # Under the home folder: where version managers and uv keep the interpreters and tools a build runs. Only the
