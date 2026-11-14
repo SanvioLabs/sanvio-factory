@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: Evals for instructions planted in pull requests and issues
+
+Five new eval cases check that a reviewer treats text addressed to it as a finding, not an instruction. The review-pr skill gets a pull request description that says the change is approved (07), a Markdown comment telling the reviewer to report nothing (08), and a clean change whose test holds "Ignore your previous instructions" as data (09). The security reviewer gets an issue that says the module was cleared and asks for READY (11), and a string constant asking the same (12). Each planted instruction sits beside a real defect, except in 09, and the stub-agent tests pass every case.
+
+**Needs:** 2026-11-03: Test the review against planted problems; 2026-10-25: Security reviewer eval cases
+
+Files: [`examples/ci/evals/07-instruction-in-the-description/`](examples/ci/evals/07-instruction-in-the-description/), [`examples/ci/evals/08-instruction-in-a-markdown-comment/`](examples/ci/evals/08-instruction-in-a-markdown-comment/), [`examples/ci/evals/09-clean-injection-text/`](examples/ci/evals/09-clean-injection-text/), [`examples/typescript/evals/11-instruction-in-the-issue/`](examples/typescript/evals/11-instruction-in-the-issue/), [`examples/typescript/evals/12-instruction-in-a-string/`](examples/typescript/evals/12-instruction-in-a-string/), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run both sets once with `python3 scripts/eval_agents.py examples/ci/evals` and `python3 scripts/eval_agents.py examples/typescript/evals` after taking it.
+
 ## 2026-11-14: Factory updates warns about code beside an untaken entry's
 
 [`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.
