@@ -26,7 +26,7 @@ person decides and runs every command that changes a file here.
    downloads the public Sanvio Factory into a temporary folder and changes none
    of their files. Nothing in that clone is ever run. The commands below use
    `$clone`, `$base`, `$heading`, `$sha`, `$target`, `$need`, `$need_sha`,
-   `$start` and `$count`. Each shell call starts
+   `$start`, `$count`, `$first` and `$last`. Each shell call starts
    fresh, so set the ones a command uses at the start of the same call, as in
    `base=<sha> target=<file>;` before it. The clone always lives here:
 
@@ -261,6 +261,30 @@ person decides and runs every command that changes a file here.
    gets "probably needs X" beside the commit, X being that entry's name. It's
    a hint and never changes the answer.
 
+   Then the lines around each change. A commit that only adds lines, or edits
+   lines beside code an entry added, can need that entry without changing any
+   line of it. For the same files, every hunk counts here, the ones that only
+   add lines included. A file the commit creates has nothing to blame at the
+   parent, so it's skipped. This prints one range per hunk as `first last`:
+   the 3 lines before and after the hunk, measured at the parent and kept
+   inside the file:
+
+   ```bash
+   git -C "$clone" cat-file -e "$sha^:$target" && git -C "$clone" show -U0 --format= "$sha" -- "$target" | awk -v end="$(git -C "$clone" show "$sha^:$target" | wc -l)" '/^@@ /{n=split(substr($2,2),a,","); s=a[1]; c=(n>1 ? a[2] : 1); if (c==0) s++; lo=s-3; hi=s+c+2; if (lo<1) lo=1; if (hi>end+0) hi=end+0; if (lo<=hi) print lo, hi}'
+   ```
+
+   For each range, set `first` and `last`, and this names the commit that
+   wrote each line in it, the same way:
+
+   ```bash
+   git -C "$clone" blame -s -L "$first,$last" "$sha^" -- "$target"
+   ```
+
+   Each blamed commit that has an entry this copy hasn't taken, by the same
+   two rules, and that the blame of the changed lines didn't already name,
+   gets "probably needs X (nearby lines)". It's a hint too, and never changes
+   the answer.
+
    Say each **take X first** before naming any command in step 9, so the
    person sees it before they apply anything.
 
@@ -367,7 +391,8 @@ The baseline and how it was found. Then, leaving out any with nothing in it:
 
 Then each commit, oldest first, as one line, with no prose between commits:
 its subject, its changelog entry name, its recommendation with its reason and
-any note from step 7, any **take X first** and "probably needs X", its **Do:**
+any note from step 7, any **take X first**, "probably needs X" and "probably
+needs X (nearby lines)", its **Do:**
 line, and any adapted files it touches. Leave
 out a name or **Do:** line it doesn't have. Then any competing build with its direction
 and `Go:` line, the commands to take each file under no table path, and the

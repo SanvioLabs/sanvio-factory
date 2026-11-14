@@ -322,25 +322,79 @@ class StarterUpdatesCommands(unittest.TestCase):
         log.write_text("# What's new\n\n## 2026-10-04: Copy-only\n\nx\n")
         self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["not"])
 
-    def test_the_blame_backstop_names_the_commit_whose_lines_a_commit_changes(self):
-        (self.starter / "lines.md").write_text("new first line\nfrom A\nfrom B, edited\n")
-        self.git(self.starter, "add", "lines.md")
-        self.git(self.starter, "commit", "-q", "-m", "edit lines")
-        sha = self.head(self.starter)
+    HUNKS = 'git -C "$clone" show -U0'
+    BLAME = 'git -C "$clone" blame -s -L "$start'
+    RANGES = 'git -C "$clone" cat-file -e "$sha^'
+    NEARBY_BLAME = 'git -C "$clone" blame -s -L "$first'
+
+    def upstream_commit(self, name, text, message):
+        (self.starter / name).write_text(text)
+        self.git(self.starter, "add", name)
+        self.git(self.starter, "commit", "-q", "-m", message)
         self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
-        hunks = self.run_with(self.command('git -C "$clone" show -U0'), sha=sha, target="lines.md")
-        self.assertEqual(hunks, ["0 0", "2 1"])  # an added line, then "from B" changed
-        blame = self.command('git -C "$clone" blame')
-        blamed = set()
-        for hunk in hunks:
+        return self.head(self.starter)
+
+    def blamed(self, cmd, sha, target, **values):
+        return {line.split()[0].lstrip("^") for line in self.run_with(cmd, sha=sha, target=target, **values)}
+
+    def blame_changed(self, sha, target):
+        found = set()
+        for hunk in self.run_with(self.command(self.HUNKS), sha=sha, target=target):
             start, count = hunk.split()
-            if count == "0":
-                continue
-            for line in self.run_with(blame, sha=sha, target="lines.md", start=start, count=count):
-                blamed.add(line.split()[0].lstrip("^"))
+            if count != "0":
+                found |= self.blamed(self.command(self.BLAME), sha, target, start=start, count=count)
+        return found
+
+    def blame_nearby(self, sha, target):
+        found = set()
+        for line in self.run_with(self.command(self.RANGES), sha=sha, target=target):
+            first, last = line.split()
+            found |= self.blamed(self.command(self.NEARBY_BLAME), sha, target, first=first, last=last)
+        return found
+
+    def names(self, blamed):
+        return {name for name, full in self.sha.items() for short in blamed if full.startswith(short)}
+
+    def test_the_blame_backstop_names_the_commit_whose_lines_a_commit_changes(self):
+        sha = self.upstream_commit("lines.md", "new first line\nfrom A\nfrom B, edited\n", "edit lines")
+        hunks = self.run_with(self.command(self.HUNKS), sha=sha, target="lines.md")
+        self.assertEqual(hunks, ["0 0", "2 1"])  # an added line, then "from B" changed
+        blamed = self.blame_changed(sha, "lines.md")
         self.assertEqual(len(blamed), 1, blamed)
         self.assertFalse(self.sha["A"].startswith(next(iter(blamed))))
         self.assertTrue(self.sha["B"].startswith(next(iter(blamed))))
+
+    def test_lines_added_below_an_entrys_lines_name_it_as_nearby(self):
+        sha = self.upstream_commit("lines.md", "from A\nfrom B\nbelow B\n", "add below B")
+        self.assertEqual(self.run_with(self.command(self.HUNKS), sha=sha, target="lines.md"), ["2 0"])
+        # 3 lines either side of the insertion after line 2, kept inside the parent's 2 lines.
+        self.assertEqual(self.run_with(self.command(self.RANGES), sha=sha, target="lines.md"), ["1 2"])
+        changed = self.blame_changed(sha, "lines.md")
+        self.assertEqual(changed, set())
+        nearby = self.blame_nearby(sha, "lines.md") - changed
+        self.assertEqual(self.names(nearby), {"A", "B"})
+        taken = self.command('git -C "$clone" merge-base --is-ancestor') + " && echo taken || echo not"
+
+        def reported(base):
+            return {name for name in self.names(nearby)
+                    if self.run_with(taken, need_sha=self.sha[name], base=self.sha[base]) == ["not"]}
+
+        self.assertEqual(reported("A"), {"B"})
+        self.assertEqual(reported("B"), set())
+
+    def test_lines_added_at_the_top_of_a_file_blame_from_line_1(self):
+        sha = self.upstream_commit("lines.md", "new first line\nfrom A\nfrom B, edited\n", "edit lines")
+        ranges = self.run_with(self.command(self.RANGES), sha=sha, target="lines.md")
+        self.assertEqual(ranges, ["1 2", "1 2"])  # the "0 0" hunk, then the "2 1" hunk
+        first, last = ranges[0].split()
+        lines = self.run_with(self.command(self.NEARBY_BLAME), sha=sha, target="lines.md", first=first, last=last)
+        self.assertEqual(len(lines), 2, lines)
+
+    def test_a_file_the_commit_creates_gets_no_range(self):
+        sha = self.upstream_commit("new.md", "brand new\n", "add new.md")
+        cmd = self.command(self.RANGES) + "; echo next"
+        self.assertEqual(self.run_with(cmd, sha=sha, target="new.md"), ["next"])
+        self.assertEqual(self.blame_nearby(sha, "new.md"), set())
 
 
 class ZshTiedVariables(unittest.TestCase):
