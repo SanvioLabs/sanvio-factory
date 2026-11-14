@@ -1033,6 +1033,68 @@ def sandbox_settings(domains):
             "network": {"allowedDomains": list(domains), "strictAllowlist": True}}
 
 
+# What a caller project's build and tester agents may not read under the factory's root, besides the other
+# projects: the private folders .claude/hooks/guard.py's PRIVATE_FOLDERS names, the factory's loop.json, which
+# names every project and who accepts their work, and the local settings, which can hold a token.
+CALLER_ROOT_DENIED = ("company", "local-data", ".inbox", "factories", "loop.json", ".claude/settings.local.json")
+
+
+def caller_denied(root, own):
+    """Every path a caller project's build and tester agents may not read, as absolute paths, each once and
+    each as written and resolved where those differ (the sandbox matches the real path, and macOS's /tmp is
+    /private/tmp). own is the caller's clone, which is never in it, nor are its .git and its worktrees: git
+    in the worktree reads the clone's .git.
+
+    The factory root's private folders and loop.json (CALLER_ROOT_DENIED), then for every other entry under
+    projects/ as listed now: its clone, its state folder, and its worktrees, under each worktree_dir that could
+    hold them (its projects entry's, the factory's top-level one, and the default under ~/.sanvio-loop), the
+    way Loop.worktrees() works them out. A path that doesn't exist yet is named anyway, since a worktree made
+    while this agent runs is still another project's.
+
+    With no project (a caller loop on the factory's own repo), own is the root: the private folders are
+    denied all the same, and every folder under projects/ is another project."""
+    root = Path(root).absolute()
+    own = os.path.realpath(str(own))
+    paths = [root / name for name in CALLER_ROOT_DENIED]
+    try:
+        harness = json.loads((root / "loop.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        harness = {}
+    harness = harness if isinstance(harness, dict) else {}
+    entries = harness.get("projects") if isinstance(harness.get("projects"), dict) else {}
+    try:
+        listed = sorted(os.listdir(str(root / "projects")))
+    except OSError:
+        listed = []
+    for name in listed:
+        clone = root / "projects" / name
+        if os.path.realpath(str(clone)) == own:
+            continue
+        paths += [clone, state_dir(root, name)]
+        entry = entries.get(name) if isinstance(entries.get(name), dict) else {}
+        for where in (entry.get("worktree_dir"), harness.get("worktree_dir")):
+            if isinstance(where, str) and where:
+                paths.append(Path(where).expanduser().absolute() / name)
+        paths.append(names.loop_home() / root.name / name)
+    found = []
+    for path in paths:
+        for form in (str(path), os.path.realpath(str(path))):
+            if form not in found:
+                found.append(form)
+    return found
+
+
+def caller_deny_rules(paths):
+    """permissions.deny rules for each of paths: Read, which Claude Code also applies to Grep and Glob, and
+    Edit, for the tools the sandbox doesn't touch. // starts an absolute path in a rule, and /** each thing
+    under a folder."""
+    rules = []
+    for path in paths:
+        for tool in ("Read", "Edit"):
+            rules += ["{}(/{})".format(tool, path), "{}(/{}/**)".format(tool, path)]
+    return rules
+
+
 def sandbox_problem(cfg, platform=None, which=None):
     """Why network_allow can't be honoured here, or None. Checked before any issue is taken, so a sandbox that
     can't start stops the run once instead of failing every agent."""
@@ -1064,16 +1126,22 @@ AGENT_SIGN_IN = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH
                  "CODEX_API_KEY")
 
 
-def env_for_agents(environ, keep=()):
+def env_for_agents(environ, keep=(), held_to=None):
     """The environment every agent the loop starts gets: the test command's, so no GitHub, cloud or SSH token
     is in reach of an agent steered by an issue, plus its own sign-in and keep, the names loop.json's
     agent_env gives, where each is set. SANVIO_UNATTENDED=1 tells .claude/hooks/guard.py nobody is watching, so
     a call it can't check is refused rather than let through with a warning. The retro switch stays off: no
-    agent's session is kept for a session retro."""
+    agent's session is kept for a session retro.
+
+    held_to, the folders Loop.held_to() gives a caller project's build or tester agent, sets SANVIO_CONFINE to
+    them, joined with os.pathsep, which tells the guard to refuse a path outside them. Without it, nothing
+    changes."""
     keep = [name for name in keep if isinstance(name, str)] if isinstance(keep, (list, tuple)) else []
     env = env_for_tests(environ)
     env.update({k: environ[k] for k in list(AGENT_SIGN_IN) + keep if k in environ})
     env.update(SANVIO_RETRO="off", HARNESS_RETRO="off", SANVIO_UNATTENDED="1")
+    if held_to:
+        env["SANVIO_CONFINE"] = os.pathsep.join(held_to)
     return env
 
 
@@ -2486,13 +2554,28 @@ class Loop:
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
+                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or (),
+                                              self.held_to(which, cwd, untrusted or confine)))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
-        result = self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step, round_no)
+        result = self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step, round_no,
+                             held_to=self.held_to(which, cwd, untrusted or confine))
         self.halt_if_interrupted()  # its exit code is the Ctrl-C's kill, not something it got wrong
         return result
+
+    def held_to(self, which, cwd, reader=False):
+        """The folders the guard holds a caller project's claude build or tester agent to, through
+        SANVIO_CONFINE: the issue's worktree, cwd, and the clone's .git, which git in the worktree reads. Each
+        resolved, as the guard resolves the paths it checks. None for anything else, which then gets the
+        environment it always had: outside caller mode, for a reader, or for an agent that isn't claude, whose
+        tools the guard doesn't see."""
+        if reader or not self.caller() or which not in ("agent", "tester_agent"):
+            return None
+        cmd = command(self.cfg, which)[0]
+        if cmd is None or Path(cmd[0]).name != "claude":
+            return None
+        return [os.path.realpath(str(cwd)), os.path.realpath(str(self.repo / ".git"))]
 
     def argv(self, which, untrusted=False, confine=False):
         """(the command agent() runs for which, None), or (None, why it won't run it). See agent().
@@ -2517,6 +2600,14 @@ class Loop:
                 settings.update(json.loads(self.guard_settings()))
             if isinstance(self.cfg.get("network_allow"), list):
                 settings["sandbox"] = sandbox_settings(self.cfg["network_allow"])
+            if self.caller():
+                # SPEC-003 REQ-008: a caller's build reads nothing of the factory's or another project's.
+                # The sandbox's denyRead holds the shell, and the deny rules hold Read, Grep and Glob, which
+                # the sandbox doesn't touch. The guard's SANVIO_CONFINE check (held_to()) is the backstop.
+                denied = caller_denied(self.root, self.repo)
+                if "sandbox" in settings:
+                    settings["sandbox"]["filesystem"]["denyRead"] += denied
+                settings["permissions"] = {"deny": caller_deny_rules(denied)}
         if settings:
             cmd = cmd + ["--settings", json.dumps(settings)]
         if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
@@ -2547,7 +2638,7 @@ class Loop:
         hook = {"type": "command", "command": command, "timeout": 10}
         return json.dumps({"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [hook]}]}})
 
-    def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0):
+    def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0, held_to=None):
         """sh() for an agent, with each line it says appended to path as it arrives, for its window to show.
 
         A claude command is asked for --output-format stream-json --verbose, which prints each event as
@@ -2557,6 +2648,8 @@ class Loop:
         event comes it is what the return value holds, so a run that failed still says why. The result is
         replaced by the reply's text, which goes to the log too and is all the return value holds, so
         everything built from it reads as plain text, and its usage is recorded for number.
+
+        held_to is what held_to() gave, for the agent's SANVIO_CONFINE: see env_for_agents().
 
         The model is the one claude's init event names, which the log shows ahead of the first tool
         call and the status row takes. Without one, it's the model cfg[which] names, or None.
@@ -2580,7 +2673,7 @@ class Loop:
                                     text=True, encoding="utf-8", errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
-                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
+                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or (), held_to))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])

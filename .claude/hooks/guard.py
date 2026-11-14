@@ -3,7 +3,7 @@
 
 From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
-Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
+Wired in .claude/settings.json as a PreToolUse hook. Five jobs:
 
 1. Credentials stay unread. A Read, Edit or Write on a credential file, a Grep
    whose path or glob names one (or a .ssh, .aws, .gnupg or .kube folder) or
@@ -38,6 +38,14 @@ Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
    with those folders and !*.git added to its glob as excludes, so it leaves
    them out, and bare repos at any depth.
 
+5. A caller project's build in scripts/loop.py (SANVIO_CONFINE set to its
+   worktree and its clone's .git) stays in those folders. A Read, Edit,
+   Write, NotebookEdit, Grep or Glob whose path, resolved, is outside them is
+   refused, and so is a shell command naming an absolute, ~ or .. path
+   outside them and outside the system and tool folders SYSTEM_PATHS lists.
+   Claude Code's sandbox and deny rules, which the loop also sets, are what
+   hold it; this is the backstop. Unset, nothing here changes.
+
 A call this hook can't check, because its input is unreadable or the hook has a bug, goes through with a
 warning in a person's session. In a headless run, and in an agent scripts/loop.py started
 (SANVIO_UNATTENDED=1), nobody reads the warning, so it's refused instead.
@@ -54,6 +62,7 @@ import os
 import re
 import shlex
 import sys
+import tempfile
 import traceback
 
 CREDENTIAL = re.compile(
@@ -567,6 +576,114 @@ def is_headless():
     return os.environ.get("SANVIO_HEADLESS") == "1" or os.environ.get("HARNESS_HEADLESS") == "1"
 
 
+CONFINED_OUTSIDE = ("This build is held to its own worktree (SANVIO_CONFINE): no file outside it is read, "
+                    "searched, listed or written. Work inside the worktree.")
+CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to it (SANVIO_CONFINE). Name "
+                  "paths inside the worktree, and system tools by name.")
+# What a held build's shell may still name outside its folders: system and tool install paths it reads to run
+# at all, temp, and the device files a command writes to. Each a folder with all it holds, or a file. Nothing
+# here holds a project, a token or the factory's data. The home folder only through the tool homes below it.
+SYSTEM_PATHS = ("/usr", "/bin", "/sbin", "/opt/homebrew", "/opt/local", "/System", "/Library/Developer",
+                "/Library/Frameworks/Python.framework", "/Applications/Xcode.app", "/tmp", "/private/tmp",
+                "/var/folders", "/private/var/folders", "/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr",
+                "/dev/tty", "/dev/fd", "/dev/zero", "/dev/random", "/dev/urandom")
+# Under the home folder: where version managers and uv keep the interpreters and tools a build runs. Only the
+# bin folders of .cargo and .local, since .cargo also keeps the registry's token.
+HOME_TOOL_PATHS = (".nvm", ".pyenv", ".rbenv", ".rustup", ".volta", ".cargo/bin", ".local/bin", ".local/share/uv",
+                   ".bun/bin")
+# A path in a command: after a start, a space, a quote or a shell or option separator, a ~ path, an absolute
+# one, or one that climbs with ... A : ends one too, so PATH=/a:/b gives both.
+SHELL_PATH = re.compile(r"(?:^|(?<=[\s'\"=<>:;|&(,]))(~[^\s'\";|&<>(),:]*|/[^\s'\";|&<>(),:]+"
+                        r"|\.\.(?:/[^\s'\";|&<>(),:]*)?)")
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"]*")
+HOME_VAR = re.compile(r"\$\{?HOME\}?(?![A-Za-z0-9_])")
+
+
+def confined_folders():
+    """The folders SANVIO_CONFINE names, resolved, or None when it's unset or empty. scripts/loop.py sets it for
+    a caller project's build and tester agents: the issue's worktree and the clone's .git (SPEC-003 REQ-008)."""
+    raw = os.environ.get("SANVIO_CONFINE", "")
+    if not raw:
+        return None
+    return [os.path.realpath(os.path.expanduser(part)) for part in raw.split(os.pathsep) if part.strip()]
+
+
+def within(full, folders):
+    """Whether a resolved path is one of folders, or inside one."""
+    return any(full == folder or full.startswith(folder.rstrip(os.sep) + os.sep) for folder in folders)
+
+
+def session_folder(folders):
+    """Claude Code's folder for sessions started in the first of folders, the worktree: it keeps a tool's
+    output there when it's too long to show, and tells the agent to Read it. Its name is the folder's path with
+    each character but a letter or digit as -."""
+    if not folders:
+        return None
+    return os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude", "projects",
+                                         re.sub(r"[^A-Za-z0-9]", "-", folders[0])))
+
+
+def confined_outside(tool, data, cwd, folders):
+    """Whether a file tool's call reaches outside the folders a held build may use. Read may also open its own
+    session folder's files (session_folder()), where a long tool output is kept for it."""
+    if tool == "Glob":
+        base = data.get("path") or ""
+        prefixes = glob_prefixes(data.get("pattern") or "", base)
+        return (not within(resolved(base, cwd), folders) or prefixes is None
+                or any(".." in rest or not within(resolved(folder, cwd), folders) for folder, rest in prefixes))
+    if tool == "Grep":
+        return not within(resolved(data.get("path") or "", cwd), folders)
+    full = resolved(data.get("file_path") or data.get("notebook_path") or "", cwd)
+    own = session_folder(folders)
+    return not within(full, folders) and not (tool == "Read" and own and within(full, [own]))
+
+
+def tool_paths():
+    """SYSTEM_PATHS, the tool homes under the home folder, and the prefix of the Python running this guard, the
+    loop's own, each resolved. A prefix that holds the home folder or the factory's root counts for nothing."""
+    home = os.path.realpath(os.path.expanduser("~"))
+    found = [os.path.realpath(path) for path in SYSTEM_PATHS]
+    found += [os.path.realpath(os.path.join(home, path)) for path in HOME_TOOL_PATHS]
+    found.append(os.path.realpath(tempfile.gettempdir()))
+    for prefix in {os.path.realpath(sys.prefix), os.path.realpath(sys.base_prefix)}:
+        if not within(home, [prefix]) and not within(ROOT, [prefix]):
+            found.append(prefix)
+    return found
+
+
+def shell_outside(command, cwd, folders):
+    """The first path a held build's shell command names outside its folders and tool_paths(), or None. A path
+    in the factory's root, or one that climbs out with .., always counts, even with the root kept under temp.
+
+    A path counts when it is absolute or starts with ~ (with $HOME read as ~), or climbs with .., read from
+    cwd. An absolute one is checked only when its first folder exists, so a regular expression or a URL path in
+    a command (grep '/api/users', awk '/^x/') isn't taken for one. This is a backstop like the rest of this
+    guard, not a sandbox: a path built at run time, by a variable, a substitution or a script, isn't seen.
+    Claude Code's sandbox denyRead is what holds the shell."""
+    text = URL.sub(" ", HOME_VAR.sub("~", command))
+    tools = None
+    for found in SHELL_PATH.finditer(text):
+        word = found.group(1)
+        climbs = word.startswith("..")
+        if climbs:
+            full = os.path.realpath(os.path.join(cwd, word))
+        else:
+            plain = os.path.normpath(os.path.expanduser(word))
+            top = plain.lstrip(os.sep).split(os.sep)[0]
+            if not os.path.isabs(plain) or not top or not os.path.lexists(os.sep + top):
+                continue  # ~someone with no such user, the root alone, or a first folder that isn't there
+            full = os.path.realpath(plain)
+        if within(full, folders):
+            continue
+        if tools is None:
+            tools = tool_paths()
+        # The factory's root before the tool paths: a factory kept under temp still keeps its projects apart.
+        # And a build has no reason to climb to a tool path, so .. out of the folders always counts.
+        if climbs or within(full, [ROOT]) or not within(full, tools):
+            return word
+    return None
+
+
 def is_unattended():
     """An agent scripts/loop.py started (SANVIO_UNATTENDED=1). Nobody reads a warning in its session, so a call
     this hook can't check is refused there. Nothing else changes: the agent still has to edit and run tests."""
@@ -610,6 +727,11 @@ def decide(event):
         if path and LOG_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return ("deny", LOGS_ARE_READ_ONLY.format(path))
 
+    held = confined_folders()
+    if held is not None and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
+        if confined_outside(tool, data, cwd, held):
+            return ("deny", CONFINED_OUTSIDE)
+
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):
             return ("deny", HEADLESS_OUTSIDE)
@@ -625,6 +747,10 @@ def decide(event):
         written = log_write(command)
         if written:
             return ("deny", LOGS_ARE_READ_ONLY.format(written))
+        if held is not None:
+            outside = shell_outside(command, cwd, held)
+            if outside:
+                return ("deny", CONFINED_SHELL.format(outside))
         # Before the auditor's list: a headless run is held to its reads whichever agent asks.
         if headless:
             why = headless_refusal(command)

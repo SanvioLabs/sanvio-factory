@@ -688,6 +688,7 @@ open(os.path.join(state, step + "-argv"), "w").write(json.dumps(sys.argv[1:]))
 open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset") + os.environ.get("HARNESS_RETRO", "unset"))
 open(os.path.join(state, step + "-env"), "w").write(json.dumps(sorted(os.environ)))
 open(os.path.join(state, step + "-unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
+open(os.path.join(state, step + "-confine"), "w").write(os.environ.get("SANVIO_CONFINE", "unset"))
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -7869,6 +7870,132 @@ class TestCallerKeys(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()) as err:
                     self.assertIsNone(loop.project_root(site, root=self.harness))
                 self.assertIn("ready_label", err.getvalue())
+
+
+class TestCallerConfinement(unittest.TestCase):
+    """A caller project's build and tester agents read nothing of the factory's or another project's: the
+    sandbox's denyRead and Read and Edit deny rules name them, and SANVIO_CONFINE holds the guard to the worktree
+    and the clone's .git (SPEC-003 T011, REQ-008). Outside caller mode, nothing changes."""
+
+    setUp, tearDown, commit, harness_config = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config)
+
+    def layout(self):
+        """A sibling project with a file, its state folder and worktrees, the factory's private folders, and this
+        project's own state and worktree. Returns the issue's worktree."""
+        tmp = Path(self.tmp.name)
+        self.sibling = self.harness / "projects" / "other"
+        self.sibling.mkdir()
+        (self.sibling / "notes.txt").write_text("made-up text\n")
+        self.elsewhere = tmp / "elsewhere"
+        self.harness_config({"agent": "claude", "reader_agent": "claude", "worktree_dir": str(self.trees),
+                             "projects": {"app": {"sandbox_commands": False},
+                                          "other": {"worktree_dir": str(self.elsewhere)}}})
+        for folder in ("company", "factories", loop.state_dir(self.harness, "other"),
+                       loop.state_dir(self.harness, "app"), self.trees / "other" / "issue-3"):
+            (self.harness / folder).mkdir(parents=True, exist_ok=True)
+        tree = self.trees / "app" / "issue-12"
+        tree.mkdir(parents=True)
+        return tree
+
+    def runner(self, caller=True, **extra):
+        cfg = dict(loop.load_project_config(self.harness, self.project), caller=caller, network_allow=["pypi.org"],
+                   agent="claude -p --permission-mode acceptEdits", tester_agent="claude -p")
+        cfg.update(extra)
+        return loop.Loop(self.harness, cfg, project=self.project)
+
+    def settings(self, runner, which="agent"):
+        cmd = runner.argv(which)[0]
+        return json.loads(cmd[cmd.index("--settings") + 1])
+
+    def test_a_callers_build_and_tester_deny_the_sibling_the_factory_and_their_worktrees(self):
+        tree = self.layout()
+        runner = self.runner()
+        for which in ("agent", "tester_agent"):
+            settings = self.settings(runner, which)
+            denied = settings["sandbox"]["filesystem"]["denyRead"]
+            rules = settings["permissions"]["deny"]
+            self.assertEqual(denied[:len(loop.SANDBOX_DENY_READ)], loop.SANDBOX_DENY_READ)
+            for path in (self.sibling, self.harness / "loop.json", self.harness / "company",
+                         self.harness / "factories", self.harness / "local-data", self.harness / ".inbox",
+                         self.harness / ".claude" / "settings.local.json", loop.state_dir(self.harness, "other"),
+                         self.trees / "other", self.elsewhere / "other",
+                         names.loop_home() / self.harness.name / "other"):
+                with self.subTest(which=which, path=path):
+                    self.assertIn(os.path.realpath(str(path)), denied)
+                    self.assertIn("Read(/{})".format(os.path.realpath(str(path))), rules)
+                    self.assertIn("Read(/{}/**)".format(os.path.realpath(str(path))), rules)
+                    self.assertIn("Edit(/{}/**)".format(os.path.realpath(str(path))), rules)
+            self.assertTrue(all(rule.startswith(("Read(//", "Edit(//")) for rule in rules), rules)
+            # Its own clone, the .git git in the worktree reads, its worktree and its state are never named.
+            for own in (tree, self.project / ".git", self.project / "README.md", loop.state_dir(self.harness, "app")):
+                for path in denied:
+                    with self.subTest(which=which, own=own, path=path):
+                        full = os.path.realpath(str(own))
+                        self.assertFalse(full == path or full.startswith(path.rstrip("/") + "/"))
+            # The guard still runs first, as it does for any project.
+            self.assertIn("PreToolUse", settings["hooks"])
+
+    def test_a_project_added_later_is_denied_the_next_time_the_settings_are_built(self):
+        self.layout()
+        runner = self.runner()
+        late = self.harness / "projects" / "late"
+        self.assertNotIn(os.path.realpath(str(late)), self.settings(runner)["sandbox"]["filesystem"]["denyRead"])
+        late.mkdir()
+        self.assertIn(os.path.realpath(str(late)), self.settings(runner)["sandbox"]["filesystem"]["denyRead"])
+
+    def test_outside_caller_mode_the_settings_are_as_they_were(self):
+        self.layout()
+        runner = self.runner(caller=False)
+        guard = json.loads(runner.guard_settings())
+        for which in ("agent", "tester_agent"):
+            self.assertEqual(self.settings(runner, which),
+                             dict(guard, sandbox=loop.sandbox_settings(["pypi.org"])), which)
+        runner = self.runner(caller=False, network_allow=None)
+        self.assertEqual(self.settings(runner), guard)
+
+    def test_a_reader_or_an_agent_that_isnt_claude_gets_none_of_it(self):
+        self.layout()
+        cmd = self.runner().argv("reader_agent")[0]
+        self.assertNotIn("--settings", cmd)
+        cmd = self.runner(agent="codex", generate_command="").argv("agent")[0]
+        self.assertNotIn("--settings", cmd)
+
+    def test_held_to_is_the_worktree_and_the_clones_git_for_a_callers_claude_builder_only(self):
+        tree = self.layout()
+        held = [os.path.realpath(str(tree)), os.path.realpath(str(self.project / ".git"))]
+        self.assertEqual(self.runner().held_to("agent", tree), held)
+        self.assertEqual(self.runner().held_to("tester_agent", tree), held)
+        self.assertIsNone(self.runner().held_to("reader_agent", tree))
+        self.assertIsNone(self.runner().held_to("agent", tree, reader=True))
+        self.assertIsNone(self.runner(caller=False).held_to("agent", tree))
+        self.assertIsNone(self.runner(agent="codex").held_to("agent", tree))
+
+    def test_env_for_agents_sets_sanvio_confine_only_when_held(self):
+        env = {"PATH": "/bin", "HOME": "/h"}
+        self.assertNotIn("SANVIO_CONFINE", loop.env_for_agents(env))
+        self.assertEqual(loop.env_for_agents(env), loop.env_for_agents(env, (), None))
+        got = loop.env_for_agents(env, held_to=["/w/issue-12", "/f/projects/app/.git"])
+        self.assertEqual(got["SANVIO_CONFINE"], os.pathsep.join(["/w/issue-12", "/f/projects/app/.git"]))
+
+    def confine_seen(self, step):
+        return (self.state / (step + "-confine")).read_text()
+
+    def test_the_build_and_tester_agents_run_with_it_and_a_reader_without(self):
+        tree = self.layout()
+        held = os.pathsep.join([os.path.realpath(str(tree)), os.path.realpath(str(self.project / ".git"))])
+        runner = self.runner()
+        with contextlib.redirect_stdout(io.StringIO()):
+            runner.agent("agent", "PLAN: add it", tree, number=12, step="build")
+            self.assertEqual(self.confine_seen("build"), held)
+            runner.agent("tester_agent", "You are writing the tests", tree, number=12, step="test")
+            self.assertEqual(self.confine_seen("test"), held)
+            runner.agent("agent", "PLAN: add it", tree)  # not streamed, as with no issue number
+            self.assertEqual(self.confine_seen("build"), held)
+            runner.agent("reader_agent", "You are planning", tree, number=12, step="plan")
+            self.assertEqual(self.confine_seen("plan"), "unset")
+            self.runner(caller=False).agent("agent", "PLAN: add it", tree, number=12, step="build")
+            self.assertEqual(self.confine_seen("build"), "unset")
 
 
 class TestGrade(unittest.TestCase):
