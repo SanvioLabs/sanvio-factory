@@ -1053,6 +1053,10 @@ class TestAPass(unittest.TestCase):
         # The sandbox off, so a run is the same on any OS: the sandbox's own tests turn it on.
         self.cfg = dict(loop.DEFAULTS, agent=agent, reader_agent=agent, test_command="test -f feature.txt",
                         max_rounds=2, poll_seconds=0, worktree_dir=str(tmp / "trees"), sandbox_commands=False)
+        # And no sandbox-exec, so the loop doesn't log that the sandbox is off: tests that want it mock it.
+        patcher = mock.patch.object(loop, "sandbox_available", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         (self.state / "issues.json").write_text(json.dumps([issue(12)]))
         (self.state / "verdict").write_text("PASS")
         os.environ["LOOP_TEST_STATE"] = str(self.state)
@@ -4668,9 +4672,14 @@ class TestSandbox(unittest.TestCase):
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN test_command, generate_command and setup_command run without a sandbox here", lines[1])
 
-    def test_with_the_sandbox_or_with_it_turned_off_there_is_no_warn(self):
+    def test_with_the_sandbox_there_is_no_warn_and_off_a_mac_turning_it_off_adds_none(self):
         self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
         self.assertEqual([l.split()[2] for l in self.logged(False, sandbox_commands=False)], ["START"])
+
+    def test_turning_the_sandbox_off_on_a_mac_is_one_warn_after_start(self):
+        lines = self.logged(True, sandbox_commands=False)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN sandbox_commands is false in the factory's loop.json", lines[1])
 
     def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
         if not loop.sandbox_available():
@@ -5703,11 +5712,14 @@ class TestProject(unittest.TestCase):
         self.project = self.harness / "projects" / "app"
         subprocess.run(["git", "clone", "-q", str(self.origin), str(self.project)], check=True, capture_output=True)
         self.trees = tmp / "trees"
-        # The sandbox off, as in TestAPass: a project key, so it's the project's own loop.json that says so.
-        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "base": "develop",
-                                                            "sandbox_commands": False}))
+        # The sandbox off, as in TestAPass: a machine key, so it's the factory's projects entry that says so.
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "base": "develop"}))
         self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
-                             "worktree_dir": str(self.trees)})
+                             "worktree_dir": str(self.trees), "projects": {"app": {"sandbox_commands": False}}})
+        # And no sandbox-exec, so the loop doesn't log that the sandbox is off: tests that want it mock it.
+        patcher = mock.patch.object(loop, "sandbox_available", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         (self.project / "README.md").write_text("hi")
         self.commit(self.project)
         git(self.project, "push", "-q", "-u", "origin", "main")
@@ -6034,17 +6046,20 @@ class TestProject(unittest.TestCase):
     def test_a_projects_own_loop_json_sets_only_the_project_keys(self):
         (self.project / "loop.json").write_text(json.dumps({
             "test_command": "make test", "test_timeout": 9, "base": "dev", "ready_label": "go",
-            "blocked_label": "stuck", "generate_command": "make files", "setup_command": "make deps",
-            "sandbox_commands": False}))
+            "blocked_label": "stuck", "generate_command": "make files", "setup_command": "make deps"}))
         cfg = loop.Loop(self.harness, project=self.project).cfg
         self.assertEqual([cfg[k] for k in loop.PROJECT_KEYS],
-                         ["make test", 9, "dev", "go", "stuck", "make files", "make deps", False])
+                         ["make test", 9, "dev", "go", "stuck", "make files", "make deps"])
 
-    def test_a_projects_own_loop_json_turns_the_sandbox_off_and_leaving_it_out_keeps_it_on(self):
-        self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], False)  # setUp's file
-        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
-        self.harness_config({"sandbox_commands": False})  # a project key: the factory's top level doesn't set it
+    def test_only_the_factory_turns_the_sandbox_off_and_a_projects_own_loop_json_never_does(self):
+        self.assertIn("sandbox_commands", loop.MACHINE_KEYS)
+        self.assertNotIn("sandbox_commands", loop.PROJECT_KEYS)
+        self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], False)  # setUp's entry
+        (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "sandbox_commands": False}))
+        self.harness_config({})
         self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], True)
+        self.harness_config({"sandbox_commands": False})
+        self.assertIs(loop.Loop(self.harness, project=self.project).cfg["sandbox_commands"], False)
 
     def test_a_project_gets_no_generate_command_from_the_harness(self):
         (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
@@ -6352,6 +6367,10 @@ class ReviewFixture:
         skill.write_text("The review procedure, version A.")
         self.cfg = dict(loop.DEFAULTS, reader_agent=str(self.bin / "claude") + " -p", poll_seconds=0,
                         worktree_dir=str(tmp / "trees"), sandbox_commands=False)
+        # And no sandbox-exec, so the loop doesn't log that the sandbox is off: tests that want it mock it.
+        patcher = mock.patch.object(loop, "sandbox_available", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         os.environ["LOOP_TEST_STATE"] = str(self.state)
         self.old_path = os.environ["PATH"]
         os.environ["PATH"] = str(self.bin) + os.pathsep + self.old_path
@@ -8665,6 +8684,16 @@ class TestAutoMergeIsAMachineKey(unittest.TestCase):
                     self.assertTrue(err.startswith("ERROR "), err)
                     self.assertIn("sets auto_merge, which only the factory's loop.json may set", err)
                     built.assert_not_called()
+
+    def test_a_project_whose_loop_json_sets_sandbox_commands_is_refused_naming_it(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "sandbox_commands": False}))
+        for command in ("run", "review"):
+            code, err, built = self.main(command, "--project", str(site))
+            self.assertEqual(code, 1)
+            self.assertTrue(err.startswith("ERROR "), err)
+            self.assertIn("sets sandbox_commands, which only the factory's loop.json may set", err)
+            built.assert_not_called()
 
     def test_the_factory_s_projects_entry_sets_it_and_the_project_s_own_never_does(self):
         (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))

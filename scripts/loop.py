@@ -493,8 +493,10 @@ def load_config(root):
 
 # What a project's own loop.json may set. Everything else is the machine's: it decides what the loop may
 # run and spend, so it comes from the factory's loop.json, never from a clone anyone can push to.
+# sandbox_commands isn't one: a project's own loop.json is in a clone anyone who can push to it can change,
+# and the sandbox is what keeps that clone's commands away from your credentials.
 PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_label", "generate_command",
-                "setup_command", "sandbox_commands")
+                "setup_command")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 # The project keys a caller project takes from the factory's loop.json instead of its own: which label submits
 # work and which one stops it are this factory's to decide, and a caller can push to its own loop.json.
@@ -3931,6 +3933,10 @@ class Loop:
             if self.cfg.get("sandbox_commands") is not False and not sandbox_available():
                 self.log("WARN", "test_command, generate_command and setup_command run without a sandbox here, "
                          "since only macOS has sandbox-exec: they can read any file your user can")
+            elif self.cfg.get("sandbox_commands") is False and sandbox_available():
+                self.log("WARN", "sandbox_commands is false in the factory's loop.json, so test_command, "
+                         "generate_command and setup_command run without the sandbox: they can read any file "
+                         "your user can")
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:

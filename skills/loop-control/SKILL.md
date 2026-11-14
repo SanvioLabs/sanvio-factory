@@ -150,9 +150,9 @@ the harness root as above. Name the tmux session after the project,
    script. Its `base` (default `main`) is where branches start and pull
    requests go. If it has no `loop.json`, say so and ask the person for the
    command. Don't write one up. Its `loop.json` may set only `test_command`,
-   `test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command`,
-   `setup_command` and `sandbox_commands`. Every other key
-   (`agent`, `max_workers`, `allow_lockfile_changes`, ...) is the machine's: it
+   `test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command`
+   and `setup_command`. Every other key
+   (`agent`, `max_workers`, `allow_lockfile_changes`, `sandbox_commands`, ...) is the machine's: it
    goes in the factory's `loop.json`, for one project under `"projects"`, such
    as `"projects": {"app": {"agent": "claude", "max_workers": 2}}`.
 2. The loop refuses, with one `ERROR` line and before it takes anything, a

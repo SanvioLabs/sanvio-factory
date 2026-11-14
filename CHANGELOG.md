@@ -35,6 +35,30 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing.
 
+## 2026-11-13: Only the factory turns the sandbox off
+
+`sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if a project's own `loop.json` sets `"sandbox_commands": false`, take it out and put it in the factory's `loop.json` as `"projects": {"<folder>": {"sandbox_commands": false}}`, or the loop refuses that project. Then restart the loop.
+
+## 2026-11-13: A skill that answers review comments
+
+[`skills/respond-to-review/`](skills/respond-to-review/) answers the review comments on a pull request you opened: it judges each one with evidence and shows a table, then makes the changes, pushes and posts the replies, each only on its own yes, and never resolves threads, approves, merges or closes.
+
+Files: [`skills/respond-to-review/SKILL.md`](skills/respond-to-review/SKILL.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-13: review-pr grades a hand-run review
+
+When a person runs [`skills/review-pr/`](skills/review-pr/SKILL.md) on a pull request, the report now ends with a grade out of 10 from [`review-rubric.json`](review-rubric.json) and the checks, in the same order the loop uses, then the `Verdict:` line last so the loop's parser still reads it. Runs from the loop or the CI review, and reviews of a branch or a diff, get no grade line.
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: The loop can push to its own fork
 
 `fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
