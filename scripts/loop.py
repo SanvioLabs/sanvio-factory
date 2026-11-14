@@ -93,10 +93,11 @@ DEFAULTS = {
     # Run by this script once per worktree, before its first agent, such as `npm ci`. It may write only
     # what git ignores, since anything else would go in a commit. Empty means nothing runs.
     "setup_command": "",
-    # Whether those three commands run inside macOS's sandbox-exec, which keeps them from reading credential
-    # files under the home folder and the factory's own data (sandbox_profile() lists both). Only true turns
-    # it on, and only on a Mac: elsewhere they run as before and the loop logs a WARN. A project whose tests
-    # need one of those paths sets it false in its own loop.json.
+    # Whether those three commands run inside macOS's sandbox-exec, which keeps them from reading or writing
+    # credential files under the home folder and the factory's own data (sandbox_profile() lists both). Only
+    # true turns it on, and only on a Mac where sandbox-exec can apply a profile: elsewhere they run as before
+    # and the loop logs a WARN. For a project whose tests need one of those paths, the factory's loop.json
+    # sets it false under "projects".
     "sandbox_commands": True,
     # Whether a separate agent writes failing tests after the planner and before round 1, which the build then
     # has to make pass without changing them. Only true turns it on. A machine key, like the next two: they
@@ -861,11 +862,18 @@ def env_for_tests(environ):
 
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
-# What test_command, generate_command and setup_command may not read inside the sandbox: credential files under
-# the home folder, then the factory's own data under its root. A file or a folder, each with all it holds.
-SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg",
-                       ".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains")
+# What test_command, generate_command and setup_command may not read or write inside the sandbox: credential
+# files under the home folder, then the factory's own data under its root. A file or a folder, each with all
+# it holds. Each .config/ entry is denied under XDG_CONFIG_HOME too, where that's set.
+SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/git", ".config/op", ".azure",
+                       ".kube", ".docker", ".gnupg", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+                       ".gitconfig", ".m2/settings.xml", ".terraform.d", ".claude/.credentials.json",
+                       "Library/Keychains")
 SANDBOX_ROOT_DENIED = ("company", "local-data", ".inbox", ".claude/settings.local.json")
+SANDBOX_PROBE_TIMEOUT = 10
+NOT_PROBED = object()  # Loop.sandbox_error before sandbox_probe() has run
+# The loop's WARN when it starts with the sandbox on and sandbox_probe() finding it can't apply a profile.
+SANDBOX_PROBE_WARN = "sandbox-exec can't apply a profile here ({error}), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can"
 
 
 def sandbox_available():
@@ -873,19 +881,60 @@ def sandbox_available():
     return sys.platform == "darwin" and os.path.exists(SANDBOX_EXEC)
 
 
-def sandbox_profile(home, root):
-    """sandbox-exec's profile: everything allowed, then reading denied for each path in SANDBOX_HOME_DENIED
-    under home and SANDBOX_ROOT_DENIED under root that exists. Each is resolved first, since the sandbox
-    matches the real path (macOS's /var is /private/var). subpath matches a file as well as a folder, and
-    never a neighbour such as .sshx. os.path.exists, not Path.exists: inside this sandbox a denied path can't
-    even be looked at, and before Python 3.13 Path.exists raises on that where os.path.exists says False."""
+def sandbox_probe():
+    """None when sandbox-exec can apply a profile here, or why not: the first line of what it said, at most
+    200 characters, or "exit N" when it said nothing. It can't inside another sandbox, as under Claude Code's,
+    where every command run through it would fail. Never raises."""
+    try:
+        done = subprocess.run([SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=SANDBOX_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "no answer in {} seconds".format(SANDBOX_PROBE_TIMEOUT)
+    except OSError as err:
+        return (str(err).strip().splitlines() or [type(err).__name__])[0][:200]
+    if done.returncode == 0:
+        return None
+    said = (done.stderr + done.stdout).decode("utf-8", "replace").strip()
+    return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
+
+
+def sandbox_profile(home, root, environ=None):
+    """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
+    SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
+    of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
+    absolute path. environ is os.environ unless given.
+
+    Every path is denied whether or not it exists, so one made after the profile is built is covered too.
+    Each is resolved first, since the sandbox matches the real path (macOS's /var is /private/var); a missing
+    path or one that can't be looked at resolves as far as it can, never raising. subpath matches a file as
+    well as a folder, and never a neighbour such as .sshx. Then each folder above a denied path, up to but not
+    /, may not be unlinked, which is what renaming it needs: moving ~/.config or the folder that holds the
+    factory aside would otherwise take what's under it out of the deny. Files can still be made beside a
+    denied path, and the folders still written to."""
+    environ = os.environ if environ is None else environ
+    paths = [Path(home) / name for name in SANDBOX_HOME_DENIED]
+    xdg = environ.get("XDG_CONFIG_HOME") or ""
+    if os.path.isabs(xdg):
+        paths += [Path(xdg) / name.split("/", 1)[1] for name in SANDBOX_HOME_DENIED if name.startswith(".config/")]
+    gh = environ.get("GH_CONFIG_DIR") or ""
+    if os.path.isabs(gh):
+        paths.append(Path(gh))
+    paths += [Path(root) / name for name in SANDBOX_ROOT_DENIED]
+
+    def quoted(path):
+        return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+    denied, folders = [], []
+    for path in paths:
+        real = path.resolve()
+        if real not in denied:
+            denied.append(real)
+        for folder in reversed(real.parents):
+            if folder != Path(folder.anchor) and folder not in folders:
+                folders.append(folder)
     rules = ["(version 1)(allow default)"]
-    for base, names in ((Path(home), SANDBOX_HOME_DENIED), (Path(root), SANDBOX_ROOT_DENIED)):
-        for name in names:
-            path = base / name
-            if os.path.exists(path):
-                quoted = str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
-                rules.append('(deny file-read* (subpath "{}"))'.format(quoted))
+    rules += ['(deny file-read* file-write* (subpath "{}"))'.format(quoted(path)) for path in denied]
+    rules += ['(deny file-write-unlink (literal "{}"))'.format(quoted(folder)) for folder in folders]
     return "\n".join(rules)
 
 
@@ -1999,6 +2048,8 @@ class Loop:
         self.pinned = None  # review, and run with fork set: origin's OWNER/NAME, named to gh on every call
         self.fork_checked = None  # fork_problem()'s answer, once GitHub gave one: '' for a fork that checks out
         self.fork_lock = threading.Lock()  # workers share that answer, so one asks and the rest wait for it
+        self.sandbox_error = NOT_PROBED  # sandbox_probe()'s answer once sandboxed() has asked: None means it works
+        self.probe_lock = threading.Lock()  # so workers starting at once ask it only once between them
         self.unposted = {}  # pull request number -> (sha, base, comment) the agent wrote and GitHub refused
         self.posted = {}  # pull request number -> the comment this process last wrote for it
         self.status = self.read_status()
@@ -2188,13 +2239,26 @@ class Loop:
             except (OSError, ValueError) as err:
                 self.log("ERROR", "could not write history.jsonl: {}".format(type(err).__name__), number)
 
+    def sandboxed(self):
+        """Whether own_command runs in sandbox-exec: sandbox_commands true, on a Mac with sandbox-exec, and
+        sandbox_probe() finding it can apply a profile here. The probe runs once a Loop, the first time this
+        is asked: when the loop starts, or a command's first run where nothing started it."""
+        if self.cfg.get("sandbox_commands") is not True or not sandbox_available():
+            return False
+        with self.probe_lock:
+            if self.sandbox_error is NOT_PROBED:
+                self.sandbox_error = sandbox_probe()
+        return self.sandbox_error is None
+
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
-        environment. With sandbox_commands true on a Mac, inside sandbox-exec, which can't read what
-        sandbox_profile denies. Anything else runs it as before: only true turns the sandbox on."""
+        environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
+        sandbox_profile denies, with GIT_CONFIG_GLOBAL=/dev/null, so git reads no global config rather than
+        stopping on the denied ~/.gitconfig. Anything else runs it as before: only true turns the sandbox on."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
-        if self.cfg.get("sandbox_commands") is True and sandbox_available():
+        if self.sandboxed():
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
+            env["GIT_CONFIG_GLOBAL"] = os.devnull
             return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
 
@@ -3749,6 +3813,8 @@ class Loop:
                 self.log("WARN", "sandbox_commands is false in the factory's loop.json, so test_command, "
                          "generate_command and setup_command run without the sandbox: they can read any file "
                          "your user can")
+            elif self.cfg.get("sandbox_commands") is True and not self.sandboxed():
+                self.log("WARN", SANDBOX_PROBE_WARN.format(error=self.sandbox_error))
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:

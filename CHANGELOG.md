@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: The sandbox denies more and can't be stepped around
+
+The sandbox around `test_command`, `generate_command` and `setup_command` now denies writing as well as reading, and covers `~/.git-credentials`, `~/.gitconfig`, `~/.config/git`, `~/.m2/settings.xml`, `~/.terraform.d` and `~/.config/op`, plus the credential folders under `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` where those are set. A path that isn't there yet is denied too, and no folder above a denied path can be renamed, so a command can't make or move its way to one. Because `~/.gitconfig` is out of reach, those commands run with `GIT_CONFIG_GLOBAL=/dev/null`. When the loop starts, it checks that `sandbox-exec` can apply a profile; where it can't, as inside another sandbox, it logs one `WARN` line saying why and runs the commands without it, rather than failing every one.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** restart the loop. A project whose tests rely on `~/.gitconfig`, say for `user.name` when they commit, sets it in the tests' own setup or through `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`.
+
 ## 2026-11-13: Only the factory turns the sandbox off
 
 `sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.
