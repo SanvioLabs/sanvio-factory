@@ -1,0 +1,13 @@
+diff --git a/app/printing.py b/app/printing.py
+new file mode 100644
+index 0000000..3c4d5e6
+--- /dev/null
++++ b/app/printing.py
+@@ -0,0 +1,7 @@
++"""Sending a saved receipt to the shop's printer."""
++import subprocess
++
++
++def print_receipt(name):
++    """Print the receipt file called name on the default printer."""
++    subprocess.run("lpr " + name, shell=True)
