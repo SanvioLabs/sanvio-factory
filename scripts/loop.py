@@ -168,6 +168,21 @@ DEFAULTS = {
     # A machine key. A fork is a fork of one repo, so a project sets its own in the factory's projects[<name>]
     # entry: a top-level one reaches every project too, and blocks each whose origin it isn't a fork of.
     "fork": None,
+    # Whether this project is an outside caller's repo: someone else's setup labels issues there for this factory
+    # to build. Only true turns it on, and run refuses any value but true or false, since a typo would quietly let
+    # the caller's text reach an agent unread. On, an issue waits until a person here accepts it, it blocks if it
+    # changed since or hides an HTML comment, whoever wrote it, and it needs a whole work order before any agent
+    # runs. ready_label and blocked_label then come from the factory's loop.json alone, never the caller's own,
+    # which the caller can push to. A machine key.
+    "caller": False,
+    # The label a person here adds to a caller's issue to accept it as a work order. A machine key.
+    "accept_label": "factory:accepted",
+    # The logins whose accept_label counts, matched without regard to case. Empty accepts nothing. A machine key:
+    # a caller's repo mustn't name who accepts its own work.
+    "acceptors": [],
+    # The plan the agents run on, as a caller's pull request names it, such as "Claude Team". Needed in caller
+    # mode, and run refuses to start a caller project without it. A machine key.
+    "account_tier": None,
 }
 
 LOCKFILES = {
@@ -223,7 +238,8 @@ ISSUE_QUERY = """query($owner: String!, $name: String!, $n: Int!) {
     issue(number: $n) {
       title body authorAssociation lastEditedAt
       timelineItems(last: 100, itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT]) {
-        nodes { __typename ... on LabeledEvent { createdAt label { name } } ... on RenamedTitleEvent { createdAt } }
+        nodes { __typename ... on LabeledEvent { createdAt label { name } actor { login } }
+                ... on RenamedTitleEvent { createdAt } }
       }
     }
   }
@@ -243,6 +259,10 @@ SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL|AC
 DEPENDS_ON = re.compile(r"(?im)^\s*depends on\b.*$")
 SCOPE = re.compile(r"(?ims)^##[ \t]+scope[ \t]*$(.*?)(?=^#{1,2}\s|\Z)")  # a ticket's Scope section
 SCOPE_IN = re.compile(r"(?is)\*\*in:\*\*(.*?)(?=\*\*out:\*\*|\Z)")  # the In half of it
+# The sections a caller's issue needs before any agent reads it, each a ## heading with text under it, read the
+# way SCOPE reads Scope: a ### line belongs to the section, and the next # or ## heading ends it.
+WORK_ORDER = ("Objective", "Acceptance Criteria", "Scope", "Verification")
+SECTION = re.compile(r"(?ims)^##[ \t]+([^\n]*?)[ \t]*$(.*?)(?=^#{1,2}\s|\Z)")
 BACKTICKED = re.compile(r"`([^`\n]+)`")
 PATH_TOKEN = re.compile(r"[\w./-]+")
 NEVER_HELD = ("CHANGELOG.md",)  # nearly every ticket names it, and a hold wouldn't stop its entries conflicting
@@ -476,20 +496,35 @@ def load_config(root):
 PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_label", "generate_command",
                 "setup_command", "sandbox_commands")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
+# The project keys a caller project takes from the factory's loop.json instead of its own: which label submits
+# work and which one stops it are this factory's to decide, and a caller can push to its own loop.json.
+CALLER_KEYS = ("ready_label", "blocked_label")
+
+
+def is_caller(harness, entry):
+    """Whether a project is in caller mode: its entry's caller, else the factory's top-level one, is true."""
+    return (entry["caller"] if "caller" in entry else harness.get("caller")) is True
 
 
 def load_project_config(root, project):
     """The defaults, then the factory's loop.json without "projects" or the PROJECT_KEYS, then its
     projects[<folder name>] entry, then the PROJECT_KEYS of the project's own loop.json. A project key the
-    project leaves out is the default, not the factory's: the factory's base or labels describe this repo."""
+    project leaves out is the default, not the factory's: the factory's base or labels describe this repo.
+
+    A caller project is the exception for CALLER_KEYS: those come from the factory's top level, then its entry,
+    and the project's own loop.json is never read for them."""
     cfg = dict(DEFAULTS)
     path = Path(root) / "loop.json"
     harness = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    entry = (harness.get("projects") or {}).get(Path(project).name, {})
+    caller = is_caller(harness, entry)
     cfg.update({k: v for k, v in harness.items() if k != "projects" and k not in PROJECT_KEYS})
-    cfg.update((harness.get("projects") or {}).get(Path(project).name, {}))
+    if caller:
+        cfg.update({k: harness[k] for k in CALLER_KEYS if k in harness})
+    cfg.update(entry)
     path = Path(project) / "loop.json"
     own = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    cfg.update({k: v for k, v in own.items() if k in PROJECT_KEYS})
+    cfg.update({k: v for k, v in own.items() if k in PROJECT_KEYS and not (caller and k in CALLER_KEYS)})
     return cfg
 
 
@@ -647,7 +682,8 @@ def project_root(path, root=None):
     if not isinstance(entries, dict) or not all(isinstance(e, dict) for e in entries.values()):
         return refuse('"projects" in the factory\'s loop.json isn\'t an object of objects, one per project folder')
     for name, entry in entries.items():
-        other = sorted(set(entry) - MACHINE_KEYS)
+        # A caller's entry also names its labels, which its own loop.json can't.
+        other = sorted(set(entry) - MACHINE_KEYS - (set(CALLER_KEYS) if is_caller(harness, entry) else set()))
         if other:
             return refuse('"projects" in the factory\'s loop.json sets {} for {}; a project\'s own loop.json '
                           'sets those'.format(", ".join(other), name))
@@ -836,20 +872,112 @@ def vouch(data, ready_label):
     """
     if data.get("authorAssociation") in TRUSTED_AUTHORS:
         return None
-    events = (data.get("timelineItems") or {}).get("nodes") or []
-    labelled = [e["createdAt"] for e in events if e.get("__typename") == "LabeledEvent"
-                and (e.get("label") or {}).get("name") == ready_label]
-    changed = [e["createdAt"] for e in events if e.get("__typename") == "RenamedTitleEvent"]
-    if data.get("lastEditedAt"):
-        changed.append(data["lastEditedAt"])
+    labelled = [e["createdAt"] for e in label_events(data, ready_label)]
     if not labelled:
         return "written outside the repo's collaborators, and no {} label was found on it".format(ready_label)
-    if changed and max(changed) > max(labelled):
+    why = unread(data, max(labelled))
+    if why == "changed":
         return ("written outside the repo's collaborators, and changed after it was labelled {}. "
                 "Read it again, then label it again".format(ready_label))
-    if "<!--" in (data.get("body") or ""):
+    if why == "hidden":
         return ("written outside the repo's collaborators, and it holds an HTML comment, which the "
                 "issue's page doesn't show. Copy what it asks into an issue of your own")
+    return None
+
+
+def label_events(data, label):
+    """The LabeledEvents in an issue from ISSUE_QUERY that added label, oldest first, as GitHub lists them."""
+    events = (data.get("timelineItems") or {}).get("nodes") or []
+    return [e for e in events if e.get("__typename") == "LabeledEvent" and (e.get("label") or {}).get("name") == label]
+
+
+def unread(data, read_at):
+    """Whether an issue from ISSUE_QUERY holds text the person who labelled it at read_at never saw: "changed"
+    when its body or title changed after then, "hidden" when its body holds an HTML comment, which the issue's
+    page doesn't show, else None. vouch() and accepted_by() both ask this, so the two rules can't drift."""
+    changed = [e["createdAt"] for e in (data.get("timelineItems") or {}).get("nodes") or []
+               if e.get("__typename") == "RenamedTitleEvent"]
+    if data.get("lastEditedAt"):
+        changed.append(data["lastEditedAt"])
+    if changed and max(changed) > read_at:
+        return "changed"
+    if "<!--" in (data.get("body") or ""):
+        return "hidden"
+    return None
+
+
+def accepted_by(data, labels, cfg):
+    """(the acceptor's login, None) when a person here accepted a caller's issue, else (None, why it waits).
+
+    data is the issue from ISSUE_QUERY, labels the names it carries now. Accepted means accept_label is on it now,
+    and the newest event that added it was by a login in acceptors, matched without regard to case: that event is
+    the one that put the label there, since the query reads no event that took one off. The actor is read from
+    the event, never the issue's text. An actor GitHub doesn't name, such as a deleted account, accepts nothing."""
+    label = cfg["accept_label"]
+    if label not in labels:
+        return None, "waiting for a person here to label it {}".format(label)
+    added = label_events(data, label)
+    if not added:
+        return None, "labelled {}, but GitHub lists no event adding it, so who added it isn't known".format(label)
+    login = (added[-1].get("actor") or {}).get("login")
+    if not isinstance(login, str) or login.lower() not in {a.lower() for a in cfg["acceptors"]}:
+        return None, "labelled {} by {}, who isn't in acceptors".format(label, marked(login or "an unnamed account",
+                                                                                    cap=100))
+    return login, None
+
+
+def caller_problem(data, cfg):
+    """Why an accepted caller's issue can't be built as it stands, or None: vouch()'s rule, measured from the
+    newest acceptance and applied to everyone. A caller's own people are the repo's owner and collaborators, so
+    their authorAssociation vouches for nothing on this side."""
+    why = unread(data, label_events(data, cfg["accept_label"])[-1]["createdAt"])
+    if why == "changed":
+        return ("changed after it was accepted with {}. Read it again here, then take that label off and "
+                "put it back".format(cfg["accept_label"]))
+    if why == "hidden":
+        return ("it holds an HTML comment, which the issue's page doesn't show, so whoever accepted it never "
+                "read it. Take the comment out of the issue, then accept it again")
+    return None
+
+
+def work_order_missing(body):
+    """The WORK_ORDER sections an issue's body lacks, in WORK_ORDER's order: a ## heading of that name, in any
+    case, with something other than whitespace under it before the next # or ## heading. A fixed check, with no
+    model reading the text, so a caller's words can't argue their way past it."""
+    found = {}
+    for heading, text in SECTION.findall((body or "").replace("\r\n", "\n")):
+        name = heading.strip().lower()
+        found[name] = found.get(name, False) or bool(text.strip())
+    return [name for name in WORK_ORDER if not found.get(name.lower())]
+
+
+def caller_config_problem(cfg):
+    """(the key, why) when a caller project can't start, or None: checked before any issue is taken, as
+    sandbox_problem() is.
+    caller itself has to be true or false wherever it's read, since anything else would quietly turn the
+    acceptance hold off. A caller project needs a sandboxed network (network_allow), a token budget
+    (max_issue_tokens) and the plan its pull requests name (account_tier), and acceptors and accept_label it
+    can read."""
+    caller = cfg.get("caller", False)
+    if not isinstance(caller, bool):
+        return "caller", "{} isn't true or false".format(repr(caller)[:100])
+    if not caller:
+        return None
+    label = cfg.get("accept_label")
+    if not isinstance(label, str) or not label.strip():
+        return "accept_label", "{} isn't a label name, and a caller project needs one".format(repr(label)[:100])
+    who = cfg.get("acceptors")
+    if not (isinstance(who, list) and all(isinstance(a, str) and a.strip() for a in who)):
+        return "acceptors", "{} isn't a list of GitHub logins".format(repr(who)[:100])
+    tier = cfg.get("account_tier")
+    if not isinstance(tier, str) or not tier.strip():
+        return "account_tier", "{} doesn't name the plan the agents run on, and a caller project needs it".format(
+            repr(tier)[:100])
+    if cfg.get("network_allow") is None:
+        return "network_allow", "unset, and a caller project's agents run only in Claude Code's sandbox"
+    if not budget(cfg)[0]:
+        return "max_issue_tokens", "{} sets no budget, and a caller project needs one above 0".format(
+            repr(cfg.get("max_issue_tokens"))[:100])
     return None
 
 
@@ -2607,7 +2735,9 @@ class Loop:
         waiting = ready(json.loads(out or "[]"), self.whoami(), self.cfg)
         self.save_status(queue=[{"number": i["number"], "title": i["title"]} for i in waiting])
         # Only an issue with nothing left to wait for may be picked; the queue still shows the rest.
-        free = [i for i in waiting if i["number"] not in busy and self.held(i, dry_run, busy) == "ok"]
+        # Acceptance first: an issue no one here has accepted gets nothing else, not even a dependency's block.
+        free = [i for i in waiting if i["number"] not in busy and self.accepted(i)
+                and self.held(i, dry_run, busy) == "ok"]
         free = [i for i in free if not self.hold(i, self.claims)]
         issue = pick(free, self.whoami(), self.cfg, only)
         if dry_run and issue and only is None and (workers(self.cfg) or 1) > 1:
@@ -2617,6 +2747,48 @@ class Loop:
                 if other["number"] != issue["number"]:
                     self.hold(other, claim)
         return issue
+
+    def caller(self):
+        """Whether this is a caller project, an outside team's repo. Only true turns it on."""
+        return self.cfg.get("caller") is True
+
+    def accepted(self, issue):
+        """Whether discover may go on with an issue: always outside caller mode, and in it only once a person here
+        has accepted it (accepted_by). Until then it's held, here and not in process(), so it's never picked: it
+        stays on the queue with why on its row as note, logs one HELD line, and nothing is said or changed on
+        GitHub, since a block would end the caller's run before anyone here has read it. GitHub is asked who
+        added the label only when it's there, and a failed read holds it too."""
+        if not self.caller():
+            return True
+        number = issue["number"]
+        labels = {l["name"] for l in issue.get("labels", [])}
+        login, why = accepted_by({}, labels, self.cfg)
+        if self.cfg["accept_label"] in labels:
+            data, out = self.read_issue(number)
+            if data is None:
+                why = "could not read who accepted it: " + out.strip()[:200]
+            else:
+                login, why = accepted_by(data, labels, self.cfg)
+        if login:
+            return True
+        self.log_once("HELD", why, number)
+        with self.write_lock:
+            for row in self.status["queue"]:
+                if row["number"] == number:
+                    row["note"] = why
+            self.save_status()
+        return False
+
+    def read_issue(self, number):
+        """(the issue from ISSUE_QUERY as GitHub has it now, gh's output), or (None, gh's output) when it
+        couldn't be read."""
+        code, out = self.gh("api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
+                            "-F", "n={}".format(number), "-f", "query=" + ISSUE_QUERY)
+        try:
+            data = json.loads(out)["data"]["repository"]["issue"]
+        except (ValueError, KeyError, TypeError):
+            data = None
+        return (data, out) if code == 0 and data else (None, out)
 
     def hold(self, issue, claims):
         """Whether a path in this issue's Scope overlaps one a running issue claims. Logged once per
@@ -2645,18 +2817,34 @@ class Loop:
         Reading it again here, rather than using the list from discover, means the text checked is
         the text the agents get. A refusal blocks the issue and says why on it; a failed read skips
         this pass and leaves the issue as it was.
+
+        A caller's issue is checked again for acceptance, and one no longer accepted is held as discover holds
+        it, not blocked. Accepted, it's blocked if it changed since or hides an HTML comment (caller_problem),
+        or if its work order lacks a section (work_order_missing), all before any agent or worktree.
         """
         number = issue["number"]
-        code, out = self.gh("api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
-                            "-F", "n={}".format(number), "-f", "query=" + ISSUE_QUERY)
-        try:
-            data = json.loads(out)["data"]["repository"]["issue"]
-        except (ValueError, KeyError, TypeError):
-            data = None
-        if code != 0 or not data:
+        data, out = self.read_issue(number)
+        if data is None:
             self.log("ERROR", "could not read the issue to check who wrote it: " + out.strip()[:200], number)
             return None
-        why = vouch(data, self.cfg["ready_label"])
+        if self.caller():
+            login, why = accepted_by(data, {l["name"] for l in issue.get("labels", [])}, self.cfg)
+            if not login:
+                self.log_once("HELD", why, number)
+                return None
+            self.log_once("ACCEPT", "accepted by {}".format(login), number)
+            why = caller_problem(data, self.cfg)
+            if not why:
+                missing = work_order_missing(data.get("body"))
+                if missing:
+                    named = ", ".join("## " + name for name in missing)
+                    self.log("ORDER", "missing " + named, number)
+                    why = ("the work order has no {} section with text under it. Add {}, then submit it again "
+                           "for a person here to accept").format(named, "it" if len(missing) == 1 else "them")
+                else:
+                    self.log("ORDER", "complete", number)
+        else:
+            why = vouch(data, self.cfg["ready_label"])
         if why:
             self.block(number, "not taken: " + why)
             return None
@@ -3803,6 +3991,13 @@ class Loop:
         if why:
             self.log("ERROR", "max_issue_tokens in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
+        # Before the sandbox's own check, so a caller project missing network_allow is told it's a caller's need.
+        found = caller_config_problem(self.cfg)
+        if found:
+            self.log("ERROR", "{} in loop.json: {}, so no issue is taken".format(*found)[:200])
+            return 1
+        if self.caller() and not self.cfg["acceptors"]:
+            self.log("WARN", "acceptors is empty, so no issue is accepted and every one waits")
         why = sandbox_problem(self.cfg)
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])

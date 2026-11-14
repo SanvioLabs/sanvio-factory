@@ -27,6 +27,14 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
+## 2026-11-13: Caller projects hold outside work for a person
+
+`caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-13: The loop can push to its own fork
 
 `fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
