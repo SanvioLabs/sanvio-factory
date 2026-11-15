@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The loop re-dates its CHANGELOG entry when it merges a newer base
+
+When the loop merges its base into a pull request to keep both sets of [`CHANGELOG.md`](CHANGELOG.md) entries, an entry the branch added that's dated before the base's newest now takes the day of the merge, so the log stays newest first and the merge passes its tests instead of failing at every new base commit. Only the date changes: the name, the body and the order stay as written. The loop's comment on the pull request names each entry it re-dated.
+
+**Needs:** 2026-10-31: Loop merges CHANGELOG.md conflicts
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: The loop records why each review said FIX
 
 The loop's reviewer now writes a `REASONS:` line just above its verdict, naming the reasons for FIX that apply from `tests-failed`, `untested-requirement`, `worked-around-tests` and `real-cost`, or `REASONS: none` on a PASS. Each `.loop/history.jsonl` line gains two fields with one entry per round, beside `tests` and `verdicts`: `fix_reasons`, the known reasons in that order (`[]` for a PASS, `["unstated"]` for a FIX that named none), and `tests_changed`, whether the branch changed or deleted a test file its base already had (`null` when git couldn't say, or `test_paths` in `loop.json` isn't a list of strings). [`scripts/export.py`](scripts/export.py) carries both. Older lines don't have them, and the reasons never change the verdict.

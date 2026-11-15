@@ -22,6 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import loop  # noqa: E402 (needs scripts/ on the path first)
 import names  # noqa: E402 (same reason)
 
+sys.path.append(str(Path(__file__).resolve().parent))  # last, so nothing here shadows a module in scripts/
+from test_changelog import problems  # noqa: E402 (the rule whats-new reads CHANGELOG.md by)
+
 REAL_ORIGIN = loop.origin if hasattr(loop, "origin") else None  # the fixture names its bare origin o/r
 # A made-up credential, built from parts so no scanner reads it as one (#413).
 TOKEN = "made" + "up" + "tok" + "en42"
@@ -1052,6 +1055,60 @@ class TestSandboxSettings(unittest.TestCase):
     def test_it_is_a_machine_key_and_off_by_default(self):
         self.assertIsNone(loop.DEFAULTS["network_allow"])
         self.assertIn("network_allow", loop.MACHINE_KEYS)
+
+
+class TestChangelogRedated(unittest.TestCase):
+    TODAY = "2026-11-15"
+    BASE = ("# What's new\n\n"
+            "## 2026-11-10: Base newest\n\nThe base's newest.\n\n**Do:** nothing.\n\n"
+            "## 2026-11-01: Base older\n\nOlder than every added entry.\n\n**Do:** nothing.\n")
+
+    def entry(self, date, name):
+        return "## {}: {}\n\nWhat {} adds.\n\n**Do:** nothing.\n\n".format(date, name, name)
+
+    def redated(self, *added):
+        return loop.changelog_redated(self.BASE, list(added), self.TODAY)
+
+    def test_two_entries_older_than_the_bases_newest_both_take_today_in_their_order(self):
+        added = [self.entry("2026-11-05", "Second"), self.entry("2026-11-03", "First")]
+        sections, changes = self.redated(*added)
+        self.assertEqual(sections, [self.entry(self.TODAY, "Second"), self.entry(self.TODAY, "First")])
+        self.assertEqual(changes, [("Second", "2026-11-05", self.TODAY), ("First", "2026-11-03", self.TODAY)])
+        self.assertEqual(problems(loop.changelog_with(self.BASE, sections)), [])
+
+    def test_an_entry_dated_the_bases_newest_day_keeps_its_date(self):
+        added = [self.entry("2026-11-10", "Same day")]
+        self.assertEqual(self.redated(*added), (added, []))
+
+    def test_only_the_date_changes_never_the_name_or_the_body(self):
+        added = ["## 2026-11-05: A `name`, with @someone\n\nA body.\n\n**Needs:** 2026-11-01: Base older\n\n"
+                 "**Do:** nothing.\n\n", self.entry("2026-11-04", "Below")]
+        sections, _ = self.redated(*added)
+        self.assertEqual([s[:13] for s in sections], ["## " + self.TODAY] * 2)
+        self.assertEqual([s[13:] for s in sections], [s[13:] for s in added])
+
+    def test_the_bases_own_entries_keep_their_dates(self):
+        sections, _ = self.redated(self.entry("2026-11-05", "Added"))
+        merged = loop.changelog_with(self.BASE, sections)
+        self.assertTrue(merged.endswith("".join(loop.changelog_sections(self.BASE)[1])))
+        self.assertIn("## 2026-11-01: Base older\n", merged)
+
+    def test_a_base_entry_dated_after_today_lends_its_date_so_the_log_stays_newest_first(self):
+        base = "# What's new\n\n" + self.entry("2026-11-16", "Written where it was already tomorrow")
+        sections, changes = loop.changelog_redated(base, [self.entry("2026-11-14", "Added")], self.TODAY)
+        self.assertEqual(changes, [("Added", "2026-11-14", "2026-11-16")])
+        self.assertEqual(problems(loop.changelog_with(base, sections)), [])
+
+    def test_an_entry_above_a_re_dated_one_takes_today_too_when_it_would_be_older(self):
+        sections, changes = self.redated(self.entry("2026-11-12", "Top"), self.entry("2026-11-05", "Bottom"))
+        self.assertEqual([s[3:13] for s in sections], [self.TODAY, self.TODAY])
+        self.assertEqual([name for name, _, _ in changes], ["Top", "Bottom"])
+
+    def test_changes_lists_only_the_entries_it_re_dated(self):
+        newer = self.entry("2026-11-20", "Newer")
+        sections, changes = self.redated(newer, self.entry("2026-11-05", "Older"))
+        self.assertEqual(sections, [newer, self.entry(self.TODAY, "Older")])
+        self.assertEqual(changes, [("Older", "2026-11-05", self.TODAY)])
 
 
 class TestAPass(unittest.TestCase):
@@ -3434,18 +3491,18 @@ class TestAPass(unittest.TestCase):
         loop.Loop(self.work, self.cfg).mark(12, pushed=sha)
         (self.state / "pr-head").write_text(sha)
 
-    def changelog_conflict(self, branch_text=None):
+    def changelog_conflict(self, branch_text=None, base_text=None, old_entry=None):
         """An open pull request for #12 and nothing ready, conflicting with main in CHANGELOG.md alone.
 
         Both sides insert directly above the one old entry, which is what makes it conflict.
         Returns (the worktree, the pushed commit)."""
-        self.commit_and_push(self.work, "main", "CHANGELOG.md", self.CHANGELOG_HEAD + self.OLD_ENTRY)
+        old = old_entry or self.OLD_ENTRY
+        self.commit_and_push(self.work, "main", "CHANGELOG.md", self.CHANGELOG_HEAD + old)
         tree = self.open_then_idle()
         sha = self.commit_and_push(tree, "loop/issue-12", "CHANGELOG.md",
-                                   branch_text or self.CHANGELOG_HEAD + self.BRANCH_ENTRY + self.OLD_ENTRY)
+                                   branch_text or self.CHANGELOG_HEAD + self.BRANCH_ENTRY + old)
         self.loop_pushed(sha)
-        self.commit_and_push(self.work, "main", "CHANGELOG.md",
-                             self.CHANGELOG_HEAD + self.BASE_ENTRY + self.OLD_ENTRY)
+        self.commit_and_push(self.work, "main", "CHANGELOG.md", base_text or self.CHANGELOG_HEAD + self.BASE_ENTRY + old)
         return tree, sha
 
     def update_lines(self):
@@ -3490,6 +3547,24 @@ class TestAPass(unittest.TestCase):
         self.assertEqual(len(comments), 1)
         self.assertIn("keep both `CHANGELOG.md` entries", comments[0])
         self.assertIn("The tests passed", comments[0])
+        self.assertNotIn("re-dated", comments[0])  # the branch's entry is the newer, so it keeps its date
+
+    def test_a_branch_entry_older_than_the_bases_newest_takes_the_day_of_the_merge(self):
+        do = "**Do:** nothing.\n\n"
+        old = self.OLD_ENTRY + "**Do:** run the setup check.\n\n"
+        base_entry = self.BASE_ENTRY + do
+        branch_entry = "## 2026-01-01: From the branch\n\nThe branch's entry.\n\n" + do
+        self.changelog_conflict(self.CHANGELOG_HEAD + branch_entry + old, self.CHANGELOG_HEAD + base_entry + old, old)
+        self.assertEqual(self.go(), 0)
+        today = datetime.now().strftime("%Y-%m-%d")
+        log = git(self.origin, "show", "loop/issue-12:CHANGELOG.md").stdout
+        self.assertEqual(problems(log), [])
+        self.assertEqual(log.split("\n## ", 1)[1].splitlines()[0], "{}: From the branch".format(today))
+        self.assertEqual(log, self.CHANGELOG_HEAD + branch_entry.replace("2026-01-01", today) + base_entry + old)
+        self.assertEqual(self.update_lines(), ["merged main, kept both CHANGELOG.md entries"])
+        comments = self.pr_comments()
+        self.assertEqual(len(comments), 1)
+        self.assertIn("It re-dated `From the branch` from 2026-01-01 to {}".format(today), comments[0])
 
     def test_failing_tests_push_nothing_and_a_second_poll_neither_tests_nor_comments_again(self):
         tree, before = self.changelog_conflict()

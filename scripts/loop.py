@@ -2109,6 +2109,33 @@ def changelog_with(base, added):
     return head + top + "".join(sections)
 
 
+CHANGELOG_HEADING = re.compile(r"## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+
+
+def changelog_redated(base, added, today):
+    """added, with each section dated before the one under it moved to today, or to the date under it when
+    that's later, so the log stays newest first. A base entry can be dated after the loop's today: written
+    where the date had already turned, or on a machine whose clock is ahead.
+
+    The one under the bottom section is base's newest entry. Only the date changes: the name, the body
+    and the order stay as they are, and base's own sections are never touched. Returns (sections,
+    changes), changes a (name, old date, new date) for each section re-dated, top first."""
+    dates = [m.group(1) for m in (CHANGELOG_HEADING.match(s) for s in changelog_sections(base)[1]) if m]
+    floor = max(dates) if dates else None
+    out, changes = [], []
+    for section in reversed(added):
+        match = CHANGELOG_HEADING.match(section)
+        if match and floor is not None and match.group(1) < floor:
+            new = max(today, floor)
+            changes.append((match.group(2), match.group(1), new))
+            section = section[:match.start(1)] + new + section[match.end(1):]
+            floor = new
+        elif match:
+            floor = match.group(1)
+        out.append(section)
+    return out[::-1], changes[::-1]
+
+
 def state_dir(root, project):
     """The loop's state folder under the factory at root. project is a name, or None for the factory's own.
 
@@ -3941,13 +3968,17 @@ class Loop:
         why = self.fork_problem()  # the push goes to the fork, never origin, so a fork that fails pushes nothing
         if why:
             return self.update_error(number, why)
-        self.merge_changelog(row, tree, target, changelog_with(texts[2], added))
+        # The base may have a newer entry than the branch's: the merge's day keeps the log newest first.
+        added, changes = changelog_redated(texts[2], added, datetime.now().strftime("%Y-%m-%d"))
+        self.merge_changelog(row, tree, target, changelog_with(texts[2], added), changes)
 
     def merging(self, tree):
         return self.git("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=tree)[0] == 0
 
-    def merge_changelog(self, row, tree, target, resolved):
+    def merge_changelog(self, row, tree, target, resolved, changes=()):
         """Build the merge on a detached HEAD at the pushed commit, test it, and push it if they pass.
+
+        changes are changelog_redated()'s, each said in the comment that follows a push.
 
         loop/issue-<N> stays where it is until the push succeeds, and whatever happens the worktree
         ends up back on it. A Ctrl-C carries on up to work() with no comment and no update_tried.
@@ -4002,8 +4033,10 @@ class Loop:
             if code != 0:
                 self.log("ERROR", UPDATE_FAILED + out.strip()[:200], number)
             self.log("UPDATE", "merged {}, kept both CHANGELOG.md entries".format(base), number)
+            redated = "".join(" It re-dated `{}` from {} to {}, so the log stays newest first.".format(
+                safe_to_post(name), old, new) for name, old, new in changes)
             self.comment_on_pr(row, "The loop merged `{}` into this branch to keep both `CHANGELOG.md` entries, "
-                                    "this one on top. The tests passed.".format(base))
+                                    "this one on top. The tests passed.{}".format(base, redated))
         finally:
             if self.merging(tree):
                 self.git(*NO_HOOKS, "merge", "--abort", cwd=tree)
