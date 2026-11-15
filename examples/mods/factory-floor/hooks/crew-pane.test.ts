@@ -65,12 +65,14 @@ const lastBlit = (blits: { key: string; cells: string }[], key: string): string 
 // take the root away, leave the lock's holder gone or fail the listing of .loop/projects/. `focus`
 // gives the session's id, which the test can change and null refuses, the default, and what fs.stat
 // finds directly under projects/. fs.write, the one change to files the engine offers, is recorded and
-// never answered with a write.
+// never answered with a write. An ssh is answered by `remote`, from the remote command alone, as [exit
+// code, stdout], and recorded in `sshes`; with no answer it fails as a connection would, with 255.
 type Kinds = Record<string, 'dir' | 'file' | 'link'>
 type Focus = { session?: { id: string | null }; projects?: Kinds }
-function world(on: On, files: Map<string, string>, focus: Focus = {}) {
+function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Map<string, [number, string]> = new Map()) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const ran: string[][] = []
+  const sshes: string[] = []
   const reads: string[] = []
   const writes: { path: string; text: string }[] = []
   const session = focus.session ?? { id: null }
@@ -110,6 +112,12 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     return { value: [...dirs, { name: 'a-file', kind: 'file' as const, size: 0 }] } as never
   })
   on('process.run', async (_$, e) => {
+    if (e.argv[0] === 'ssh') {
+      const command = e.argv[e.argv.length - 1] ?? ''
+      sshes.push(command)
+      const [exitCode, stdout] = remote.get(command) ?? [255, '']
+      return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     ran.push([...e.argv])
     return flip.staleLock ? process(1, `kill: (${e.argv[2]}) - No such process`) : process(0, '')
   })
@@ -150,7 +158,7 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     await clock.advance(2000)
     await drain()
   }
-  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close }
+  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close, sshes }
 }
 
 // The pane as the current test's world has it, for say to tell whether /factory-floor would open it.
@@ -1755,5 +1763,46 @@ group("the Crew's watch and pull request buttons", () => {
     expect(buttonRows(['List', 'Crew', 'Watch it', 'Copy attach command'], 72)).toBe(1)
     // [ List ] [ Crew ] [ Watch it ] is 30; Copy attach command's 23 more doesn't fit in 42.
     expect(buttonRows(['List', 'Crew', 'Watch it', 'Copy attach command'], 42)).toBe(2)
+  })
+})
+
+group('another machine', () => {
+  const MACHINES = `${ROOT}/.sanvio/factory-floor/machines.json`
+  const SPARE = '/r/factory'
+  test("its loop shows in the Crew with its spend from cat over ssh, while this machine's comes from fs.read", async ($, on) => {
+    const seed = fresh()
+    const files = withSpend(seed)
+    files.set(MACHINES, JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] }))
+    // spare-mac's factory loop, running in tmux and building #21 in its own window, with the same
+    // usage.json as this machine's #12.
+    const spareStatus = JSON.stringify({ running: true, tmux: 'loop-spare', queue: [], issues: [spending(seed, 21, { window: 'issue-21' })] })
+    const remote = new Map<string, [number, string]>([
+      [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nlock\n']],
+      [`cat '${SPARE}/.loop/status.json'`, [0, spareStatus]],
+      [`cat '${SPARE}/.loop/lock'`, [0, '77\n']],
+      ['kill -0 77', [0, '']],
+      [`cat '${SPARE}/.loop/issue-21/usage.json'`, [0, SPENT]],
+    ])
+    const { clock, reads, sshes, titles, close } = world(on, files, {}, remote)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    // The Crew's first poll starts the read in the background, and its next shows what it found.
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    const options = (await ui.find({ key: 'loop-pick' }))?.props.options as { value: string; label: string }[]
+    expect(options.map(o => [o.value, o.label])).toEqual([['', '● starter'], ['ssh:0/', '● spare-mac']])
+    await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
+    await drain()
+    expect(titles[titles.length - 1]).toBe('Loop crew: spare-mac')
+    const build = textOf(rowFive(await cellsOf(ui, 'lane-21'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()
+    expect(build).toBe('$1.72 6.2M')
+    expect(sshes).toContain(`cat '${SPARE}/.loop/issue-21/usage.json'`)
+    // This machine's usage.json was read from the disk, and nothing of spare-mac's was.
+    expect(readsOf(reads, usagePath(HARNESS, 12))).toBeGreaterThan(0)
+    expect(reads.filter(path => path.startsWith(SPARE))).toEqual([])
+    // The tmux session is on spare-mac, so the lane offers no Watch.
+    expect(await ui.find({ key: 'watch-21' })).toBeUndefined()
+    await ui.unmount()
+    await close()
   })
 })

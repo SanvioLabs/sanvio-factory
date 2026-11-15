@@ -614,11 +614,14 @@ group('project loops', () => {
   // The folders under .loop/projects come from those paths. The test changes `files` between polls,
   // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away, refuse
   // every write or hold one open. fs.read records each path it reads, and fs.write each path and text, storing the text
-  // in `files`. Nothing touches the disk.
-  function world(on: On, files: Map<string, string>, focus: Focus = {}) {
+  // in `files`. Nothing touches the disk. An ssh is answered by `remote`, from the remote command alone, as
+  // [exit code, stdout], and recorded in `sshes`; with no answer it fails as a connection would, with 255.
+  // Nothing connects anywhere.
+  function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Map<string, [number, string]> = new Map()) {
     const clock = mock.clock(on, { now: 1_800_000_000_000 })
     const toasts: string[] = []
     const ran: string[][] = []
+    const sshes: string[] = []
     const reads: string[] = []
     const stats: string[] = []
     const writes: { path: string; text: string }[] = []
@@ -661,6 +664,12 @@ group('project loops', () => {
     })
     on('process.run', async (_$, e) => {
       ran.push([...e.argv])
+      if (e.argv[0] === 'ssh') {
+        const command = e.argv[e.argv.length - 1] ?? ''
+        sshes.push(command)
+        const [exitCode, stdout] = remote.get(command) ?? [255, '']
+        return { value: { exitCode, stdout, stderr: exitCode === 255 ? 'ssh: connect to host: Connection refused' : '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     })
     on('ui.open', async () => {
@@ -684,7 +693,7 @@ group('project loops', () => {
       await clock.advance(500)
     }
     return {
-      clock, toasts, panes, flip, close, reads, stats, writes, session,
+      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes,
       idsAsked: () => idsAsked,
       opened: () => ran.filter(argv => argv[0] === 'open'),
     }
@@ -1439,6 +1448,77 @@ group('project loops', () => {
     expect([...new Set(reads.filter(underFocus))]).toEqual([FOCUS(B)])
     expect(writes).toEqual([{ path: FOCUS(B), text: 'alpha\n' }])
     expect(files.get(FOCUS(A))).toBe('alpha\n')
+    await ui.unmount()
+    await close()
+  })
+
+  // Another machine, spare-mac, as machines.json names it, and what its ssh answers each command with:
+  // a factory loop that isn't running, and a project alpha working #12 in tmux. hooks/remote.test.ts
+  // checks the commands themselves.
+  const MACHINES = `${ROOT}/.sanvio/factory-floor/machines.json`
+  const SPARE = '/r/factory'
+  const machinesText = JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] })
+  const spareMac = () => new Map<string, [number, string]>([
+    [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nprojects\n']],
+    [`cat '${SPARE}/.loop/status.json'`, [0, statusText('spare factory job')]],
+    [`ls -1A '${SPARE}/.loop/projects'`, [0, 'alpha\n']],
+    [`ls -1A '${SPARE}/.loop/projects/alpha'`, [0, 'status.json\nlock\n']],
+    [`cat '${SPARE}/.loop/projects/alpha/status.json'`, [0, statusText('spare alpha job', { tmux: 'loop-alpha', issues: [JOB] })]],
+    [`cat '${SPARE}/.loop/projects/alpha/lock'`, [0, '4242\n']],
+    ['kill -0 4242', [0, '']],
+    [`cat '${SPARE}/.loop/projects/alpha/issue-12/usage.json'`, [1, '']],
+  ])
+  // Past the poll's first read, which starts the other machines' reads in the background, and its next,
+  // which shows what they found.
+  const pastRemoteRead = async (clock: { advance: (ms: number) => Promise<unknown> }) => {
+    await clock.advance(500)
+    await settle()
+    await clock.advance(POLL)
+    await settle()
+  }
+
+  test('with no machines.json nothing runs ssh, and the picker is as it was', async ($, on) => {
+    const { clock, ran, close } = world(on, threeLoops(), {}, spareMac())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await pastRemoteRead(clock)
+    await clock.advance(30_000)
+    await settle()
+    expect(ran.filter(argv => argv[0] === 'ssh')).toEqual([])
+    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['', 'alpha', 'beta'])
+    expect((await pickOptions(ui)).map(o => o.label)).toEqual(['starter', 'alpha', 'beta'])
+    await ui.unmount()
+    await close()
+  })
+  test("another machine's loops are options, and picking one shows it with no watch buttons and leaves the focus alone", async ($, on) => {
+    const files = threeLoops()
+    files.set(MACHINES, machinesText)
+    const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS }, spareMac())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    // The pane's first look is this machine's alone: nothing waits on ssh.
+    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['', 'alpha', 'beta'])
+    await pastRemoteRead(clock)
+    const options = await pickOptions(ui)
+    expect(options.find(o => o.value === 'ssh:0/alpha')?.label).toBe('● spare-mac · alpha')
+    expect(options.find(o => o.value === 'ssh:0/')?.label).toBe('spare-mac')
+    // This machine's alpha stays an option of its own.
+    expect(options.find(o => o.value === 'alpha')?.label).toBe('alpha')
+    await ui.select({ key: 'loop-pick', value: 'ssh:0/alpha' })
+    await settle()
+    expect(await left(ui)).toContain('spare-mac · alpha')
+    expect(await titles(ui)).toEqual(['#12 Gate'])
+    // Its tmux is on spare-mac, so nothing offers to watch or attach to it here.
+    for (const key of ['watch', 'tmux', 'watch-12']) expect(await ui.find({ key })).toBeUndefined()
+    await clock.advance(POLL)
+    await settle()
+    expect(await titles(ui)).toEqual(['#12 Gate'])
+    expect(writes).toEqual([])
+    // This machine's alpha is still its own loop, and picking it sets the focus as before.
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
     await ui.unmount()
     await close()
   })

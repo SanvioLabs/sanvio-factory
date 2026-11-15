@@ -1,17 +1,17 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
 import type { CrewSpend as Spend, Row, Seen } from '../types'
-import { clip, has } from './logic'
+import { clip, has, loopValue } from './logic'
 
 // How a loop is read, and how the picker and the focus work, are the List's: logic.ts holds the one
 // copy of each, and these are its own functions, passed on for crew.tsx and its tests.
-export { PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopDir, loopOptions, parseStatus, projectName, projectNames } from './logic'
+export { PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopValue, parseStatus, projectName, projectNames } from './logic'
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
 // Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
-// sends, so this guards against anything else reaching a switch.
+// sends, so this guards against anything else reaching a switch. A machine that's down names no loop.
 export function isListed(loops: Seen[], value: string): boolean {
-  return loops.some(loop => (loop.project ?? '') === value)
+  return loops.some(loop => loopValue(loop) === value)
 }
 
 // The loop's own step names, as .loop/loop.log writes them, in lower case: what the lane says matches the log.

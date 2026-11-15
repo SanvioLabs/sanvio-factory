@@ -1,10 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
-import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
+import { DARK, LANE_ROWS, OUT_MS, PROJECTS_DIR, accentText, boardColumns, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopLabel, loopOptions, loopValue, parseSpend, parseStatus, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Placement } from './crew-logic'
+import type { Down } from './logic'
 import type { CrewSpend as Spend, Row, Seen } from '../types'
 import { buttonRows, buttonsWidth, issueButtons, loopButtons } from './buttons'
+import { pollRemote, remoteLoop, remoteNow, remoteUsage, resetRemote } from './remote'
 
 // The Crew view: loop-crew's hooks/register.tsx moved into factory-floor's pane, with its own saved
 // values under factory-floor's name. register.tsx draws it when the person presses Crew. One installed
@@ -41,6 +43,9 @@ const focusAtom = atom({ plugin: 'factory-floor', key: 'crew-focus' } as const, 
 // Counts the reads of every loop, so a switch's, which nothing waits for, doesn't overwrite a newer one
 // when it ends later.
 let loopReads = 0
+// The other machines that are down, and the lines saying which machines.json skips, as the last read of
+// every loop kept them. Not an atom: storeLoops compares it and asks for the redraw.
+let remoteShown: { down: Down[]; refusals: string[] } = { down: [], refusals: [] }
 
 let stopPolling: (() => void) | null = null
 let stopBoard: (() => void) | null = null
@@ -56,15 +61,16 @@ let ink: Ink = DARK
 let opens = 0
 // Each issue's spend in its current run, by loop and number, with the row fields it was read for and the
 // read itself, so two drawings at once share one read. Not an atom: seen stays a copy of the loop's own
-// files, and a changed row already redraws the pane.
+// files, and a changed row already redraws the pane. A loop is keyed by its picker value, so another
+// machine's project never shares this one's spend.
 type Spent = { started: string | undefined; tokens: number | undefined; cost_usd: number | undefined; read: Promise<void>; spend: Spend | null }
 const spends = new Map<string, Map<number, Spent>>()
-function spendsOf(project: string | undefined): Map<number, Spent> {
-  const loop = spends.get(project ?? '') ?? new Map<number, Spent>()
-  spends.set(project ?? '', loop)
+function spendsOf(value: string): Map<number, Spent> {
+  const loop = spends.get(value) ?? new Map<number, Spent>()
+  spends.set(value, loop)
   return loop
 }
-const spendOf = (seen: Seen, number: number): Spend | null => spends.get(seen.project ?? '')?.get(number)?.spend ?? null
+const spendOf = (seen: Seen, number: number): Spend | null => spends.get(loopValue(seen))?.get(number)?.spend ?? null
 // The lanes the last drawing showed with their spend, and whose loop they were: a poll reads usage.json
 // for these only, and a drawing reads it for a lane that comes into view.
 let drawn: { shown: string; numbers: Set<number> } | null = null
@@ -80,7 +86,7 @@ async function paneIsUp($: EngineInterface): Promise<boolean> {
 // The placement to draw. Before any read, a draw gets one that walks nobody and doesn't store it, so
 // the first read after a reload still walks nobody.
 function placementFor(seen: Seen, now: number): Placement {
-  return placed && placed.shown === (seen.project ?? '') ? placed.placement : place(seen, null, now)
+  return placed && placed.shown === loopValue(seen) ? placed.placement : place(seen, null, now)
 }
 
 // The session's theme, for what the board fades toward. Not being able to tell draws it dark.
@@ -150,33 +156,55 @@ async function look($: EngineInterface, root: string, project?: string): Promise
 }
 
 // Every loop the picker lists: the factory first, then each project folder holding a status file, by
-// name. A loop whose status file can't be read or doesn't parse is left out, the factory's too. A
-// folder that can't be listed gives the factory alone, or nothing when it's left out too.
+// name, then other machines' loops as their last background read left them. A loop whose status file
+// can't be read or doesn't parse is left out, the factory's too. A folder that can't be listed gives the
+// factory alone, or nothing when it's left out too. Nothing here waits on ssh.
 async function readLoops($: EngineInterface, root: string): Promise<Seen[]> {
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`).catch(() => false))
   const loops = await Promise.all([look($, root), ...names.map(name => look($, root, name))])
-  return loops.filter(loop => loop.status !== null)
+  return [...loops, ...remoteNow().loops].filter(loop => loop.status !== null)
 }
 
-// Keep a read of every loop when no newer one has started and it differs from the last. Says whether
-// it was kept, so the caller asks for the redraw.
+// The loop a picker value names: another machine's as last read, or null once that machine isn't
+// listed or answering, else this machine's, read now.
+async function lookShown($: EngineInterface, root: string, name: string): Promise<Seen | null> {
+  if (name.includes('/')) return remoteLoop(name)
+  return look($, root, name || undefined)
+}
+
+// Keep a read of every loop when no newer one has started and it, or what's known of the machines that
+// are down or skipped, differs from the last. Says whether it was kept, so the caller asks for the redraw.
 async function storeLoops($: EngineInterface, at: number, loops: Seen[]): Promise<boolean> {
-  if (at !== loopReads || JSON.stringify(await read($, loopsAtom)) === JSON.stringify(loops)) return false
-  await update($, loopsAtom, () => loops)
+  if (at !== loopReads) return false
+  const { down, refusals } = remoteNow()
+  const extras = { down, refusals }
+  const sameLoops = JSON.stringify(await read($, loopsAtom)) === JSON.stringify(loops)
+  if (sameLoops && JSON.stringify(extras) === JSON.stringify(remoteShown)) return false
+  remoteShown = extras
+  if (!sameLoops) await update($, loopsAtom, () => loops)
   return true
 }
 
 // Read usage.json for each lane drawn, or about to be, that has no read yet, or whose run, tokens or cost
 // has changed since its last read, and for no other: a lane a short terminal pane leaves out is never
-// read. A file that's missing or can't be read is no spend.
+// read. A file that's missing or can't be read is no spend. Another machine's lane takes what its
+// usage.json held at the read that gave its row, which remote.ts read with cat over ssh in the background:
+// a drawing never waits on ssh.
 async function readSpends($: EngineInterface, seen: Seen, rows: Row[], rootKnown?: string): Promise<void> {
-  const loop = spendsOf(seen.project)
+  const loop = spendsOf(loopValue(seen))
   const isStale = (row: Row): boolean => {
     const known = loop.get(row.number)
     return !known || known.started !== row.started || known.tokens !== row.tokens || known.cost_usd !== row.cost_usd
   }
   const stale = rows.filter(isStale)
+  if (seen.machineIndex !== undefined) {
+    for (const row of stale) {
+      const spend = parseSpend(remoteUsage(seen, row), row.started)
+      loop.set(row.number, { started: row.started, tokens: row.tokens, cost_usd: row.cost_usd, read: Promise.resolve(), spend: hasSpend(spend) ? spend : null })
+    }
+    return
+  }
   const root = stale.length ? (rootKnown ?? (await rootOf($))) : null
   if (root) {
     for (const row of stale.filter(isStale)) {
@@ -197,7 +225,7 @@ async function readSpends($: EngineInterface, seen: Seen, rows: Row[], rootKnown
 // An issue this loop's status file no longer lists is forgotten, so the cache holds no more than the
 // loops' status files do. One still listed is kept, so a lane walking out keeps its spend.
 function forgetUnlisted(seen: Seen): void {
-  const loop = spendsOf(seen.project)
+  const loop = spendsOf(loopValue(seen))
   const listed = new Set((seen.status?.issues ?? []).map(row => row.number))
   for (const number of [...loop.keys()]) if (!listed.has(number)) loop.delete(number)
 }
@@ -229,7 +257,12 @@ function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placeme
 async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const root = await rootOf($)
   if (!root) return
-  const name = await read($, shownAtom)
+  let name = await read($, shownAtom)
+  // Another machine's loop that's no longer listed or answering falls back to the factory, as the List's does.
+  if (name.includes('/') && !remoteLoop(name)) {
+    name = ''
+    await update($, shownAtom, () => name)
+  }
   const at = ++loopReads
   const reading = readLoops($, root)
   const isSwitch = isOpening && (await paneIsUp($))
@@ -239,9 +272,10 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
       .then(kept => kept && isOnScreen && $.ui.invalidate('ui.render'))
       .catch(() => {})
   }
-  const [next, loops] = await Promise.all([look($, root, name || undefined), isSwitch ? null : reading])
+  const [shown, loops] = await Promise.all([lookShown($, root, name), isSwitch ? null : reading])
   const now = await $.clock.now()
-  if ((await read($, shownAtom)) !== name) return
+  if ((await read($, shownAtom)) !== name || !shown) return
+  const next = shown
   forgetUnlisted(next)
   // Spend for the lanes on show whose row changed, so the redraw this read asks for has it. A switch
   // during these reads drops this one too.
@@ -261,12 +295,16 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   if ((seenChanged || loopsKept) && isOnScreen) $.ui.invalidate('ui.render')
 }
 
-// Show a loop, by its project's name or '' for the factory: an open's and a pick's. On a pane already
-// open this retitles it.
+// Show a loop, by its picker value: a project's name, '' for the factory, or ssh:<i>/… for another
+// machine's. An open's and a pick's. On a pane already open this retitles it, with another machine's
+// loop by its label.
 async function show($: EngineInterface, name: string) {
   await update($, shownAtom, () => name)
   await refresh($, true)
-  const opened = await $.ui.open({ id: PANE, title: name ? `Loop crew: ${name}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
+  // One whose machine stopped answering has fallen back to the factory, as refresh did.
+  const remote = name.includes('/') ? remoteLoop(name) : null
+  const label = name.includes('/') ? (remote ? loopLabel(remote) : '') : name
+  const opened = await $.ui.open({ id: PANE, title: label ? `Loop crew: ${label}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
   startPolling($)
   return opened
 }
@@ -297,6 +335,10 @@ function startPolling($: EngineInterface): void {
   const timer = $.clock.every(POLL_MS, () => {
     void (async () => {
       if (await paneIsUp($)) {
+        // Other machines are read only from here and the List's poll, at most every 30 seconds each, in
+        // the background.
+        const root = await rootOf($)
+        if (root) await pollRemote($, root).catch(() => {})
         await follow($).catch(() => {})
         return refresh($)
       }
@@ -304,6 +346,7 @@ function startPolling($: EngineInterface): void {
       stopPolling = null
       drawn = null
       endRedraws()
+      resetRemote()
     })().catch(() => {})
   })
   stopPolling = () => timer.cancel()
@@ -435,10 +478,19 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, mod
   // mobile app draws no Select, so there the List's buttons are the only way to switch.
   const Select = e.surface === 'mobile' ? null : elements.Select
   const loops = (await read($, loopsAtom)) ?? []
-  const picks = !!Select && loops.length > 1
+  // A machine that's down is an option too, and picking it does nothing: isListed doesn't list it.
+  const { down, refusals } = remoteShown
+  const picks = !!Select && loops.length + down.length > 1
+  const options = picks ? loopOptions(loops, down, down.length ? await $.clock.now() : 0) : []
   const picker = picks && Select && (
-    <Select key="loop-pick" options={loopOptions(loops)} value={seen.project ?? ''} onSelect={value => pick($, value, loops)} />
+    <Select key="loop-pick" options={options} value={loopValue(seen)} onSelect={value => pick($, value, loops)} />
   )
+  // Each machine machines.json skips, and why, under the picker, a row each.
+  const skipped = refusals.map((line, i) => (
+    <Text key={`refusal-${i}`} dimColor>
+      {line}
+    </Text>
+  ))
   const { message } = scene(seen)
   const now = await $.clock.now()
   const placement = placementFor(seen, now)
@@ -447,6 +499,7 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, mod
       <Box flexDirection="column">
         {top}
         {picker}
+        {skipped}
         <Text key="message" dimColor>{message}</Text>
       </Box>
     )
@@ -475,14 +528,15 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, mod
     const { Raster } = elements
     const columns = boardColumns(e.props.bodyColumns)
     const bodyRows = e.props.scroll?.bodyRows
-    // The buttons' rows, the header's and the picker's come out of the room.
-    const room = bodyRows === undefined ? undefined : bodyRows - topRows - (columns ? 1 : 0) - (picks ? 1 : 0)
+    // The buttons' rows, the header's, the picker's and a row for each machine machines.json skips come
+    // out of the room.
+    const room = bodyRows === undefined ? undefined : bodyRows - topRows - (columns ? 1 : 0) - (picks ? 1 : 0) - refusals.length
     const fit = laneFit(lanes.length, columns ? LANE_HEIGHT : 1, room)
     const shown = lanes.slice(0, columns ? Math.min(fit, MAX_LANES) : fit)
     const more = lanes.length - shown.length
     // Only a lane with its board drawn shows spend.
     const spent = columns ? shown : []
-    drawn = { shown: seen.project ?? '', numbers: new Set(spent.map(lane => lane.row.number)) }
+    drawn = { shown: loopValue(seen), numbers: new Set(spent.map(lane => lane.row.number)) }
     await readSpends($, seen, spent.map(lane => lane.row))
     mounted = columns ? { columns, numbers: shown.map(lane => lane.row.number) } : null
     const head = columns ? headCells(lanes, columns, ink) : ''
@@ -491,6 +545,7 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, mod
       <Box flexDirection="column">
         {top}
         {picker}
+        {skipped}
         {columns && <Raster key={HEAD_KEY} columns={columns} rows={1} cells={head} />}
         {shown.map(lane => {
           const cells = columns ? laneCells(lane, columns, now, ink, spendOf(seen, lane.row.number)) : ''
@@ -511,12 +566,13 @@ export async function renderCrew($: EngineInterface, e: RenderInput<'Pane'>, mod
   // has no size, so the surface draws it across the pane at the shape its viewBox gives.
   const Svg = 'Svg' in elements ? elements.Svg : null
   const columns = svgColumns(e.props.bodyColumns)
-  drawn = { shown: seen.project ?? '', numbers: new Set(lanes.map(lane => lane.row.number)) }
+  drawn = { shown: loopValue(seen), numbers: new Set(lanes.map(lane => lane.row.number)) }
   await readSpends($, seen, lanes.map(lane => lane.row))
   return (
     <Box flexDirection="column" rowGap={1}>
       {top}
       {picker}
+      {skipped}
       {Svg && <Svg key={HEAD_KEY} source={headSvg(lanes, ink, columns)} alt="The loop's steps, left to right" />}
       {lanes.map(lane => (
         <Box key={`lane-box-${lane.row.number}`} flexDirection="column">

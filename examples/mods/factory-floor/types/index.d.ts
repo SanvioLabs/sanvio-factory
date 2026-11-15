@@ -56,7 +56,13 @@ export type Seen = {
   isStaleLock: boolean
   isStopping: boolean
   // The loop's watch.command is there: loop.py wrote it, on macOS inside tmux, for the Watch it button.
+  // Always false for another machine's loop: its watch file opens nothing here.
   hasWatchFile: boolean
+  // Another machine's loop, read over SSH: the machine's label in .sanvio/factory-floor/machines.json, and
+  // its place in that file's list, which the picker's value carries. Both unset for this machine's loops.
+  // root is then the factory's path on that machine.
+  machine?: string
+  machineIndex?: number
 }
 
 // Which tab the pane shows, and the first job of its list in view. Null until the person picks a tab.
@@ -69,10 +75,11 @@ export type Mode = 'list' | 'crew'
 declare module 'claude-code' {
   interface PluginState {
     // seen: the loop on screen. loops: every loop's last look, the factory first. picked: the loop to
-    // show, a project's name or '' for the factory, null until the pane has opened on one. focus: the
+    // show, a project's name, '' for the factory, or ssh:<i>/<project> for another machine's loop (ssh:<i>/
+    // for its factory's), null until the pane has opened on one. focus: the
     // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
     // mode: the view the person picked. The crew- keys are the Crew view's own, as loop-crew keeps them:
-    // crew-shown the loop it shows, crew-seen that loop's last look, crew-loops every loop its picker
+    // crew-shown the loop it shows, by the picker's value, crew-seen that loop's last look, crew-loops every loop its picker
     // lists, crew-focus the focus as it last read it. Both views look at a loop the same way, as a Seen.
     // The Crew view shares launch with the List.
     'factory-floor': {

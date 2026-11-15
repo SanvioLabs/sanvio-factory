@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-14: Factory floor on other machines
+
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/) can list other machines' loops in its picker, in the List and the Crew, read over SSH from the machines named in `.sanvio/factory-floor/machines.json`. Each machine is read at most every 30 seconds while the pane is open, in the background. Each read only lists, cats and runs `kill -0` under that machine's `.loop/`. A machine that doesn't answer within 10 seconds shows as down. With no file, nothing changes and nothing runs `ssh`. Each `ssh` forwards nothing, takes no stdin and connects only to a host already in `known_hosts`, whatever your own SSH config says, and what a machine sends back has its control characters removed and its folder names held to a project's characters.
+
+**Needs:** 2026-11-13: The factory floor uses the loop's step names; 2026-11-12: Why each default plugin is on; 2026-11-09: Factory floor; 2026-11-09: factory-floor reads loops once; 2026-11-09: Crew view in factory-floor; 2026-11-09: Factory floor mod
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/shared.test.ts`](examples/mods/factory-floor/hooks/shared.test.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_factory_floor.py`](tests/test_factory_floor.py).
+
+**Do:** nothing, unless you want another machine's loops in the picker: copy [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json) to `.sanvio/factory-floor/machines.json` and fill in your machines. Each needs key-based SSH from this one.
+
 ## 2026-11-14: Raise a concern
 
 A *Raise a concern* issue template lets anyone flag a worry about what the agent did or produced, labelled `concern` and routed by [`steering/incidents.md`](steering/incidents.md) to the AI risk owner the company record names under `## Who decides`.
