@@ -148,6 +148,34 @@ class TestPureParts(unittest.TestCase):
         self.assertEqual(loop.parse_verdict("looks fine to me"), "FIX")
         self.assertEqual(loop.parse_verdict(""), "FIX")
 
+    def test_reasons_are_the_known_ones_from_the_last_line_in_a_fixed_order(self):
+        text = "REASONS: tests-failed\nREASONS: Real-Cost, untested-requirement,real-cost\nVERDICT: FIX"
+        self.assertEqual(loop.parse_reasons(text, "FIX", True), ["untested-requirement", "real-cost"])
+        self.assertEqual(loop.parse_reasons("REASONS: worked-around-tests tests-failed\nVERDICT: FIX", "FIX", True),
+                         ["tests-failed", "worked-around-tests"])
+
+    def test_a_fix_with_no_known_reason_is_unstated_and_a_pass_has_none(self):
+        unstated = [
+            ("only unknown words", "REASONS: flaky, style\nVERDICT: FIX", True),
+            ("none on a FIX", "REASONS: none\nVERDICT: FIX", True),
+            ("no REASONS line", "feature.txt is wrong.\nVERDICT: FIX", True),
+            ("the review didn't run", "REASONS: tests-failed\nVERDICT: FIX", False),
+            ("no verdict line and no reasons", "it broke", True),
+            ("empty", "", True),
+        ]
+        for name, text, ran in unstated:
+            with self.subTest(name):
+                verdict = loop.parse_verdict(text) if ran else "FIX"
+                self.assertEqual(verdict, "FIX")
+                self.assertEqual(loop.parse_reasons(text, verdict, ran), ["unstated"])
+        # No verdict line is a FIX, and a REASONS line it did write still counts.
+        cut = "REASONS: tests-failed"
+        self.assertEqual(loop.parse_verdict(cut), "FIX")
+        self.assertEqual(loop.parse_reasons(cut, "FIX", True), ["tests-failed"])
+        named ="REASONS: tests-failed, real-cost\nVERDICT: PASS"
+        self.assertEqual(loop.parse_reasons(named, loop.parse_verdict(named), True), [])
+        self.assertEqual(loop.parse_verdict(named), "PASS")
+
     def test_for_takes_a_whole_number_of_minutes_hours_or_days(self):
         self.assertEqual(loop.duration("90m"), ("90m", 90 * 60))
         self.assertEqual(loop.duration("8h"), ("8h", 8 * 3600))
@@ -1938,7 +1966,7 @@ class TestAPass(unittest.TestCase):
     # -- the history of runs ----------------------------------------------
 
     HISTORY_KEYS = {"v", "run", "issue", "project", "started", "ended", "outcome", "rounds", "tests",
-                    "verdicts", "tokens", "cost_usd", "agent", "reviewer"}
+                    "verdicts", "fix_reasons", "tests_changed", "tokens", "cost_usd", "agent", "reviewer"}
 
     def history(self):
         path = self.work / ".loop" / "history.jsonl"
@@ -1988,6 +2016,91 @@ class TestAPass(unittest.TestCase):
         self.assertEqual((lines[0]["outcome"], lines[0]["rounds"]), ("blocked", 2))
         self.assertEqual((lines[0]["tests"], lines[0]["verdicts"]), (["passed", "passed"], ["FIX", "FIX"]))
         self.assertEqual(lines[0]["rounds"], len(lines[0]["tests"]))
+
+    def test_a_fix_on_failing_tests_records_its_reasons_each_round(self):
+        self.cfg["test_command"] = "false"
+        (self.state / "verdict").write_text("FIX")
+        (self.state / "review-says").write_text("REASONS: tests-failed")
+        self.go()
+        line = self.history()[0]
+        self.assertEqual((line["tests"], line["verdicts"]), (["failed", "failed"], ["FIX", "FIX"]))
+        self.assertEqual(line["fix_reasons"], [["tests-failed"], ["tests-failed"]])
+        self.assertEqual(line["tests_changed"], [False, False])
+
+    def test_a_fix_on_passing_tests_records_its_reasons_in_the_prompts_order(self):
+        (self.state / "verdict").write_text("FIX")
+        (self.state / "review-says").write_text("REASONS: real-cost, untested-requirement")
+        self.go()
+        line = self.history()[0]
+        self.assertEqual((line["tests"], line["verdicts"]), (["passed", "passed"], ["FIX", "FIX"]))
+        self.assertEqual(line["fix_reasons"], [["untested-requirement", "real-cost"]] * 2)
+
+    def test_a_fix_that_names_no_reason_is_unstated_and_stays_a_fix(self):
+        for says in (None, "REASONS: none"):
+            with self.subTest(says=says):
+                self.tearDown()
+                self.setUp()
+                (self.state / "verdict").write_text("FIX")
+                if says:
+                    (self.state / "review-says").write_text(says)
+                self.go()
+                line = self.history()[0]
+                self.assertEqual(line["verdicts"], ["FIX", "FIX"])
+                self.assertEqual(line["fix_reasons"], [["unstated"], ["unstated"]])
+                self.assertEqual(self.status()["issues"][0]["state"], "blocked")
+
+    def test_a_pass_that_changes_or_deletes_an_existing_test_file_says_so(self):
+        for change in ("tests/test_old.txt", "-tests/test_old.txt"):
+            with self.subTest(change=change):
+                self.tearDown()
+                self.setUp()
+                self.commit_old_test()
+                self.build_writes(change)
+                self.go()
+                line = self.history()[0]
+                self.assertEqual((line["verdicts"], line["fix_reasons"], line["tests_changed"]),
+                                 (["PASS"], [[]], [True]))
+
+    def test_new_test_files_and_files_outside_test_paths_dont_count_as_changed_tests(self):
+        for name, prepare in (
+                ("a new test file", lambda: self.build_writes("tests/test_new.txt")),
+                ("README.md, not a test path", lambda: self.build_writes("README.md")),
+                ("the tests-first commit's new files", lambda: self.tests_go_first("tests/test_feature.txt"))):
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.commit_old_test()
+                prepare()
+                self.go()
+                line = self.history()[0]
+                self.assertEqual((line["verdicts"], line["tests_changed"]), (["PASS"], [False]))
+
+    def test_test_paths_that_arent_a_list_of_strings_record_null_for_changed_tests(self):
+        self.cfg["test_paths"] = "tests/**"
+        self.go()
+        self.assertEqual(self.history()[0]["tests_changed"], [None])
+
+    def test_a_git_that_cannot_list_changed_files_records_null_and_the_run_goes_on(self):
+        real = loop.Loop.git
+
+        def failing_diff(this, *args, **kw):
+            if "--diff-filter=MD" in args:
+                return 128, ""
+            return real(this, *args, **kw)
+
+        self.commit_old_test()
+        self.build_writes("tests/test_old.txt")
+        with mock.patch.object(loop.Loop, "git", failing_diff):
+            self.go()
+        line = self.history()[0]
+        self.assertEqual((line["outcome"], line["verdicts"], line["tests_changed"]), ("pr", ["PASS"], [None]))
+
+    def test_the_review_prompt_asks_for_a_reasons_line(self):
+        self.go()
+        prompt = (self.state / "review-prompt").read_text()
+        for words in ("REASONS:", "REASONS: none") + loop.FIX_REASONS:
+            self.assertIn(words, prompt)
+        self.assertLess(prompt.index("REASONS:"), prompt.index("Your last line must be exactly VERDICT"))
 
     def test_a_stop_before_round_one_adds_a_stopped_line(self):
         runner = loop.Loop(self.work, self.cfg)

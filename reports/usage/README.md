@@ -26,7 +26,8 @@ That path is gitignored, like the reports.
 it counts the last 14 days, and without `--out` it prints the bundle. It holds
 your user name as your usage log's filename has it, the runs of the factory's
 own loop from `.loop/history.jsonl` (outcome, rounds, test results, verdicts,
-tokens, cost, agent and reviewer, and never a project's runs), and the counts
+the review's reasons for each FIX, whether each round changed an existing test
+file, tokens, cost, agent and reviewer, and never a project's runs), and the counts
 from your usage log: sessions, skills, agents, slash commands, guard refusals,
 guard asks and the asks you said yes to.
 

@@ -194,6 +194,9 @@ LOCKFILES = {
 REQUIREMENTS = re.compile(r"^requirements.*\.txt$")
 
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FIX)\s*$", re.I | re.M)
+REASONS = re.compile(r"^\s*REASONS:(.*)$", re.I | re.M)
+# The reasons a review may give for FIX, in the order the history records them.
+FIX_REASONS = ("tests-failed", "untested-requirement", "worked-around-tests", "real-cost")
 OUTPUT_CAP = 100_000
 REVIEW_MARKER = "<!-- loop-review-pr-report -->"  # first line of the one comment per pull request
 # A pull request's comments as newest_review() reads them, one per line: the loop and any script reading a
@@ -712,6 +715,19 @@ def parse_verdict(text):
     """PASS or FIX from the last VERDICT line. No verdict counts as FIX."""
     found = VERDICT.findall(text or "")
     return found[-1].upper() if found else "FIX"
+
+
+def parse_reasons(text, verdict, ran):
+    """The FIX reasons from a review's last REASONS line, the known ones only, each once, in FIX_REASONS order.
+
+    A PASS gives none. A FIX whose review didn't run, has no REASONS line, or names none of them gives
+    ["unstated"]. It never changes the verdict.
+    """
+    if verdict == "PASS":
+        return []
+    found = REASONS.findall(text or "") if ran else []
+    named = {word.lower() for word in re.split(r"[,\s]+", found[-1]) if word} if found else set()
+    return [reason for reason in FIX_REASONS if reason in named] or ["unstated"]
 
 
 def findings(text, limit=3):
@@ -1274,6 +1290,11 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
         "the code do that the plan's requirements don't ask for, such as an extra refusal, gets its own "
         "row. With no test in the diff it gets none in the Test column, for the person who merges, and "
         "doesn't make the verdict FIX.\n"
+        "On a line of its own just above the verdict line, write REASONS: followed by each reason for FIX "
+        "that applies, separated by commas, from these four: tests-failed (the tests didn't exit 0), "
+        "untested-requirement (a requirement in the plan has no test), worked-around-tests (the build got "
+        "around tests written before it), real-cost (a problem that would cost something real). On a PASS "
+        "the line is REASONS: none.\n"
         "Your last line must be exactly VERDICT: PASS or VERDICT: FIX. Say VERDICT: FIX only for one of "
         "these: the tests didn't exit 0, a requirement in the plan has no test{worked}, or a problem that would cost "
         "something real if this merged, such as wrong behaviour, a security or privacy gap, or lost data. "
@@ -2216,7 +2237,9 @@ class Loop:
         self.session = None  # the tmux session this run is in, once locked() has asked
         self.windows = {}  # issue number -> the tmux window following its agent.log
         self.claims = {}  # issue number -> the paths its Scope named when a worker started on it
-        self.rounds = {}  # issue number -> {"tests": [...], "verdicts": [...]}, a round each, for its history line
+        # issue number -> {"tests": [...], "verdicts": [...], "fix_reasons": [...], "tests_changed": [...]},
+        # a round each, for its history line
+        self.rounds = {}
         # issue number -> {round: {"tests", "verdict"}}, for its retro. Apart from self.rounds, which the run's
         # last mark() pops before lesson() runs on a pass.
         self.outcomes = {}
@@ -2377,7 +2400,7 @@ class Loop:
         the path, and the run's outcome stands.
         """
         number, started = row["number"], row["started"]
-        rounds = self.rounds.pop(number, {"tests": [], "verdicts": []})
+        rounds = self.rounds.pop(number, {"tests": [], "verdicts": [], "fix_reasons": [], "tests_changed": []})
         with self.write_lock:
             try:
                 tokens, cost = usage_totals([e for e in self.usage(number) if e.get("run_started") == started])
@@ -2385,7 +2408,9 @@ class Loop:
                         "project": self.project.name if self.project else None,
                         "started": started, "ended": datetime.now().isoformat(timespec="seconds"),
                         "outcome": row["state"], "rounds": row.get("round", 0),
-                        "tests": rounds["tests"], "verdicts": rounds["verdicts"], "tokens": tokens, "cost_usd": cost,
+                        "tests": rounds["tests"], "verdicts": rounds["verdicts"],
+                        "fix_reasons": rounds.get("fix_reasons", []), "tests_changed": rounds.get("tests_changed", []),
+                        "tokens": tokens, "cost_usd": cost,
                         "agent": command_name(self.cfg.get("agent")),
                         "reviewer": command_name(self.cfg.get(self.reviewer()))}
                 with open(self.dir / "history.jsonl", "a", encoding="utf-8") as handle:
@@ -3419,7 +3444,7 @@ class Loop:
         self.log("DISCOVER", 'picked "{}"'.format(issue["title"]), number)
         # started: when this run of the issue began, for the pane's clock. A relabelled issue starts again.
         # window: the tmux window following its agent.log, None outside tmux.
-        self.rounds[number] = {"tests": [], "verdicts": []}
+        self.rounds[number] = {"tests": [], "verdicts": [], "fix_reasons": [], "tests_changed": []}
         self.outcomes[number] = {}
         self.mark(number, title=issue["title"], step="SHAPE", state="working", round=0,
                   tests=None, review=None, pr=None, note="", max_rounds=self.cfg["max_rounds"],
@@ -3570,12 +3595,25 @@ class Loop:
             self.discard_edits(tree, "REVIEW", "reviewer", number)
             (folder / "review.md").write_text(review, encoding="utf-8")
             verdict = parse_verdict(review) if rcode == 0 else "FIX"
+            reasons = parse_reasons(review, verdict, rcode == 0)
+            # Whether the branch changed or deleted a test file its base already had: files it added don't
+            # count, and a rename counts as a deletion. A git that fails, or test_paths that aren't a list of
+            # strings (checked only with test_first on), prove nothing.
+            paths = self.cfg.get("test_paths")
+            mcode, mout = self.git("diff", "--name-only", "--no-renames", "-z", "--diff-filter=MD",
+                                   "origin/{}...HEAD".format(self.cfg["base"]), cwd=tree)
+            if mcode != 0 or not paths or not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                tests_changed = None
+            else:
+                tests_changed = any(path_matches(p, paths) for p in mout.split("\0") if p)
 
             passed = tcode == 0 and verdict == "PASS"
             self.log("VALIDATE", "round {} tests {} review {}".format(
                 round_no, "passed" if tcode == 0 else "failed ({})".format(tcode), verdict), number)
             self.rounds[number]["tests"].append("passed" if tcode == 0 else "failed")
             self.rounds[number]["verdicts"].append(verdict)
+            self.rounds[number]["fix_reasons"].append(reasons)
+            self.rounds[number]["tests_changed"].append(tests_changed)
             self.outcomes[number][round_no] = {"tests": "passed" if tcode == 0 else "failed", "verdict": verdict}
             self.mark(number, tests="passed" if tcode == 0 else "failed ({})".format(tcode), review=verdict)
             if passed:
