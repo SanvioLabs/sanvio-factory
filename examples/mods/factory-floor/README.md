@@ -252,6 +252,7 @@ Then put your own machines in place of the two made-up ones:
 | `label` | What the picker calls the machine: `spare-mac` for its factory's loop, `spare-mac · app` for its project `app` |
 | `ssh` | Where `ssh` connects: a `user@host`, or a `Host` from your `~/.ssh/config`. One that starts with `-` is skipped |
 | `path` | The factory's folder on that machine, the one holding its `.loop/`. It has to start with `/`: a `~/factory` is skipped |
+| `tmux_socket` | Optional. The socket of the tmux server the loop runs in on that machine, when it isn't the default one, such as a loop run as a service with `TMUX_TMPDIR` set. Only **Watch** uses it. It has to start with `/` and hold only letters, digits, spaces and `_ . @ % + , : / -`. Any other value gets a dim line, and that machine's issues get no **Watch**, though it's still read |
 
 A machine the file skips gets a dim line under the picker saying why, and the
 others are still read. With no file, nothing changes and nothing runs `ssh`.
@@ -271,8 +272,36 @@ factory's loop.
 Another machine's loop shows as this one's does, with its own notices
 (`spare-mac · app: #14 has a pull request`). Picking it leaves the session's
 focus alone, since the project isn't a folder here, and a focus change never
-moves the pane to another machine. It has no **Watch it**, **Copy attach
-command** or **Watch** buttons: its tmux session is on that machine.
+moves the pane to another machine. It has no **Watch it** or **Copy attach
+command**: its tmux session is on that machine. Its issues have **Watch**, which
+copies a command rather than opening a window: see below.
+
+### Watching an issue on another machine
+
+**Watch** on another machine's issue copies a command that attaches to that
+issue's tmux window over SSH, read-only, and a toast says it was copied. Paste
+it into a terminal to watch; detach with `Ctrl-b d` and the loop keeps running.
+It shows only while that loop is live and was started in tmux, so the machine
+needs the loop started as [`loop-control`](../../../skills/loop-control/SKILL.md) starts it, and `tmux_socket` in its
+entry when its tmux server isn't on the default socket. It doesn't show for a
+session or window whose name holds anything but letters, digits, spaces and
+`_ . @ % + , -`.
+
+Pressing it first asks that machine, over SSH, whether the session is still
+there (`tmux has-session`). If it isn't, or the machine doesn't answer, a toast
+says so and nothing is copied. The copied command is:
+
+```bash
+ssh -t -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no -- 'builder@spare-mac.local' "tmux attach -r -t '=loop-factory:=issue-14'"
+```
+
+with `tmux -S '<socket>'` in place of `tmux` when `tmux_socket` is set. The
+pane never opens a window or runs that command itself.
+
+Watching hands that machine your terminal, as any `ssh` to it does. What it
+sends isn't filtered the way the pane filters what it reads, so don't watch a
+machine you think is compromised, and if you do, turn off your terminal's
+clipboard writes (OSC 52) first.
 
 ### All loops
 
@@ -289,8 +318,8 @@ buttons.
 The List shows only its Active tab while **All loops** is picked: Queue and
 Finished come back when you pick one loop. The Crew draws a lane for every
 issue a running loop is working, as it does for one loop. Each row and lane
-keeps its **Open pull request**, and **Watch** on this machine's issues; a
-remote issue has no **Watch**, as above. Neither view shows **Watch it** or
+keeps its **Open pull request** and its **Watch**: a remote issue's copies its
+attach command, as above. Neither view shows **Watch it** or
 **Copy attach command** under **All loops**, since those belong to one loop.
 
 A machine that's down adds nothing, and a dim line names it, as the picker
@@ -331,9 +360,10 @@ never while it's closed. Each read is a few separate `ssh` commands, one at a
 time, and each runs one of three commands there: `ls -1A` of a folder under
 that machine's `.loop/`, `cat` of a file under it (`status.json`, `lock`, and
 `issue-N/usage.json` for a working issue's spend), and `kill -0` on the
-process its lock names. It never writes, starts or stops anything on another
-machine, never watches or attaches to its tmux, and never sets up SSH keys or
-config. `ls` and `cat` follow links, so a link on that machine under `.loop/`
+process its lock names. A fourth, `tmux has-session`, runs only when you press
+**Watch** on one of its issues. It never writes, starts or stops anything on
+another machine, never attaches to its tmux itself (**Watch** copies the command
+for you to run), and never sets up SSH keys or config. `ls` and `cat` follow links, so a link on that machine under `.loop/`
 can make them read a file elsewhere there; what they read stays in the pane.
 
 Each `ssh` overrides your own SSH config to forward nothing (no agent, X11 or

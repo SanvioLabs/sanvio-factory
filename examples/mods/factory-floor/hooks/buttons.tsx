@@ -1,6 +1,7 @@
 import type { ButtonProps, ElementConstructor, EngineInterface, RenderElement } from 'claude-code'
 
 import { attach, isWebLink, jobAttach, jobWatchFile, watch, watchCommand } from './logic'
+import { remoteTarget, remoteWatch } from './remote'
 import type { Row, Seen } from '../types'
 
 // The buttons on a loop and on an issue, the one copy the List and the Crew both draw, so a person can
@@ -15,6 +16,8 @@ export type Buttons = { labels: string[]; elements: RenderElement[] }
 // A watch file opens a read-only Terminal window; closing it leaves the loop running. When it can't
 // open, the buttons copy the command that does the same.
 export const WATCH_TOAST = "Couldn't open a window, so the read-only attach command is copied"
+// Another machine's issue: Watch never opens a window here, so this is always what it says.
+export const REMOTE_WATCH_TOAST = "Copied a read-only attach command for that issue over ssh: paste it in a terminal"
 
 // Open a target with the first opener that works; when none does, copy what stands in for it and say
 // so. A rejected run counts as that opener failing, so a missing `open` still reaches the next.
@@ -63,11 +66,29 @@ export function loopButtons($: EngineInterface, Button: Button, seen: Seen): But
 // Watch, while the issue has its own tmux window, and Open pull request, once it has one. prLabel is
 // the pull request button's label, which the List cuts to its width. keyPrefix goes before the number in
 // each key, so under All loops two loops' #12 keep apart; '' keeps one loop's keys as watch-12 and pr-12.
-// Another machine's issue has no Watch: jobAttach gives none for its loop.
+// Another machine's issue gets remote.ts's Watch, which copies an attach over ssh: jobAttach gives none for
+// its loop.
 export function issueButtons($: EngineInterface, Button: Button, seen: Seen, row: Row, prLabel = 'Open pull request', keyPrefix = ''): Buttons {
   const jobCommand = jobAttach(seen, row)
   const out: Buttons = { labels: [], elements: [] }
-  if (jobCommand) {
+  if (remoteTarget(seen, row)) {
+    out.labels.push('Watch')
+    out.elements.push(
+      <Button
+        key={`watch-${keyPrefix}${row.number}`}
+        label="Watch"
+        onPress={press => {
+          void remoteWatch($, seen, row)
+            .then(async got => {
+              if ('why' in got) return $.ui.toast(got.why)
+              await $.ui.copy({ text: got.line, surface: press.surface })
+              $.ui.toast(REMOTE_WATCH_TOAST)
+            })
+            .catch(() => {})
+        }}
+      />,
+    )
+  } else if (jobCommand) {
     out.labels.push('Watch')
     out.elements.push(
       <Button
