@@ -62,7 +62,9 @@ part can be tested on its own.
 pull request takes its type from its own label, or else from the issue it
 closes, and [`skills/work-report/`](../skills/work-report/) counts work by it. GitHub creates the
 first three with a new repo; `gh label create chore --description
-"Maintenance: dependencies, tooling, tidying"` adds the fourth.
+"Maintenance: dependencies, tooling, tidying"` adds the fourth. A `concern`
+issue, from the *Raise a concern* template, takes no type label until someone
+turns it into work, and that work gets its own issue with its own type label.
 
 `stelliad:create-ticket` also suggests priority and risk labels. Beyond the
 type and the loop's labels Sanvio Factory ships none, so it says when one is
