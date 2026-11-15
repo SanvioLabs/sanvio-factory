@@ -192,6 +192,55 @@ class TheLogs(unittest.TestCase):
         self.assertIsNone(call("Bash", command="rm .loop/issue-3/plan.md"))
 
 
+
+class TheMachinesFile(unittest.TestCase):
+    """A change to factory-floor's list of other machines asks the person, and where nobody can answer it's
+    refused: the list chooses the hosts this machine connects to over ssh with the person's keys."""
+
+    WRITES = [("Write", {"file_path": ".sanvio/factory-floor/machines.json", "content": "{}"}),
+              ("Edit", {"file_path": "/repo/.sanvio/factory-floor/machines.json", "old_string": "a", "new_string": "b"}),
+              ("Write", {"file_path": ".sanvio/factory-floor/other.json", "content": "{}"})]
+    COMMANDS = ["echo '{}' > .sanvio/factory-floor/machines.json",
+                "cp /tmp/evil.json .sanvio/factory-floor/machines.json",
+                "mv /tmp/evil.json .sanvio/factory-floor/machines.json",
+                "printf x | tee .sanvio/factory-floor/machines.json",
+                "sed -i '' 's/a/b/' .sanvio/factory-floor/machines.json",
+                "rm -rf .sanvio/factory-floor",
+                "git status && echo x >> /repo/.sanvio/factory-floor/machines.json"]
+    READS = ["cat .sanvio/factory-floor/machines.json", "cp .sanvio/factory-floor/machines.json /tmp/copy.json",
+             "python3 -m json.tool .sanvio/factory-floor/machines.json"]
+
+    def test_a_person_is_asked_before_a_change(self):
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "", "SANVIO_HEADLESS": "", "HARNESS_HEADLESS": ""}):
+            for tool, tool_input in self.WRITES:
+                verdict = call(tool, **tool_input)
+                self.assertEqual(verdict[0] if verdict else None, "ask", (tool, tool_input))
+                self.assertIn("ssh", verdict[1])
+            for command in self.COMMANDS:
+                verdict = call("Bash", command=command)
+                self.assertEqual(verdict[0] if verdict else None, "ask", command)
+
+    def test_a_loop_agent_is_refused(self):
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "1"}):
+            for tool, tool_input in self.WRITES:
+                verdict = call(tool, **tool_input)
+                self.assertEqual(verdict[0] if verdict else None, "deny", (tool, tool_input))
+            for command in self.COMMANDS:
+                verdict = call("Bash", command=command)
+                self.assertEqual(verdict[0] if verdict else None, "deny", command)
+
+    def test_reading_it_is_fine(self):
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "", "SANVIO_HEADLESS": "", "HARNESS_HEADLESS": ""}):
+            self.assertIsNone(call("Read", file_path=".sanvio/factory-floor/machines.json"))
+            for command in self.READS:
+                self.assertIsNone(call("Bash", command=command), command)
+
+    def test_its_neighbours_are_untouched(self):
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "", "SANVIO_HEADLESS": "", "HARNESS_HEADLESS": ""}):
+            self.assertIsNone(call("Write", file_path=".sanvio/project/abc", content="app"))
+            self.assertIsNone(call("Write", file_path="examples/mods/factory-floor/machines.example.json", content="{}"))
+            self.assertIsNone(call("Bash", command="cp examples/mods/factory-floor/machines.example.json /tmp/m.json"))
+
 def deny_rule_matches(rule, path):
     """Whether a permissions rule's path pattern matches a path from the repo root, the gitignore way Claude
     Code reads it: **/ any folders or none, /** everything below, * within one name."""

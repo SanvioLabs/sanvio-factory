@@ -231,6 +231,12 @@ mkdir -p .sanvio/factory-floor
 cp examples/mods/factory-floor/machines.example.json .sanvio/factory-floor/machines.json
 ```
 
+The file chooses which hosts this machine connects to over SSH, with your
+keys, so [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py) asks you before an agent changes anything
+under `.sanvio/factory-floor/`, and refuses it outright for a loop agent or a
+headless run, where nobody is there to answer. Editing it yourself needs no
+yes.
+
 Then put your own machines in place of the two made-up ones:
 
 ```json

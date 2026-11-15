@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The guard asks before an agent changes the list of other machines
+
+An agent that writes, moves or deletes anything under `.sanvio/factory-floor/` now gets a question you answer first. That folder holds factory-floor's `machines.json`, which chooses the hosts this machine connects to over SSH with your keys. A loop agent or a headless run is refused outright, since nobody is there to answer. Reading the file is unchanged, and so is editing it yourself. The guard's check for shell commands that write the logs now covers this folder from the same code.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-14: Factory floor on other machines
 
 [`examples/mods/factory-floor/`](examples/mods/factory-floor/) can list other machines' loops in its picker, in the List and the Crew, read over SSH from the machines named in `.sanvio/factory-floor/machines.json`. Each machine is read at most every 30 seconds while the pane is open, in the background. Each read only lists, cats and runs `kill -0` under that machine's `.loop/`. A machine that doesn't answer within 10 seconds shows as down. With no file, nothing changes and nothing runs `ssh`. Each `ssh` forwards nothing, takes no stdin and connects only to a host already in `known_hosts`, whatever your own SSH config says, and what a machine sends back has its control characters removed and its folder names held to a project's characters.
