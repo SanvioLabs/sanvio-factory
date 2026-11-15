@@ -963,7 +963,7 @@ def cmd_new_suite(args):
         path = folder / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text.replace("{name}", name) if relative == "suite.json" else text)
-    os.chmod(str(folder / "key" / "score"), 0o755)
+    os.chmod(str(folder / "key" / "score"), 0o700)
     print("Made suite {} in {}.".format(name, folder))
     print("Fill in seed/, issues/, key/reference/, key/wrong/ and key/score, then check it with:")
     print("    python3 scripts/eval_factory.py validate {}".format(shlex.quote(str(folder))))
