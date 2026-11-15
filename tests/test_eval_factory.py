@@ -210,6 +210,12 @@ class Validate(unittest.TestCase):
         self.assertTrue(suite["public_example"])
         self.assertEqual(eval_factory.validate_suite(suite), [])
 
+    def test_the_tool_library_example_is_sound(self):
+        suite = eval_factory.load_suite(ROOT / "examples" / "eval-suite-tool-library", ROOT)
+        self.assertTrue(suite["public_example"])
+        self.assertEqual(len(suite["issues"]), 3)
+        self.assertEqual(eval_factory.validate_suite(suite), [])
+
     def test_validate_from_the_command_line(self):
         code = eval_factory.main(["validate", str(ROOT / "examples" / "eval-suite")])
         self.assertEqual(code, 0)
@@ -756,9 +762,18 @@ class Boundaries(unittest.TestCase):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module.split(".")[0])
-        allowed = {"argparse", "datetime", "filecmp", "json", "loop", "names", "os", "pathlib", "re", "shlex", "shutil",
-                   "signal", "subprocess", "sys", "tempfile", "time"}
+        allowed = {"argparse", "datetime", "eval_report", "filecmp", "json", "loop", "names", "os", "pathlib", "re",
+                   "shlex", "shutil", "signal", "subprocess", "sys", "tempfile", "time"}
         self.assertEqual(imported - allowed, set())
+
+    def test_the_report_imports_only_the_standard_library(self):
+        imported = set()
+        for node in ast.walk(ast.parse((ROOT / "scripts" / "eval_report.py").read_text())):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module.split(".")[0])
+        self.assertEqual(imported - {"html", "os", "pathlib", "shutil", "subprocess", "tempfile"}, set())
 
     def test_the_runner_never_reads_a_credential(self):
         for text in ("GH_TOKEN", "GITHUB_TOKEN", "auth token", "hosts.yml", ".netrc"):
@@ -1237,3 +1252,171 @@ class ScoringReach(ScoredRun):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+SCORE_TAGGED = r"""#!/usr/bin/env python3
+import json
+print(json.dumps({"tests": [{"name": "first", "issue": 1, "passed": True},
+                            {"name": "second", "issue": 2, "passed": False},
+                            {"name": "untagged", "passed": True},
+                            {"name": "bad tag", "issue": "two", "passed": True},
+                            {"name": "bool tag", "issue": True, "passed": True}],
+                  "traps": [{"name": "trap", "issue": 2, "avoided": True}]}))
+"""
+
+
+class IssuesInTheResult(ScoredRun):
+    def test_each_issue_is_recorded_with_its_title_pull_request_and_time(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        self.run_suite("--merge-in-run-repo")
+        issues = self.result()["issues"]
+        self.assertEqual([issue["title"] for issue in issues], ["Fix the app", "Then this"])
+        self.assertTrue(all(issue["pr"] and issue["state"] == "done" for issue in issues))
+        self.assertTrue(all(issue["seconds"] > 0 for issue in issues))
+
+    def test_a_whole_number_issue_tag_is_kept_and_any_other_is_dropped(self):
+        (self.suite / "key" / "score").write_text(SCORE_TAGGED)
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        self.run_suite("--merge-in-run-repo")
+        tags = {test["name"]: test.get("issue") for test in self.result()["tests"]}
+        self.assertEqual(tags, {"first": 1, "second": 2, "untagged": None, "bad tag": None, "bool tag": None})
+        self.assertEqual(self.result()["traps"][0]["issue"], 2)
+
+
+FAKE_BROWSER = r"""#!/usr/bin/env python3
+import sys
+for arg in sys.argv[1:]:
+    if arg.startswith("--print-to-pdf="):
+        open(arg.split("=", 1)[1], "wb").write(b"%PDF-1.4 fake\n")
+"""
+
+
+class Report(WithFakeGh):
+    def setUp(self):
+        super().setUp()
+        self.runs = self.factory / ".sanvio" / "factory-evals"
+        result_file(self.runs, "a", {"first": True, "<b>second</b>": True}, {"trap": True})
+        result_file(self.runs, "b", {"first": True, "<b>second</b>": False}, {"trap": False})
+        path = self.runs / "b" / "result.json"
+        result = json.loads(path.read_text())
+        result["issues"] = [{"number": 1, "title": "Fix the app", "pr": 3, "state": "done", "seconds": 120},
+                            {"number": 2, "title": "Then this", "pr": 4, "state": "done", "seconds": 60}]
+        result["tests"][1]["issue"] = 2
+        path.write_text(json.dumps(result))
+        patcher = mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def report(self, *args):
+        return self.run_cli("report", *args)
+
+    def test_html_and_markdown_are_written_into_the_run_folder(self):
+        code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.runs / "b" / "report.html").is_file())
+        self.assertTrue((self.runs / "b" / "report.md").is_file())
+        self.assertIn("No PDF", out)
+
+    def test_misses_are_grouped_under_their_issue(self):
+        self.report("b")
+        notes = (self.runs / "b" / "report.md").read_text()
+        self.assertIn("**Issue 2: Then this**\n\n- failed: <b>second</b>", notes)
+        self.assertIn("**Across the run**\n\n- fell in: trap", notes)
+        self.assertIn("| 1 | Fix the app | #3 | Merged | 2.0 min |", notes)
+
+    def test_names_are_escaped_in_the_html(self):
+        self.report("b")
+        page = (self.runs / "b" / "report.html").read_text()
+        self.assertIn("&lt;b&gt;second&lt;/b&gt;", page)
+        self.assertNotIn("<b>second</b>", page)
+
+    def test_a_comparison_names_what_got_worse(self):
+        self.report("b", "--compare", "a")
+        notes = (self.runs / "b" / "report.md").read_text()
+        self.assertIn("Worse in this run: 2\n- test <b>second</b>\n- trap trap", notes)
+        self.assertIn("Better in this run: 0", notes)
+
+    def test_a_clean_run_says_so(self):
+        self.report("a")
+        self.assertIn("**Clean run", (self.runs / "a" / "report.md").read_text())
+
+    def test_out_puts_the_files_elsewhere(self):
+        self.report("b", "--out", str(self.tmp / "elsewhere"))
+        self.assertTrue((self.tmp / "elsewhere" / "report.md").is_file())
+
+    def test_a_browser_prints_the_pdf(self):
+        browser = self.tmp / "browser"
+        browser.write_text(FAKE_BROWSER)
+        os.chmod(str(browser), 0o755)
+        with mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": str(browser)}):
+            code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.runs / "b" / "report.pdf").is_file())
+        self.assertNotIn("No PDF", out)
+
+    def test_a_browser_that_fails_still_leaves_the_html_and_says_why(self):
+        browser = self.tmp / "broken-browser"
+        browser.write_text("#!/bin/sh\nexit 1\n")
+        os.chmod(str(browser), 0o755)
+        with mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": str(browser)}):
+            code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertIn("No PDF: the browser exited", out)
+        self.assertTrue((self.runs / "b" / "report.html").is_file())
+
+    def test_a_browser_that_fails_is_passed_over_for_the_next_one(self):
+        broken, working = self.tmp / "stale-wrapper", self.tmp / "browser"
+        broken.write_text("#!/bin/sh\nexit 126\n")
+        working.write_text(FAKE_BROWSER)
+        for path in (broken, working):
+            os.chmod(str(path), 0o755)
+        with mock.patch("eval_report.find_browsers", return_value=[str(broken), str(working)]):
+            code, out = self.report("b")
+        self.assertTrue((self.runs / "b" / "report.pdf").is_file())
+        self.assertNotIn("No PDF", out)
+
+    def test_an_unknown_run_is_refused(self):
+        self.assertEqual(self.report("nope")[0], 2)
+
+
+class NewSuite(WithFakeGh):
+    def test_it_makes_a_suite_that_loads_and_validates_as_unfinished(self):
+        folder = self.tmp / "suites" / "billing"
+        code, out = self.run_cli("new-suite", str(folder))
+        self.assertEqual(code, 0, out)
+        suite = eval_factory.load_suite(folder, self.factory)
+        self.assertEqual(suite["name"], "billing")
+        self.assertTrue(os.access(str(folder / "key" / "score"), os.X_OK))
+        self.assertIn("the reference", " ".join(eval_factory.validate_suite(suite)))
+
+    def test_an_existing_folder_is_refused(self):
+        (self.tmp / "taken").mkdir()
+        self.assertEqual(self.run_cli("new-suite", str(self.tmp / "taken"))[0], 2)
+
+    def test_a_folder_inside_the_factory_is_refused(self):
+        code, out = self.run_cli("new-suite", str(self.factory / "suites" / "mine"))
+        self.assertEqual(code, 2)
+        self.assertIn("inside this factory", out)
+        self.assertFalse((self.factory / "suites").exists())
+
+class OneSessionAdapter(unittest.TestCase):
+    """The public baseline adapter: the session it starts can't push or call gh, and it needs all three values."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "one_session", ROOT / "examples" / "eval-adapters" / "one-session.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_session_cannot_push_or_call_gh(self):
+        adapter = self.load()
+        self.assertIn("Bash(git push:*)", adapter.DENIED)
+        self.assertIn("Bash(gh:*)", adapter.DENIED)
+        self.assertFalse([tool for tool in adapter.TOOLS if "push" in tool or tool.startswith("Bash(gh")])
+
+    def test_it_needs_the_issue_the_clone_and_the_repo(self):
+        with self.assertRaises(SystemExit):
+            self.load().main(["7"])

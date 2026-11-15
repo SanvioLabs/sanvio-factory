@@ -32,8 +32,9 @@ they delete what a run leaves behind.
   or fail.
 - Never put a suite inside this factory, its [`projects/`](../../projects/), or any folder its
   agents can read. The script refuses a key inside the factory or the clone
-  folder. Say so when the person names a suite there, and stop. The one
-  exception is [`examples/eval-suite/`](../../examples/eval-suite/), which is public on purpose and
+  folder. Say so when the person names a suite there, and stop. The two
+  exceptions are [`examples/eval-suite/`](../../examples/eval-suite/) and
+  [`examples/eval-suite-tool-library/`](../../examples/eval-suite-tool-library/), which are public on purpose and
   can't tell you how good a factory is.
 - Never delete a run's repo, close its issues or merge its pull requests
   yourself. `--merge-in-run-repo` lets the script merge in the repo it created
@@ -55,6 +56,13 @@ Ask, if it isn't clear already:
 - **Did a change make the factory better or worse?** Before and after a
   change to the factory itself. Go to step 3.
 - **How did two runs compare?** Go to step 5.
+- **A report to share, or a PDF?** Run
+  `python3 scripts/eval_factory.py report <run>`, with `--compare <other-run>`
+  for a second run, and give the paths it prints. It spends nothing.
+- **How do I write a suite?** `python3 scripts/eval_factory.py new-suite
+  <folder>` makes one to fill in, outside the factory, and
+  [`docs/eval-walkthrough.md`](../../docs/eval-walkthrough.md) step 6 says how. Never write the key
+  yourself: it's theirs, and you mustn't read it.
 
 ### 2. Check the review agents
 
@@ -98,7 +106,9 @@ Then show, before anything runs:
   the run protects its repo's `main`
 - the start command. For this factory's loop it's the one in
   [`examples/eval-suite/README.md`](../../examples/eval-suite/README.md). For another factory, they give it, along
-  with `--factory` and a `--usage-command`
+  with `--factory` and a `--usage-command`. For a baseline, it's
+  [`examples/eval-adapters/one-session.py`](../../examples/eval-adapters/one-session.py), and
+  [`docs/eval-walkthrough.md`](../../docs/eval-walkthrough.md) step 4 says what any start command has to do
 - whether it merges in the run repo (`--merge-in-run-repo`), or stops at each
   merge for them
 - the issue count, and that each one runs the factory's agents once at least.
@@ -140,7 +150,8 @@ suite, on the same models, with the same merge setting. Then give the
 `Better:`, `Worse:`, `New:` and `Gone:` lines, and the change in time, rounds,
 tokens and cost. One run each way is a weak signal, because a model's runs
 vary. When the difference is a test or two, recommend three runs each and
-comparing the middle result, before anyone acts on it.
+comparing the middle result, before anyone acts on it. For a report to share,
+run `python3 scripts/eval_factory.py report <after> --compare <before>`.
 
 ### 6. Say what's left behind
 

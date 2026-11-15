@@ -1,0 +1,8 @@
+{
+  "name": "tool-library-example",
+  "public_example": true,
+  "seed": "seed",
+  "key": "key",
+  "issues": ["issues/01-due-date-fee.md", "issues/02-fee-rules.md", "issues/03-borrowing-limit.md"],
+  "required_checks": ["checks"]
+}
