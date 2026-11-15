@@ -804,15 +804,16 @@ sequenceDiagram
     participant You
     participant Factory as This factory
     participant GitHub
-    participant Factory
+    participant Other as The other factory
     You->>Factory: dispatch #12, then yes
     Factory->>GitHub: add the factory's submit label to #12
-    Factory->>GitHub: open a pull request that closes #12
+    Other->>GitHub: open a pull request that closes #12, take the label off
     Factory->>GitHub: status: read #12 and its pull request
     Factory->>GitHub: review: loop.py review --pr N posts one comment
     alt changes needed
         You->>Factory: resend, then yes
         Factory->>GitHub: put the submit label back on #12
+        Other->>GitHub: push to the same branch, or the stopped label
     else ready
         Factory->>GitHub: read the required checks
         Factory-->>You: ready for a person, or why not
@@ -905,6 +906,23 @@ doesn't allow it. A run dispatched with `--repo` to another repo isn't checked
 against that one.
 `--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
 run `status` on the run right before merging. [`skills/dispatch/`](skills/dispatch/) is the conversation around it.
+
+## Measuring it
+
+A change to the factory, a new rule, a different model, a reworded skill, can
+make it better or worse in ways one pull request won't show.
+[`scripts/eval_factory.py`](scripts/eval_factory.py) measures it: it runs the
+factory through a suite of issues in a fresh private repo, merges each pull
+request once its CI passes, and scores the result with a key the factory never
+sees. Run it before and after a change and compare the two.
+
+![A suite in a private repo holds seed/, a repo and its CI; issues/, 01, 02 and 03 in order; and key/, holding score, reference/ and wrong/, which the factory never sees. eval_factory.py run makes a new repo from the seed, and issues 1, 2 and 3 are merged one at a time, each after its CI passes. A scorecard follows, with made-up figures: tests 28/30, traps 5/5, stops 0, time 41.2 minutes, cost $5.80 via --usage-command. With --repeat 3 there are three runs, and the scorecard shows the middle of them. eval_factory.py compare a-1,a-2,a-3 b-1,b-2,b-3 compares two groups and names what moved: Better, test refunds round to the cent, from 1/3 to 3/3; Worse, test an empty cart is refused, from 3/3 to 2/3, flaky in B. eval_factory.py report writes report.pdf, .html and .md, with each issue, misses by issue and every check.](docs/factory-evals.gif)
+
+[`docs/eval-walkthrough.md`](docs/eval-walkthrough.md) takes a first run step by
+step, [`docs/factory-evals.md`](docs/factory-evals.md) has the format and every
+command, and [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) is how
+to build a suite of your own. None of it runs in CI or the gate: a person starts
+each run.
 
 ## Context: who remembers what
 

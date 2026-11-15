@@ -36,7 +36,7 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-14: The loop records why each review said FIX
+## 2026-11-15: The loop records why each review said FIX
 
 The loop's reviewer now writes a `REASONS:` line just above its verdict, naming the reasons for FIX that apply from `tests-failed`, `untested-requirement`, `worked-around-tests` and `real-cost`, or `REASONS: none` on a PASS. Each `.loop/history.jsonl` line gains two fields with one entry per round, beside `tests` and `verdicts`: `fix_reasons`, the known reasons in that order (`[]` for a PASS, `["unstated"]` for a FIX that named none), and `tests_changed`, whether the branch changed or deleted a test file its base already had (`null` when git couldn't say, or `test_paths` in `loop.json` isn't a list of strings). [`scripts/export.py`](scripts/export.py) carries both. Older lines don't have them, and the reasons never change the verdict.
 
@@ -45,6 +45,102 @@ The loop's reviewer now writes a `REASONS:` line just above its verdict, naming 
 Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/loop.py`](scripts/loop.py), [`scripts/export.py`](scripts/export.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_export.py`](tests/test_export.py).
 
 **Do:** nothing. The fields start with the next run that ends.
+
+## 2026-11-15: The flywheel at the top of the README
+
+[`README.md`](README.md) names the flywheel in its opening, beside the picture of one issue through the loop: five phases, a gate at the end of each, a pull request at the end of a turn, and lessons that `learn` turns into rules. It links to *The main loop, and four inside it*, which stays where it was.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md).
+
+**Do:** nothing.
+
+## 2026-11-15: factory-floor's ssh shares no connection
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), every `ssh` the mod runs, and the one **Watch** copies, now passes `-o ControlPath=none`, so it never uses a shared connection your SSH config opened, perhaps with agent forwarding, and never leaves one behind. It narrows what the mod can reach and grants nothing new. The mod is now 0.8.1.
+
+**Needs:** 2026-11-15: Watch an issue on another machine; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts).
+
+**Do:** nothing. If you relied on a shared connection to other machines, each read now opens a connection of its own.
+
+## 2026-11-15: On this page in the README
+
+[`README.md`](README.md) has an **On this page** line above its pictures, linking each of its sections in order, so a long page can be jumped through outside GitHub's outline menu. [`tests/test_readme_contents.py`](tests/test_readme_contents.py) fails when the line stops matching the `##` headings, so a renamed, added or moved section needs the line changed with it.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing. If you've changed your README's `##` headings, update the **On this page** line to match, or the test fails.
+
+## 2026-11-15: Eval runs started in the same second get names of their own
+
+A run is named after its suite and the second it started, so two runs of one suite started in the same second, as `--repeat`'s can be when a run stops early, took the same name and the second was refused. The second now gets `-2` on the end, the third `-3`, and so on, in its record, its repo and its clone.
+
+**Needs:** 2026-11-15: Repeat eval runs and session cost; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing.
+
+## 2026-11-15: Flow figures for evals, adapters, handing off and upgrading
+
+Five docs gain a figure that shows the flow at a glance, each with alt text that carries everything it shows. [`docs/factory-evals.gif`](docs/factory-evals.gif) is redrawn with repeat runs, groups in `compare`, and `report`, and [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gets a *Measuring it* section that uses it. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) shows a suite's parts and what `validate` proves, [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md) the two adapters side by side, [`factories/README.md`](factories/README.md) an issue handed to another factory and back, and [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) which kind of copy changes step 2, beside the eleven steps. The sequence diagram in *Handing work to another factory* named this factory twice; the other factory now has its own lane.
+
+**Needs:** 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-08: Hand an issue to another factory
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/eval-adapters.gif`](docs/eval-adapters.gif), [`docs/factory-evals.gif`](docs/factory-evals.gif), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/handing-off-to-a-factory.gif`](docs/handing-off-to-a-factory.gif), [`docs/upgrading-to-sanvio-factory.gif`](docs/upgrading-to-sanvio-factory.gif), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`docs/writing-eval-suites.gif`](docs/writing-eval-suites.gif), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`factories/README.md`](factories/README.md).
+
+**Do:** nothing.
+
+## 2026-11-15: Repeat eval runs and session cost
+
+`eval_factory.py run --repeat N` runs a suite N times, and `compare` and `report` take a group of runs joined by commas, showing the middle result, each check's pass rate and which checks are flaky. `report` takes several suites in one report, with a summary first. [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py) gives another factory's cost from Claude Code's transcripts at the prices in `.sanvio/prices.json`, for `--usage-command`. [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py) is an adapter for a factory that opens its own pull requests. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) covers building a suite that tells factories apart, and [`docs/factory-evals.md`](docs/factory-evals.md) gains cleanup and troubleshooting.
+
+**Needs:** 2026-11-15: Eval walkthrough; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`scripts/eval_report.py`](scripts/eval_report.py), [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To price another factory's runs, copy [`scripts/prices.example.json`](scripts/prices.example.json) to `.sanvio/prices.json` and put in the models you use.
+
+## 2026-11-15: Watch an issue on another machine
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), **Watch** on an issue running on another machine copies a read-only `ssh -t ... tmux attach -r` command for that issue's tmux window, in that loop's own view and under **All loops**, and a toast says so. It first checks over SSH that the session is there (`tmux has-session`, the only remote command added), and copies nothing if it isn't or the machine doesn't answer. A machine in `.sanvio/factory-floor/machines.json` can give `tmux_socket` for a tmux server off the default socket; a value that isn't an absolute path of plain characters is refused with a line in the pane, and that machine's issues get no **Watch**. Session and window names past a short list of characters build no command. The pane opens no window and runs nothing it copies. The mod is now 0.8.0.
+
+**Needs:** 2026-11-15: All loops in factory-floor; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`steering/data-and-tools.md`](steering/data-and-tools.md).
+
+**Do:** nothing. For a loop whose tmux server isn't on the default socket, add its `tmux_socket` to that machine's entry in `.sanvio/factory-floor/machines.json`.
+
+## 2026-11-15: Eval walkthrough
+
+A step-by-step guide to a first factory eval: check the examples, run a baseline, read the scorecard, point the run at your own factory, test one change at a time, and write a suite of your own. It comes with a second public example suite, three issues on a made-up tool library with 12 hidden tests, two traps and four known wrong answers, and a plain one-session adapter that serves as a baseline and as the starting point for an adapter to another factory. `eval_factory.py report <run>` writes a run's report as HTML, Markdown and, where Chrome, Chromium or Edge is installed, PDF: each issue with its pull request and time, what was missed grouped by issue, every check, an optional comparison and an appendix. `eval_factory.py new-suite <folder>` makes a suite to fill in, outside the factory. A run's result now records each issue's title, pull request and time, and `key/score` may tag a check with its issue.
+
+**Needs:** 2026-11-13: A skill that runs the evals; 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-05: Guides for CI and for measuring a harness; 2026-11-02: Safer harness eval runs; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/eval-walkthrough.svg`](docs/eval-walkthrough.svg), [`docs/factory-evals.md`](docs/factory-evals.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/one-session.py`](examples/eval-adapters/one-session.py), [`examples/eval-suite-tool-library/`](examples/eval-suite-tool-library/), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`scripts/eval_report.py`](scripts/eval_report.py), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To try it, run `python3 scripts/eval_factory.py validate examples/eval-suite-tool-library`, then follow [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
+## 2026-11-15: All loops in factory-floor
+
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker has an **All loops** option once it lists more than one loop. It shows every issue being worked on every loop, this machine's and the other machines', on one page. In the List that's the Active tab alone, each row tagged with its machine and project (`spare-mac · alpha`, or this machine's by its folder name). In the Crew it's a lane for each issue, with the same tag. Two loops on the same issue number are two rows and two lanes. **Open pull request** works on each row and lane, and **Watch** on this machine's issues only. A machine that's down adds nothing, and a line says when it was last read. Picking **All loops** doesn't write the session's focus. The mod is now 0.7.0.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/hooks/logic.test.ts`](examples/mods/factory-floor/hooks/logic.test.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/shared.test.ts`](examples/mods/factory-floor/hooks/shared.test.ts), [`tests/test_factory_floor.py`](tests/test_factory_floor.py).
+
+**Do:** nothing.
+
+## 2026-11-15: The guard asks before an agent changes the list of other machines
+
+An agent that writes, moves or deletes anything under `.sanvio/factory-floor/` now gets a question you answer first. That folder holds factory-floor's `machines.json`, which chooses the hosts this machine connects to over SSH with your keys. A loop agent or a headless run is refused outright, since nobody is there to answer. Reading the file is unchanged, and so is editing it yourself. The guard's check for shell commands that write the logs now covers this folder from the same code.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
 
 ## 2026-11-14: Factory floor on other machines
 
