@@ -56,6 +56,13 @@ Ask, if it isn't clear already:
 - **Did a change make the factory better or worse?** Before and after a
   change to the factory itself. Go to step 3.
 - **How did two runs compare?** Go to step 5.
+- **A report to share, or a PDF?** Run
+  `python3 scripts/eval_factory.py report <run>`, with `--compare <other-run>`
+  for a second run, and give the paths it prints. It spends nothing.
+- **How do I write a suite?** `python3 scripts/eval_factory.py new-suite
+  <folder>` makes one to fill in, outside the factory, and
+  [`docs/eval-walkthrough.md`](../../docs/eval-walkthrough.md) step 6 says how. Never write the key
+  yourself: it's theirs, and you mustn't read it.
 
 ### 2. Check the review agents
 
@@ -143,7 +150,8 @@ suite, on the same models, with the same merge setting. Then give the
 `Better:`, `Worse:`, `New:` and `Gone:` lines, and the change in time, rounds,
 tokens and cost. One run each way is a weak signal, because a model's runs
 vary. When the difference is a test or two, recommend three runs each and
-comparing the middle result, before anyone acts on it.
+comparing the middle result, before anyone acts on it. For a report to share,
+run `python3 scripts/eval_factory.py report <after> --compare <before>`.
 
 ### 6. Say what's left behind
 

@@ -90,6 +90,18 @@ What to look at, in order:
    needed a person to get there.
 3. **Time and Cost.** Only worth comparing once the first two hold.
 
+To share it, make a report:
+
+```bash
+python3 scripts/eval_factory.py report <run>
+```
+
+That writes `report.html`, `report.md` and, when Chrome, Chromium or Edge is
+installed, `report.pdf` into the run's folder: the verdict, each issue with
+its pull request and time, what was missed grouped by issue, every check, and
+a page on how to read it. Add `--compare <other-run>` to put a second run
+beside it.
+
 `Rounds` and `Tokens` come from this factory's own loop, so another factory
 reads `not reported`. `list` shows every run and its repo. Run repos stay until
 you delete them.
@@ -135,6 +147,7 @@ python3 scripts/eval_factory.py compare <run-a> <run-b>
 ```
 
 `compare` names every test and trap that moved, as `Better:` or `Worse:`.
+`report <run-b> --compare <run-a>` puts the same thing in a report to share.
 
 Agent runs vary, so one run each way can mislead. For a change you'll keep,
 run each side three times and compare the middle result. Keep a change when
@@ -150,6 +163,8 @@ measures something has to be one your factory has never seen.
 1. **Pick work your team really does.** A bug fixed last month, a small
    feature, a change that touched more files than it looked like it would.
    Rewrite it with made-up names and data. Never real customer data.
+   Make its folders with `python3 scripts/eval_factory.py new-suite <folder>`,
+   somewhere outside the factory.
 2. **Seed:** the repo as it was before, with its CI workflow. `seed/loop.json`
    only matters for this factory's loop.
 3. **Issues:** what a person would write, in the order they'd come. Describe
@@ -158,6 +173,8 @@ measures something has to be one your factory has never seen.
 5. **Wrong answers:** one folder per mistake you've seen agents make. Each
    should fail for one reason.
 6. **Score:** `key/score` checks behaviour, not wording, and prints its JSON.
+   Give each check `"issue"`, its issue's position from 1, so the report
+   groups misses by issue.
    A trap is a wrong move the tests can't see, such as editing an existing
    test until it passes, or breaking a caller outside the repo.
 7. **Validate** until it passes, then validate again after every change.

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""The tool library example's scorer: hidden tests for each of the three issues, and two traps."""
+"""The tool library example's scorer: hidden tests for each of the three issues, and two traps.
+
+Each check names the issue it belongs to, by its position in suite.json, so a report groups misses by issue."""
 import inspect
 import json
 import os
@@ -74,21 +76,21 @@ def seed_tests_kept():
 
 print(json.dumps({
     "tests": [
-        {"name": "back on the due date costs nothing", "passed": check(lambda: fee("m1", "drill", 0) == 0)},
-        {"name": "a day late costs 50 cents", "passed": check(lambda: fee("m1", "drill", 1) == 50)},
-        {"name": "four days late costs 2 dollars", "passed": check(lambda: fee("m3", "ladder", 4) == 200)},
-        {"name": "volunteers pay no late fee", "passed": check(lambda: fee("m2", "drill", 9) == 0)},
-        {"name": "a fee stops at the replacement cost", "passed": check(lambda: fee("m1", "saw", 40) == 1500)},
-        {"name": "a fee under the cap is unchanged", "passed": check(lambda: fee("m1", "drill", 10) == 500)},
-        {"name": "a standard member with 3 out is refused", "passed": check(lambda: refused("m1", 3))},
-        {"name": "a standard member with 2 out can borrow", "passed": check(lambda: not refused("m1", 2))},
-        {"name": "tools brought back don't count", "passed": check(lambda: not refused("m1", 2, back=2))},
-        {"name": "other members' tools don't count", "passed": check(lambda: not refused("m1", 1, others=3))},
-        {"name": "a volunteer with 4 out can borrow", "passed": check(lambda: not refused("m2", 4))},
-        {"name": "a volunteer with 5 out is refused", "passed": check(lambda: refused("m2", 5))},
+        {"name": "back on the due date costs nothing", "issue": 1, "passed": check(lambda: fee("m1", "drill", 0) == 0)},
+        {"name": "a day late costs 50 cents", "issue": 1, "passed": check(lambda: fee("m1", "drill", 1) == 50)},
+        {"name": "four days late costs 2 dollars", "issue": 1, "passed": check(lambda: fee("m3", "ladder", 4) == 200)},
+        {"name": "volunteers pay no late fee", "issue": 2, "passed": check(lambda: fee("m2", "drill", 9) == 0)},
+        {"name": "a fee stops at the replacement cost", "issue": 2, "passed": check(lambda: fee("m1", "saw", 40) == 1500)},
+        {"name": "a fee under the cap is unchanged", "issue": 2, "passed": check(lambda: fee("m1", "drill", 10) == 500)},
+        {"name": "a standard member with 3 out is refused", "issue": 3, "passed": check(lambda: refused("m1", 3))},
+        {"name": "a standard member with 2 out can borrow", "issue": 3, "passed": check(lambda: not refused("m1", 2))},
+        {"name": "tools brought back don't count", "issue": 3, "passed": check(lambda: not refused("m1", 2, back=2))},
+        {"name": "other members' tools don't count", "issue": 3, "passed": check(lambda: not refused("m1", 1, others=3))},
+        {"name": "a volunteer with 4 out can borrow", "issue": 3, "passed": check(lambda: not refused("m2", 4))},
+        {"name": "a volunteer with 5 out is refused", "issue": 3, "passed": check(lambda: refused("m2", 5))},
     ],
     "traps": [
-        {"name": "the kiosk's call still works", "avoided": check(kiosk_call_works)},
+        {"name": "the kiosk's call still works", "issue": 2, "avoided": check(kiosk_call_works)},
         {"name": "seed tests left alone", "avoided": check(seed_tests_kept)},
     ],
 }))

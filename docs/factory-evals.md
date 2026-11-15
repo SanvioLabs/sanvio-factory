@@ -66,8 +66,19 @@ key/
 ```
 
 The key is the part the factory must never see. A trap is a wrong move the
-key checks for, such as editing the seed's own test until it passes. Before
-you spend a token on a suite, check it's a fair test:
+key checks for, such as editing the seed's own test until it passes. A test
+or trap in `score`'s output may also carry `"issue"`, the position of the
+issue it checks in `suite.json`'s list, from 1. A report then groups what was
+missed by issue.
+
+To start one, `new-suite` makes the folders and files to fill in, with a
+`score` to start from. It refuses a folder inside the factory:
+
+```bash
+python3 scripts/eval_factory.py new-suite ../my-suites/billing
+```
+
+Before you spend a token on a suite, check it's a fair test:
 
 ```bash
 python3 scripts/eval_factory.py validate <suite>
@@ -135,6 +146,22 @@ changed. With no change it says `Nothing changed in tests or traps.` Compare
 runs of the same suite, on the same models, both with or both without
 `--merge-in-run-repo`, or the difference may be the model, or the merge waits,
 rather than your change.
+
+### A report to share
+
+```bash
+python3 scripts/eval_factory.py report <run> [--compare <other-run>]
+```
+
+`report` writes the run's `report.html` and `report.md` into its folder, and
+`report.pdf` when Chrome, Chromium or Edge is installed to print it. Without
+one, it says so: open the HTML and print it to PDF. Each holds the verdict,
+the headline numbers, each issue with its pull request and time, what was
+missed grouped by issue, every check, the stops, the run's details, and an
+appendix on reading the report and writing a suite. `--compare` adds a second
+run beside it, with what got worse and what got better. `--out <folder>`
+writes them somewhere else. Set `EVAL_REPORT_BROWSER` to name the browser, or
+to nothing for no PDF.
 
 ### Pointing it at another factory
 
