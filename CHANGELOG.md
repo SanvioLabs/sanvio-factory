@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Eval walkthrough
+
+A step-by-step guide to a first factory eval: check the examples, run a baseline, read the scorecard, point the run at your own factory, test one change at a time, and write a suite of your own. It comes with a second public example suite, three issues on a made-up tool library with 12 hidden tests, two traps and four known wrong answers, and a plain one-session adapter that serves as a baseline and as the starting point for an adapter to another factory.
+
+**Needs:** 2026-11-13: A skill that runs the evals; 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-05: Guides for CI and for measuring a harness
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/eval-walkthrough.svg`](docs/eval-walkthrough.svg), [`docs/factory-evals.md`](docs/factory-evals.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/one-session.py`](examples/eval-adapters/one-session.py), [`examples/eval-suite-tool-library/`](examples/eval-suite-tool-library/), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To try it, run `python3 scripts/eval_factory.py validate examples/eval-suite-tool-library`, then follow [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
 ## 2026-11-15: All loops in factory-floor
 
 [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker has an **All loops** option once it lists more than one loop. It shows every issue being worked on every loop, this machine's and the other machines', on one page. In the List that's the Active tab alone, each row tagged with its machine and project (`spare-mac · alpha`, or this machine's by its folder name). In the Crew it's a lane for each issue, with the same tag. Two loops on the same issue number are two rows and two lanes. **Open pull request** works on each row and lane, and **Watch** on this machine's issues only. A machine that's down adds nothing, and a line says when it was last read. Picking **All loops** doesn't write the session's focus. The mod is now 0.7.0.

@@ -210,6 +210,12 @@ class Validate(unittest.TestCase):
         self.assertTrue(suite["public_example"])
         self.assertEqual(eval_factory.validate_suite(suite), [])
 
+    def test_the_tool_library_example_is_sound(self):
+        suite = eval_factory.load_suite(ROOT / "examples" / "eval-suite-tool-library", ROOT)
+        self.assertTrue(suite["public_example"])
+        self.assertEqual(len(suite["issues"]), 3)
+        self.assertEqual(eval_factory.validate_suite(suite), [])
+
     def test_validate_from_the_command_line(self):
         code = eval_factory.main(["validate", str(ROOT / "examples" / "eval-suite")])
         self.assertEqual(code, 0)
@@ -1237,3 +1243,25 @@ class ScoringReach(ScoredRun):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OneSessionAdapter(unittest.TestCase):
+    """The public baseline adapter: the session it starts can't push or call gh, and it needs all three values."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "one_session", ROOT / "examples" / "eval-adapters" / "one-session.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_session_cannot_push_or_call_gh(self):
+        adapter = self.load()
+        self.assertIn("Bash(git push:*)", adapter.DENIED)
+        self.assertIn("Bash(gh:*)", adapter.DENIED)
+        self.assertFalse([tool for tool in adapter.TOOLS if "push" in tool or tool.startswith("Bash(gh")])
+
+    def test_it_needs_the_issue_the_clone_and_the_repo(self):
+        with self.assertRaises(SystemExit):
+            self.load().main(["7"])

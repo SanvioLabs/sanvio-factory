@@ -9,6 +9,9 @@ scripts measure it instead.
 | [`scripts/eval_agents.py`](../scripts/eval_agents.py) | Does a review agent, or the review-pr skill, still find what it should in work with known problems? | One real session per case per run, two runs by default |
 | [`scripts/eval_factory.py`](../scripts/eval_factory.py) | Does the whole factory still deliver: from issues to merged pull requests, scored by checks its agents can't see? | A new private repo per run, and the factory's model tokens |
 
+New to this? [`eval-walkthrough.md`](eval-walkthrough.md) takes you through a first run of the second
+script, then a baseline, your own factory, an A/B test and a suite of your own, in that order.
+
 In Claude Code, the [`factory-eval`](../skills/factory-eval/SKILL.md) skill runs both for you: say "eval the
 factory". It checks a suite first and asks before anything spends tokens.
 
@@ -140,12 +143,15 @@ starts it on the one issue in `{issue}`. Every issue is open from the start, so
 a factory that takes whatever is open starts later issues early and spoils the
 run. Give `--usage-command` a command that prints the run's
 total cost as one number, or the cost reads `not reported`.
+[`examples/eval-adapters/`](../examples/eval-adapters/) has a plain one-session adapter to start from, and
+the list of what any start command has to do.
 
 ## Keeping a suite fair
 
 - **A public suite can't measure anything.** An agent can read it, the key
-  included. [`examples/eval-suite/`](../examples/eval-suite/) is public to show the format, and
-  that's all it's for.
+  included. [`examples/eval-suite/`](../examples/eval-suite/) and
+  [`examples/eval-suite-tool-library/`](../examples/eval-suite-tool-library/) are public to show the format, and
+  that's all they're for.
 - **Keep a real suite in a private repo,** outside the factory and anywhere its
   agents may read. The script refuses a key inside the factory or the clone
   folder, and checks the run repo's history for the key's files, but it can't

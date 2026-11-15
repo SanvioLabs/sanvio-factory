@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 460" width="820" height="460" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <title>Who does what in a factory eval run</title>
+  <desc>Three columns. eval_factory.py makes a private repo from the seed and files every issue. For each issue in order it runs your --start command with the issue number, the clone and the repo. Your adapter tells your factory to work that one issue. Your factory builds and opens one pull request against main. The adapter exits 0. eval_factory.py waits for the required checks and merges, then starts the next issue. After the last issue it scores a fresh clone with key/score, which your factory never sees, and prints the scorecard.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <rect width="820" height="460" fill="#ffffff"/>
+  <g transform="translate(20,0)">
+  <g font-weight="600" font-size="14" fill="#111827" text-anchor="middle">
+    <text x="130" y="30">eval_factory.py</text>
+    <text x="390" y="30">your adapter (--start)</text>
+    <text x="650" y="30">your factory</text>
+  </g>
+  <g stroke="#d1d5db" stroke-dasharray="4 4">
+    <line x1="260" y1="44" x2="260" y2="450"/>
+    <line x1="520" y1="44" x2="520" y2="450"/>
+  </g>
+  <g fill="#eef2ff" stroke="#6366f1">
+    <rect x="20" y="55" width="220" height="50" rx="8"/>
+    <rect x="20" y="130" width="220" height="50" rx="8"/>
+    <rect x="20" y="290" width="220" height="50" rx="8"/>
+    <rect x="20" y="380" width="220" height="56" rx="8"/>
+  </g>
+  <g fill="#ecfdf5" stroke="#10b981">
+    <rect x="280" y="130" width="220" height="50" rx="8"/>
+    <rect x="280" y="210" width="220" height="50" rx="8"/>
+  </g>
+  <g fill="#fff7ed" stroke="#f97316">
+    <rect x="540" y="130" width="220" height="50" rx="8"/>
+    <rect x="540" y="210" width="220" height="50" rx="8"/>
+  </g>
+  <g fill="#111827" text-anchor="middle">
+    <text x="130" y="76">Makes a private repo from seed/</text>
+    <text x="130" y="94">and files every issue</text>
+    <text x="130" y="151">Runs --start for issue N</text>
+    <text x="130" y="169">{issue} {clone} {repo}</text>
+    <text x="390" y="151">Tells the factory to work</text>
+    <text x="390" y="169">issue N, and only N</text>
+    <text x="650" y="151">Builds, tests, reviews:</text>
+    <text x="650" y="169">whatever your factory does</text>
+    <text x="650" y="231">Opens one pull request</text>
+    <text x="650" y="249">against main</text>
+    <text x="390" y="231">Exits 0 once the pull</text>
+    <text x="390" y="249">request is open</text>
+    <text x="130" y="311">Waits for required checks,</text>
+    <text x="130" y="329">merges, then issue N+1</text>
+    <text x="130" y="401">Scores a fresh clone with key/,</text>
+    <text x="130" y="419">which the factory never sees</text>
+  </g>
+  <g stroke="#4b5563" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+    <line x1="130" y1="105" x2="130" y2="128"/>
+    <line x1="240" y1="155" x2="278" y2="155"/>
+    <line x1="500" y1="155" x2="538" y2="155"/>
+    <line x1="650" y1="180" x2="650" y2="208"/>
+    <line x1="538" y1="235" x2="502" y2="235"/>
+    <path d="M 280 245 C 200 260 150 265 130 288"/>
+    <path d="M 20 315 C -4 270 -4 180 18 160"/>
+    <line x1="130" y1="340" x2="130" y2="378"/>
+  </g>
+  <text x="140" y="364" font-size="12" fill="#4b5563">after the last issue</text>
+  <text x="6" y="235" font-size="12" fill="#4b5563" transform="rotate(-90 12 235)" text-anchor="middle">next issue</text>
+  </g>
+</svg>

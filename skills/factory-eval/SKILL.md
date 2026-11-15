@@ -32,8 +32,9 @@ they delete what a run leaves behind.
   or fail.
 - Never put a suite inside this factory, its [`projects/`](../../projects/), or any folder its
   agents can read. The script refuses a key inside the factory or the clone
-  folder. Say so when the person names a suite there, and stop. The one
-  exception is [`examples/eval-suite/`](../../examples/eval-suite/), which is public on purpose and
+  folder. Say so when the person names a suite there, and stop. The two
+  exceptions are [`examples/eval-suite/`](../../examples/eval-suite/) and
+  [`examples/eval-suite-tool-library/`](../../examples/eval-suite-tool-library/), which are public on purpose and
   can't tell you how good a factory is.
 - Never delete a run's repo, close its issues or merge its pull requests
   yourself. `--merge-in-run-repo` lets the script merge in the repo it created
@@ -98,7 +99,9 @@ Then show, before anything runs:
   the run protects its repo's `main`
 - the start command. For this factory's loop it's the one in
   [`examples/eval-suite/README.md`](../../examples/eval-suite/README.md). For another factory, they give it, along
-  with `--factory` and a `--usage-command`
+  with `--factory` and a `--usage-command`. For a baseline, it's
+  [`examples/eval-adapters/one-session.py`](../../examples/eval-adapters/one-session.py), and
+  [`docs/eval-walkthrough.md`](../../docs/eval-walkthrough.md) step 4 says what any start command has to do
 - whether it merges in the run repo (`--merge-in-run-repo`), or stops at each
   merge for them
 - the issue count, and that each one runs the factory's agents once at least.
