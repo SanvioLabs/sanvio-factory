@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The flywheel at the top of the README
+
+[`README.md`](README.md) names the flywheel in its opening, beside the picture of one issue through the loop: five phases, a gate at the end of each, a pull request at the end of a turn, and lessons that `learn` turns into rules. It links to *The main loop, and four inside it*, which stays where it was.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: On this page in the README
 
 [`README.md`](README.md) has an **On this page** line above its pictures, linking each of its sections in order, so a long page can be jumped through outside GitHub's outline menu. [`tests/test_readme_contents.py`](tests/test_readme_contents.py) fails when the line stops matching the `##` headings, so a renamed, added or moved section needs the line changed with it.

@@ -23,8 +23,13 @@ review. [Set up](#set-up) says where the guard stops, and
 **On this page:** [Set up](#set-up) · [Where things live](#where-things-live) · [The five layers](#the-five-layers-one-step-at-a-time) · [One file, three tools](#one-file-three-tools) · [Rules versus enforcement](#rules-versus-enforcement) · [Gates](#gates-done-is-a-scripts-call) · [Beyond the five layers](#beyond-the-five-layers) · [The main loop](#the-main-loop-and-four-inside-it) · [Borrowing skills](#borrowing-other-peoples-skills) · [People to follow](#people-to-follow) · [Guides](#guides) · [Your turn](#your-turn) · [Licence and credit](#licence-and-credit) · [Who made this](#who-made-this)
 
 The first two pictures are the harness: what one session inside the factory
-works in. The third is the factory: one issue through the loop to a pull
-request you review.
+works in. The third is the factory, and the idea the rest of this page keeps
+coming back to: the flywheel. Each issue is one turn through five phases,
+Discover, Shape, Build, Validate and Scale, and each phase ends at a gate. A
+turn ends at a pull request you review, and what went wrong in it goes to
+`.loop/lessons.md`, where the [`learn`](skills/learn/SKILL.md) skill turns a repeated mistake into
+a rule. [The main loop](#the-main-loop-and-four-inside-it) has the whole wheel and the four smaller
+loops inside it.
 
 ![You ask an AI agent to draft the bakery proposal. On its own it leaves a rate as TBD, and the blank goes out to the client. Then the harness appears around it: instructions it reads (rates.json, templates/), steps it follows (skills/draft-proposal), a second reader (proposal-reviewer.md), and checks that stop it (the proposal gate, CI). The same request and the same mistake: this time the gate blocks it, the agent fills the rate from the rate card, the reader and the gate agree, and only then does it go out.](docs/what-is-a-harness.gif)
 
