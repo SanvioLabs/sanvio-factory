@@ -51,7 +51,7 @@
   <h1>Sanvio Factory: onboarding cards</h1>
   <span class="by">github.com/SanvioLabs/sanvio-factory</span>
 </header>
-<p class="lede">Six one-page cards, one for each session of getting a team onto the factory. Each builds on the one before, from the first commands to a loop that runs without anyone driving it. Each ends with what to do before the next card.</p>
+<p class="lede">Seven one-page cards, one for each session of getting a team onto the factory. Each builds on the one before, from the first commands to your own loop and a deploy to production. Each ends with what to do before the next card.</p>
 <table class="contents">
 <tr><td><b>1 · Getting started</b></td><td>How to work with it, the setup that has to be right, and the commands you'll use every day</td></tr>
 <tr><td><b>2 · Knowledge and skills</b></td><td>Connect one source of your own knowledge, write your first skill, and vet someone else's</td></tr>
@@ -59,6 +59,7 @@
 <tr><td><b>4 · Gates and guards</b></td><td>Turn the agent's real mistakes into rules and checks that block</td></tr>
 <tr><td><b>5 · Specs</b></td><td>Move up from tasks to features: write, challenge, plan, build and review a spec</td></tr>
 <tr><td><b>6 · Team and your loop</b></td><td>Bring the team in, keep a sprint rhythm, and let your loop run on its own</td></tr>
+<tr><td><b>7 · Deploy</b></td><td>Take what the loop built to an environment people use: staging first, then production by hand</td></tr>
 </table>
 <div class="model" style="margin-top:12pt">
   <p style="margin:0">Skills named <code>/stelliad:&lt;name&gt;</code> come from the Stelliad skills library, which the factory switches on: <b>github.com/Stelliad/stelliad-skills</b>. The rest are in this repo's <code>skills/</code>.</p>
@@ -652,9 +653,99 @@
 </section>
 
 <footer>
-  <span>The next engineer starts at card 1</span>
+  <span>Next: Card 7 · Deploy</span>
   <span>More skills: github.com/Stelliad/stelliad-skills</span>
   <span>Read next: HOW-IT-WORKS.md · factories/README.md</span>
+</footer>
+</div>
+
+<div class="page">
+<header>
+  <h1><span class="card">Card 7</span> · Deploy</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">Merged isn't shipped. Take one piece of work the loop built from <code>main</code> to an environment people use: staging first, then production, started by a person, with the way back known before you go.</p>
+
+<div class="model">
+  <p><b>Staging deploys on merge. Production starts by hand.</b> A merge is a decision to release, not a decision to deploy this minute.</p>
+  <p style="margin:0"><b>Production is a one-way door.</b> Whatever people did on it in between stays done, so the agent deploys there only when a person says yes to that one deploy.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>Before the first deploy</h2>
+<ul>
+<li><b>Infrastructure as code.</b> A setting clicked in a console is a change nobody reviewed and nobody can repeat.</li>
+<li><b>A named profile for each account</b>, and confirm which one you're in before anything changes.</li>
+<li><b>A separate account</b> for anything with personal, health, financial or children's data.</li>
+<li><b>The deploy script comes first.</b> A deploy done by hand can't be repeated or reviewed.</li>
+<li><b>Secrets from the platform's store, by name.</b> The script never holds a value.</li>
+</ul>
+</section>
+
+<section>
+<h2>The path to production</h2>
+<table>
+<tr><td><b>Pull request</b></td><td>An infrastructure change shows its plan where it's reviewed</td></tr>
+<tr><td><b>Merge</b></td><td>CI deploys to staging. Never past a failing check</td></tr>
+<tr><td><b>Staging</b></td><td>Production's configuration on synthetic data. Smoke test it</td></tr>
+<tr><td><b>Production</b></td><td>Started by hand from <code>main</code>, through CI, one deploy at a time</td></tr>
+<tr><td><b>After</b></td><td>Smoke test again, and write down what shipped: a tag or a release note, with the date</td></tr>
+</table>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/stelliad:run-gates</code></td><td>The release gate: checks that block before anything leaves</td></tr>
+<tr><td><code>/stelliad:verify-done</code></td><td>Deployed means the smoke test ran and passed, not that the agent says so</td></tr>
+<tr><td><code>/stelliad:triage-alert</code></td><td>An alert after release, traced to the commit that caused it</td></tr>
+<tr><td><code>/review-pr</code></td><td>Reads an infrastructure change and its plan before it merges</td></tr>
+<tr><td><code>/work-report</code></td><td>What shipped over a period, and who approved it</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Know the way back</h2>
+<ul>
+<li><b>The rollback command</b>, tried on staging before production needs it.</li>
+<li><b>What it can't undo</b>: data written in between, emails sent, a migration that dropped a column.</li>
+<li><b>A schema or data change</b> needs a migration path and a backup taken before it runs.</li>
+</ul>
+</section>
+
+<section>
+<h2>Rules of the road</h2>
+<ul>
+<li><b>Short-lived credentials.</b> CI reaches the account through a role that trusts this repo only, never a stored key.</li>
+<li><b>Never fix production by hand.</b> Fix the code and deploy again, or the next deploy undoes the fix.</li>
+<li><b>Deployed and untested is worse than not deployed.</b></li>
+</ul>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Shipped when</h2>
+<ol>
+<li>One change has gone from merge to staging to production.</li>
+<li>It passed a smoke test in both: the happy path and one error case.</li>
+<li>Staging has been rolled back once, on purpose, and you know how long it takes.</li>
+<li>The first problem found after release came back as a ticket.</li>
+</ol>
+</section>
+
+<footer>
+  <span>The next engineer starts at card 1</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: steering/deploying.md · docs/factory-in-ci.md</span>
 </footer>
 </div>
 </body>
