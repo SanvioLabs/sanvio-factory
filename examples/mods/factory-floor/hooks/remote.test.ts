@@ -102,7 +102,8 @@ group('the commands', () => {
     expect(sshArgv('u@h', "ls -1A '/f/.loop'")).toEqual(['ssh', ...SSH_OPTIONS, '--', 'u@h', "ls -1A '/f/.loop'"])
     const options = SSH_OPTIONS.join(' ')
     for (const set of ['-n', '-T', 'BatchMode=yes', 'ConnectTimeout=5', 'StrictHostKeyChecking=yes', 'ForwardAgent=no',
-      'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no', 'ServerAliveInterval=3', 'ServerAliveCountMax=2']) {
+      'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no', 'ServerAliveInterval=3', 'ServerAliveCountMax=2',
+      'ControlPath=none']) {
       expect(options).toContain(set)
     }
   })
@@ -443,8 +444,19 @@ group("Watch on another machine's issue", () => {
     expect(WATCH_SSH_OPTIONS).not.toContain('-n')
     expect(WATCH_SSH_OPTIONS).not.toContain('-T')
     const options = WATCH_SSH_OPTIONS.join(' ')
-    for (const set of ['BatchMode=yes', 'ConnectTimeout=5', 'StrictHostKeyChecking=yes', 'ForwardAgent=no', 'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no']) {
+    for (const set of ['BatchMode=yes', 'ConnectTimeout=5', 'StrictHostKeyChecking=yes', 'ForwardAgent=no', 'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no', 'ControlPath=none']) {
       expect(options).toContain(set)
+    }
+  })
+
+  test('sharing no connection changes nothing else: the destination, the remote command and no other Control option', () => {
+    const cmd = "ls -1A '/f/.loop'"
+    expect(sshArgv('u@h', cmd).slice(-3)).toEqual(['--', 'u@h', cmd])
+    expect(words(remoteWatchLine(far, 'loop-a', 'issue-3')!).pop()).toBe("tmux attach -r -t '=loop-a:=issue-3'")
+    for (const list of [SSH_OPTIONS, WATCH_SSH_OPTIONS]) {
+      const options = list.join(' ')
+      expect(options).not.toContain('ControlMaster')
+      expect(options).not.toContain('ControlPersist')
     }
   })
 

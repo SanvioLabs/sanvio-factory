@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: factory-floor's ssh shares no connection
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), every `ssh` the mod runs, and the one **Watch** copies, now passes `-o ControlPath=none`, so it never uses a shared connection your SSH config opened, perhaps with agent forwarding, and never leaves one behind. It narrows what the mod can reach and grants nothing new. The mod is now 0.8.1.
+
+**Needs:** 2026-11-15: Watch an issue on another machine; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts).
+
+**Do:** nothing. If you relied on a shared connection to other machines, each read now opens a connection of its own.
+
 ## 2026-11-15: Watch an issue on another machine
 
 In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), **Watch** on an issue running on another machine copies a read-only `ssh -t ... tmux attach -r` command for that issue's tmux window, in that loop's own view and under **All loops**, and a toast says so. It first checks over SSH that the session is there (`tmux has-session`, the only remote command added), and copies nothing if it isn't or the machine doesn't answer. A machine in `.sanvio/factory-floor/machines.json` can give `tmux_socket` for a tmux server off the default socket; a value that isn't an absolute path of plain characters is refused with a line in the pane, and that machine's issues get no **Watch**. Session and window names past a short list of characters build no command. The pane opens no window and runs nothing it copies. The mod is now 0.8.0.
