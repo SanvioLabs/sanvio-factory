@@ -4,11 +4,11 @@
 Usage:
     python3 scripts/eval_factory.py run SUITE --start "COMMAND" --owner ORG [--factory PATH] [--clone-into DIR]
                                         [--merge-in-run-repo] [--usage-command "COMMAND"]
-                                        [--timeout MINUTES] [--yes]
+                                        [--timeout MINUTES] [--repeat N] [--yes]
     python3 scripts/eval_factory.py resume RUN [--end]
     python3 scripts/eval_factory.py stop RUN "WHY"
     python3 scripts/eval_factory.py compare A B
-    python3 scripts/eval_factory.py report RUN [--compare OTHER] [--out DIR]
+    python3 scripts/eval_factory.py report RUN [RUN ...] [--compare OTHER [OTHER ...]] [--out DIR]
     python3 scripts/eval_factory.py list
     python3 scripts/eval_factory.py validate SUITE
     python3 scripts/eval_factory.py new-suite FOLDER
@@ -44,9 +44,14 @@ usage when --start runs its scripts/loop.py. Failing that it reads "not reported
 tokens come only from that loop usage, so another factory's read "not reported". Exits 0 when every test
 and trap is clean with no leak, 1 otherwise. compare takes two run names or result files.
 
+--repeat N runs the suite N times, one new repo each, and needs --merge-in-run-repo. Wherever compare and
+report take a run, they also take a group of runs of one suite, as their names joined by commas
+(run-1,run-2,run-3): a group shows the middle result and how many runs each check passed in.
+
 report writes the run's report.html and report.md into its folder, or --out, and report.pdf when a Chrome,
-Chromium or Edge is installed to print it (scripts/eval_report.py has how it finds one). --compare adds a
-second run beside it. new-suite makes a suite's folders and files to fill in, in a new folder outside the
+Chromium or Edge is installed to print it (scripts/eval_report.py has how it finds one). It takes one run
+or group per suite, several suites to a report, and --compare lines up the same number of runs or groups
+beside them. A report on anything but one run goes to .sanvio/factory-evals/reports/ unless --out says. new-suite makes a suite's folders and files to fill in, in a new folder outside the
 factory, and refuses one inside it.
 
 validate spends no model tokens and creates no repo. It passes only when the seed fails, every wrong
@@ -782,6 +787,43 @@ def cmd_run(args):
     return drive(record, suite)
 
 
+def cmd_run_repeated(args):
+    """--repeat: the same run, N times over. Exits 0 only when every run did."""
+    if args.repeat < 1:
+        print("Refused: --repeat needs a whole number from 1.", file=sys.stderr)
+        return 2
+    if args.repeat > 1 and not args.merge_in_run_repo:
+        print("Refused: --repeat needs --merge-in-run-repo, or every run would stop at its first merge.",
+              file=sys.stderr)
+        return 2
+    if args.repeat > 1 and not args.yes and interactive():
+        try:
+            answer = input("That's {} runs, a new private repo and a set of model tokens each. "
+                           "Type yes: ".format(args.repeat)).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer != "yes":
+            print("Nothing was created.", file=sys.stderr)
+            return 2
+        args.yes = True
+    before = set(path.parent.name for path in runs_dir().glob("*/run.json")) if runs_dir().is_dir() else set()
+    codes = []
+    for count in range(args.repeat):
+        if args.repeat > 1:
+            print("\nRun {} of {}".format(count + 1, args.repeat))
+        code = cmd_run(args)
+        codes.append(code)
+        if code == 2:
+            break
+    made = sorted(path.parent.name for path in runs_dir().glob("*/run.json")
+                  if path.parent.name not in before) if runs_dir().is_dir() else []
+    if args.repeat > 1 and made:
+        print("\nRuns: {}".format(" ".join(made)))
+        print("Report on them together with:")
+        print("    python3 scripts/eval_factory.py report {}".format(",".join(made)))
+    return 0 if codes and all(code == 0 for code in codes) else max(codes or [2])
+
+
 def cmd_resume(args):
     try:
         record = load_run(args.run)
@@ -817,6 +859,18 @@ def cmd_stop(args):
     return 0
 
 
+def load_group(spec):
+    """The results a run's name, a result file's path, or several joined by commas name. RunError when any is
+    missing, or they're not all the same suite."""
+    results = [load_result(name) for name in str(spec).split(",") if name.strip()]
+    if not results:
+        raise RunError("no run named in {!r}".format(spec))
+    suites = {result.get("suite") for result in results}
+    if len(suites) > 1:
+        raise RunError("a group has to be one suite, and {} has {}".format(spec, ", ".join(sorted(map(str, suites)))))
+    return results
+
+
 def load_result(name):
     """A run's name or a result file's path. RunError when there's neither."""
     path = Path(name) if Path(name).is_file() else runs_dir() / name / "result.json"
@@ -844,6 +898,8 @@ def changes(kind, field, before, after):
 
 
 def cmd_compare(args):
+    if "," in args.a or "," in args.b:
+        return compare_groups(args.a, args.b)
     try:
         a, b = load_result(args.a), load_result(args.b)
     except RunError as err:
@@ -871,19 +927,26 @@ def cmd_compare(args):
 
 
 def cmd_report(args):
+    if args.compare and len(args.compare) != len(args.runs):
+        print("Refused: --compare needs one run or group for each of the {} given".format(len(args.runs)),
+              file=sys.stderr)
+        return 2
     try:
-        result = load_result(args.run)
-        other = load_result(args.compare) if args.compare else None
+        groups = [load_group(spec) for spec in args.runs]
+        others = [load_group(spec) for spec in args.compare] if args.compare else None
     except RunError as err:
         print(err, file=sys.stderr)
         return 2
+    one = len(args.runs) == 1 and "," not in args.runs[0]
     if args.out:
         folder = Path(args.out)
-    elif Path(args.run).is_file():
-        folder = Path(args.run).resolve().parent
+    elif one and Path(args.runs[0]).is_file():
+        folder = Path(args.runs[0]).resolve().parent
+    elif one:
+        folder = runs_dir() / args.runs[0]
     else:
-        folder = runs_dir() / args.run
-    written, why = eval_report.write(result, folder, other)
+        folder = runs_dir() / "reports" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    written, why = eval_report.write(groups, folder, others)
     for path in written:
         print(path)
     if why:
@@ -970,6 +1033,32 @@ def cmd_new_suite(args):
     return 0
 
 
+def compare_groups(spec_a, spec_b):
+    """compare for groups of runs: the middle result each side, and each check whose pass rate moved."""
+    try:
+        a, b = (eval_report.summarize(load_group(spec)) for spec in (spec_a, spec_b))
+    except RunError as err:
+        print(err, file=sys.stderr)
+        return 2
+    label = {id(a): "A: {} run{}".format(a["n"], "" if a["n"] == 1 else "s"),
+             id(b): "B: {} run{}".format(b["n"], "" if b["n"] == 1 else "s")}
+    rows = [("", label[id(a)], label[id(b)])]
+    rows += [(h[0], h[1], g[1]) for h, g in zip(eval_report.headline(a), eval_report.headline(b))]
+    widths = [max(len(str(row[column])) for row in rows) for column in range(3)]
+    for row in rows:
+        print("  ".join(str(cell).ljust(width) for cell, width in zip(row, widths)).rstrip())
+    if a["suite"] != b["suite"]:
+        print("A is suite {} and B is {}: the difference may be the suite.".format(a["suite"], b["suite"]))
+    worse, better = eval_report.moved(a, b)
+    lines = ["Worse: " + eval_report.change_text(c, False) for c in worse]
+    lines += ["Better: " + eval_report.change_text(c, False) for c in better]
+    for side, subject in (("A", a), ("B", b)):
+        lines += ["Flaky in {}: {} {} passed in {} of {}".format(side, c["kind"], c["name"], c["passed"], c["of"])
+                  for c in subject["checks"] if 0 < c["passed"] < c["of"]]
+    print("\n" + ("\n".join(lines) if lines else "Nothing changed in tests or traps."))
+    return 0
+
+
 def cmd_list(args):
     folders = sorted(runs_dir().glob("*/run.json")) if runs_dir().is_dir() else []
     if not folders:
@@ -1008,8 +1097,10 @@ def main(argv=None):
     run.add_argument("--usage-command", help="prints the run's total cost, for a factory that isn't this one")
     run.add_argument("--timeout", type=float, default=60, metavar="MINUTES",
                      help="for each issue's start command, and for its CI: 60 by default")
+    run.add_argument("--repeat", type=int, default=1, metavar="N",
+                     help="run the suite N times, a new repo each: needs --merge-in-run-repo")
     run.add_argument("--yes", action="store_true", help="don't ask before spending model tokens")
-    run.set_defaults(handler=cmd_run)
+    run.set_defaults(handler=cmd_run_repeated)
     resume = sub.add_parser("resume", help="carry on a run that stopped for a merge")
     resume.add_argument("run")
     resume.add_argument("--end", action="store_true", help="stop waiting, and score what exists")
@@ -1018,13 +1109,15 @@ def main(argv=None):
     stop.add_argument("run")
     stop.add_argument("why")
     stop.set_defaults(handler=cmd_stop)
-    compare = sub.add_parser("compare", help="two results side by side, naming each test or trap that changed")
+    compare = sub.add_parser("compare", help="two results, or two groups of runs joined by commas, side by side")
     compare.add_argument("a")
     compare.add_argument("b")
     compare.set_defaults(handler=cmd_compare)
     report = sub.add_parser("report", help="a run's report as HTML, Markdown and, where a browser can print it, PDF")
-    report.add_argument("run", help="a run's name, or a result file's path")
-    report.add_argument("--compare", help="another run's name or result file, shown beside this one")
+    report.add_argument("runs", nargs="+", metavar="RUN",
+                        help="a run's name or result file, or runs of one suite joined by commas; one per suite")
+    report.add_argument("--compare", nargs="+", metavar="OTHER",
+                        help="the same number of runs or groups, each shown beside the one in its place")
     report.add_argument("--out", help="the folder to write into: the run's own folder by default")
     report.set_defaults(handler=cmd_report)
     new_suite = sub.add_parser("new-suite", help="make a suite's folders and files to fill in, outside the factory")

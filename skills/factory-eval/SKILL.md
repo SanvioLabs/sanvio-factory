@@ -61,7 +61,7 @@ Ask, if it isn't clear already:
   for a second run, and give the paths it prints. It spends nothing.
 - **How do I write a suite?** `python3 scripts/eval_factory.py new-suite
   <folder>` makes one to fill in, outside the factory, and
-  [`docs/eval-walkthrough.md`](../../docs/eval-walkthrough.md) step 6 says how. Never write the key
+  [`docs/writing-eval-suites.md`](../../docs/writing-eval-suites.md) says how. Never write the key
   yourself: it's theirs, and you mustn't read it.
 
 ### 2. Check the review agents
@@ -150,8 +150,12 @@ suite, on the same models, with the same merge setting. Then give the
 `Better:`, `Worse:`, `New:` and `Gone:` lines, and the change in time, rounds,
 tokens and cost. One run each way is a weak signal, because a model's runs
 vary. When the difference is a test or two, recommend three runs each and
-comparing the middle result, before anyone acts on it. For a report to share,
-run `python3 scripts/eval_factory.py report <after> --compare <before>`.
+comparing the middle result, before anyone acts on it: `run --repeat 3`, then
+`compare` or `report` with each side's runs joined by commas. Say which checks
+it calls flaky. For a report to share, run
+`python3 scripts/eval_factory.py report <after> --compare <before>`. For
+another factory's cost, offer [`scripts/eval_session_cost.py`](../../scripts/eval_session_cost.py) as the
+`--usage-command` when it runs Claude Code in the clone.
 
 ### 6. Say what's left behind
 
