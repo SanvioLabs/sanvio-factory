@@ -46,6 +46,16 @@ Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`]
 
 **Do:** nothing. If you relied on a shared connection to other machines, each read now opens a connection of its own.
 
+## 2026-11-15: Repeat eval runs and session cost
+
+`eval_factory.py run --repeat N` runs a suite N times, and `compare` and `report` take a group of runs joined by commas, showing the middle result, each check's pass rate and which checks are flaky. `report` takes several suites in one report, with a summary first. [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py) gives another factory's cost from Claude Code's transcripts at the prices in `.sanvio/prices.json`, for `--usage-command`. [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py) is an adapter for a factory that opens its own pull requests. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) covers building a suite that tells factories apart, and [`docs/factory-evals.md`](docs/factory-evals.md) gains cleanup and troubleshooting.
+
+**Needs:** 2026-11-15: Eval walkthrough; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`scripts/eval_report.py`](scripts/eval_report.py), [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To price another factory's runs, copy [`scripts/prices.example.json`](scripts/prices.example.json) to `.sanvio/prices.json` and put in the models you use.
+
 ## 2026-11-15: Watch an issue on another machine
 
 In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), **Watch** on an issue running on another machine copies a read-only `ssh -t ... tmux attach -r` command for that issue's tmux window, in that loop's own view and under **All loops**, and a toast says so. It first checks over SSH that the session is there (`tmux has-session`, the only remote command added), and copies nothing if it isn't or the machine doesn't answer. A machine in `.sanvio/factory-floor/machines.json` can give `tmux_socket` for a tmux server off the default socket; a value that isn't an absolute path of plain characters is refused with a line in the pane, and that machine's issues get no **Watch**. Session and window names past a short list of characters build no command. The pane opens no window and runs nothing it copies. The mod is now 0.8.0.

@@ -118,17 +118,22 @@ Write a `--start` command for your factory. Whatever it is, it has to:
 4. Never merge. The run does that after CI, or waits for you.
 
 If your factory opens its own pull requests, the adapter only starts it on
-the issue and waits for it to finish. If it doesn't, copy `one-session.py` and
-replace the one `claude -p` call with your factory's own command: the adapter
-then commits what it left, pushes and opens the pull request.
+the issue and waits. [`examples/eval-adapters/label-and-wait.py`](../examples/eval-adapters/label-and-wait.py) does that for
+a factory that picks issues up by a label: it labels this one issue, waits
+for a new pull request, and exits. If your factory doesn't open its own, copy
+`one-session.py` and replace the one `claude -p` call with your factory's own
+command: the adapter then commits what it left, pushes and opens the pull
+request.
 
 Pass `--factory <folder>` so the command runs in your factory's folder, and
 `--timeout <minutes>` if an issue can take more than the default 60.
 
 For cost, give `--usage-command` a command that prints one number: the run's
-total, in dollars. Usually that's a short script that sums your factory's own
-usage records since the run started. Without one, cost reads `not reported`,
-never zero.
+total, in dollars. If your factory runs Claude Code in the run's clone, use
+`--usage-command "python3 $PWD/scripts/eval_session_cost.py {clone}"`, after
+copying [`scripts/prices.example.json`](../scripts/prices.example.json) to `.sanvio/prices.json` and putting in
+your models' prices. Otherwise write a short script that sums your factory's
+own usage records. Without one, cost reads `not reported`, never zero.
 
 Run the same suite through your factory as you ran the baseline in step 2.
 
@@ -150,7 +155,15 @@ python3 scripts/eval_factory.py compare <run-a> <run-b>
 `report <run-b> --compare <run-a>` puts the same thing in a report to share.
 
 Agent runs vary, so one run each way can mislead. For a change you'll keep,
-run each side three times and compare the middle result. Keep a change when
+run each side three times with `--repeat 3`, then compare the two groups,
+their run names joined by commas:
+
+```bash
+python3 scripts/eval_factory.py compare a-1,a-2,a-3 b-1,b-2,b-3
+```
+
+It compares the middle result of each, names each check whose pass rate moved,
+and marks the checks that pass only some of the time as flaky. Keep a change when
 tests and traps hold and time or cost drops, or when they improve at a cost
 you accept. Two changes in one pair can't be told apart, so change one thing
 per pair.
@@ -183,6 +196,9 @@ Keep the suite in a private repo, outside your factory and anywhere its
 agents can read. The script refuses a key inside the factory or its clone
 folder, and checks every run repo's history for the key's files, but it can't
 see what an agent read.
+
+[`writing-eval-suites.md`](writing-eval-suites.md) has the detail: what makes an issue, a check
+and a trap good, and how to check a suite isn't too easy.
 
 Start with one suite of three issues around a job your team does every week,
 and run it before and after the next change you make to your factory.
