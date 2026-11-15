@@ -20,6 +20,8 @@ to your rules and checks, and the factory turns many runs into pull requests you
 review. [Set up](#set-up) says where the guard stops, and
 [What makes it a factory](HOW-IT-WORKS.md#what-makes-it-a-factory) has the rest.
 
+**On this page:** [Set up](#set-up) · [Where things live](#where-things-live) · [The five layers](#the-five-layers-one-step-at-a-time) · [One file, three tools](#one-file-three-tools) · [Rules versus enforcement](#rules-versus-enforcement) · [Gates](#gates-done-is-a-scripts-call) · [Beyond the five layers](#beyond-the-five-layers) · [The main loop](#the-main-loop-and-four-inside-it) · [Borrowing skills](#borrowing-other-peoples-skills) · [People to follow](#people-to-follow) · [Guides](#guides) · [Your turn](#your-turn) · [Licence and credit](#licence-and-credit) · [Who made this](#who-made-this)
+
 The first two pictures are the harness: what one session inside the factory
 works in. The third is the factory: one issue through the loop to a pull
 request you review.
