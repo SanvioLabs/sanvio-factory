@@ -53,6 +53,8 @@ those callers first, with step 9.
 
 ## Which kind of copy you have
 
+![Upgrading to Sanvio Factory. The kind of copy you have decides step 2, and every copy takes the same eleven steps. You cloned or forked it, or made it from the template. If it shares history, you pull Sanvio Factory's main into yours, and step 2 is a pull, as the guide writes it. Or, if it takes changes file by file with "check the starter", then in place of step 2 you take the rename's files, including the ones that move .harness/ to .sanvio/, keep your own marketplace name, remove the files that moved, then commit; with no check_setup.py, you check by hand in place of step 11. The steps: 1, stop what's running; 2, take the changes; 3, one Claude Code session at the repo root; 4, register the marketplace under its new name; 5, rename your variables; 6, check your tools; 7, move off the old home folders; 8, push to your own repo; 9, update CI callers; 10, start the loop again; 11, check, from a new terminal, with check_setup.py.](upgrading-to-sanvio-factory.gif)
+
 **Your copy shares history with Sanvio Factory**, because you cloned it, or
 forked it, and pull its `main` into yours. Follow the steps below as written.
 
