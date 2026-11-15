@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: On this page in the README
+
+[`README.md`](README.md) has an **On this page** line above its pictures, linking each of its sections in order, so a long page can be jumped through outside GitHub's outline menu. [`tests/test_readme_contents.py`](tests/test_readme_contents.py) fails when the line stops matching the `##` headings, so a renamed, added or moved section needs the line changed with it.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing. If you've changed your README's `##` headings, update the **On this page** line to match, or the test fails.
+
 ## 2026-11-15: Eval runs started in the same second get names of their own
 
 A run is named after its suite and the second it started, so two runs of one suite started in the same second, as `--repeat`'s can be when a run stops early, took the same name and the second was refused. The second now gets `-2` on the end, the third `-3`, and so on, in its record, its repo and its clone.
