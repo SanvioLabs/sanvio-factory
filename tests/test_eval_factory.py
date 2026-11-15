@@ -773,7 +773,7 @@ class Boundaries(unittest.TestCase):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module.split(".")[0])
-        self.assertEqual(imported - {"html", "os", "pathlib", "shutil", "subprocess", "tempfile"}, set())
+        self.assertEqual(imported - {"html", "os", "pathlib", "shutil", "statistics", "subprocess", "tempfile"}, set())
 
     def test_the_runner_never_reads_a_credential(self):
         for text in ("GH_TOKEN", "GITHUB_TOKEN", "auth token", "hosts.yml", ".netrc"):
@@ -1399,6 +1399,201 @@ class NewSuite(WithFakeGh):
         self.assertEqual(code, 2)
         self.assertIn("inside this factory", out)
         self.assertFalse((self.factory / "suites").exists())
+
+
+class RepeatRuns(ScoredRun):
+    def test_repeat_makes_one_run_each_and_names_them(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
+        runs = sorted((self.factory / ".sanvio" / "factory-evals").glob("*/result.json"))
+        self.assertEqual(len(runs), 2, out)
+        self.assertIn("Run 2 of 2", out)
+        self.assertIn("report " + ",".join(sorted(path.parent.name for path in runs)), out)
+
+    def test_repeat_needs_merging_in_the_run_repo(self):
+        code, out = self.run_suite("--repeat", "3")
+        self.assertEqual(code, 2)
+        self.assertIn("--merge-in-run-repo", out)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_repeat_has_to_be_at_least_one(self):
+        self.assertEqual(self.run_suite("--merge-in-run-repo", "--repeat", "0")[0], 2)
+
+
+class Groups(WithFakeGh):
+    def setUp(self):
+        super().setUp()
+        self.runs = self.factory / ".sanvio" / "factory-evals"
+        patcher = mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        result_file(self.runs, "a1", {"steady": True, "wobbly": True}, {"trap": True}, cost=1.0, seconds=60)
+        result_file(self.runs, "a2", {"steady": True, "wobbly": True}, {"trap": True}, cost=3.0, seconds=180)
+        result_file(self.runs, "a3", {"steady": True, "wobbly": True}, {"trap": True}, cost=2.0, seconds=120)
+        result_file(self.runs, "b1", {"steady": True, "wobbly": False}, {"trap": True}, cost=0.5, seconds=60)
+        result_file(self.runs, "b2", {"steady": True, "wobbly": True}, {"trap": True}, cost=0.5, seconds=60)
+        result_file(self.runs, "b3", {"steady": True, "wobbly": False}, {"trap": True}, cost=0.5, seconds=60)
+
+    def test_compare_takes_the_middle_of_each_group_and_names_moved_and_flaky_checks(self):
+        code, out = self.run_cli("compare", "a1,a2,a3", "b1,b2,b3")
+        self.assertEqual(code, 0, out)
+        self.assertIn("A: 3 runs", out)
+        self.assertIn("$2.00", out)
+        self.assertIn("$0.50", out)
+        self.assertIn("Worse: test wobbly (from 3/3 to 1/3)", out)
+        self.assertIn("Flaky in B: test wobbly passed in 1 of 3", out)
+        self.assertNotIn("steady", out)
+
+    def test_a_group_of_two_suites_is_refused(self):
+        path = self.runs / "a2" / "result.json"
+        result = json.loads(path.read_text())
+        result["suite"] = "other"
+        path.write_text(json.dumps(result))
+        code, out = self.run_cli("compare", "a1,a2", "b1,b2")
+        self.assertEqual(code, 2)
+        self.assertIn("one suite", out)
+
+    def test_a_group_report_shows_how_many_runs_each_check_passed_in(self):
+        code, out = self.run_cli("report", "b1,b2,b3", "--compare", "a1,a2,a3")
+        self.assertEqual(code, 0, out)
+        reports = list((self.runs / "reports").glob("*/report.md"))
+        self.assertEqual(len(reports), 1)
+        notes = reports[0].read_text()
+        self.assertIn("- failed in 2 of 3: wobbly", notes)
+        self.assertIn("| wobbly | test |  | 1 of 3 |", notes)
+        self.assertIn("Worse in these 3 runs: 1\n- test wobbly (from 3/3 to 1/3)", notes)
+
+    def test_a_report_on_several_suites_starts_with_a_summary(self):
+        for name in ("b1", "b2"):
+            path = self.runs / name / "result.json"
+            result = json.loads(path.read_text())
+            result["suite"] = "second"
+            path.write_text(json.dumps(result))
+        self.run_cli("report", "a1", "b1,b2", "--out", str(self.tmp / "out"))
+        notes = (self.tmp / "out" / "report.md").read_text()
+        self.assertIn("## Summary", notes)
+        self.assertIn("| tiny | 1 |", notes)
+        self.assertIn("| second | 2 |", notes)
+        self.assertIn("# second", notes)
+
+    def test_compare_has_to_line_up_with_the_runs(self):
+        code, out = self.run_cli("report", "a1", "b1", "--compare", "a2")
+        self.assertEqual(code, 2)
+        self.assertIn("one run or group for each", out)
+
+
+class SessionCost(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(os.path.realpath(tmp.name))
+        self.projects = self.tmp / "projects"
+        self.clone = self.tmp / ("run-" + "x" * 220)  # long enough that Claude Code would shorten its folder name
+        self.prices = self.tmp / "prices.json"
+        self.prices.write_text(json.dumps({"models": {
+            "big-model": {"input": 10, "output": 20, "cache_writes": 0, "cache_reads": 1},
+            "small-model": {"input": 1, "output": 2, "cache_writes": 0, "cache_reads": 0}}}))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import eval_session_cost
+        self.cost = eval_session_cost
+
+    def reply(self, cwd, message_id, model, input_tokens, output_tokens=0):
+        return json.dumps({"type": "assistant", "cwd": str(cwd), "message": {
+            "role": "assistant", "id": message_id, "model": model,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens}}})
+
+    def session(self, folder_name, *lines):
+        folder = self.projects / folder_name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "s.jsonl").write_text("\n".join(lines) + "\n")
+
+    def run_cost(self, *extra):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = self.cost.main([str(self.clone), "--prices", str(self.prices), "--projects", str(self.projects)]
+                                  + list(extra))
+        return code, out.getvalue().strip()
+
+    def test_it_counts_each_reply_once_in_the_clone_and_its_worktrees(self):
+        prefix = self.cost.folder_prefix(self.clone)
+        self.session(prefix + "-abc123",
+                     self.reply(self.clone, "m1", "big-model", 1_000_000),
+                     self.reply(self.clone, "m1", "big-model", 1_000_000),
+                     self.reply(self.clone / "trees" / "w1", "m2", "small-model-2026", 0, 1_000_000))
+        self.session(prefix + "-other", self.reply(str(self.clone) + "-2", "m3", "big-model", 5_000_000))
+        self.assertEqual(self.run_cost(), (0, "12.0000"))
+
+    def test_a_model_with_no_price_gives_no_number(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "mystery", 10))
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_no_sessions_gives_no_number(self):
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_no_prices_file_gives_no_number(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "big-model", 10))
+        self.prices.unlink()
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_detail_names_each_model(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "big-model", 1_000_000))
+        code, out = self.run_cost("--detail")
+        self.assertEqual(json.loads(out)["models"]["big-model"], {"tokens": 1_000_000, "dollars": 10.0})
+
+
+FAKE_GH_FOR_WAIT = r"""#!/usr/bin/env python3
+import json, os, sys
+home = os.environ["WAIT_GH_HOME"]
+args = sys.argv[1:]
+with open(os.path.join(home, "calls.log"), "a") as log:
+    log.write(" ".join(args) + "\n")
+if args[:2] == ["pr", "list"]:
+    count_file = os.path.join(home, "lists")
+    count = int(open(count_file).read()) if os.path.exists(count_file) else 0
+    open(count_file, "w").write(str(count + 1))
+    found = [{"number": 1, "url": "u1"}]
+    if count >= int(os.environ.get("WAIT_PR_AFTER", "2")):
+        found.append({"number": 9, "url": "u9"})
+    print(json.dumps(found))
+elif args[:2] == ["issue", "view"]:
+    print(json.dumps({"labels": [{"name": "factory:blocked"}] if os.environ.get("WAIT_BLOCKED") else []}))
+"""
+
+
+class LabelAndWaitAdapter(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.home = Path(tmp.name)
+        (self.home / "gh").write_text(FAKE_GH_FOR_WAIT)
+        os.chmod(str(self.home / "gh"), 0o755)
+
+    def run_adapter(self, **env):
+        full = dict(os.environ, PATH=str(self.home) + os.pathsep + os.environ["PATH"], WAIT_GH_HOME=str(self.home),
+                    EVAL_POLL_SECONDS="0", **env)
+        return subprocess.run([sys.executable, str(ROOT / "examples" / "eval-adapters" / "label-and-wait.py"),
+                               "4", "acme/run"], env=full, capture_output=True, text=True)
+
+    def calls(self):
+        return (self.home / "calls.log").read_text().splitlines()
+
+    def test_it_labels_the_one_issue_and_exits_once_a_new_pull_request_is_open(self):
+        done = self.run_adapter(EVAL_LABEL="factory-ready")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("issue edit 4 -R acme/run --add-label factory-ready", self.calls())
+        self.assertIn("u9", done.stdout)
+        self.assertNotIn("u1", done.stdout)
+
+    def test_it_gives_up_when_the_wait_runs_out(self):
+        done = self.run_adapter(EVAL_WAIT_MINUTES="0")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("no pull request", done.stdout)
+
+    def test_it_stops_when_the_factory_marks_the_issue_stopped(self):
+        done = self.run_adapter(EVAL_STOPPED_LABEL="factory:blocked", WAIT_BLOCKED="1", WAIT_PR_AFTER="99")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("gave up", done.stdout)
+        self.assertFalse([call for call in self.calls() if call.startswith("pr merge") or "comment" in call])
 
 class OneSessionAdapter(unittest.TestCase):
     """The public baseline adapter: the session it starts can't push or call gh, and it needs all three values."""
