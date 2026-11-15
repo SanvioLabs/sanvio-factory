@@ -91,15 +91,40 @@ export function loopButtonLabel(seen: Seen): string {
   return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
 }
 
-// The loop picker's options: the loops on a job first, each group in its own order, then each other
-// machine that's down. Each loop's value is loopValue's.
+// The picker's value for every loop at once. projectName refuses it and it doesn't start with ssh:, so
+// no loop's value can be it.
+export const ALL = '*'
+
+// The loops in the picker's order: those on a job first, each group in its own order.
+export function pickerOrder(loops: Seen[]): Seen[] {
+  return [...loops.filter(l => workingCount(l) > 0), ...loops.filter(l => workingCount(l) === 0)]
+}
+
+// The loop picker's options: All loops once there's more than one loop, then the loops in pickerOrder,
+// then each other machine that's down. A machine that's down is no loop, so it never adds All. Each
+// loop's value is loopValue's.
 export function loopOptions(loops: Seen[], down: Down[] = [], now = 0): { value: string; label: string }[] {
-  const working = loops.filter(l => workingCount(l) > 0)
-  const rest = loops.filter(l => workingCount(l) === 0)
   return [
-    ...[...working, ...rest].map(loop => ({ value: loopValue(loop), label: loopButtonLabel(loop) })),
+    ...(loops.length > 1 ? [{ value: ALL, label: 'All loops' }] : []),
+    ...pickerOrder(loops).map(loop => ({ value: loopValue(loop), label: loopButtonLabel(loop) })),
     ...down.map(d => downOption(d, now)),
   ]
+}
+
+// What tells one loop's issue from another's under All loops: the machine, this one by its folder as the
+// picker names its factory, then ` · <project>` for a project's loop. `starter`, `spare-mac · alpha`.
+export function loopTag(seen: Seen): string {
+  const machine = seen.machine ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
+  return seen.project ? `${machine} · ${seen.project}` : machine
+}
+
+// One issue under All loops, with the loop it belongs to and that loop's tag.
+export type Tagged = { seen: Seen; row: Row; tag: string }
+
+// Every loop's Active tab, as one list in the picker's order: the same rows each loop's own Active tab
+// holds, each with its loop. Two loops on the same issue number are two entries.
+export function allActive(loops: Seen[]): Tagged[] {
+  return pickerOrder(loops).flatMap(seen => activeRows(seen.status).map(row => ({ seen, row, tag: loopTag(seen) })))
 }
 
 // What sits beside the dropdown, whose closed face shows only the loop on screen: how many loops are on
@@ -227,9 +252,19 @@ export type Header = { left: string; right: Line; isPulsing: boolean; wraps: boo
 // nothing below moves as the state changes. The state's dot pulses while the loop is on a job, like
 // that job's own dot.
 export function header(seen: Seen, now: number, width: number): Header {
-  const left = loopLabel(seen)
-  const right = loopState(seen, now)
   const isPulsing = seen.isLocked && !seen.isStopping && !!seen.status?.issues.some(r => r.state === 'working')
+  return layout(loopLabel(seen), loopState(seen, now), isPulsing, width)
+}
+
+// The top under All loops: its name on the left, and on the right what loopCounts says of every loop, or
+// that nothing runs. Its dot pulses while any loop is on a job.
+export function allHeader(loops: Seen[], width: number): Header {
+  const counts = loopCounts(loops)
+  const right: Line = counts ? { tone: counts.startsWith('●') ? 'now' : 'quiet', text: counts } : { tone: 'quiet', text: '○ Nothing running' }
+  return layout('All loops', right, loops.some(l => !l.isStopping && workingCount(l) > 0), width)
+}
+
+function layout(left: string, right: Line, isPulsing: boolean, width: number): Header {
   const wraps = left.length + 1 + right.text.length > width
   if (wraps) {
     const state = { tone: right.tone, text: clip(right.text, width) }
@@ -315,13 +350,17 @@ export type Lists = { queue: QueueItem[]; active: Row[]; finished: Row[] }
 // The three tabs' lists. A finished job counts from its last update, which loop.py writes in local
 // time; one with no time, or older than a day, is left out.
 export function lists(status: Status | null, now: number): Lists {
-  const rows = status?.issues ?? []
-  const finished = rows.filter(r => {
+  const finished = (status?.issues ?? []).filter(r => {
     if (!ENDED[r.state]) return false
     const at = r.updated ? Date.parse(r.updated) : Number.NaN
     return Number.isFinite(at) && now - at <= FINISHED_MS
   })
-  return { queue: waiting(status), active: rows.filter(r => !ENDED[r.state]), finished }
+  return { queue: waiting(status), active: activeRows(status), finished }
+}
+
+// The Active tab's rows: every issue that hasn't reached an end.
+function activeRows(status: Status | null): Row[] {
+  return (status?.issues ?? []).filter(r => !ENDED[r.state])
 }
 
 // The tab to open on: what's being worked, else what's waiting, else what finished.

@@ -11,7 +11,7 @@ TYPES = MOD / "types" / "index.d.ts"
 
 # The reading code the List and the Crew share, which hooks/logic.ts holds the one copy of.
 SHARED = ["loopDir", "parseStatus", "loopLabel", "loopValue", "workingCount", "loopButtonLabel", "loopOptions",
-          "projectName", "focusFile", "focusName"]
+          "projectName", "focusFile", "focusName", "ALL", "pickerOrder", "loopTag", "allActive"]
 
 
 def sources():

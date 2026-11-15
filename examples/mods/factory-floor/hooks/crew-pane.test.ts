@@ -835,8 +835,8 @@ group('the loop picker', () => {
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
     const options = (await picker(ui))?.props.options as { value: string; label: string }[]
-    expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
-    expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+    expect(options.map(o => o.label)).toEqual(['All loops', '● alpha 2', 'starter', 'beta'])
+    expect(options.map(o => o.value)).toEqual(['*', 'alpha', '', 'beta'])
     expect((await picker(ui))?.props.value).toBe('')
     await ui.unmount()
     await close()
@@ -847,7 +847,7 @@ group('the loop picker', () => {
     const { close } = world(on, files)
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
-    expect(((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)).toEqual(['', 'alpha'])
+    expect(((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)).toEqual(['*', '', 'alpha'])
     expect(await ui.find({ key: 'lane-12' })).toBeDefined()
     expect(await ui.find({ key: 'lane-13' })).toBeDefined()
     await ui.unmount()
@@ -924,7 +924,7 @@ group('the loop picker', () => {
       const { close } = world(on, files)
       await open($)
       const ui = (await $.ui.mount(WIDE())) as unknown as Picks
-      expect(await values(ui)).toEqual(['alpha', 'beta'])
+      expect(await values(ui)).toEqual(['*', 'alpha', 'beta'])
       await ui.unmount()
       await close()
     })
@@ -1790,7 +1790,7 @@ group('another machine', () => {
     await wait(clock, 4000, 2000)
     await ui.redraw()
     const options = (await ui.find({ key: 'loop-pick' }))?.props.options as { value: string; label: string }[]
-    expect(options.map(o => [o.value, o.label])).toEqual([['', '● starter'], ['ssh:0/', '● spare-mac']])
+    expect(options.map(o => [o.value, o.label])).toEqual([['*', 'All loops'], ['', '● starter'], ['ssh:0/', '● spare-mac']])
     await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
     await drain()
     expect(titles[titles.length - 1]).toBe('Loop crew: spare-mac')
@@ -1802,6 +1802,55 @@ group('another machine', () => {
     expect(reads.filter(path => path.startsWith(SPARE))).toEqual([])
     // The tmux session is on spare-mac, so the lane offers no Watch.
     expect(await ui.find({ key: 'watch-21' })).toBeUndefined()
+    await ui.unmount()
+    await close()
+  })
+  test("under All loops both machines' #12 get a lane each, told apart by their tags, with Watch on this machine's alone", async ($, on) => {
+    const HERE_PR = 'https://github.com/o/r/pull/1'
+    const THERE_PR = 'https://github.com/o/r/pull/2'
+    // This machine's factory and spare-mac's both working #12, each in tmux with #12 in its own window.
+    const files = new Map([
+      [STATUS, JSON.stringify({ running: true, tmux: 'loop-starter', queue: [], issues: [job(12, 'BUILD', { window: 'issue-12', pr: HERE_PR })] })],
+      [`${HARNESS}/lock`, '4242'],
+      [MACHINES, JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] })],
+    ])
+    const spareStatus = JSON.stringify({ running: true, tmux: 'loop-spare', queue: [], issues: [job(12, 'TEST', { window: 'issue-12', pr: THERE_PR })] })
+    const remote = new Map<string, [number, string]>([
+      [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nlock\n']],
+      [`cat '${SPARE}/.loop/status.json'`, [0, spareStatus]],
+      [`cat '${SPARE}/.loop/lock'`, [0, '77\n']],
+      ['kill -0 77', [0, '']],
+      [`cat '${SPARE}/.loop/issue-12/usage.json'`, [1, '']],
+    ])
+    const { clock, ran, titles, writes, close } = world(on, files, {}, remote)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    await ui.select({ key: 'loop-pick', value: '*' })
+    await drain()
+    await ui.redraw()
+    expect(titles[titles.length - 1]).toBe('Loop crew: All loops')
+    expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('*')
+    // Two lanes for #12, each keyed by its loop and each with its loop's tag in its words.
+    expect(await ui.find({ key: 'lane-#12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-ssh:0/#12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeUndefined()
+    expect(JSON.stringify(await ui.find({ key: 'line-#12' }))).toContain('starter #12')
+    expect(JSON.stringify(await ui.find({ key: 'line-ssh:0/#12' }))).toContain('spare-mac #12')
+    // No loop's own buttons, and Watch on this machine's lane alone.
+    for (const key of ['watch', 'tmux', 'watch-ssh:0/#12']) expect(await ui.find({ key })).toBeUndefined()
+    expect(await ui.find({ key: 'watch-#12' })).toBeDefined()
+    await ui.press({ key: 'pr-#12' })
+    await ui.press({ key: 'pr-ssh:0/#12' })
+    await drain()
+    expect(ran.filter(argv => argv[0] === 'open')).toEqual([['open', HERE_PR], ['open', THERE_PR]])
+    // The pick holds across polls, and nothing was written.
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('*')
+    expect(await ui.find({ key: 'lane-ssh:0/#12' })).toBeDefined()
+    expect(writes).toEqual([])
     await ui.unmount()
     await close()
   })

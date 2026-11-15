@@ -847,8 +847,8 @@ group('the loop picker', () => {
     const alpha = loop({ project: 'alpha', status: statusOf([row({ number: 30 }), row({ number: 31 })]) })
     const beta = loop({ project: 'beta', isLocked: false, status: statusOf([row({ number: 40 })]) })
     const options = loopOptions([factory, alpha, beta])
-    expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
-    expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+    expect(options.map(o => o.label)).toEqual(['All loops', '● alpha 2', 'starter', 'beta'])
+    expect(options.map(o => o.value)).toEqual(['*', 'alpha', '', 'beta'])
   })
   test('only a listed loop is a pick: the factory by an empty value, a project by its name', () => {
     const loops = [loop({}), loop({ project: 'alpha' })]
@@ -857,6 +857,10 @@ group('the loop picker', () => {
     expect(isListed(loops, 'gamma')).toBe(false)
     expect(isListed(loops, '../alpha')).toBe(false)
     expect(isListed([loop({ project: 'alpha' })], '')).toBe(false)
+  })
+  test('All loops is a pick with two loops or more, and not with one', () => {
+    expect(isListed([loop({}), loop({ project: 'alpha' })], '*')).toBe(true)
+    expect(isListed([loop({})], '*')).toBe(false)
   })
   test('one job is a marker with no count', () => {
     expect(loopButtonLabel(loop({ project: 'alpha', status: statusOf([row({})]) }))).toBe('● alpha')
