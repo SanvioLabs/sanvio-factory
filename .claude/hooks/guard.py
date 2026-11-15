@@ -3,7 +3,7 @@
 
 From Sanvio Factory by Sanvio Labs, MIT: https://github.com/SanvioLabs/sanvio-factory
 
-Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
+Wired in .claude/settings.json as a PreToolUse hook. Five jobs:
 
 1. Credentials stay unread. A Read, Edit or Write on a credential file, a Grep
    whose path or glob names one (or a .ssh, .aws, .gnupg or .kube folder) or
@@ -37,6 +37,12 @@ Wired in .claude/settings.json as a PreToolUse hook. Four jobs:
    and the folders PRIVATE_FOLDERS lists below. Each headless Grep is passed on
    with those folders and !*.git added to its glob as excludes, so it leaves
    them out, and bare repos at any depth.
+5. The factory's logs stay as written, and the list of other machines stays
+   the person's. No agent writes, moves or deletes the usage log or the loop's
+   logs. A change to .sanvio/factory-floor/, whose machines.json chooses the
+   hosts this machine connects to over ssh with the person's keys, asks the
+   person first, and in a headless run or a loop agent, where nobody can
+   answer, is refused.
 
 A call this hook can't check, because its input is unreadable or the hook has a bug, goes through with a
 warning in a person's session. In a headless run, and in an agent scripts/loop.py started
@@ -76,15 +82,35 @@ LOG_IN_PLACE = re.compile(r"^(?:sed|perl|ruby)$")
 LOG_COPIERS = {"cp", "install", "ln", "rsync", "dd"}
 LOGS_ARE_READ_ONLY = ("{} is one of the factory's logs. Agents read them and never write, move or delete them, "
                       "so a change to one shows as tampering. Ask a human if a log needs to change.")
+# factory-floor's list of other machines, and the folder that holds it. It chooses which hosts this machine
+# connects to over ssh, in the background and with the person's keys, so changing it is the person's call.
+MACHINES_NAME = r"\.sanvio/factory-floor(?:/[^\s'\";|&>]*)?(?=$|[\s'\";|&>)])"
+MACHINES_FILE = re.compile(r"(?:^|(?<=[/\s'\"=<:]))" + MACHINES_NAME)
+MACHINES_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + MACHINES_NAME)
+MACHINES_ARE_THE_PERSONS = ("{} holds factory-floor's list of other machines, which chooses the hosts this machine "
+                            "connects to over ssh with your keys. Say yes only if you asked for this change.")
+MACHINES_UNATTENDED = ("{} holds factory-floor's list of other machines, which chooses the hosts this machine "
+                       "connects to over ssh. Nobody is here to approve a change to it, so it's refused.")
 
 
 def log_write(command):
     """The log a shell command writes to, moves or deletes, or None. Reading one, or copying one out, is fine."""
+    return file_write(command, LOG_FILE, LOG_REDIRECT)
+
+
+def machines_write(command):
+    """The path under .sanvio/factory-floor/ a shell command writes to, moves or deletes, or None."""
+    return file_write(command, MACHINES_FILE, MACHINES_REDIRECT)
+
+
+def file_write(command, file_pattern, redirect_pattern):
+    """The path file_pattern finds that a shell command writes to, moves or deletes, or None. Reading one,
+    or copying one out, is fine."""
     for segment in re.split(r"&&|\|\||;|\||\n", command):
-        found = LOG_REDIRECT.search(segment)
+        found = redirect_pattern.search(segment)
         if found:
-            return LOG_FILE.search(segment[found.start():]).group(0)
-        named = LOG_FILE.search(segment)
+            return file_pattern.search(segment[found.start():]).group(0)
+        named = file_pattern.search(segment)
         if not named:
             continue
         try:
@@ -106,7 +132,7 @@ def log_write(command):
             return named.group(0)
         if verb in LOG_COPIERS:
             target = words[-1][3:] if verb == "dd" and words[-1].startswith("of=") else words[-1]
-            if LOG_FILE.search(target):
+            if file_pattern.search(target):
                 return named.group(0)
     return None
 
@@ -573,6 +599,13 @@ def is_unattended():
     return os.environ.get("SANVIO_UNATTENDED") == "1"
 
 
+def machines_verdict(path, headless):
+    """A change under .sanvio/factory-floor/: the person is asked, and where nobody can answer it's refused."""
+    if headless or is_unattended():
+        return ("deny", MACHINES_UNATTENDED.format(path))
+    return ("ask", MACHINES_ARE_THE_PERSONS.format(path))
+
+
 def decide(event):
     """(decision, reason) for one tool call, or None to let it through untouched."""
     tool = event.get("tool_name", "")
@@ -609,6 +642,8 @@ def decide(event):
         path = data.get("file_path") or data.get("notebook_path") or ""
         if path and LOG_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return ("deny", LOGS_ARE_READ_ONLY.format(path))
+        if path and MACHINES_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
+            return machines_verdict(path, headless)
 
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):
@@ -625,6 +660,9 @@ def decide(event):
         written = log_write(command)
         if written:
             return ("deny", LOGS_ARE_READ_ONLY.format(written))
+        changed = machines_write(command)
+        if changed:
+            return machines_verdict(changed, headless)
         # Before the auditor's list: a headless run is held to its reads whichever agent asks.
         if headless:
             why = headless_refusal(command)
