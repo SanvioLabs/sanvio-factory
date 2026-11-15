@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The loop re-dates its CHANGELOG entry when it merges a newer base
+
+When the loop merges its base into a pull request to keep both sets of [`CHANGELOG.md`](CHANGELOG.md) entries, an entry the branch added that's dated before the base's newest now takes the day of the merge, so the log stays newest first and the merge passes its tests instead of failing at every new base commit. Only the date changes: the name, the body and the order stay as written. The loop's comment on the pull request names each entry it re-dated.
+
+**Needs:** 2026-10-31: Loop merges CHANGELOG.md conflicts
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: The flywheel at the top of the README
 
 [`README.md`](README.md) names the flywheel in its opening, beside the picture of one issue through the loop: five phases, a gate at the end of each, a pull request at the end of a turn, and lessons that `learn` turns into rules. It links to *The main loop, and four inside it*, which stays where it was.
