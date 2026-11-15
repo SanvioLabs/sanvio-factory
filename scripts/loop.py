@@ -2092,7 +2092,9 @@ CHANGELOG_HEADING = re.compile(r"## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
 
 
 def changelog_redated(base, added, today):
-    """added, with each section dated before the one under it moved to today, so the log stays newest first.
+    """added, with each section dated before the one under it moved to today, or to the date under it when
+    that's later, so the log stays newest first. A base entry can be dated after the loop's today: written
+    where the date had already turned, or on a machine whose clock is ahead.
 
     The one under the bottom section is base's newest entry. Only the date changes: the name, the body
     and the order stay as they are, and base's own sections are never touched. Returns (sections,
@@ -2103,9 +2105,10 @@ def changelog_redated(base, added, today):
     for section in reversed(added):
         match = CHANGELOG_HEADING.match(section)
         if match and floor is not None and match.group(1) < floor:
-            changes.append((match.group(2), match.group(1), today))
-            section = section[:match.start(1)] + today + section[match.end(1):]
-            floor = today
+            new = max(today, floor)
+            changes.append((match.group(2), match.group(1), new))
+            section = section[:match.start(1)] + new + section[match.end(1):]
+            floor = new
         elif match:
             floor = match.group(1)
         out.append(section)

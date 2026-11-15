@@ -1065,6 +1065,12 @@ class TestChangelogRedated(unittest.TestCase):
         self.assertTrue(merged.endswith("".join(loop.changelog_sections(self.BASE)[1])))
         self.assertIn("## 2026-11-01: Base older\n", merged)
 
+    def test_a_base_entry_dated_after_today_lends_its_date_so_the_log_stays_newest_first(self):
+        base = "# What's new\n\n" + self.entry("2026-11-16", "Written where it was already tomorrow")
+        sections, changes = loop.changelog_redated(base, [self.entry("2026-11-14", "Added")], self.TODAY)
+        self.assertEqual(changes, [("Added", "2026-11-14", "2026-11-16")])
+        self.assertEqual(problems(loop.changelog_with(base, sections)), [])
+
     def test_an_entry_above_a_re_dated_one_takes_today_too_when_it_would_be_older(self):
         sections, changes = self.redated(self.entry("2026-11-12", "Top"), self.entry("2026-11-05", "Bottom"))
         self.assertEqual([s[3:13] for s in sections], [self.TODAY, self.TODAY])
