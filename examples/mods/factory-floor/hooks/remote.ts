@@ -94,12 +94,14 @@ export function q(s: string): string {
 // instead of waiting on a prompt nobody sees, and StrictHostKeyChecking only connects to a host already in
 // known_hosts. The rest override the person's own ssh config, which applies to every read in the background:
 // no agent, X11 or port forwarding for a machine that may be compromised, no local command, no terminal and
-// no stdin, and a connection that stops answering is dropped in about 6 seconds.
+// no stdin, and a connection that stops answering is dropped in about 6 seconds. ControlPath=none shares no
+// connection: a master your config opened earlier, with agent forwarding or after a prompt you answered,
+// never carries a read, and no read leaves a master behind.
 export const SSH_OPTIONS = [
   '-n', '-T',
   '-o', 'BatchMode=yes', '-o', `ConnectTimeout=${CONNECT_TIMEOUT_S}`, '-o', 'StrictHostKeyChecking=yes',
   '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'ClearAllForwardings=yes', '-o', 'PermitLocalCommand=no',
-  '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2',
+  '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2', '-o', 'ControlPath=none',
 ]
 
 // The whole ssh command line. -- ends ssh's options, so the destination is only ever read as one.
@@ -318,11 +320,14 @@ export function remoteUsage(seen: Seen, row: Row): string | null {
 
 // The ssh options for Watch's copied command, which a person runs in a terminal: -t for the terminal tmux
 // needs, and, as for the reads, no password prompt, a known host only and nothing forwarded, so watching a
-// machine that may be compromised hands it no agent. Not SSH_OPTIONS: its -n and -T would stop the attach.
+// machine that may be compromised hands it no agent. ControlPath=none overrides your ssh config's connection
+// sharing, so Watch never rides a master opened earlier with agent forwarding and leaves none behind.
+// Not SSH_OPTIONS: its -n and -T would stop the attach.
 export const WATCH_SSH_OPTIONS = [
   '-t',
   '-o', 'BatchMode=yes', '-o', `ConnectTimeout=${CONNECT_TIMEOUT_S}`, '-o', 'StrictHostKeyChecking=yes',
   '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'ClearAllForwardings=yes', '-o', 'PermitLocalCommand=no',
+  '-o', 'ControlPath=none',
 ]
 
 // tmux on a machine, with its tmux_socket when it has one.

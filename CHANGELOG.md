@@ -44,6 +44,16 @@ Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md).
 
 **Do:** nothing.
 
+## 2026-11-15: factory-floor's ssh shares no connection
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), every `ssh` the mod runs, and the one **Watch** copies, now passes `-o ControlPath=none`, so it never uses a shared connection your SSH config opened, perhaps with agent forwarding, and never leaves one behind. It narrows what the mod can reach and grants nothing new. The mod is now 0.8.1.
+
+**Needs:** 2026-11-15: Watch an issue on another machine; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts).
+
+**Do:** nothing. If you relied on a shared connection to other machines, each read now opens a connection of its own.
+
 ## 2026-11-15: On this page in the README
 
 [`README.md`](README.md) has an **On this page** line above its pictures, linking each of its sections in order, so a long page can be jumped through outside GitHub's outline menu. [`tests/test_readme_contents.py`](tests/test_readme_contents.py) fails when the line stops matching the `##` headings, so a renamed, added or moved section needs the line changed with it.

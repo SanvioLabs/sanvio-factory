@@ -292,7 +292,7 @@ there (`tmux has-session`). If it isn't, or the machine doesn't answer, a toast
 says so and nothing is copied. The copied command is:
 
 ```bash
-ssh -t -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no -- 'builder@spare-mac.local' "tmux attach -r -t '=loop-factory:=issue-14'"
+ssh -t -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no -o ControlPath=none -- 'builder@spare-mac.local' "tmux attach -r -t '=loop-factory:=issue-14'"
 ```
 
 with `tmux -S '<socket>'` in place of `tmux` when `tmux_socket` is set. The
@@ -367,8 +367,10 @@ for you to run), and never sets up SSH keys or config. `ls` and `cat` follow lin
 can make them read a file elsewhere there; what they read stays in the pane.
 
 Each `ssh` overrides your own SSH config to forward nothing (no agent, X11 or
-ports), to run no local command, and to take no stdin, since it runs in the
-background every 30 seconds. It connects only to a host already in your
+ports), to run no local command, to share no connection (`ControlPath=none`,
+so a master connection your config opened is never used and none is left
+behind), and to take no stdin, since it runs in the background every 30
+seconds. It connects only to a host already in your
 `known_hosts`, so connect to each machine once by hand first. The `ssh` value
 may hold only a host name's characters, with a user before `@`; the path
 can't hold a `'` or a `\`; and a project folder there is listed only if its
