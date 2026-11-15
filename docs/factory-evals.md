@@ -9,6 +9,9 @@ scripts measure it instead.
 | [`scripts/eval_agents.py`](../scripts/eval_agents.py) | Does a review agent, or the review-pr skill, still find what it should in work with known problems? | One real session per case per run, two runs by default |
 | [`scripts/eval_factory.py`](../scripts/eval_factory.py) | Does the whole factory still deliver: from issues to merged pull requests, scored by checks its agents can't see? | A new private repo per run, and the factory's model tokens |
 
+New to this? [`eval-walkthrough.md`](eval-walkthrough.md) takes you through a first run of the second
+script, then a baseline, your own factory, an A/B test and a suite of your own, in that order.
+
 In Claude Code, the [`factory-eval`](../skills/factory-eval/SKILL.md) skill runs both for you: say "eval the
 factory". It checks a suite first and asks before anything spends tokens.
 
@@ -63,8 +66,19 @@ key/
 ```
 
 The key is the part the factory must never see. A trap is a wrong move the
-key checks for, such as editing the seed's own test until it passes. Before
-you spend a token on a suite, check it's a fair test:
+key checks for, such as editing the seed's own test until it passes. A test
+or trap in `score`'s output may also carry `"issue"`, the position of the
+issue it checks in `suite.json`'s list, from 1. A report then groups what was
+missed by issue.
+
+To start one, `new-suite` makes the folders and files to fill in, with a
+`score` to start from. It refuses a folder inside the factory:
+
+```bash
+python3 scripts/eval_factory.py new-suite ../my-suites/billing
+```
+
+Before you spend a token on a suite, check it's a fair test:
 
 ```bash
 python3 scripts/eval_factory.py validate <suite>
@@ -133,6 +147,22 @@ runs of the same suite, on the same models, both with or both without
 `--merge-in-run-repo`, or the difference may be the model, or the merge waits,
 rather than your change.
 
+### A report to share
+
+```bash
+python3 scripts/eval_factory.py report <run> [--compare <other-run>]
+```
+
+`report` writes the run's `report.html` and `report.md` into its folder, and
+`report.pdf` when Chrome, Chromium or Edge is installed to print it. Without
+one, it says so: open the HTML and print it to PDF. Each holds the verdict,
+the headline numbers, each issue with its pull request and time, what was
+missed grouped by issue, every check, the stops, the run's details, and an
+appendix on reading the report and writing a suite. `--compare` adds a second
+run beside it, with what got worse and what got better. `--out <folder>`
+writes them somewhere else. Set `EVAL_REPORT_BROWSER` to name the browser, or
+to nothing for no PDF.
+
 ### Pointing it at another factory
 
 Pass `--factory <folder>` for the factory to run, and a `--start` command that
@@ -140,12 +170,15 @@ starts it on the one issue in `{issue}`. Every issue is open from the start, so
 a factory that takes whatever is open starts later issues early and spoils the
 run. Give `--usage-command` a command that prints the run's
 total cost as one number, or the cost reads `not reported`.
+[`examples/eval-adapters/`](../examples/eval-adapters/) has a plain one-session adapter to start from, and
+the list of what any start command has to do.
 
 ## Keeping a suite fair
 
 - **A public suite can't measure anything.** An agent can read it, the key
-  included. [`examples/eval-suite/`](../examples/eval-suite/) is public to show the format, and
-  that's all it's for.
+  included. [`examples/eval-suite/`](../examples/eval-suite/) and
+  [`examples/eval-suite-tool-library/`](../examples/eval-suite-tool-library/) are public to show the format, and
+  that's all they're for.
 - **Keep a real suite in a private repo,** outside the factory and anywhere its
   agents may read. The script refuses a key inside the factory or the clone
   folder, and checks the run repo's history for the key's files, but it can't
