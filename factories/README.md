@@ -5,6 +5,8 @@ repo is one. So is another team's delivery system, or another copy of this
 factory. This repo can hand an issue to another factory and review what comes
 back, with GitHub as the only thing between them.
 
+![Handing an issue to another factory, in three columns: this factory, GitHub and the other factory. You dispatch #12 and say yes, and the submit label goes on #12. The other factory takes #12 when the label appears, opens one pull request with Closes #12, and takes the label off. Your review posts one comment on the pull request, as your login. If it says changes needed, you resend and say yes, the submit label goes back on #12, and the other factory pushes to the same branch, or gives up with the stopped label. When the run reads ready for a person, you merge. Neither factory merges, approves or closes the pull request or the issue.](../docs/handing-off-to-a-factory.gif)
+
 Name the factory in `factories.json` at the harness root. Copy
 [`factories.example.json`](../factories.example.json) to start: it holds one step, with every key a step can set. A factory that runs
 on this machine gets a folder here, one checkout per factory, named the way
