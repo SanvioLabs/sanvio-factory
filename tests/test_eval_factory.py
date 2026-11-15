@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -1401,7 +1402,29 @@ class NewSuite(WithFakeGh):
         self.assertFalse((self.factory / "suites").exists())
 
 
+class Unused(unittest.TestCase):
+    def test_a_free_name_is_kept_and_a_taken_one_counts_up(self):
+        taken = {"tiny-1", "tiny-1-2"}
+        self.assertEqual(eval_factory.unused("tiny-0", taken.__contains__), "tiny-0")
+        self.assertEqual(eval_factory.unused("tiny-1", taken.__contains__), "tiny-1-3")
+
+
+class OneSecond(datetime):
+    """A clock stuck on one second, as two quick runs see it."""
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 15, 19, 27, 1)
+
+
 class RepeatRuns(ScoredRun):
+    def test_two_runs_in_the_same_second_get_their_own_names(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        with mock.patch("eval_factory.datetime", OneSecond):
+            code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
+        self.assertNotIn("already exists", out)
+        names = sorted(path.parent.name for path in (self.factory / ".sanvio" / "factory-evals").glob("*/result.json"))
+        self.assertEqual(names, ["tiny-20261115-192701", "tiny-20261115-192701-2"], out)
+
     def test_repeat_makes_one_run_each_and_names_them(self):
         self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
         code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
@@ -1462,6 +1485,13 @@ class Groups(WithFakeGh):
         self.assertIn("- failed in 2 of 3: wobbly", notes)
         self.assertIn("| wobbly | test |  | 1 of 3 |", notes)
         self.assertIn("Worse in these 3 runs: 1\n- test wobbly (from 3/3 to 1/3)", notes)
+
+    def test_two_group_reports_in_the_same_second_get_a_folder_each(self):
+        with mock.patch("eval_factory.datetime", OneSecond):
+            self.assertEqual(self.run_cli("report", "b1,b2,b3")[0], 0)
+            self.assertEqual(self.run_cli("report", "a1,a2,a3")[0], 0)
+        folders = sorted(path.parent.name for path in (self.runs / "reports").glob("*/report.md"))
+        self.assertEqual(folders, ["20261115-192701", "20261115-192701-2"])
 
     def test_a_report_on_several_suites_starts_with_a_summary(self):
         for name in ("b1", "b2"):

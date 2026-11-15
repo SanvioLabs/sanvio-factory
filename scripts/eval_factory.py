@@ -367,16 +367,29 @@ def protection_for(checks):
             "required_pull_request_reviews": None, "restrictions": None}
 
 
+def unused(base, taken):
+    """base, or base-2, base-3 and on, the first that taken() says is free. A name is a time to the second,
+    so two runs started in the same second, as --repeat does on a quick suite, would otherwise share one."""
+    name, count = base, 1
+    while taken(name):
+        count += 1
+        name = "{}-{}".format(base, count)
+    return name
+
+
 def create_run(suite, options):
     """Make the run's private repo from the seed, protect it, file the issues, and save the record.
 
     The key is never copied: only the seed goes into the clone. Once the repo exists a failure leaves it
     for a person to look at, and the error names it."""
     factory = Path(options["factory"])
-    run_id = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
+    clones = Path(options["clone_into"])
+    run_id = unused("{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S")),
+                    lambda taken: (runs_dir() / taken).exists() or (sealed_dir() / "{}.json".format(taken)).exists()
+                    or (clones / "eval-{}".format(taken)).exists())
     name = "eval-{}".format(run_id)
     repo = "{}/{}".format(options["owner"], name)
-    clone = Path(options["clone_into"]) / name
+    clone = clones / name
     if clone.exists():
         raise RunError("{} already exists".format(clone))
     gh_ok("couldn't create {}".format(repo), "repo", "create", repo, "--private")
@@ -945,7 +958,8 @@ def cmd_report(args):
     elif one:
         folder = runs_dir() / args.runs[0]
     else:
-        folder = runs_dir() / "reports" / datetime.now().strftime("%Y%m%d-%H%M%S")
+        folder = runs_dir() / "reports" / unused(datetime.now().strftime("%Y%m%d-%H%M%S"),
+                                                 lambda taken: (runs_dir() / "reports" / taken).exists())
     written, why = eval_report.write(groups, folder, others)
     for path in written:
         print(path)

@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Eval runs started in the same second
+
+[`scripts/eval_factory.py`](scripts/eval_factory.py) names a run after its suite and the second it started, so two runs started in the same second, as `--repeat` does on a quick suite, used to collide: the second stopped with "already exists". A name that's taken now gets `-2`, `-3` and on, and so does a group report's folder under `.sanvio/factory-evals/reports/`. This was failing `checks (python 3.9)` in CI whenever the runner was fast enough.
+
+**Needs:** 2026-11-15: Repeat eval runs and session cost
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing.
+
 ## 2026-11-15: Repeat eval runs and session cost
 
 `eval_factory.py run --repeat N` runs a suite N times, and `compare` and `report` take a group of runs joined by commas, showing the middle result, each check's pass rate and which checks are flaky. `report` takes several suites in one report, with a summary first. [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py) gives another factory's cost from Claude Code's transcripts at the prices in `.sanvio/prices.json`, for `--usage-command`. [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py) is an adapter for a factory that opens its own pull requests. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) covers building a suite that tells factories apart, and [`docs/factory-evals.md`](docs/factory-evals.md) gains cleanup and troubleshooting.
