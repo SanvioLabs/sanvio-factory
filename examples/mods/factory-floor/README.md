@@ -125,7 +125,7 @@ it.
 | The header | The loop's name on the left: the project's, or the factory's folder. On the right, **Running** while a live loop holds its lock and works a job (**Running 2** for two), **Idle** in dim green while it holds the lock with nothing to work, **Stopping after this step** after `loop.py stop`, **Not running** otherwise, with how long a live loop has been up. Red when the last run was killed: its lock is still there but its process isn't, and the next run replaces it. A loop.py older than this one writes no start, so no uptime |
 | **Copy attach command** | While a loop started in tmux is running, copies the command that opens its session. `loop-control` starts the loop that way when tmux is installed |
 | **Watch it** | On a Mac, opens a new Terminal window attached to that session, read-only: you see the loop work and can't type into it. Close the window and the loop keeps running. If the window can't open, it copies the read-only attach command instead. It shows only while the loop runs in tmux on macOS |
-| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. It can list other machines' loops too: see [Other machines](#other-machines). The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
+| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. It can list other machines' loops too: see [Other machines](#other-machines). With more than one loop, its first option is **All loops**, every loop's working issues on one Active tab: see [All loops](#all-loops). The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
 | **Queue** | Ready issues the loop will take next, lowest first. One that depends on an open issue says **waiting on** and which |
 | **Active** | Issues being worked: what each is on, named as `.loop/loop.log` names the step (shape, test, build, validate, scale), with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
 | **Finished** | Issues that reached an end in the last 24 hours: a pull request, blocked, stopped or skipped. Older ones drop off; `.loop/status.json` still has them |
@@ -273,6 +273,33 @@ Another machine's loop shows as this one's does, with its own notices
 focus alone, since the project isn't a folder here, and a focus change never
 moves the pane to another machine. It has no **Watch it**, **Copy attach
 command** or **Watch** buttons: its tmux session is on that machine.
+
+### All loops
+
+Once the picker lists more than one loop, its first option is **All loops**,
+in the List and the Crew. A machine that's down doesn't count towards the two:
+it has nothing to show. Picking it shows every issue being worked on every
+loop, this machine's and the other machines', each tagged with where it's
+running: `spare-mac · alpha #12`, or this machine's by its folder name,
+`starter · alpha #12`, as the picker names it. Two loops working the same
+issue number are two rows, or two lanes, told apart by their tags. The mobile
+app draws no dropdown, so there **All loops** is the first of the loop
+buttons.
+
+The List shows only its Active tab while **All loops** is picked: Queue and
+Finished come back when you pick one loop. The Crew draws a lane for every
+issue a running loop is working, as it does for one loop. Each row and lane
+keeps its **Open pull request**, and **Watch** on this machine's issues; a
+remote issue has no **Watch**, as above. Neither view shows **Watch it** or
+**Copy attach command** under **All loops**, since those belong to one loop.
+
+A machine that's down adds nothing, and a dim line names it, as the picker
+does: `spare-mac · down, last read 2m 05s ago`. Picking **All loops** leaves
+the session's focus alone, but a change of focus still moves the pane to that
+project's loop. With fewer than two loops listed, the pane goes back to this
+factory's loop. **All loops** reads no machine or file the pane doesn't
+already read: it combines every loop's last read, and the Crew reads each
+drawn lane's `usage.json` by the same rule as for one loop.
 
 ## What it doesn't do
 

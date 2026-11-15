@@ -74,12 +74,14 @@ export type Mode = 'list' | 'crew'
 
 declare module 'claude-code' {
   interface PluginState {
-    // seen: the loop on screen. loops: every loop's last look, the factory first. picked: the loop to
-    // show, a project's name, '' for the factory, or ssh:<i>/<project> for another machine's loop (ssh:<i>/
-    // for its factory's), null until the pane has opened on one. focus: the
+    // seen: the loop on screen, the factory's look under All loops. loops: every loop's last look, the
+    // factory first. picked: the loop to show, a project's name, '' for the factory, or ssh:<i>/<project>
+    // for another machine's loop (ssh:<i>/ for its factory's), or * for All loops, null until the pane has
+    // opened on one. focus: the
     // project last read from this session's .sanvio/project/<id>, or null, so a read can see it change.
     // mode: the view the person picked. The crew- keys are the Crew view's own, as loop-crew keeps them:
-    // crew-shown the loop it shows, by the picker's value, crew-seen that loop's last look, crew-loops every loop its picker
+    // crew-shown the loop it shows, by the picker's value, * for All loops, crew-seen that loop's last
+    // look, crew-loops every loop its picker
     // lists, crew-focus the focus as it last read it. Both views look at a loop the same way, as a Seen.
     // The Crew view shares launch with the List.
     'factory-floor': {

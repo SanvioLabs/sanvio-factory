@@ -61,15 +61,17 @@ export function loopButtons($: EngineInterface, Button: Button, seen: Seen): But
 }
 
 // Watch, while the issue has its own tmux window, and Open pull request, once it has one. prLabel is
-// the pull request button's label, which the List cuts to its width.
-export function issueButtons($: EngineInterface, Button: Button, seen: Seen, row: Row, prLabel = 'Open pull request'): Buttons {
+// the pull request button's label, which the List cuts to its width. keyPrefix goes before the number in
+// each key, so under All loops two loops' #12 keep apart; '' keeps one loop's keys as watch-12 and pr-12.
+// Another machine's issue has no Watch: jobAttach gives none for its loop.
+export function issueButtons($: EngineInterface, Button: Button, seen: Seen, row: Row, prLabel = 'Open pull request', keyPrefix = ''): Buttons {
   const jobCommand = jobAttach(seen, row)
   const out: Buttons = { labels: [], elements: [] }
   if (jobCommand) {
     out.labels.push('Watch')
     out.elements.push(
       <Button
-        key={`watch-${row.number}`}
+        key={`watch-${keyPrefix}${row.number}`}
         label="Watch"
         onPress={press =>
           openOrCopy($, `${seen.root}/${jobWatchFile(row.number, seen.project)}`, ['open'], () =>
@@ -79,7 +81,7 @@ export function issueButtons($: EngineInterface, Button: Button, seen: Seen, row
   }
   if (row.pr) {
     out.labels.push(prLabel)
-    out.elements.push(<Button key={`pr-${row.number}`} label={prLabel} onPress={press => openPullRequest($, row.pr ?? '', press.surface)} />)
+    out.elements.push(<Button key={`pr-${keyPrefix}${row.number}`} label={prLabel} onPress={press => openPullRequest($, row.pr ?? '', press.surface)} />)
   }
   return out
 }

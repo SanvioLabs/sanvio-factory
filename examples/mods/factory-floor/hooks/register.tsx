@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { PAGE,PROJECTS_DIR, TABS, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
+import { ALL, PAGE,PROJECTS_DIR, TABS, allActive, allHeader, changes, clip, clock, describe, dot, downOption, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
 import { issueButtons, loopButtons } from './buttons'
-import type { Down, Lists, Tone } from './logic'
+import type { Down, Lists, Tagged, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
 import { MIN_COLUMNS } from './crew-logic'
 import { pollRemote, remoteNow, resetRemote } from './remote'
@@ -66,15 +66,27 @@ const AROUND_LIST = 8
 
 // How many jobs fit the pane's height, and never fewer than PAGE. The finite check is for Infinity, which
 // would otherwise pass the minimum, and for a height that isn't there. A line saying machines.json skips a
-// machine takes a row of its own.
-function jobsInView(bodyRows?: number): number {
-  const fits = Math.floor(((bodyRows ?? NaN) - AROUND_LIST - remoteShown.refusals.length) / (JOB_ROWS + 1))
+// machine takes a row of its own, and so does each of the `extra` lines, the machines down under All loops.
+function jobsInView(bodyRows?: number, extra = 0): number {
+  const fits = Math.floor(((bodyRows ?? NaN) - AROUND_LIST - remoteShown.refusals.length - extra) / (JOB_ROWS + 1))
   return Number.isFinite(fits) && fits >= PAGE ? fits : PAGE
 }
 
 // How many items a tab shows at once. Queue's are a line each, so it fits as many as that many jobs' rows hold.
-const pageSize = (tab: Tab, bodyRows?: number): number =>
-  tab === 'queue' ? jobsInView(bodyRows) * (JOB_ROWS + 1) : jobsInView(bodyRows)
+const pageSize = (tab: Tab, bodyRows?: number, extra = 0): number =>
+  tab === 'queue' ? jobsInView(bodyRows, extra) * (JOB_ROWS + 1) : jobsInView(bodyRows, extra)
+
+// One job as the List draws it: its row, the loop it's from, and under All loops that loop's tag.
+type Job = { seen: Seen; row: Row; tag: string | null }
+
+// What the List has to show. For one loop, its three tabs. Under All loops, only an Active tab, holding
+// every loop's active issues with their tags, and a row for each machine that's down, its `extra`.
+type InView = { l: Lists; all: Tagged[] | null; extra: number }
+function inView(picked: string | null, seen: Seen | null, loops: Seen[], now: number): InView {
+  if (picked !== ALL) return { l: lists(seen?.status ?? null, now), all: null, extra: 0 }
+  const all = allActive(loops)
+  return { l: { queue: [], active: all.map(t => t.row), finished: [] }, all, extra: remoteShown.down.length }
+}
 
 const EMPTY: Record<Tab, string> = {
   queue: 'Nothing waiting. Label an issue loop-ready to queue it.',
@@ -85,18 +97,21 @@ const EMPTY: Record<Tab, string> = {
 let stopPolling: (() => void) | null = null
 
 // The tab in view and its first job, kept inside the list. Before the person picks, the busiest tab.
-function current(view: View | null, l: Lists, bodyRows?: number): View {
-  const tab = view?.tab ?? firstTab(l)
-  return { tab, start: page(l[tab], view?.tab ? view.start : 0, pageSize(tab, bodyRows)).start }
+// Under All loops it's always Active, the only tab there.
+function current(view: View | null, shown: InView, bodyRows?: number): View {
+  const { l, all, extra } = shown
+  const tab = all ? 'active' : view?.tab ?? firstTab(l)
+  return { tab, start: page(l[tab], view?.tab ? view.start : 0, pageSize(tab, bodyRows, extra)).start }
 }
 
 // Move the tab's list by `by`: jobs on Active and Finished, lines on Queue. Says whether it moved: at
 // either end it doesn't.
 async function move($: EngineInterface, by: number, bodyRows?: number): Promise<boolean> {
   const seen = await read($, seenAtom)
-  const l = lists(seen?.status ?? null, Date.now())
-  const now = current(await read($, viewAtom), l, bodyRows)
-  const next = page(l[now.tab], now.start + by, pageSize(now.tab, bodyRows)).start
+  const shown = inView(await read($, pickedAtom), seen, (await read($, loopsAtom)) ?? [], Date.now())
+  const { l, extra } = shown
+  const now = current(await read($, viewAtom), shown, bodyRows)
+  const next = page(l[now.tab], now.start + by, pageSize(now.tab, bodyRows, extra)).start
   if (next === now.start) return false
   await update($, viewAtom, () => ({ tab: now.tab, start: next }))
   return true
@@ -198,16 +213,21 @@ async function refresh($: EngineInterface): Promise<void> {
     }
   }
   // No pick yet is an opening, on the focus read as the pane opened. A pick whose project has gone, or
-  // whose machine has stopped answering, falls back to the factory.
-  const shown =
-    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => loopValue(l) === picked)) ?? factory
-  const pick = loopValue(shown)
+  // whose machine has stopped answering, falls back to the factory. All loops holds while there are two
+  // loops or more, and falls back to the factory with fewer; seen is then the factory's look, which only
+  // stands in for a loop on screen.
+  const isAll = picked === ALL && loops.length > 1
+  const shown = isAll
+    ? factory
+    : (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => loopValue(l) === picked)) ?? factory
+  const pick = isAll ? ALL : loopValue(shown)
   if (stored !== pick) await update($, pickedAtom, () => pick)
   const sameExtras = JSON.stringify(extras) === JSON.stringify(remoteShown)
-  if (sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops) && sameExtras) return
+  const leftAll = stored === ALL && pick !== ALL
+  if (!leftAll && sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops) && sameExtras) return
   remoteShown = extras
-  // Another loop opens on its busiest tab, as it does when pressed.
-  if ((before ? loopValue(before) : '') !== pick) await update($, viewAtom, () => null)
+  // Another loop opens on its busiest tab, as it does when pressed, and All loops on its Active tab.
+  if ((stored === ALL ? ALL : before ? loopValue(before) : '') !== pick) await update($, viewAtom, () => null)
   await update($, loopsAtom, () => loops)
   await update($, seenAtom, () => shown)
   for (const loop of loops) {
@@ -227,14 +247,15 @@ async function clockNow($: EngineInterface): Promise<number> {
   }
 }
 
-// Show another loop, from its last look, on its busiest tab. The pick holds until the pane is closed and
-// opened again, which picks again, or the session's focus changes.
-async function show($: EngineInterface, loop: Seen): Promise<void> {
-  await update($, pickedAtom, () => loopValue(loop))
-  await update($, seenAtom, () => loop)
+// Show another loop, from its last look, on its busiest tab, or every loop at once on All loops' Active
+// tab. The pick holds until the pane is closed and opened again, which picks again, or the session's
+// focus changes.
+async function show($: EngineInterface, loop: Seen | typeof ALL): Promise<void> {
+  await update($, pickedAtom, () => (loop === ALL ? ALL : loopValue(loop)))
+  if (loop !== ALL) await update($, seenAtom, () => loop)
   await update($, viewAtom, () => null)
-  // Another machine's loop names no folder here, so picking it leaves the focus as it is.
-  if (loop.machineIndex !== undefined) return
+  // All loops names no folder, nor does another machine's loop, so picking either leaves the focus as it is.
+  if (loop === ALL || loop.machineIndex !== undefined) return
   // Then the pick becomes the session's focus, after the switch so a failed or slow write never holds
   // it up. A project whose name isn't one projectName passes as it stands is never written: ` acme`
   // would be read back as acme, another project.
@@ -283,9 +304,11 @@ function startPolling($: EngineInterface): void {
         await refresh($)
       }
       // The dot and the running clock move between reads, so redraw for them while a job is on. The
-      // header's uptime moves too, so a live loop redraws at least at every read.
+      // header's uptime moves too, so a live loop redraws at least at every read. Under All loops, any
+      // loop's job counts.
       const seen = await read($, seenAtom)
-      if (drawnView !== 'crew' && (isPulsing(seen) || (isRead && seen?.isLocked))) $.ui.invalidate('ui.render')
+      const drawn = (await read($, pickedAtom)) === ALL ? ((await read($, loopsAtom)) ?? []) : seen ? [seen] : []
+      if (drawnView !== 'crew' && (drawn.some(isPulsing) || (isRead && drawn.some(l => l.isLocked)))) $.ui.invalidate('ui.render')
     })().catch(() => {})
   })
   stopPolling = () => timer.cancel()
@@ -297,12 +320,12 @@ function stopList(): void {
   stopPolling = null
 }
 
-// The Crew button: the loop the List has on screen, in the Crew's lanes. The Crew reads it before the
-// view changes, so its reads ask for no redraws of their own; the change of mode draws it.
+// The Crew button: the loop the List has on screen, or All loops, in the Crew's lanes. The Crew reads it
+// before the view changes, so its reads ask for no redraws of their own; the change of mode draws it.
 async function toCrew($: EngineInterface): Promise<void> {
   if (drawnView === 'crew') return
   const seen = await read($, seenAtom)
-  await openCrew($, seen ? loopValue(seen) : '')
+  await openCrew($, (await read($, pickedAtom)) === ALL ? ALL : seen ? loopValue(seen) : '')
   await update($, modeAtom, () => 'crew')
 }
 
@@ -468,7 +491,10 @@ export const register: Register = on => {
 
     if (!seen) return <Text dimColor>Looking for the loop…</Text>
 
-    const top = header(seen, now, width)
+    // Under All loops: every loop's Active issues, with no buttons of one loop's own.
+    const picked = await read($, pickedAtom)
+    const isAll = picked === ALL
+    const top = isAll ? allHeader(loops, width) : header(seen, now, width)
     // The state's dot is its first character, drawn on its own so it can pulse with the jobs' dots.
     const state = (
       <Box flexDirection="row">
@@ -476,36 +502,44 @@ export const register: Register = on => {
         <Text {...COLORS[top.right.tone]}>{top.right.text.slice(1)}</Text>
       </Box>
     )
-    const l = lists(seen.status, now)
-    const view = current(await read($, viewAtom), l, bodyRows)
-    const queue = page(l.queue, view.start, pageSize('queue', bodyRows))
-    const jobs = view.tab === 'queue' ? null : page(l[view.tab], view.start, pageSize(view.tab, bodyRows))
+    const shownNow = inView(picked, seen, loops, now)
+    const { l, all, extra } = shownNow
+    const view = current(await read($, viewAtom), shownNow, bodyRows)
+    const queue = page(l.queue, view.start, pageSize('queue', bodyRows, extra))
+    const tabRows: Row[] = view.tab === 'queue' ? [] : l[view.tab]
+    const tabJobs: Job[] = all ?? tabRows.map(row => ({ seen, row, tag: null }))
+    const jobs = view.tab === 'queue' ? null : page(tabJobs, view.start, pageSize(view.tab, bodyRows, extra))
     const { above, below } = jobs ?? queue
     const isEmpty = (jobs ?? queue).shown.length === 0
 
     // On the terminal every job takes the same rows, and every tab's list takes as many jobs' worth as
     // fit the pane, so nothing below it moves as jobs scroll by, gain a result or the tab changes. Desktop
     // and VS Code wrap instead, so a job takes the rows its text needs, and Queue holds only three lines open.
-    const job = (row: Row) => {
-      const { head: state, detail } = describe(row, seen.isLocked)
-      const mark = dot(row, seen.isLocked)
-      const time = clock(row, seen.isLocked, now)
+    // Under All loops each job is drawn from its own loop's look, its title starts with that loop's tag, and
+    // its keys carry the loop's value, so two loops' #12 are two jobs. The tag comes first, so a narrow pane
+    // cuts the title, never what tells them apart.
+    const job = ({ seen: loop, row, tag }: Job) => {
+      const key = tag === null ? `${row.number}` : `${loopValue(loop)}#${row.number}`
+      const { head: state, detail } = describe(row, loop.isLocked)
+      const mark = dot(row, loop.isLocked)
+      const time = clock(row, loop.isLocked, now)
       const stateText = fit(state.text, inner)
-      const buttons = issueButtons($, Button, seen, row, fit('Open pull request', inner))
+      const buttons = issueButtons($, Button, loop, row, fit('Open pull request', inner), tag === null ? '' : `${loopValue(loop)}#`)
+      const title = `#${row.number} ${row.title}`
       // Every job has a dot, in the same column, so a title never moves as its job starts or ends.
       return (
-        <Box key={`issue-${row.number}`} flexDirection="column" marginTop={1} height={wraps ? undefined : JOB_ROWS}>
+        <Box key={`issue-${key}`} flexDirection="column" marginTop={1} height={wraps ? undefined : JOB_ROWS}>
           <Box flexDirection="row" columnGap={1}>
             <Text {...(mark.isPulsing ? PULSE[beat ? 'bright' : 'dim'] : COLORS[mark.tone])}>●</Text>
-            <Text bold>{fit(`#${row.number} ${row.title}`, inner)}</Text>
+            <Text bold>{fit(tag === null ? title : `${tag}  ${title}`, inner)}</Text>
           </Box>
           <Box flexDirection="column" marginLeft={2}>
             {/* Blank for a job from a loop.py that writes no start, so every job takes the same rows. */}
-            <Box key={`clock-${row.number}`}>
+            <Box key={`clock-${key}`}>
               <Text dimColor>{time ? fit(time, inner) : ' '}</Text>
             </Box>
             <Text {...COLORS[state.tone]}>{stateText}</Text>
-            <Box key={`detail-${row.number}`} height={wraps ? undefined : 2} overflow={wraps ? undefined : 'hidden'}>
+            <Box key={`detail-${key}`} height={wraps ? undefined : 2} overflow={wraps ? undefined : 'hidden'}>
               <Text dimColor>{detail ? fit(detail, inner * 2) : ' '}</Text>
             </Box>
             {buttons.elements.length ? (
@@ -522,12 +556,15 @@ export const register: Register = on => {
     const gap = (n: number, rows: number) =>
       Array.from({ length: n }, (_, i) => <Box key={`gap-${i}`} marginTop={rows > 1 ? 1 : 0} height={rows} />)
     const shownCount = (jobs ?? queue).shown.length
-    const held = wraps && !jobs ? PAGE : pageSize(view.tab, bodyRows)
+    const held = wraps && !jobs ? PAGE : pageSize(view.tab, bodyRows, extra)
     const counts = loopCounts(loops)
     // A machine that's down is an option too, so the picker shows with one loop here and one machine down.
     const { down, refusals } = remoteShown
-    const shownValue = loopValue(seen)
-    const options = Select && loops.length + down.length > 1 ? loopOptions(loops, down, down.length ? await clockNow($) : 0) : []
+    const shownValue = isAll ? ALL : loopValue(seen)
+    const picks = !!Select && loops.length + down.length > 1
+    // How long ago a machine that's down answered, for its option and, under All loops, its line.
+    const downNow = down.length && (picks || isAll) ? await clockNow($) : 0
+    const options = picks ? loopOptions(loops, down, downNow) : []
 
     return (
       <Box flexDirection="column">
@@ -543,16 +580,18 @@ export const register: Register = on => {
         {/* the List takes no row more than before. */}
         <Box key="actions" flexDirection="row" flexWrap="wrap" columnGap={1}>
           {modeButtons}
-          {loopButtons($, Button, seen).elements}
+          {/* Watch it and Copy attach command are one loop's, so All loops has neither. */}
+          {isAll ? null : loopButtons($, Button, seen).elements}
         </Box>
         <Text dimColor>{'─'.repeat(width)}</Text>
-        {Select && loops.length + down.length > 1 ? (
+        {Select && picks ? (
           <Box key="loop-picker" flexDirection="row" columnGap={1}>
             <Select
               key="loop-pick"
               options={options}
               value={shownValue}
               onSelect={value => {
+                if (value === ALL) return show($, ALL)
                 // A machine that's down names no loop, so picking it does nothing.
                 const loop = loops.find(l => loopValue(l) === value)
                 return loop && show($, loop)
@@ -563,15 +602,25 @@ export const register: Register = on => {
         ) : (
           loops.length > 1 && (
             <Box key="loops" flexDirection="row" flexWrap="wrap" columnGap={1}>
-              {loops.map(loop => (
+              {/* All loops first, as the dropdown has it. */}
+              {[
                 <Button
-                  key={loop.machineIndex !== undefined ? `loop-${loopValue(loop)}` : loop.project ? `loop-${loop.project}` : 'loop'}
-                  label={loopButtonLabel(loop)}
-                  variant={loopValue(loop) === shownValue ? 'primary' : undefined}
-                  dimColor={loopValue(loop) !== shownValue}
-                  onPress={() => show($, loop)}
-                />
-              ))}
+                  key="loop-all"
+                  label="All loops"
+                  variant={shownValue === ALL ? 'primary' : undefined}
+                  dimColor={shownValue !== ALL}
+                  onPress={() => show($, ALL)}
+                />,
+                ...loops.map(loop => (
+                  <Button
+                    key={loop.machineIndex !== undefined ? `loop-${loopValue(loop)}` : loop.project ? `loop-${loop.project}` : 'loop'}
+                    label={loopButtonLabel(loop)}
+                    variant={loopValue(loop) === shownValue ? 'primary' : undefined}
+                    dimColor={loopValue(loop) !== shownValue}
+                    onPress={() => show($, loop)}
+                  />
+                )),
+              ]}
             </Box>
           )
         )}
@@ -581,8 +630,16 @@ export const register: Register = on => {
             {fit(line, width)}
           </Text>
         ))}
+        {/* Under All loops, each machine that's down adds no jobs, and a line says so and when it last answered. */}
+        {isAll &&
+          down.map(d => (
+            <Text key={`down-${d.index}`} dimColor>
+              {fit(downOption(d, downNow).label, width)}
+            </Text>
+          ))}
+        {/* All loops has only its Active tab: Queue and Finished are one loop's. */}
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {TABS.map(({ tab, label }) => (
+          {TABS.filter(({ tab }) => !isAll || tab === 'active').map(({ tab, label }) => (
             <Button
               key={`tab-${tab}`}
               label={`${label} ${l[tab].length}`}

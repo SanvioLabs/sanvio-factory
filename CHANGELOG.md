@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: All loops in factory-floor
+
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker has an **All loops** option once it lists more than one loop. It shows every issue being worked on every loop, this machine's and the other machines', on one page. In the List that's the Active tab alone, each row tagged with its machine and project (`spare-mac · alpha`, or this machine's by its folder name). In the Crew it's a lane for each issue, with the same tag. Two loops on the same issue number are two rows and two lanes. **Open pull request** works on each row and lane, and **Watch** on this machine's issues only. A machine that's down adds nothing, and a line says when it was last read. Picking **All loops** doesn't write the session's focus. The mod is now 0.7.0.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/hooks/logic.test.ts`](examples/mods/factory-floor/hooks/logic.test.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/shared.test.ts`](examples/mods/factory-floor/hooks/shared.test.ts), [`tests/test_factory_floor.py`](tests/test_factory_floor.py).
+
+**Do:** nothing.
+
 ## 2026-11-15: The guard asks before an agent changes the list of other machines
 
 An agent that writes, moves or deletes anything under `.sanvio/factory-floor/` now gets a question you answer first. That folder holds factory-floor's `machines.json`, which chooses the hosts this machine connects to over SSH with your keys. A loop agent or a headless run is refused outright, since nobody is there to answer. Reading the file is unchanged, and so is editing it yourself. The guard's check for shell commands that write the logs now covers this folder from the same code.

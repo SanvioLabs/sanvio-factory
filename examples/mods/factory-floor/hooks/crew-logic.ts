@@ -1,16 +1,18 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
 import type { CrewSpend as Spend, Row, Seen } from '../types'
-import { clip, has, loopValue } from './logic'
+import { ALL, clip, has, loopValue } from './logic'
 
 // How a loop is read, and how the picker and the focus work, are the List's: logic.ts holds the one
 // copy of each, and these are its own functions, passed on for crew.tsx and its tests.
-export { PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopValue, parseStatus, projectName, projectNames } from './logic'
+export { ALL, PROJECTS_DIR, SESSION, allActive, clip, downOption, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopTag, loopValue, parseStatus, pickerOrder, projectName, projectNames } from './logic'
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
 // Whether a pick names a loop the picker lists. The picker's own options are the only values a surface
 // sends, so this guards against anything else reaching a switch. A machine that's down names no loop.
+// All loops is listed once there's more than one loop, as loopOptions offers it.
 export function isListed(loops: Seen[], value: string): boolean {
+  if (value === ALL) return loops.length > 1
   return loops.some(loop => loopValue(loop) === value)
 }
 

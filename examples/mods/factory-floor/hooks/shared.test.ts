@@ -6,14 +6,15 @@ import type { On } from 'claude-code'
 // this file checks that the Crew's names are logic.ts's own functions, and that both views behave the
 // same over the same files.
 import {
-  PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions,
-  loopValue, parseStatus, projectName, projectNames,
+  ALL, PROJECTS_DIR, SESSION, allActive, clip, downOption, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopCounts, loopDir,
+  loopOptions, loopTag, loopValue, parseStatus, pickerOrder, projectName, projectNames,
 } from './logic'
 import {
-  PROJECTS_DIR as crewProjectsDir, SESSION as crewSession, clip as crewClip, findRoot as crewFindRoot, focusFile as crewFocusFile,
+  ALL as crewAll, PROJECTS_DIR as crewProjectsDir, SESSION as crewSession, allActive as crewAllActive, clip as crewClip,
+  downOption as crewDownOption, findRoot as crewFindRoot, focusFile as crewFocusFile,
   focusName as crewFocusName, lockPid as crewLockPid, loopButtonLabel as crewLoopButtonLabel, loopDir as crewLoopDir,
-  loopOptions as crewLoopOptions, loopValue as crewLoopValue, parseStatus as crewParseStatus, projectName as crewProjectName,
-  projectNames as crewProjectNames,
+  loopOptions as crewLoopOptions, loopTag as crewLoopTag, loopValue as crewLoopValue, parseStatus as crewParseStatus,
+  pickerOrder as crewPickerOrder, projectName as crewProjectName, projectNames as crewProjectNames,
 } from './crew-logic'
 import type { Seen } from '../types'
 
@@ -25,6 +26,8 @@ group('one copy', () => {
       ['lockPid', crewLockPid, lockPid], ['loopButtonLabel', crewLoopButtonLabel, loopButtonLabel], ['loopDir', crewLoopDir, loopDir],
       ['loopOptions', crewLoopOptions, loopOptions], ['loopValue', crewLoopValue, loopValue], ['parseStatus', crewParseStatus, parseStatus],
       ['projectName', crewProjectName, projectName], ['projectNames', crewProjectNames, projectNames],
+      ['ALL', crewAll, ALL], ['allActive', crewAllActive, allActive], ['downOption', crewDownOption, downOption],
+      ['loopTag', crewLoopTag, loopTag], ['pickerOrder', crewPickerOrder, pickerOrder],
     ]
     for (const [name, theirs, ours] of pairs) expect(`${name}: ${theirs === ours}`).toBe(`${name}: true`)
   })
@@ -55,6 +58,7 @@ const busy = () => new Map([
 
 // The picker's options both views must draw: the busy loops first, the factory by its folder.
 const OPTIONS = [
+  { value: '*', label: 'All loops' },
   { value: 'alpha', label: '● alpha' },
   { value: 'beta', label: '● beta' },
   { value: '', label: 'starter' },
