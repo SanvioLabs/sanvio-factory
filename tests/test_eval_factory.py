@@ -1410,6 +1410,20 @@ class RepeatRuns(ScoredRun):
         self.assertIn("Run 2 of 2", out)
         self.assertIn("report " + ",".join(sorted(path.parent.name for path in runs)), out)
 
+    def test_two_runs_started_in_the_same_second_get_names_of_their_own(self):
+        class Frozen(eval_factory.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 11, 15, 9, 30, 0)
+
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        with mock.patch.object(eval_factory, "datetime", Frozen):
+            code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
+        self.assertEqual(code, 0, out)
+        runs = sorted(path.parent.name for path in
+                      (self.factory / ".sanvio" / "factory-evals").glob("*/result.json"))
+        self.assertEqual(runs, ["tiny-20261115-093000", "tiny-20261115-093000-2"], out)
+
     def test_repeat_needs_merging_in_the_run_repo(self):
         code, out = self.run_suite("--repeat", "3")
         self.assertEqual(code, 2)

@@ -373,12 +373,15 @@ def create_run(suite, options):
     The key is never copied: only the seed goes into the clone. Once the repo exists a failure leaves it
     for a person to look at, and the error names it."""
     factory = Path(options["factory"])
-    run_id = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
+    stamp = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
+    # Two runs can start in the same second, as --repeat's can when one stops early: the second gets -2.
+    run_id, taken = stamp, 1
+    while (runs_dir() / run_id).exists() or (Path(options["clone_into"]) / "eval-{}".format(run_id)).exists():
+        taken += 1
+        run_id = "{}-{}".format(stamp, taken)
     name = "eval-{}".format(run_id)
     repo = "{}/{}".format(options["owner"], name)
     clone = Path(options["clone_into"]) / name
-    if clone.exists():
-        raise RunError("{} already exists".format(clone))
     gh_ok("couldn't create {}".format(repo), "repo", "create", repo, "--private")
     # Saved at once, so list names this repo however setup ends.
     record = {"id": run_id, "suite": suite["name"], "suite_path": str(suite["folder"]), "repo": repo,

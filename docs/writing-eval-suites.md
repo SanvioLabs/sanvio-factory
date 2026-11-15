@@ -11,6 +11,8 @@ python3 scripts/eval_factory.py new-suite ../my-suites/billing
 
 That makes the folders and files to fill in, outside the factory.
 
+![A suite that's a fair test. eval_factory.py new-suite ../my-suites/billing makes seed/, the repo before the work, with its CI; issues/, what a person would write, in order; and key/, which the factory never sees, holding score, which checks behaviour with each check tagged with its issue, reference/, the right answer, and wrong/<mistake>/, one known mistake each. The names and data are made up, in a private repo outside the factory. eval_factory.py validate ../my-suites/billing then shows the seed failing, wrong/first-issue-only failing and wrong/signature-changed failing, each as it should, and the reference passing every check: a fair test, with no repo made and no tokens spent. Then one plain baseline run: full marks means it's too easy, and it's measuring the model, not your factory.](writing-eval-suites.gif)
+
 ## Start from work you've really done
 
 Pick something your team shipped in the last month or two: a bug that took

@@ -44,6 +44,26 @@ Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`tests/test_re
 
 **Do:** nothing. If you've changed your README's `##` headings, update the **On this page** line to match, or the test fails.
 
+## 2026-11-15: Eval runs started in the same second get names of their own
+
+A run is named after its suite and the second it started, so two runs of one suite started in the same second, as `--repeat`'s can be when a run stops early, took the same name and the second was refused. The second now gets `-2` on the end, the third `-3`, and so on, in its record, its repo and its clone.
+
+**Needs:** 2026-11-15: Repeat eval runs and session cost; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing.
+
+## 2026-11-15: Flow figures for evals, adapters, handing off and upgrading
+
+Five docs gain a figure that shows the flow at a glance, each with alt text that carries everything it shows. [`docs/factory-evals.gif`](docs/factory-evals.gif) is redrawn with repeat runs, groups in `compare`, and `report`, and [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gets a *Measuring it* section that uses it. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) shows a suite's parts and what `validate` proves, [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md) the two adapters side by side, [`factories/README.md`](factories/README.md) an issue handed to another factory and back, and [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) which kind of copy changes step 2, beside the eleven steps. The sequence diagram in *Handing work to another factory* named this factory twice; the other factory now has its own lane.
+
+**Needs:** 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-08: Hand an issue to another factory
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/eval-adapters.gif`](docs/eval-adapters.gif), [`docs/factory-evals.gif`](docs/factory-evals.gif), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/handing-off-to-a-factory.gif`](docs/handing-off-to-a-factory.gif), [`docs/upgrading-to-sanvio-factory.gif`](docs/upgrading-to-sanvio-factory.gif), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`docs/writing-eval-suites.gif`](docs/writing-eval-suites.gif), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`factories/README.md`](factories/README.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: Repeat eval runs and session cost
 
 `eval_factory.py run --repeat N` runs a suite N times, and `compare` and `report` take a group of runs joined by commas, showing the middle result, each check's pass rate and which checks are flaky. `report` takes several suites in one report, with a summary first. [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py) gives another factory's cost from Claude Code's transcripts at the prices in `.sanvio/prices.json`, for `--usage-command`. [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py) is an adapter for a factory that opens its own pull requests. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) covers building a suite that tells factories apart, and [`docs/factory-evals.md`](docs/factory-evals.md) gains cleanup and troubleshooting.

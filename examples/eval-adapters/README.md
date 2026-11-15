@@ -11,6 +11,8 @@ starts a factory on that one issue and returns when there's a pull request to me
 This factory needs no adapter of its own: its loop takes a labelled issue and opens the pull request
 itself. [`examples/eval-suite/README.md`](../eval-suite/README.md) has the `--start` command for it.
 
+![Two kinds of adapter. The run calls --start once per issue, and either way the adapter leaves one pull request and exits 0. one-session.py, for a factory that doesn't open pull requests: it starts one Claude Code session on issue N in the run's clone; the session edits the clone and can't push or call gh; the adapter commits, pushes and opens the pull request; and it exits 0, or 1 if nothing changed. label-and-wait.py, for a factory that opens its own: it labels issue N and only N, with EVAL_LABEL, loop-ready by default; your factory picks it up however it watches the repo and opens the pull request; the adapter sees the new pull request and exits 0, or 1 on time out or the stopped label. Neither adapter merges. The run merges each pull request after its CI passes, then starts the next issue.](../../docs/eval-adapters.gif)
+
 ## What any adapter has to do
 
 1. Take the issue number, the clone's path and the run repo's name, from `{issue}`, `{clone}` and `{repo}`.
