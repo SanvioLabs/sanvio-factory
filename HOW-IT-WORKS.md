@@ -186,8 +186,15 @@ column. Entries written before this read as `unknown`.
 numbers and labels only: `v` (1), `run` (the issue and when the run started),
 `issue`, `project` (`null` for this repo), `started`, `ended`, `outcome`,
 `rounds`, `tests` and `verdicts` (one per round that reached its review), the
-run's `tokens` and `cost_usd` (`null` when not reported), and the `agent` and
-`reviewer` command names, never a path. No title, note, link or review text
+same rounds' `fix_reasons` and `tests_changed`, the run's `tokens` and
+`cost_usd` (`null` when not reported), and the `agent` and
+`reviewer` command names, never a path. A round's `fix_reasons` is what the
+review's `REASONS:` line gave for a FIX, from `tests-failed`,
+`untested-requirement`, `worked-around-tests` and `real-cost` in that order,
+`[]` for a PASS and `["unstated"]` for a FIX that named none of them. Its
+`tests_changed` says whether the branch changed or deleted a file under
+`test_paths` that its base already had, a file it added doesn't count, and is
+`null` when git or `test_paths` can't say. No title, note, link or review text
 goes in it. Lines are only ever added, never changed, so a relabelled issue's
 second run is a second line. A worker that fails is recorded as `blocked`. A
 run cut short by a Ctrl-C, or by the loop itself being killed, leaves none.
