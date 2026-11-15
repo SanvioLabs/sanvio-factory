@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The flywheel at the top of the README
+
+[`README.md`](README.md) names the flywheel in its opening, beside the picture of one issue through the loop: five phases, a gate at the end of each, a pull request at the end of a turn, and lessons that `learn` turns into rules. It links to *The main loop, and four inside it*, which stays where it was.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: factory-floor's ssh shares no connection
 
 In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), every `ssh` the mod runs, and the one **Watch** copies, now passes `-o ControlPath=none`, so it never uses a shared connection your SSH config opened, perhaps with agent forwarding, and never leaves one behind. It narrows what the mod can reach and grants nothing new. The mod is now 0.8.1.
