@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Watch an issue on another machine
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), **Watch** on an issue running on another machine copies a read-only `ssh -t ... tmux attach -r` command for that issue's tmux window, in that loop's own view and under **All loops**, and a toast says so. It first checks over SSH that the session is there (`tmux has-session`, the only remote command added), and copies nothing if it isn't or the machine doesn't answer. A machine in `.sanvio/factory-floor/machines.json` can give `tmux_socket` for a tmux server off the default socket; a value that isn't an absolute path of plain characters is refused with a line in the pane, and that machine's issues get no **Watch**. Session and window names past a short list of characters build no command. The pane opens no window and runs nothing it copies. The mod is now 0.8.0.
+
+**Needs:** 2026-11-15: All loops in factory-floor; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`steering/data-and-tools.md`](steering/data-and-tools.md).
+
+**Do:** nothing. For a loop whose tmux server isn't on the default socket, add its `tmux_socket` to that machine's entry in `.sanvio/factory-floor/machines.json`.
+
 ## 2026-11-15: Eval walkthrough
 
 A step-by-step guide to a first factory eval: check the examples, run a baseline, read the scorecard, point the run at your own factory, test one change at a time, and write a suite of your own. It comes with a second public example suite, three issues on a made-up tool library with 12 hidden tests, two traps and four known wrong answers, and a plain one-session adapter that serves as a baseline and as the starting point for an adapter to another factory. `eval_factory.py report <run>` writes a run's report as HTML, Markdown and, where Chrome, Chromium or Edge is installed, PDF: each issue with its pull request and time, what was missed grouped by issue, every check, an optional comparison and an appendix. `eval_factory.py new-suite <folder>` makes a suite to fill in, outside the factory. A run's result now records each issue's title, pull request and time, and `key/score` may tag a check with its issue.

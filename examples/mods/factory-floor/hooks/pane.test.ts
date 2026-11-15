@@ -1491,7 +1491,7 @@ group('project loops', () => {
     await ui.unmount()
     await close()
   })
-  test("another machine's loops are options, and picking one shows it with no watch buttons and leaves the focus alone", async ($, on) => {
+  test("another machine's loops are options, and picking one shows it with Watch on its issues alone and leaves the focus alone", async ($, on) => {
     const files = threeLoops()
     files.set(MACHINES, machinesText)
     const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS }, spareMac())
@@ -1509,8 +1509,10 @@ group('project loops', () => {
     await settle()
     expect(await left(ui)).toContain('spare-mac · alpha')
     expect(await titles(ui)).toEqual(['#12 Gate'])
-    // Its tmux is on spare-mac, so nothing offers to watch or attach to it here.
-    for (const key of ['watch', 'tmux', 'watch-12']) expect(await ui.find({ key })).toBeUndefined()
+    // Its tmux is on spare-mac, so nothing here offers to watch or attach to the loop, and its issue's Watch
+    // is the one that copies an attach over ssh.
+    for (const key of ['watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
+    expect(await ui.find({ key: 'watch-12' })).toBeDefined()
     await clock.advance(POLL)
     await settle()
     expect(await titles(ui)).toEqual(['#12 Gate'])
@@ -1557,9 +1559,9 @@ group('project loops', () => {
     // Only the Active tab, and no loop's own Watch it or attach command.
     expect(await ui.find({ key: 'tab-active' })).toBeDefined()
     for (const key of ['tab-queue', 'tab-finished', 'watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
-    // Watch on this machine's #12 alone, and each pull request button opens its own row's link.
+    // Watch on both #12s, this machine's and spare-mac's, and each pull request button opens its own row's link.
     expect(await ui.find({ key: 'watch-alpha#12' })).toBeDefined()
-    expect(await ui.find({ key: 'watch-ssh:0/alpha#12' })).toBeUndefined()
+    expect(await ui.find({ key: 'watch-ssh:0/alpha#12' })).toBeDefined()
     await ui.press({ key: 'pr-alpha#12' })
     await ui.press({ key: 'pr-ssh:0/alpha#12' })
     await settle()

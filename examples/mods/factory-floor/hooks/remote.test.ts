@@ -2,7 +2,9 @@ import { describe as group, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { changes, loopOptions } from './logic'
-import { SSH_OPTIONS, catCommand, killCommand, lsCommand, parseMachines, q, remoteNames, scrubbed, sshArgv } from './remote'
+import { REMOTE_WATCH_TOAST } from './buttons'
+import { SSH_OPTIONS, WATCH_SSH_OPTIONS, catCommand, hasSessionCommand, killCommand, lsCommand, parseMachines, q, remoteAttach, remoteNames, remoteWatchLine, scrubbed, sshArgv } from './remote'
+import type { Machine } from './remote'
 
 // Other machines' loops, read over ssh. No test here opens a connection: every process.run is answered
 // by a stand-in that reads a made-up machine's files from a map.
@@ -22,6 +24,15 @@ function words(command: string): string[] {
       word += command.slice(i + 1, end)
       isInWord = true
       i = end + 1
+    } else if (c === '"') {
+      // Inside double quotes a shell still reads $, `, \ and !, so one of them here fails the test.
+      const end = command.indexOf('"', i + 1)
+      if (end < 0) throw new Error(`an unclosed double quote in ${command}`)
+      const inside = command.slice(i + 1, end)
+      if (/[$`\\!]/.test(inside)) throw new Error(`a shell would read ${inside} inside double quotes`)
+      word += inside
+      isInWord = true
+      i = end + 1
     } else if (c === '\\') {
       word += command[i + 1] ?? ''
       isInWord = true
@@ -31,7 +42,7 @@ function words(command: string): string[] {
       word = ''
       isInWord = false
       i++
-    } else if (/[;&|<>()$`"*?[\]{}~#]/.test(c)) {
+    } else if (/[;&|<>()$`*?[\]{}~#!]/.test(c)) {
       throw new Error(`an unquoted ${c} in ${command}`)
     } else {
       word += c
@@ -139,7 +150,8 @@ const MACHINES = `${ROOT}/.sanvio/factory-floor/machines.json`
 const statusText = (title: string, extra: object = {}) => JSON.stringify({ running: false, tmux: null, queue: [{ number: 30, title }], issues: [], ...extra })
 
 // A made-up machine: its files by path, the processes alive on it, and whether its ssh never answers.
-type Remote = { files: Map<string, string>; pids?: number[]; hangs?: boolean }
+// sessions are its tmux sessions, for Watch's has-session; tmuxDown makes that one ssh fail to connect.
+type Remote = { files: Map<string, string>; pids?: number[]; hangs?: boolean; sessions?: string[]; tmuxDown?: boolean }
 type Call = { argv: string[]; init: Record<string, unknown> | undefined }
 
 // The names directly in a remote folder, or null when no file is under it.
@@ -180,6 +192,12 @@ function world(on: On, files: Map<string, string>, remotes: Record<string, Remot
       return text === undefined ? done(1, '', 'cat: No such file or directory') : done(0, text)
     }
     if (verb === 'kill') return (machine.pids ?? []).includes(Number(args[1])) ? done(0) : done(1, '', `kill: (${args[1]}) - No such process`)
+    if (verb === 'tmux') {
+      if (machine.tmuxDown) return done(255, '', 'ssh: connect to host: Connection refused')
+      const at = args.indexOf('has-session')
+      const session = (args[args.indexOf('-t', at) + 1] ?? '').replace(/^=/, '')
+      return at >= 0 && (machine.sessions ?? []).includes(session) ? done(0) : done(1, '', `can't find session: ${session}`)
+    }
     return done(127, '', `${verb}: not found`)
   })
   on('ui.open', async () => {
@@ -192,14 +210,23 @@ function world(on: On, files: Map<string, string>, remotes: Record<string, Remot
     return { value: undefined }
   })
   on('ui.panes', async () => ({ value: [...panes] }) as never)
-  on('ui.toast', async () => ({ value: undefined }))
+  const toasts: string[] = []
+  const copied: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push((e as unknown as { text: string }).text)
+    return { value: undefined }
+  })
+  on('ui.copy', async (_$, e) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } }
+  })
   // Closes the pane, so the poll stops itself and the next test can start its own.
   const close = async () => {
     panes.length = 0
     await clock.advance(500)
     await drain()
   }
-  return { clock, calls, panes, close }
+  return { clock, calls, panes, close, toasts, copied }
 }
 
 async function drain(): Promise<void> {
@@ -278,7 +305,8 @@ group('reading other machines', () => {
     // The odd path and project were each read as one word, so their loops are listed.
     expect(await labels(ui)).toEqual(['All loops', '● far', 'starter', `far · ${project}`])
     expect(calls.length).toBeGreaterThan(0)
-    const allowed = [/^ls -1A '.*\/\.loop(\/.*)?'$/s, /^cat '.*\/\.loop\/.*'$/s, /^kill -0 \d+$/]
+    // Watch's has-session is the one command more, and only a press sends it: a poll never does.
+    const allowed = [/^ls -1A '.*\/\.loop(\/.*)?'$/s, /^cat '.*\/\.loop\/.*'$/s, /^kill -0 \d+$/, /^tmux( -S '[^']*')? has-session -t '=[^']*'$/]
     for (const { argv, init } of calls) {
       const end = argv.indexOf('--')
       expect(argv.slice(0, end)).toEqual(['ssh', ...SSH_OPTIONS])
@@ -292,6 +320,7 @@ group('reading other machines', () => {
       if (!command.startsWith('kill ')) expect(split[split.length - 1]!.startsWith(`${path}/.loop`)).toBe(true)
     }
     const commands = calls.map(c => c.argv[c.argv.length - 1])
+    expect(commands.filter(c => c?.includes('has-session'))).toEqual([])
     expect(commands).toContain(lsCommand(`${path}/.loop/projects/${project}`))
     expect(commands).toContain('kill -0 77')
     expect(commands).toContain(catCommand(`${path}/.loop/issue-12/usage.json`))
@@ -383,4 +412,136 @@ group('reading other machines', () => {
     expect(firsts()).toBe(started)
     await close()
   })
+})
+
+group("Watch on another machine's issue", () => {
+  const far: Machine = { index: 0, label: 'far', ssh: 'u@far', path: '/f' }
+
+  test('tmux_socket is kept when it is an absolute path of plain characters, and otherwise only Watch is held back', () => {
+    const text = JSON.stringify({ machines: [
+      { label: 'sock', ssh: 'u@a', path: '/a', tmux_socket: '/tmp/tmux-501/loop sock' },
+      { label: 'rel', ssh: 'u@b', path: '/b', tmux_socket: 'tmux-501/default' },
+      { label: 'quote', ssh: 'u@c', path: '/c', tmux_socket: "/tmp/it's" },
+      { label: 'dollar', ssh: 'u@d', path: '/d', tmux_socket: '/tmp/$(id)' },
+      { label: 'bell', ssh: 'u@f', path: '/f', tmux_socket: '/tmp/a\u0007b' },
+      { label: 'plain', ssh: 'u@e', path: '/e' },
+    ] })
+    const { machines, refusals } = parseMachines(text)
+    expect(machines.map(m => [m.label, m.socket ?? null, m.canWatch ?? true])).toEqual([
+      ['sock', '/tmp/tmux-501/loop sock', true],
+      ['rel', null, false],
+      ['quote', null, false],
+      ['dollar', null, false],
+      ['bell', null, false],
+      ['plain', null, true],
+    ])
+    expect(refusals).toEqual(['rel', 'quote', 'dollar', 'bell'].map(l => `machines.json: ${l}'s tmux_socket isn't an absolute path of plain characters, so its issues get no Watch`))
+  })
+
+  test("the copied command has a terminal and forwards nothing, unlike the background reads", () => {
+    expect(WATCH_SSH_OPTIONS).toContain('-t')
+    expect(WATCH_SSH_OPTIONS).not.toContain('-n')
+    expect(WATCH_SSH_OPTIONS).not.toContain('-T')
+    const options = WATCH_SSH_OPTIONS.join(' ')
+    for (const set of ['BatchMode=yes', 'ConnectTimeout=5', 'StrictHostKeyChecking=yes', 'ForwardAgent=no', 'ForwardX11=no', 'ClearAllForwardings=yes', 'PermitLocalCommand=no']) {
+      expect(options).toContain(set)
+    }
+  })
+
+  test("each name arrives whole through this machine's shell and then the remote one", () => {
+    const sock = { ...far, socket: '/tmp/tmux 501/loop sock' }
+    const line = remoteWatchLine(sock, 'loop-my factory', 'issue-12')!
+    const local = words(line)
+    expect(local).toEqual(['ssh', ...WATCH_SSH_OPTIONS, '--', 'u@far', remoteAttach(sock, 'loop-my factory', 'issue-12')])
+    expect(words(local[local.length - 1]!)).toEqual(['tmux', '-S', '/tmp/tmux 501/loop sock', 'attach', '-r', '-t', '=loop-my factory:=issue-12'])
+    expect(words(remoteWatchLine(far, 'loop-a', 'issue-3')!).pop()).toBe("tmux attach -r -t '=loop-a:=issue-3'")
+    // The destination is quoted too, so a bracketed host isn't globbed by the shell it's pasted into.
+    expect(remoteWatchLine({ ...far, ssh: 'u@[fe80::1]' }, 'loop-a', 'issue-3')).toContain(" -- 'u@[fe80::1]' ")
+    expect(words(hasSessionCommand(sock, 'loop-my factory'))).toEqual(['tmux', '-S', '/tmp/tmux 501/loop sock', 'has-session', '-t', '=loop-my factory'])
+  })
+
+  test('a session or window name a shell could read builds no command at all', () => {
+    for (const bad of ['$(id)', '`id`', 'a;b', "a'b", 'a"b', 'a\\b', 'a!b', 'a:b', 'a\nb', 'a\u001bb', '']) {
+      expect(remoteAttach(far, bad, 'issue-1')).toBeNull()
+      expect(remoteAttach(far, 'loop-a', bad)).toBeNull()
+      expect(remoteWatchLine(far, bad, 'issue-1')).toBeNull()
+      expect(remoteWatchLine(far, 'loop-a', bad)).toBeNull()
+    }
+  })
+
+  // A machine whose factory loop is live in tmux session `session`, working #12 in window issue-12.
+  function watchable(session: string, extra: Partial<Remote> = {}): Remote {
+    const job = { number: 12, title: 'Gate', step: 'BUILD', state: 'working', round: 1, tests: null, review: null, pr: null, note: '', window: 'issue-12' }
+    return {
+      files: new Map([
+        ['/f/.loop/status.json', statusText('far job', { running: true, tmux: session, issues: [job] })],
+        ['/f/.loop/lock', '77\n'],
+      ]),
+      pids: [77],
+      sessions: [session],
+      ...extra,
+    }
+  }
+  const machinesFile = (extra: object = {}) => JSON.stringify({ machines: [{ label: 'far', ssh: 'u@far', path: '/f', ...extra }] })
+  type Ui = { find: (q: { key: string }) => Promise<unknown>; press: (q: { key: string }) => Promise<unknown>; select: (q: { key: string; value: string }) => Promise<unknown>; unmount: () => Promise<void> }
+  async function onFar($: unknown, clock: { advance: (ms: number) => Promise<unknown> }): Promise<Ui> {
+    await open($)
+    const ui = (await ($ as { ui: { mount: (p: unknown) => Promise<unknown> } }).ui.mount(PANE)) as Ui
+    await pastFirstRead(clock)
+    await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
+    await drain()
+    return ui
+  }
+
+  test('pressed, it checks the session over ssh, then copies the read-only attach and says so', async ($, on) => {
+    const files = new Map([[`${ROOT}/.loop/status.json`, statusText('here')], [MACHINES, machinesFile({ tmux_socket: '/tmp/far sock' })]])
+    const { clock, calls, close, toasts, copied } = world(on, files, { 'u@far': watchable('loop-far') })
+    const ui = await onFar($, clock)
+    expect(await ui.find({ key: 'watch-12' })).toBeDefined()
+    expect(calls.some(c => c.argv[c.argv.length - 1]!.includes('has-session'))).toBe(false)
+    await ui.press({ key: 'watch-12' })
+    await drain()
+    const machine: Machine = { index: 0, label: 'far', ssh: 'u@far', path: '/f', socket: '/tmp/far sock' }
+    expect(calls.map(c => c.argv[c.argv.length - 1]).filter(c => c!.includes('has-session'))).toEqual([hasSessionCommand(machine, 'loop-far')])
+    expect(copied).toEqual([remoteWatchLine(machine, 'loop-far', 'issue-12')])
+    expect(toasts).toContain(REMOTE_WATCH_TOAST)
+    await ui.unmount()
+    await close()
+  })
+
+  test("a session that's gone, or a machine that doesn't answer the check, copies nothing and says which", async ($, on) => {
+    const files = new Map([[`${ROOT}/.loop/status.json`, statusText('here')], [MACHINES, machinesFile()]])
+    const remote = watchable('loop-far', { sessions: [] })
+    const { clock, close, toasts, copied } = world(on, files, { 'u@far': remote })
+    const ui = await onFar($, clock)
+    await ui.press({ key: 'watch-12' })
+    await drain()
+    expect(copied).toEqual([])
+    expect(toasts).toContain('far has no tmux session loop-far now, so nothing was copied')
+    remote.tmuxDown = true
+    await ui.press({ key: 'watch-12' })
+    await drain()
+    expect(copied).toEqual([])
+    expect(toasts).toContain("far didn't answer, so nothing was copied")
+    await ui.unmount()
+    await close()
+  })
+
+  const noWatch: [string, () => Remote, object][] = [
+    ['a loop that is not live', () => watchable('loop-far', { pids: [] }), {}],
+    ['a loop not in tmux', () => watchable(''), {}],
+    ['a session named past the allowlist', () => watchable('loop;id'), {}],
+    ['a refused tmux_socket, though the machine stays listed', () => watchable('loop-far'), { tmux_socket: 'relative/sock' }],
+  ]
+  for (const [what, remote, extra] of noWatch) {
+    test(`no Watch for ${what}`, async ($, on) => {
+      const files = new Map([[`${ROOT}/.loop/status.json`, statusText('here')], [MACHINES, machinesFile(extra)]])
+      const { clock, close } = world(on, files, { 'u@far': remote() })
+      const ui = await onFar($, clock)
+      expect((await options(ui)).map(o => o.value)).toContain('ssh:0/')
+      expect(await ui.find({ key: 'watch-12' })).toBeUndefined()
+      await ui.unmount()
+      await close()
+    })
+  }
 })

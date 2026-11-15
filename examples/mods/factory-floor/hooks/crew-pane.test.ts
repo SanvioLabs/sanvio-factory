@@ -1800,12 +1800,12 @@ group('another machine', () => {
     // This machine's usage.json was read from the disk, and nothing of spare-mac's was.
     expect(readsOf(reads, usagePath(HARNESS, 12))).toBeGreaterThan(0)
     expect(reads.filter(path => path.startsWith(SPARE))).toEqual([])
-    // The tmux session is on spare-mac, so the lane offers no Watch.
-    expect(await ui.find({ key: 'watch-21' })).toBeUndefined()
+    // The tmux session is on spare-mac, so the lane's Watch is the one that copies an attach over ssh.
+    expect(await ui.find({ key: 'watch-21' })).toBeDefined()
     await ui.unmount()
     await close()
   })
-  test("under All loops both machines' #12 get a lane each, told apart by their tags, with Watch on this machine's alone", async ($, on) => {
+  test("under All loops both machines' #12 get a lane each, told apart by their tags, each with its own Watch", async ($, on) => {
     const HERE_PR = 'https://github.com/o/r/pull/1'
     const THERE_PR = 'https://github.com/o/r/pull/2'
     // This machine's factory and spare-mac's both working #12, each in tmux with #12 in its own window.
@@ -1838,9 +1838,10 @@ group('another machine', () => {
     expect(await ui.find({ key: 'lane-12' })).toBeUndefined()
     expect(JSON.stringify(await ui.find({ key: 'line-#12' }))).toContain('starter #12')
     expect(JSON.stringify(await ui.find({ key: 'line-ssh:0/#12' }))).toContain('spare-mac #12')
-    // No loop's own buttons, and Watch on this machine's lane alone.
-    for (const key of ['watch', 'tmux', 'watch-ssh:0/#12']) expect(await ui.find({ key })).toBeUndefined()
+    // No loop's own buttons, and a Watch on each lane: this machine's opens its window, spare-mac's copies.
+    for (const key of ['watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
     expect(await ui.find({ key: 'watch-#12' })).toBeDefined()
+    expect(await ui.find({ key: 'watch-ssh:0/#12' })).toBeDefined()
     await ui.press({ key: 'pr-#12' })
     await ui.press({ key: 'pr-ssh:0/#12' })
     await drain()
