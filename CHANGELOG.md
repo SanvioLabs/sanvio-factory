@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Eval runs started in the same second get names of their own
+
+A run is named after its suite and the second it started, so two runs of one suite started in the same second, as `--repeat`'s can be when a run stops early, took the same name and the second was refused. The second now gets `-2` on the end, the third `-3`, and so on, in its record, its repo and its clone.
+
+**Needs:** 2026-11-15: Repeat eval runs and session cost; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing.
+
 ## 2026-11-15: Flow figures for evals, adapters, handing off and upgrading
 
 Five docs gain a figure that shows the flow at a glance, each with alt text that carries everything it shows. [`docs/factory-evals.gif`](docs/factory-evals.gif) is redrawn with repeat runs, groups in `compare`, and `report`, and [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gets a *Measuring it* section that uses it. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) shows a suite's parts and what `validate` proves, [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md) the two adapters side by side, [`factories/README.md`](factories/README.md) an issue handed to another factory and back, and [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) which kind of copy changes step 2, beside the eleven steps. The sequence diagram in *Handing work to another factory* named this factory twice; the other factory now has its own lane.
