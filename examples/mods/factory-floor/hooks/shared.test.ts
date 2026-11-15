@@ -7,12 +7,13 @@ import type { On } from 'claude-code'
 // same over the same files.
 import {
   PROJECTS_DIR, SESSION, clip, findRoot, focusFile, focusName, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions,
-  parseStatus, projectName, projectNames,
+  loopValue, parseStatus, projectName, projectNames,
 } from './logic'
 import {
   PROJECTS_DIR as crewProjectsDir, SESSION as crewSession, clip as crewClip, findRoot as crewFindRoot, focusFile as crewFocusFile,
   focusName as crewFocusName, lockPid as crewLockPid, loopButtonLabel as crewLoopButtonLabel, loopDir as crewLoopDir,
-  loopOptions as crewLoopOptions, parseStatus as crewParseStatus, projectName as crewProjectName, projectNames as crewProjectNames,
+  loopOptions as crewLoopOptions, loopValue as crewLoopValue, parseStatus as crewParseStatus, projectName as crewProjectName,
+  projectNames as crewProjectNames,
 } from './crew-logic'
 import type { Seen } from '../types'
 
@@ -22,7 +23,7 @@ group('one copy', () => {
       ['PROJECTS_DIR', crewProjectsDir, PROJECTS_DIR], ['SESSION', crewSession, SESSION], ['clip', crewClip, clip],
       ['findRoot', crewFindRoot, findRoot], ['focusFile', crewFocusFile, focusFile], ['focusName', crewFocusName, focusName],
       ['lockPid', crewLockPid, lockPid], ['loopButtonLabel', crewLoopButtonLabel, loopButtonLabel], ['loopDir', crewLoopDir, loopDir],
-      ['loopOptions', crewLoopOptions, loopOptions], ['parseStatus', crewParseStatus, parseStatus],
+      ['loopOptions', crewLoopOptions, loopOptions], ['loopValue', crewLoopValue, loopValue], ['parseStatus', crewParseStatus, parseStatus],
       ['projectName', crewProjectName, projectName], ['projectNames', crewProjectNames, projectNames],
     ]
     for (const [name, theirs, ours] of pairs) expect(`${name}: ${theirs === ours}`).toBe(`${name}: true`)

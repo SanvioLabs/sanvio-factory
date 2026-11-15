@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { PAGE,PROJECTS_DIR, TABS, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
+import { PAGE,PROJECTS_DIR, TABS, changes, clip, clock, describe, dot, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
 import { issueButtons, loopButtons } from './buttons'
-import type { Lists, Tone } from './logic'
+import type { Down, Lists, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
 import { MIN_COLUMNS } from './crew-logic'
+import { pollRemote, remoteNow, resetRemote } from './remote'
 import type { Mode, Row, Seen, Tab, View } from '../types'
 
 // Not /loop: that's Claude Code's own command for running a prompt on a schedule. It sits beside /factory-dashboard.
@@ -38,6 +39,9 @@ let drawnView: Mode | null = null
 // landing there mustn't take it for a change.
 let saving = 0
 let saves = 0
+// What the last read found of other machines beside their loops: those that are down, and the lines
+// saying which machines.json skips. Not an atom, like drawnView: refresh compares it and asks for the redraw.
+let remoteShown: { down: Down[]; refusals: string[] } = { down: [], refusals: [] }
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -61,9 +65,10 @@ const JOB_ROWS = 6
 const AROUND_LIST = 8
 
 // How many jobs fit the pane's height, and never fewer than PAGE. The finite check is for Infinity, which
-// would otherwise pass the minimum, and for a height that isn't there.
+// would otherwise pass the minimum, and for a height that isn't there. A line saying machines.json skips a
+// machine takes a row of its own.
 function jobsInView(bodyRows?: number): number {
-  const fits = Math.floor(((bodyRows ?? NaN) - AROUND_LIST) / (JOB_ROWS + 1))
+  const fits = Math.floor(((bodyRows ?? NaN) - AROUND_LIST - remoteShown.refusals.length) / (JOB_ROWS + 1))
   return Number.isFinite(fits) && fits >= PAGE ? fits : PAGE
 }
 
@@ -162,13 +167,17 @@ async function look($: EngineInterface, root: string, project?: string): Promise
 
 // Look at every loop and show the picked one. Each loop is compared with its own last look: against
 // the one on screen, every switch would look like a change, and a loop off screen would never tell.
+// Other machines' loops come after this one's, as their last background read left them: nothing here
+// waits on ssh.
 async function refresh($: EngineInterface): Promise<void> {
   const root = await rootOf($)
   if (!root) return
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`))
   const factory = await look($, root)
-  const loops = [factory, ...(await Promise.all(names.map(name => look($, root, name))))]
+  const remote = remoteNow()
+  const loops = [factory, ...(await Promise.all(names.map(name => look($, root, name)))), ...remote.loops]
+  const extras = { down: remote.down, refusals: remote.refusals }
   const was = (await read($, loopsAtom)) ?? []
   const before = await read($, seenAtom)
   const stored = await read($, pickedAtom)
@@ -176,7 +185,8 @@ async function refresh($: EngineInterface): Promise<void> {
   // Once a loop is on screen, a change in the session's focus moves the pane: to the project now in
   // focus when it has a loop listed, to the factory when the focus is cleared. A focus on a project
   // with no loop listed is remembered and moves nothing, so the loop appearing later doesn't either.
-  // A read that overlaps a pick's save is left alone: the save sets the remembered focus itself.
+  // A read that overlaps a pick's save is left alone: the save sets the remembered focus itself. The
+  // focus names a folder here, so it moves the pane only to this machine's loops.
   if (picked !== null) {
     const at = saves
     const focus = await readFocus($, root)
@@ -184,33 +194,47 @@ async function refresh($: EngineInterface): Promise<void> {
     if (saving === 0 && at === saves && focus !== known) {
       await update($, focusAtom, () => focus)
       if (focus === null) picked = ''
-      else if (loops.some(l => l.project === focus)) picked = focus
+      else if (loops.some(l => l.machineIndex === undefined && l.project === focus)) picked = focus
     }
   }
-  // No pick yet is an opening, on the focus read as the pane opened. A pick whose project has gone
-  // falls back to the factory.
+  // No pick yet is an opening, on the focus read as the pane opened. A pick whose project has gone, or
+  // whose machine has stopped answering, falls back to the factory.
   const shown =
-    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => (l.project ?? '') === picked)) ?? factory
-  const pick = shown.project ?? ''
+    (picked === null ? openingLoop(loops, await read($, focusAtom)) : loops.find(l => loopValue(l) === picked)) ?? factory
+  const pick = loopValue(shown)
   if (stored !== pick) await update($, pickedAtom, () => pick)
-  if (sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops)) return
+  const sameExtras = JSON.stringify(extras) === JSON.stringify(remoteShown)
+  if (sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops) && sameExtras) return
+  remoteShown = extras
   // Another loop opens on its busiest tab, as it does when pressed.
-  if (before?.project !== shown.project) await update($, viewAtom, () => null)
+  if ((before ? loopValue(before) : '') !== pick) await update($, viewAtom, () => null)
   await update($, loopsAtom, () => loops)
   await update($, seenAtom, () => shown)
   for (const loop of loops) {
-    const last = was.find(l => l.project === loop.project)
-    for (const line of changes(last?.status ?? null, loop.status, loop.project)) $.ui.toast(line)
+    const last = was.find(l => loopValue(l) === loopValue(loop))
+    for (const line of changes(last?.status ?? null, loop.status, loop.project, loop.machine)) $.ui.toast(line)
   }
   if (drawnView !== 'crew') $.ui.invalidate('ui.render')
+}
+
+// The engine's time, which the remote reads keep theirs by, for how long ago a machine that's down last
+// answered. The wall clock when the engine's can't be read.
+async function clockNow($: EngineInterface): Promise<number> {
+  try {
+    return await $.clock.now()
+  } catch {
+    return Date.now()
+  }
 }
 
 // Show another loop, from its last look, on its busiest tab. The pick holds until the pane is closed and
 // opened again, which picks again, or the session's focus changes.
 async function show($: EngineInterface, loop: Seen): Promise<void> {
-  await update($, pickedAtom, () => loop.project ?? '')
+  await update($, pickedAtom, () => loopValue(loop))
   await update($, seenAtom, () => loop)
   await update($, viewAtom, () => null)
+  // Another machine's loop names no folder here, so picking it leaves the focus as it is.
+  if (loop.machineIndex !== undefined) return
   // Then the pick becomes the session's focus, after the switch so a failed or slow write never holds
   // it up. A project whose name isn't one projectName passes as it stands is never written: ` acme`
   // would be read back as acme, another project.
@@ -246,11 +270,18 @@ function startPolling($: EngineInterface): void {
       if (!isUp) {
         stopPolling?.()
         stopPolling = null
+        resetRemote()
+        remoteShown = { down: [], refusals: [] }
         return
       }
       beat = !beat
       const isRead = ticks++ % (POLL_MS / TICK_MS) === 0
-      if (isRead) await refresh($)
+      if (isRead) {
+        // Other machines are read only from here, at most every 30 seconds each, in the background.
+        const root = await rootOf($)
+        if (root) await pollRemote($, root).catch(() => {})
+        await refresh($)
+      }
       // The dot and the running clock move between reads, so redraw for them while a job is on. The
       // header's uptime moves too, so a live loop redraws at least at every read.
       const seen = await read($, seenAtom)
@@ -271,7 +302,7 @@ function stopList(): void {
 async function toCrew($: EngineInterface): Promise<void> {
   if (drawnView === 'crew') return
   const seen = await read($, seenAtom)
-  await openCrew($, seen?.project ?? '')
+  await openCrew($, seen ? loopValue(seen) : '')
   await update($, modeAtom, () => 'crew')
 }
 
@@ -306,6 +337,9 @@ async function openPane($: EngineInterface): Promise<{ text: string; isOpen: boo
     if (!root) return { text: `No scripts/loop.py at or above ${await $.session.root()}, so there is no loop to show.`, isOpen: false }
     stopCrew()
     drawnView = null
+    // Other machines are read again from the poll's first read, as if for the first time.
+    resetRemote()
+    remoteShown = { down: [], refusals: [] }
     await update($, modeAtom, () => 'list')
     await update($, pickedAtom, () => null)
     const focus = await readFocus($, root)
@@ -490,6 +524,10 @@ export const register: Register = on => {
     const shownCount = (jobs ?? queue).shown.length
     const held = wraps && !jobs ? PAGE : pageSize(view.tab, bodyRows)
     const counts = loopCounts(loops)
+    // A machine that's down is an option too, so the picker shows with one loop here and one machine down.
+    const { down, refusals } = remoteShown
+    const shownValue = loopValue(seen)
+    const options = Select && loops.length + down.length > 1 ? loopOptions(loops, down, down.length ? await clockNow($) : 0) : []
 
     return (
       <Box flexDirection="column">
@@ -508,14 +546,15 @@ export const register: Register = on => {
           {loopButtons($, Button, seen).elements}
         </Box>
         <Text dimColor>{'─'.repeat(width)}</Text>
-        {Select && loops.length > 1 ? (
+        {Select && loops.length + down.length > 1 ? (
           <Box key="loop-picker" flexDirection="row" columnGap={1}>
             <Select
               key="loop-pick"
-              options={loopOptions(loops)}
-              value={seen.project ?? ''}
+              options={options}
+              value={shownValue}
               onSelect={value => {
-                const loop = loops.find(l => (l.project ?? '') === value)
+                // A machine that's down names no loop, so picking it does nothing.
+                const loop = loops.find(l => loopValue(l) === value)
                 return loop && show($, loop)
               }}
             />
@@ -526,16 +565,22 @@ export const register: Register = on => {
             <Box key="loops" flexDirection="row" flexWrap="wrap" columnGap={1}>
               {loops.map(loop => (
                 <Button
-                  key={loop.project ? `loop-${loop.project}` : 'loop'}
+                  key={loop.machineIndex !== undefined ? `loop-${loopValue(loop)}` : loop.project ? `loop-${loop.project}` : 'loop'}
                   label={loopButtonLabel(loop)}
-                  variant={loop.project === seen.project ? 'primary' : undefined}
-                  dimColor={loop.project !== seen.project}
+                  variant={loopValue(loop) === shownValue ? 'primary' : undefined}
+                  dimColor={loopValue(loop) !== shownValue}
                   onPress={() => show($, loop)}
                 />
               ))}
             </Box>
           )
         )}
+        {/* Each machine machines.json skips, and why, under the picker. */}
+        {refusals.map((line, i) => (
+          <Text key={`refusal-${i}`} dimColor>
+            {fit(line, width)}
+          </Text>
+        ))}
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
           {TABS.map(({ tab, label }) => (
             <Button
