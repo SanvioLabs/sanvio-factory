@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Onboarding card 7, deploy
+
+A seventh onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) takes what the loop built to an environment people use: what has to exist before the first deploy, the path from pull request to production, the way back, and the skills that go with it. It follows [`steering/deploying.md`](steering/deploying.md). Card 6 now points to it.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`docs/workshop/README.md`](docs/workshop/README.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Send the new PDF to anyone onboarding.
+
 ## 2026-11-15: The loop re-dates its CHANGELOG entry when it merges a newer base
 
 When the loop merges its base into a pull request to keep both sets of [`CHANGELOG.md`](CHANGELOG.md) entries, an entry the branch added that's dated before the base's newest now takes the day of the merge, so the log stays newest first and the merge passes its tests instead of failing at every new base commit. Only the date changes: the name, the body and the order stay as written. The loop's comment on the pull request names each entry it re-dated.

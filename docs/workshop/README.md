@@ -9,7 +9,7 @@ way. About three hours, on your own or with one other person.
 |---|---|
 | This page | The walkthrough: the deck's sections in order, what each one is saying, and what to do before you move on |
 | [`workshop-deck.pdf`](workshop-deck.pdf) | The deck, 33 slides. Page numbers below point into it. The animated slides show their first frame here; the animations are on this page |
-| [`onboarding-cards.pdf`](onboarding-cards.pdf) | Six one-page cards, one per session, from the first commands to a loop that runs without anyone driving it. Each ends with what to do before the next |
+| [`onboarding-cards.pdf`](onboarding-cards.pdf) | Seven one-page cards, one per session, from the first commands to your own loop and a deploy to production. Each ends with what to do before the next |
 | [`../../EXERCISES.md`](../../EXERCISES.md) | The hands-on steps the sections below send you to |
 
 Read a section here, flip through its slides, do what it asks, and only move on
@@ -231,6 +231,9 @@ You've done the first five steps of eight:
 7. Your team: one person first, then everyone, improving each sprint. [Card 6](onboarding-cards.pdf)
 8. Your own loop: tickets in, built, tested and reviewed, with a person at the end
 
+Then [card 7](onboarding-cards.pdf) takes what the loop built to an environment people
+use: staging on merge, production started by hand, and the way back known first.
+
 The loop turns the same five phases once per issue: the ticket is Discover, the
 plan and the label are Shape, the build is Build, tests and review are
 Validate, the merge and the lessons are Scale. The lessons are the step that
@@ -252,7 +255,7 @@ built from it. Edit the HTML, then rebuild the PDF so the two match:
 ```
 
 Any Chromium browser works; on Linux it's `chromium --headless` with the same
-flags. Keep each card to one letter page: the PDF should have seven.
+flags. Keep each card to one letter page: the PDF should have eight: a contents page and seven cards.
 
 The deck's source is kept with Sanvio Labs' presentations, outside this repo,
 and [`workshop-deck.pdf`](workshop-deck.pdf) is built from it. To change a slide, open an issue
