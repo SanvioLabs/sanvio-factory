@@ -81,7 +81,8 @@ class HandRunGrade(unittest.TestCase):
         # the factory's, never the repo under review's.
         self.assertIn("the root is three levels above the resolved file", self.flat)
         self.assertIn("never one from the repo under review", self.flat)
-        self.assertNotIn("./review-rubric.json", self.flat)
+        # A rubric in the working folder, never the link to the factory's own (../../review-rubric.json).
+        self.assertNotRegex(self.flat, r"(?<![./])\./review-rubric\.json")
 
 
 if __name__ == "__main__":
