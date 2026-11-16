@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: A dev container for the factory and the loop
+
+A dev container in [`.devcontainer/`](.devcontainer/) runs the factory and the loop on Linux, with Python 3.12, git, tmux, Node, the GitHub CLI and Claude Code. It runs as the non-root `vscode` user, pins its image and every feature by tag, and mounts nothing from your machine but the workspace folder. Claude Code's and the GitHub CLI's sign-ins live in two named volumes of its own, so they survive a rebuild. The loop's macOS command sandbox doesn't run inside it, and its README says what the container doesn't stop. [`tests/test_devcontainer.py`](tests/test_devcontainer.py) checks the pins, the user, the mounts and the setup command.
+
+Files: [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json), [`.devcontainer/README.md`](.devcontainer/README.md), [`tests/test_devcontainer.py`](tests/test_devcontainer.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To use it, open the folder with Dev Containers: Reopen in Container and see .devcontainer/README.md.
+
 ## 2026-11-15: The loop picker counts every loop's jobs
 
 In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each loop in the picker that's working shows how many jobs it's on in brackets, one included: `● app (1)`, `● app (2)`. Before, one job showed no count and two showed `● app 2`. A loop on no job still shows its name alone. The same label is on the mobile app's loop buttons. The mod is now 0.10.0.
