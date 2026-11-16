@@ -5,6 +5,7 @@ Usage:
     python3 scripts/loop.py run [--once] [--issue N] [--dry-run] [--for DURATION] [--hours HOURS] [--project PATH]
     python3 scripts/loop.py review [--once] [--for DURATION] [--hours HOURS] [--project PATH]
     python3 scripts/loop.py stop [--project PATH]
+    python3 scripts/loop.py grade N --verdict VERDICT [--project PATH]
 
 One pass is one turn of the flywheel:
 
@@ -23,6 +24,9 @@ request, edited in place on later commits. It never approves or pushes, and it n
 auto_merge in loop.json is on. Then it merges a pull request it graded at least min_grade on the head it
 graded, into a base auto_merge names, by an author it names, once every check on that commit has passed.
 review --pr never merges.
+
+`grade` prints the grade a verdict would get on a pull request's head commit, from the rubric, and
+changes nothing: try a rubric with it before auto_merge relies on it. docs/review-rubric.md has the rubric.
 
 --for 8h (or 90m, 2d) on either one starts nothing new once that long has passed, lets what's
 running finish, and then exits, logging an END line. An UNTIL line at the start says when.
@@ -1861,8 +1865,13 @@ COMMENT_KINDS_JQ = ('.[] | [.id, .user.login, (.body | gsub("\\r"; "") | if star
 RUBRIC_KEYS = ("ready", "ready with nits", "changes needed", "failing", "unreadable")  # a rubric's keys, and only these
 GRADED_VERDICTS = ("ready", "ready with nits", "changes needed")
 PASSING_CHECKS = ("success", "neutral", "skipped")  # a completed check run's conclusions that don't fail it
-# A commit's check runs as pr_checks() reads them, one per line: its status, then its conclusion or ''.
+# A commit's check runs as commit_checks() reads them, one per line: its status, then its conclusion or ''.
 CHECK_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // "")] | @tsv'
+# And as pr_runs() reads them for a grade: the same, then the check run's name, which a ladder's rung names.
+NAMED_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // ""), .name] | @tsv'
+LADDER_GRADES = tuple(str(n) for n in range(11))  # a ladder's rungs: the grades "0" to "10"
+RUNG_KEYS = ("verdict", "checks")  # what a rung may ask for, and only these
+EVERY_CHECK = "*"  # in a rung's checks: every check run on the commit
 PENDING = "checks still running"  # the reason a grade waits, which regrade() looks for in the trailer
 # The grade in a trailer: read there only, as the verdict is.
 GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
@@ -1870,7 +1879,8 @@ GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
 
 def load_rubric(path):
     """(rubric, None) from the rubric file at path, or (None, why not), why naming the file. It has to be a
-    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10."""
+    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10, or a ladder: an object whose
+    one key, "levels", holds the rungs ladder_problem() accepts."""
     name = Path(path).name
     try:
         rubric = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1882,6 +1892,9 @@ def load_rubric(path):
         return None, "{} isn't valid JSON".format(name)
     if not isinstance(rubric, dict):
         return None, "{} isn't a JSON object".format(name)
+    if "levels" in rubric:
+        why = ladder_problem(rubric)
+        return (None, "{} {}".format(name, why)) if why else (rubric, None)
     missing = [key for key in RUBRIC_KEYS if key not in rubric]
     if missing:
         return None, '{} has no "{}"'.format(name, missing[0])
@@ -1894,12 +1907,102 @@ def load_rubric(path):
     return rubric, None
 
 
-def review_grade_for(verdict, checks, rubric, why):
+def ladder_problem(rubric):
+    """What's wrong with a ladder rubric, said after its file's name, or None for one that grades. Its one key
+    is "levels", an object from grades "0" to "10", "0" among them, to rungs. A rung may ask for a "verdict",
+    a list of GRADED_VERDICTS, and "checks", a list of check run names, EVERY_CHECK among them if it likes."""
+    others = [key for key in rubric if key != "levels"]
+    if others:
+        return 'has a key other than "levels": {}'.format(json.dumps(others[0]))
+    levels = rubric["levels"]
+    if not isinstance(levels, dict):
+        return 'gives "levels" something other than a JSON object'
+    for grade, rung in levels.items():
+        if grade not in LADDER_GRADES:
+            return 'has a rung {} that isn\'t a grade from "0" to "10"'.format(json.dumps(grade))
+        if not isinstance(rung, dict):
+            return 'gives rung "{}" something other than a JSON object'.format(grade)
+        for key, value in rung.items():
+            if key not in RUNG_KEYS:
+                return 'gives rung "{}" a key other than "verdict" or "checks": {}'.format(grade, json.dumps(key))
+            if not isinstance(value, list) or not value:
+                return 'gives rung "{}" a "{}" that isn\'t a list with something in it'.format(grade, key)
+        if any(verdict not in GRADED_VERDICTS for verdict in rung.get("verdict", ())):
+            return 'gives rung "{}" a verdict that isn\'t one of {}'.format(grade, ", ".join(GRADED_VERDICTS))
+        if any(not isinstance(check, str) or not check.strip() for check in rung.get("checks", ())):
+            return 'gives rung "{}" a check name that isn\'t a non-empty string'.format(grade)
+    if "0" not in levels:
+        return 'has no "0" rung'
+    return None
+
+
+def rung_state(rung, verdict, runs):
+    """("met", None), ("missed", what the rung needs that it didn't get) or ("unsettled", None) while a check
+    it names is still running, or the runs couldn't be read. runs is pr_runs()'s. A named check that failed,
+    or ran nowhere on the commit, misses the rung at once, whatever else is still running."""
+    if "verdict" in rung and verdict not in rung["verdict"]:
+        return "missed", "a verdict of {}".format(" or ".join(rung["verdict"]))
+    unsettled = False
+    for name in rung.get("checks", ()):
+        if runs is None:
+            unsettled = True
+            continue
+        mine = list(runs) if name == EVERY_CHECK else [run for run in runs if run[2] == name]
+        if not mine and name != EVERY_CHECK:
+            return "missed", "a check named {}, and none ran".format(name)
+        # A name several runs share passes only when every one of them did.
+        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion, _ in mine):
+            return "missed", "every check to pass" if name == EVERY_CHECK else "{} to pass".format(name)
+        if any(status != "completed" for status, _, _ in mine):
+            unsettled = True
+    return ("unsettled", None) if unsettled else ("met", None)
+
+
+def ladder_grade(verdict, levels, runs):
+    """(grade, reason) on a ladder: the highest rung met, walking down from "10". A rung above it that's still
+    unsettled makes the grade wait, (None, PENDING). With no rung met the grade is 0, the floor. The reason
+    names the nearest rung above that was missed, and what it needed."""
+    verdict = verdict if verdict in GRADED_VERDICTS else "unreadable"
+    waiting, missed = False, ""
+    for grade in sorted(levels, key=int, reverse=True):
+        rung = levels[grade]
+        state, fault = rung_state(rung, verdict, runs)
+        if state == "unsettled":
+            waiting = True
+        elif state == "missed":
+            missed = "; {} needs {}".format(grade, fault)
+        elif waiting:
+            return None, PENDING
+        else:
+            names = rung.get("checks")
+            return int(grade), "{}, {}{}".format(
+                verdict, "checks ({}) passed".format(", ".join(names)) if names else "no checks needed", missed)
+    if waiting:
+        return None, PENDING
+    return 0, "{}, no rung was met{}".format(verdict, missed)
+
+
+def checks_state(runs):
+    """pr_runs()'s list, or its None, as one word: passing, none when no check ran, failing when one that
+    finished didn't pass, or pending while one runs or when the runs couldn't be read."""
+    if runs is None:
+        return "pending"
+    if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion, _ in runs):
+        return "failing"
+    if any(status != "completed" for status, _, _ in runs):
+        return "pending"
+    return "passing" if runs else "none"
+
+
+def review_grade_for(verdict, checks, rubric, why, runs=()):
     """(the grade out of 10, or None while it waits on the checks, the reason it gives). verdict is the
-    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s.
-    A bad rubric grades 0. A failing check or an unreadable verdict is final, so neither waits on the rest."""
+    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s;
+    runs is pr_runs()'s, which only a ladder reads. A bad rubric grades 0. On the five keys, a failing check
+    or an unreadable verdict is final, so neither waits on the rest. A ladder goes to ladder_grade()."""
     if rubric is None:
         return 0, why
+    if "levels" in rubric:
+        return ladder_grade(verdict, rubric["levels"], runs)
     if checks == "failing":
         return rubric["failing"], "{}, a check failed".format(verdict if verdict in GRADED_VERDICTS else "unreadable")
     if verdict not in GRADED_VERDICTS:
@@ -4758,35 +4861,40 @@ class Loop:
             return None, "review_rubric in loop.json isn't a file name"
         return load_rubric(self.root / name)
 
+    def pr_runs(self, sha):
+        """The check runs on commit sha, each (status, conclusion or '', name), or None when GitHub can't be
+        asked or gives a line that isn't a run. A line with no name gets the name ''."""
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
+                            "--jq", NAMED_RUNS_JQ)
+        if code != 0:
+            return None
+        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
+        if any(len(run) not in (2, 3) for run in runs):
+            return None
+        return [tuple(run) if len(run) == 3 else (run[0], run[1], "") for run in runs]
+
     def pr_checks(self, sha):
         """The check runs on commit sha: passing, none when no check ran, failing when one that finished
         didn't pass, or pending while one runs. Pending when GitHub can't be asked too, so the next pass asks
         again rather than failing the pull request for an outage."""
-        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
-                            "--jq", CHECK_RUNS_JQ)
-        if code != 0:
-            return "pending"
-        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
-        if any(len(run) != 2 for run in runs):
-            return "pending"
-        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion in runs):
-            return "failing"
-        if any(status != "completed" for status, _ in runs):
-            return "pending"
-        return "passing" if runs else "none"
+        return checks_state(self.pr_runs(sha))
 
     def grade(self, verdict, sha):
         """review_grade_for() for verdict on commit sha, with the rubric as it is on disk now."""
         rubric, why = self.rubric()
-        return review_grade_for(verdict, self.pr_checks(sha) if rubric else "", rubric, why)
+        runs = self.pr_runs(sha) if rubric else ()
+        return review_grade_for(verdict, checks_state(runs) if rubric else "", rubric, why, runs=runs)
 
     def regrade(self, number, sha, before):
         """Give a posted review whose grade waited on the checks its grade, once they've finished: this login's
         own agent comment for sha, read back, with the grade in its trailer replaced and nothing else. No agent
-        runs. before is the review's status row, which gets the grade."""
+        runs. before is the review's status row, which gets the grade. On the five keys, running checks wait
+        before the comment is read; a ladder needs the verdict to know whether they matter, so it reads first."""
         rubric, why = self.rubric()
-        checks = self.pr_checks(sha) if rubric else ""
-        if checks == "pending":
+        runs = self.pr_runs(sha) if rubric else ()
+        checks = checks_state(runs) if rubric else ""
+        ladder = rubric is not None and "levels" in rubric
+        if checks == "pending" and not ladder:
             self.skip(number, sha, PENDING)
             return
         code, out = self.gh("api", "--paginate", "repos/{{owner}}/{{repo}}/issues/{}/comments".format(number),
@@ -4807,7 +4915,10 @@ class Loop:
             self.save_status()
             self.skip(number, sha, "no review of its own waiting for a grade")
             return
-        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why)
+        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why, runs=runs)
+        if grade[0] is None:
+            self.skip(number, sha, PENDING)
+            return
         start = REVIEWED.search(body).start()
         graded = body[:start] + body[start:].replace(grade_text((None, PENDING)), grade_text(grade), 1)
         failed = self.post_review(number, graded)
@@ -4820,6 +4931,29 @@ class Loop:
                 before, grade=grade[0], updated=datetime.now().isoformat(timespec="seconds"))
         self.save_status()
         self.log("REVIEW", "#{} {} graded {}/10".format(number, sha[:7], grade[0]))
+
+    def grade_pr(self, number, verdict):
+        """loop.py grade: print the grade verdict gets on pull request number's head commit, through grade(),
+        so a person can try a rubric before auto_merge acts on it. It reports only: no lock, no comment, no
+        status row. It names origin's repo to gh, as review --pr does. 0 for any grade, 1 when the head can't
+        be read."""
+        self.pinned, why, _ = origin(self.repo)
+        if not self.pinned:
+            print("{}, so grade can't name its repo to gh, and gh could pick another: nothing was read.".format(why),
+                  file=sys.stderr)
+            return 1
+        code, out = self.gh("pr", "view", str(number), "--json", "headRefOid")
+        try:
+            if code != 0:
+                raise ValueError(" ".join(out.split())[:200] or "gh exited {}".format(code))
+            sha = json.loads(out)["headRefOid"]
+            if not isinstance(sha, str) or not sha.strip():
+                raise ValueError("it has no head commit")
+        except (ValueError, KeyError, TypeError) as err:
+            print("Could not read pull request #{}'s head commit: {}".format(number, err), file=sys.stderr)
+            return 1
+        print(grade_text(self.grade(verdict, sha)).strip(), flush=True)
+        return 0
 
     # -- merging what review graded, with auto_merge on --------------------
 
@@ -5003,7 +5137,13 @@ def build_parser():
     review.add_argument("--pr", type=int, metavar="N",
                         help="review only pull request N, whatever review_query finds, then exit")
     stop = sub.add_parser("stop", help="ask a running loop to stop after its current step")
-    for each in (run, review, stop):
+    grade_help = "print the grade a verdict gets on a pull request's head commit, from the rubric; changes nothing"
+    grade = sub.add_parser("grade", help=grade_help, description=grade_help)
+    grade.add_argument("pr", type=int, metavar="N", help="the pull request to grade")
+    grade.add_argument("--verdict", required=True,
+                       help='the review\'s verdict: "ready", "ready with nits" or "changes needed"; '
+                            "anything else grades as unreadable")
+    for each in (run, review, stop, grade):
         each.add_argument("--project", metavar="PATH",
                           help="a clone under projects/ to work instead of this repo; its loop.json sets test_command")
     return parser
@@ -5019,6 +5159,8 @@ def main(argv=None):
         if project is None:
             return 1
     loop = Loop() if project is None else Loop(ROOT, project=project)
+    if args.command == "grade":  # reports only: before anything that takes a lock or reads the hours
+        return loop.grade_pr(args.pr, args.verdict)
     if getattr(args, "hours", None) is not None:
         # Checked by locked(), as loop.json's is, so a bad value is refused in the log, not by argparse.
         loop.cfg["hours"], loop.hours_from = args.hours, "--hours"

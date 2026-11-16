@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" width="820" height="470" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <title>How a ladder rubric grades a review</title>
+  <desc>A ladder with rungs 10, 8, 3 and 0, walked from the top. Rung 10 needs the verdict ready and check runs named security-scan and tests; security-scan never ran, so it is missed and the walk steps down. Rung 8 needs ready or ready with nits and tests; the verdict is ready and tests passed, so it is met and the grade is 8. Rungs 3 and 0 are not reached. lint failed, but no rung names it, so the grade doesn't move, and auto_merge still waits for every check to pass. A rung is met when the verdict is one it lists and every check it names passed; missed when the verdict isn't listed or a named check failed or never ran; unsettled while a named check still runs or GitHub can't say. If an unsettled rung sits above the rung that is met, the grade is pending until the checks finish. No rung met grades 0. The trailer reads: Grade 8/10: ready, checks (tests) passed; 10 needs a check named security-scan, and none ran.</desc>
+  <rect width="820" height="470" fill="#ffffff"/>
+
+  <g font-weight="600" font-size="14" fill="#111827">
+    <text x="30" y="32">The ladder, walked from the top</text>
+    <text x="470" y="32">What a rung can be</text>
+  </g>
+  <text x="30" y="54" fill="#4b5563">Verdict: ready. Runs: tests passed, lint failed, no security-scan.</text>
+
+  <!-- rung 10: missed -->
+  <rect x="30" y="70" width="400" height="62" rx="8" fill="#fef2f2" stroke="#dc2626"/>
+  <text x="46" y="94" font-weight="600" font-size="15" fill="#111827">10</text>
+  <text x="80" y="94" fill="#111827">verdict: ready</text>
+  <text x="80" y="114" fill="#111827">checks: security-scan, tests</text>
+  <text x="414" y="94" text-anchor="end" fill="#b91c1c">security-scan never ran</text>
+  <text x="414" y="114" text-anchor="end" font-weight="600" fill="#b91c1c">missed</text>
+
+  <path d="M 230 134 L 230 154" stroke="#4b5563" stroke-width="1.5"/>
+  <path d="M 224 150 L 230 158 L 236 150 z" fill="#4b5563"/>
+
+  <!-- rung 8: met -->
+  <rect x="30" y="160" width="400" height="62" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="2"/>
+  <text x="46" y="184" font-weight="600" font-size="15" fill="#111827">8</text>
+  <text x="80" y="184" fill="#111827">verdict: ready, ready with nits</text>
+  <text x="80" y="204" fill="#111827">checks: tests</text>
+  <text x="414" y="184" text-anchor="end" fill="#047857">the grade is 8</text>
+  <text x="414" y="204" text-anchor="end" font-weight="600" fill="#047857">met</text>
+
+  <!-- rungs not reached -->
+  <rect x="30" y="246" width="400" height="44" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-dasharray="4 4"/>
+  <text x="46" y="273" font-weight="600" font-size="15" fill="#6b7280">3</text>
+  <text x="80" y="273" fill="#6b7280">verdict: changes needed</text>
+  <text x="414" y="273" text-anchor="end" fill="#6b7280">not reached</text>
+
+  <rect x="30" y="302" width="400" height="44" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-dasharray="4 4"/>
+  <text x="46" y="329" font-weight="600" font-size="15" fill="#6b7280">0</text>
+  <text x="80" y="329" fill="#6b7280">the floor: needs nothing</text>
+  <text x="414" y="329" text-anchor="end" fill="#6b7280">not reached</text>
+
+  <text x="30" y="374" fill="#4b5563">lint failed, but no rung names it, so the grade doesn't move.</text>
+  <text x="30" y="392" fill="#4b5563">auto_merge still waits for every check to pass.</text>
+
+  <!-- what a rung can be -->
+  <rect x="470" y="70" width="320" height="70" rx="8" fill="#ecfdf5" stroke="#059669"/>
+  <text x="486" y="94" font-weight="600" fill="#047857">met: this is the grade</text>
+  <text x="486" y="114" fill="#111827">a verdict it lists, and every</text>
+  <text x="486" y="131" fill="#111827">check it names passed</text>
+
+  <rect x="470" y="152" width="320" height="70" rx="8" fill="#fef2f2" stroke="#dc2626"/>
+  <text x="486" y="176" font-weight="600" fill="#b91c1c">missed: step down</text>
+  <text x="486" y="196" fill="#111827">another verdict, or a check it names</text>
+  <text x="486" y="213" fill="#111827">failed or never ran</text>
+
+  <rect x="470" y="234" width="320" height="88" rx="8" fill="#fffbeb" stroke="#d97706"/>
+  <text x="486" y="258" font-weight="600" fill="#b45309">unsettled: step down, then wait</text>
+  <text x="486" y="278" fill="#111827">a check it names is still running, or</text>
+  <text x="486" y="295" fill="#111827">GitHub can't say: a rung met below it</text>
+  <text x="486" y="312" fill="#111827">grades pending until the checks finish</text>
+
+  <text x="470" y="350" fill="#4b5563">No rung met grades 0.</text>
+
+  <!-- trailer -->
+  <rect x="30" y="414" width="760" height="40" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="44" y="439" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">Grade 8/10: ready, checks (tests) passed; 10 needs a check named security-scan, and none ran.</text>
+</svg>
