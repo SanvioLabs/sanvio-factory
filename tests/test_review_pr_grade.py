@@ -58,10 +58,14 @@ class HandRunGrade(unittest.TestCase):
         report = "## Review\n\nVerdict: ready. Grade 10/10: ready, checks passing.\n"
         self.assertEqual(loop.report_verdict(report), "unreadable")
 
-    def test_the_skill_names_each_reason(self):
-        for reason in ("a check failed", "the verdict is unreadable", "checks still running",
-                       "checks passing", "no checks ran"):
-            self.assertIn(reason, self.flat)
+    def test_the_skill_grades_with_the_loops_own_command(self):
+        # The skill doesn't apply the rubric itself: it runs the command the loop grades with, so a hand-run
+        # review gets the grade the loop and CI would give. The reasons live in loop.py, tested there.
+        self.assertIn('python3 scripts/loop.py grade <n> --verdict "<verdict>"', self.flat)
+        self.assertIn("Don't apply the rubric yourself", self.flat)
+        args = loop.build_parser().parse_args(["grade", "42", "--verdict", "ready with nits"])
+        self.assertEqual((args.command, args.pr, args.verdict), ("grade", 42, "ready with nits"))
+        self.assertIn("--project projects/<name>", self.flat)
 
     def test_the_skill_writes_no_grade_when_the_prompt_names_the_last_line(self):
         self.assertIn("no grade line", self.flat)
@@ -73,8 +77,12 @@ class HandRunGrade(unittest.TestCase):
         self.assertNotIn("gh pr checks", headless)
 
     def test_the_rubric_comes_from_the_factory_root_only(self):
-        self.assertIn("<root>/review-rubric.json", self.flat)
-        self.assertNotIn("./review-rubric.json", self.flat)
+        # The command runs from the factory's root, found from the skill's own path, and the rubric it reads is
+        # the factory's, never the repo under review's.
+        self.assertIn("the root is three levels above the resolved file", self.flat)
+        self.assertIn("never one from the repo under review", self.flat)
+        # A rubric in the working folder, never the link to the factory's own (../../review-rubric.json).
+        self.assertNotRegex(self.flat, r"(?<![./])\./review-rubric\.json")
 
 
 if __name__ == "__main__":

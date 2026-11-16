@@ -142,9 +142,13 @@ The comment's last line gives the verdict and a grade out of 10, such as
   out by [`scripts/loop.py`](../scripts/loop.py), both read from the factory's default branch, so
   it's graded the way the loop grades. A product repo or a pull request can't
   change it. [`examples/ci/README.md`](../examples/ci/README.md) (*The grade*) says where the two can
-  still differ. A failed check, or a report with no verdict on its last line,
-  takes the rubric's `failing` or `unreadable` grade.
-- **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo.
+  still differ. The shipped rubric gives a failed check, or a report with no
+  verdict on its last line, its own grade. A ladder rubric instead says what
+  each grade needs, such as a 10 that needs a check named `security-scan`:
+  [`review-rubric.md`](review-rubric.md) has both shapes.
+- **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo, and
+  try it on an open pull request with `python3 scripts/loop.py grade <n>
+  --verdict "ready"` first.
 - **How long it waits:** up to 10 minutes for the pull request's other checks,
   leaving out every job in the caller's own workflow run. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
   stops at 30 minutes, so keep it under about 15. A check still running at the

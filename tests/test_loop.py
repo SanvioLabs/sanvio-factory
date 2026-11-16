@@ -6982,9 +6982,15 @@ elif args[:1] == ["api"] and args[1].endswith("/check-runs"):
     if os.path.exists(os.path.join(state, "checks-fail")):
         print("HTTP 502", file=sys.stderr)
         sys.exit(1)
-    runs = os.path.join(state, "checks.tsv")
+    # checks-<sha>.tsv for that commit alone, else checks.tsv for any. A run's name, its third column, is
+    # printed only when the --jq asks for .name, as GitHub's would be.
+    runs = os.path.join(state, "checks-%s.tsv" % args[1].split("/")[-2])
+    if not os.path.exists(runs):
+        runs = os.path.join(state, "checks.tsv")
+    named = ".name" in (args[args.index("--jq") + 1] if "--jq" in args else "")
     if os.path.exists(runs):
-        print(open(runs).read())
+        for line in open(runs).read().splitlines():
+            print(line if named else "\\t".join(line.split("\\t")[:2]))
 elif args[:1] == ["api"] and args[1].endswith("/status"):
     # A commit's statuses, one state per line: statuses.txt, none by default. gh api prints its error on stdout.
     if os.path.exists(os.path.join(state, "statuses-fail")):
@@ -8822,6 +8828,243 @@ class TestReviewGrading(ReviewFixture, unittest.TestCase):
         self.assertIn("Grade 10/10: ready, checks passing.", after[0]["body"])
         self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
         self.assertEqual(self.agents_started(), 1)
+
+
+# A ladder rubric: each grade, highest first, with the verdicts and the check runs it needs.
+LADDER = {"levels": {
+    "10": {"verdict": ["ready"], "checks": ["security-scan", "e2e"]},
+    "8": {"verdict": ["ready", "ready with nits"], "checks": ["tests"]},
+    "3": {"verdict": ["changes needed"]},
+    "1": {},
+    "0": {},
+}}
+ALL_PASS = (("completed", "success", "security-scan"), ("completed", "success", "e2e"),
+            ("completed", "success", "tests"))
+
+
+class TestLadder(unittest.TestCase):
+    """A rubric whose grades are rungs, each met by the verdicts and the named check runs it lists."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "my-rubric.json"
+
+    def grade(self, verdict, runs, ladder=LADDER):
+        return loop.review_grade_for(verdict, loop.checks_state(runs), ladder, None, runs=runs)
+
+    def test_a_ladder_loads_and_the_five_keys_still_do(self):
+        self.path.write_text(json.dumps(LADDER))
+        self.assertEqual(loop.load_rubric(self.path), (LADDER, None))
+        self.path.write_text(json.dumps(RUBRIC))
+        self.assertEqual(loop.load_rubric(self.path), (RUBRIC, None))
+        # runs reach only a ladder: the five keys grade as they always have
+        self.assertEqual(loop.review_grade_for("ready", "passing", RUBRIC, None, runs=[("completed", "failure", "x")]),
+                         (10, "ready, checks passing"))
+
+    def test_the_top_rung_met_gives_its_grade(self):
+        self.assertEqual(self.grade("ready", list(ALL_PASS)), (10, "ready, checks (security-scan, e2e) passed"))
+
+    def test_a_failed_named_check_drops_to_the_next_rung_without_waiting_on_the_other(self):
+        runs = [("completed", "failure", "security-scan"), ("in_progress", "", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs), (8, "ready, checks (tests) passed; 10 needs security-scan to pass"))
+
+    def test_a_named_check_that_never_ran_misses_its_rung_and_the_reason_names_it(self):
+        runs = [("completed", "success", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs),
+                         (8, "ready, checks (tests) passed; 10 needs a check named security-scan, and none ran"))
+
+    def test_a_running_check_a_higher_rung_names_keeps_the_grade_pending(self):
+        runs = [("completed", "success", "security-scan"), ("queued", "", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs), (None, loop.PENDING))
+        self.assertEqual(self.grade("ready", None), (None, loop.PENDING))  # runs that couldn't be read
+        # Nothing above is unsettled: a running check no rung names doesn't wait, and doesn't fail anything.
+        self.assertEqual(self.grade("ready", list(ALL_PASS) + [("in_progress", "", "lint")])[0], 10)
+
+    def test_a_verdict_no_rung_above_takes_falls_to_a_rung_with_no_verdict(self):
+        for verdict in ("unreadable", None, "looks good"):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(self.grade(verdict, list(ALL_PASS)),
+                                 (1, "unreadable, no checks needed; 3 needs a verdict of changes needed"))
+        self.assertEqual(self.grade("changes needed", None),
+                         (3, "changes needed, no checks needed; 8 needs a verdict of ready or ready with nits"))
+
+    def test_with_no_rung_met_the_grade_is_0(self):
+        ladder = {"levels": {"6": {"checks": ["tests"]}, "0": {"verdict": ["ready"]}}}
+        self.assertEqual(self.grade("changes needed", [("completed", "failure", "tests")], ladder),
+                         (0, "changes needed, no rung was met; 0 needs a verdict of ready"))
+
+    def test_every_check_and_a_name_several_runs_share(self):
+        ladder = {"levels": {"10": {"checks": ["*"]}, "5": {"checks": ["tests"]}, "0": {}}}
+        self.assertEqual(self.grade("ready", [], ladder), (10, "ready, checks (*) passed"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "skipped", "x")], ladder),
+                         (10, "ready, checks (*) passed"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "failure", "tests")],
+                                    ladder), (0, "ready, no checks needed; 5 needs tests to pass"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "failure", "lint")],
+                                    ladder), (5, "ready, checks (tests) passed; 10 needs every check to pass"))
+
+    def test_each_invalid_ladder_grades_0_and_names_the_file(self):
+        cases = {
+            'has a key other than "levels"': dict(LADDER, ready=10),
+            'gives "levels" something other than a JSON object': {"levels": [LADDER["levels"]]},
+            'has no "0" rung': {"levels": {"10": {}}},
+            "has a rung \"07\" that isn't a grade": {"levels": {"0": {}, "07": {}}},
+            "has a rung \"11\" that isn't a grade": {"levels": {"0": {}, "11": {}}},
+            'gives rung "0" something other than a JSON object': {"levels": {"0": []}},
+            'gives rung "0" a key other than "verdict" or "checks"': {"levels": {"0": {"why": ["x"]}}},
+            "gives rung \"8\" a verdict that isn't one of": {"levels": {"0": {}, "8": {"verdict": ["unreadable"]}}},
+            "gives rung \"8\" a \"verdict\" that isn't a list": {"levels": {"0": {}, "8": {"verdict": "ready"}}},
+            "gives rung \"8\" a \"checks\" that isn't a list": {"levels": {"0": {}, "8": {"checks": []}}},
+            "gives rung \"8\" a check name that isn't": {"levels": {"0": {}, "8": {"checks": ["tests", " "]}}},
+            "gives rung \"9\" a check name that isn't": {"levels": {"0": {}, "9": {"checks": [7]}}},
+        }
+        for said, rubric in cases.items():
+            with self.subTest(said=said):
+                self.path.write_text(json.dumps(rubric))
+                rubric, why = loop.load_rubric(self.path)
+                self.assertIsNone(rubric)
+                self.assertIn("my-rubric.json " + said, why)
+                self.assertEqual(loop.review_grade_for("ready", "passing", rubric, why, runs=list(ALL_PASS)), (0, why))
+
+
+class TestLadderReview(ReviewFixture, unittest.TestCase):
+    """A ladder rubric in the loop: the grade on a posted review, its regrade, loop.py grade and auto_merge."""
+
+    def setUp(self):
+        super().setUp()
+        (self.work / "review-rubric.json").write_text(json.dumps(LADDER))
+
+    def checks(self, *runs, sha=None):
+        name = "checks.tsv" if sha is None else "checks-{}.tsv".format(sha)
+        (self.state / name).write_text("\n".join("\t".join(run) for run in runs))
+
+    def posted(self, number=7, verdict="ready"):
+        sha = self.push(number, "thing.txt")
+        (self.state / "review-tail").write_text("VERDICT: " + verdict)
+        self.list_prs(self.pr(number, sha))
+        self.go()
+        return sha
+
+    def graded_by_hand(self, number, verdict, loop_=None):
+        """loop.py grade number --verdict verdict: (exit code, stdout, stderr)."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = (loop_ or loop.Loop(self.work, self.cfg)).grade_pr(number, verdict)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_posted_review_takes_the_ladder_s_grade(self):
+        self.checks(*ALL_PASS)
+        self.posted()
+        self.assertIn("Verdict: ready. Grade 10/10: ready, checks (security-scan, e2e) passed.",
+                      self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+
+    def test_a_pending_ladder_grade_is_filled_in_by_a_later_pass(self):
+        self.checks(("completed", "success", "security-scan"), ("in_progress", "", "e2e"),
+                    ("completed", "success", "tests"))
+        sha = self.posted()
+        first = self.comments()
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.go()  # still running: nothing changes
+        self.assertEqual(self.comments(), first)
+        self.checks(*ALL_PASS)
+        self.go()
+        after = self.comments()
+        self.assertEqual([c["id"] for c in after], [first[0]["id"]])
+        self.assertEqual(after[0]["body"], first[0]["body"].replace(
+            "Grade pending: checks still running.", "Grade 10/10: ready, checks (security-scan, e2e) passed."))
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertTrue(any(l.endswith("REVIEW #7 {} graded 10/10".format(sha[:7])) for l in self.lines()), self.lines())
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_a_running_check_that_only_a_rung_above_the_verdict_names_doesn_t_hold_a_regrade(self):
+        # changes needed can't reach 10 or 8, so their running checks don't matter: graded on the first pass
+        self.checks(("in_progress", "", "security-scan"), ("in_progress", "", "tests"))
+        self.posted(verdict="changes needed")
+        self.assertIn("Grade 3/10: changes needed, no checks needed; 8 needs a verdict of ready or ready with nits.",
+                      self.comments()[0]["body"])
+
+    def test_grade_prints_the_line_and_takes_no_lock_and_writes_nothing_to_github(self):
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        self.checks(*ALL_PASS)
+        real = loop.Loop
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(loop, "Loop", side_effect=lambda *a, **k: real(self.work, self.cfg)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = loop.main(["grade", "7", "--verdict", "ready"])
+        self.assertEqual((code, out.getvalue()), (0, "Grade 10/10: ready, checks (security-scan, e2e) passed.\n"),
+                         err.getvalue())
+        self.assertFalse((self.work / ".loop" / "lock").exists())
+        self.assertEqual(self.comments(), [])
+        self.assertFalse(any(c.startswith(("pr comment", "pr merge", "api --method")) for c in self.calls()),
+                         self.calls())
+        self.assertTrue(any(c.startswith("pr view 7 --json headRefOid") and c.endswith("-R o/r") for c in self.calls()),
+                        self.calls())
+        self.checks(("in_progress", "", "e2e"), ("completed", "success", "security-scan"))
+        self.assertEqual(self.graded_by_hand(7, "ready")[:2], (0, "Grade pending: checks still running.\n"))
+
+    def test_grade_exits_1_when_it_can_t_read_the_head(self):
+        code, out, err = self.graded_by_hand(9, "ready")  # no such pull request
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("Could not read pull request #9's head commit", err)
+
+    def test_runs_on_another_commit_don_t_count(self):
+        old = self.push(7, "seven.txt")
+        self.checks(*ALL_PASS, sha=old)  # the old head passed everything; the new one has run nothing yet
+        new = self.push(7, "seven.txt", "again")
+        self.view_pr(7, new)
+        self.assertEqual(self.graded_by_hand(7, "ready")[:2],
+                         (0, "Grade 1/10: ready, no checks needed; 3 needs a verdict of changes needed.\n"))
+        self.assertTrue(any("commits/{}/check-runs".format(new) in c for c in self.calls()), self.calls())
+        self.assertFalse(any("commits/{}/check-runs".format(old) in c for c in self.calls()), self.calls())
+
+    def test_grade_reads_the_rubric_at_the_factory_s_root_never_the_project_s_clone(self):
+        clone = Path(self.tmp.name) / "projects" / "app"
+        clone.mkdir(parents=True)
+        (clone / "review-rubric.json").write_text(json.dumps({"levels": {"10": {}, "0": {}}}))  # would give 10
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        project = loop.Loop(self.work, self.cfg, project=clone)
+        self.assertEqual(self.graded_by_hand(7, "ready", project)[:2],
+                         (0, "Grade 1/10: ready, no checks needed; 3 needs a verdict of changes needed.\n"))
+
+    # auto_merge reads the grade the ladder gave, and every check on the commit, named or not.
+
+    def merge_on(self, sha, **settings):
+        self.cfg["auto_merge"] = dict({"enabled": True, "bases": ["main"]}, **settings)
+        (self.state / "pr-7.json").write_text(json.dumps(dict(
+            self.pr(7, sha), state="OPEN", isCrossRepository=False, author={"login": "pat"})))
+
+    def merges(self):
+        return [c for c in self.calls() if c.startswith("pr merge")]
+
+    def test_a_failing_check_no_rung_names_leaves_the_grade_but_auto_merge_still_holds_it(self):
+        self.checks(*ALL_PASS + (("completed", "failure", "lint"),))
+        sha = self.push(7, "thing.txt")
+        self.merge_on(sha)
+        (self.state / "review-tail").write_text("VERDICT: ready")
+        self.list_prs(self.pr(7, sha))
+        self.go()
+        self.assertIn("Grade 10/10: ready, checks (security-scan, e2e) passed.", self.comments()[0]["body"])
+        self.assertEqual(self.merges(), [])
+        self.assertIn("MERGE #7 {} not merged: a check failed".format(sha[:7]), "\n".join(self.lines()))
+
+    def test_a_ladder_grade_at_min_grade_merges_once_every_check_passes(self):
+        self.checks(("completed", "success", "tests"), ("in_progress", "", "lint"))
+        sha = self.push(7, "thing.txt")
+        self.merge_on(sha, min_grade=8)
+        (self.state / "review-tail").write_text("VERDICT: ready with nits")
+        self.list_prs(self.pr(7, sha))
+        self.go()
+        self.assertIn("Grade 8/10: ready with nits, checks (tests) passed; 10 needs a verdict of ready.",
+                      self.comments()[0]["body"])
+        self.assertEqual(self.merges(), [])  # lint is still running
+        self.checks(("completed", "success", "tests"), ("completed", "success", "lint"))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
 
 
 class TestAutoMerge(ReviewFixture, unittest.TestCase):
