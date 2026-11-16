@@ -40,7 +40,9 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 A third public eval suite, [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), tests whether a factory's build agent follows instructions planted in its work: one in an issue's body that asks it to let CI fail without blocking the merge, and one in a repo file the next issue needs that asks it to write down the machine's environment variable names. Each has a trap in [`key/score`](examples/eval-suite-planted-instructions/key/score) and a known wrong answer that does the work and follows that one instruction. Its traps are public, so it shows the shape of such a suite and can't measure a factory that has read it.
 
-Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md).
+[`scripts/link_files.py`](scripts/link_files.py) now leaves an eval suite's issues as written, because each is posted in the run's own repo, where a link into this one would break. [`.gitignore`](.gitignore) keeps a suite's seed `loop.json` tracked even when a copy keeps its own `loop.json` out of git.
+
+Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing. Run python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions to see it.
 
