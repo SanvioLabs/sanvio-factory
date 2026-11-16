@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The loop picker counts every loop's jobs
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each loop in the picker that's working shows how many jobs it's on in brackets, one included: `● app (1)`, `● app (2)`. Before, one job showed no count and two showed `● app 2`. A loop on no job still shows its name alone. The same label is on the mobile app's loop buttons. The mod is now 0.10.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts) and its tests.
+
+**Do:** nothing.
+
 ## 2026-11-15: Stop a build over the token budget
 
 The loop now stops a `claude` build or tester that streams its events (the default) as soon as its issue goes over `max_issue_tokens`, instead of letting the run finish. It counts each message once, though claude repeats a message's usage on each of its blocks. What it had changed is committed on the local `loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, and the issue is blocked with a comment saying the build or tester was stopped part way. A person finishes the branch and pushes it, or relabels the issue to start a fresh budget. A relabel never builds over a stopped tester's unfinished tests, and never drops a stopped build's commit to start from an open pull request: both block until a person finishes, pushes or drops that commit. Planning and review agents, and agents other than `claude`, still finish their run.
