@@ -113,6 +113,8 @@ On Windows, clone with `git clone -c core.symlinks=true` from a terminal with
 Developer Mode on, or the two links below arrive as plain text files. If they
 do, [`AGENTS.md`](AGENTS.md) still works for every tool.
 
+Before you choose where to run the factory, read [Keeping the loop to its own work](HOW-IT-WORKS.md#keeping-the-loop-to-its-own-work): an agent the loop starts can reach whatever its login can, and it says how to narrow that.
+
 ### Where to run it
 
 Tried on 2026-10-23 on a fresh clone, with Claude Code 2.1.309, its VS Code

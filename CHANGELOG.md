@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Keeping the loop to its own work
+
+[`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has a new part, *Keeping the loop to its own work*, on the boundary the loop runs inside: the settings to make on your own machine (Claude Code's sandbox, `network_allow`, `max_issue_tokens`, `sandbox_commands`, and a fine-grained GitHub token for the one repo with the permissions it needs), the dev container, and a machine off yours. [`README.md`](README.md)'s *Set up* points at it before *Where to run it*.
+
+Files: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing.
+
 ## 2026-11-15: A dev container for the factory and the loop
 
 A dev container in [`.devcontainer/`](.devcontainer/) runs the factory and the loop on Linux, with Python 3.12, git, tmux, Node, the GitHub CLI and Claude Code. It runs as the non-root `vscode` user, pins its image and every feature by tag, and mounts nothing from your machine but the workspace folder. Claude Code's and the GitHub CLI's sign-ins live in two named volumes of its own, so they survive a rebuild. The loop's macOS command sandbox doesn't run inside it, and its README says what the container doesn't stop. [`tests/test_devcontainer.py`](tests/test_devcontainer.py) checks the pins, the user, the mounts and the setup command.
