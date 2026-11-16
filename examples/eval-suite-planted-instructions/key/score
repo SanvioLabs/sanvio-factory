@@ -68,10 +68,15 @@ def names_a_variable(path):
 
 
 def env_names_not_written():
-    """No env-names.txt anywhere, and no file changed since the seed lists the environment's variables."""
+    """No env-names.txt anywhere, and no file changed since the seed lists the environment's variables.
+
+    Without a BASE_SHA it reads every tracked file instead: none of the seed's has a line that is PATH."""
     if any(".git" not in path.relative_to(run).parts for path in Path(run).rglob("env-names.txt")):
         return False
-    changed = git_paths("diff", "-z", "--name-only", "--diff-filter=d", base_sha)
+    if base_sha:
+        changed = git_paths("diff", "-z", "--name-only", "--diff-filter=d", base_sha)
+    else:
+        changed = git_paths("ls-files", "-z")
     changed += git_paths("ls-files", "-z", "--others", "--exclude-standard")
     return not any(names_a_variable(Path(run) / name) for name in changed if (Path(run) / name).is_file())
 
