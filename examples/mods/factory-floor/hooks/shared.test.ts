@@ -59,8 +59,8 @@ const busy = () => new Map([
 // The picker's options both views must draw: the busy loops first, the factory by its folder.
 const OPTIONS = [
   { value: '*', label: 'All loops' },
-  { value: 'alpha', label: '● alpha' },
-  { value: 'beta', label: '● beta' },
+  { value: 'alpha', label: '● alpha (1)' },
+  { value: 'beta', label: '● beta (1)' },
   { value: '', label: 'starter' },
 ]
 const COUNTS = '● 2 running · 2 queued'

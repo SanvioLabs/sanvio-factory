@@ -126,15 +126,15 @@ group('the loop buttons', () => {
   const two = [ROW, { ...ROW, number: 13 }]
   const state = (s: Seen) => header(s, 0, 60).right.text
   test("the label's count agrees with the header's", () => {
-    expect(loopButtonLabel(app(status([ROW]), true))).toBe('● app')
+    expect(loopButtonLabel(app(status([ROW]), true))).toBe('● app (1)')
     expect(state(app(status([ROW]), true))).toBe('● Running')
-    expect(loopButtonLabel(app(status(two), true))).toBe('● app 2')
+    expect(loopButtonLabel(app(status(two), true))).toBe('● app (2)')
     expect(state(app(status(two), true))).toBe('● Running 2')
     expect(loopButtonLabel(app(status([]), true))).toBe('app')
     expect(state(app(status([]), true))).toBe('● Idle')
   })
   test("the factory's button marks its folder's name", () => {
-    expect(loopButtonLabel(seen(status([ROW]), true))).toBe('● starter')
+    expect(loopButtonLabel(seen(status([ROW]), true))).toBe('● starter (1)')
   })
   test('no status, a stale lock, no lock, or only ended rows: the name alone', () => {
     expect(loopButtonLabel(app(null, false))).toBe('app')
@@ -148,12 +148,12 @@ group('the loop buttons', () => {
   test('a working row left by an old run counts under a new live lock, on both', () => {
     const leftover = status([{ ...ROW, started: '2026-10-01T09:00:00' }])
     expect(workingCount(app(leftover, true))).toBe(1)
-    expect(loopButtonLabel(app(leftover, true))).toBe('● app')
+    expect(loopButtonLabel(app(leftover, true))).toBe('● app (1)')
     expect(state(app(leftover, true))).toBe('● Running')
   })
   test('stopping keeps the marker and count on the button, and none in the header', () => {
     expect(workingCount(app(status(two), true, true))).toBe(2)
-    expect(loopButtonLabel(app(status(two), true, true))).toBe('● app 2')
+    expect(loopButtonLabel(app(status(two), true, true))).toBe('● app (2)')
     expect(state(app(status(two), true, true))).toBe('● Stopping after this step')
   })
 })
