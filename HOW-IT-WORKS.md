@@ -641,26 +641,30 @@ logged once with `(will retry)` and tried again on the next poll.
 with nits, checks passing.` The reviewer picks the verdict by sorting each
 finding into *blocks* or *nit*, as step 5 of [`skills/review-pr/`](skills/review-pr/SKILL.md) says. The
 grade isn't the reviewer's: it comes from the verdict and the checks, scored by
-[`review-rubric.json`](review-rubric.json) at the factory's root, which gives
-each of five keys a whole number from 0 to 10: `ready`, `ready with nits` and
-`changes needed` for the verdicts, `failing` for a reviewed commit with a check
-run that finished and didn't pass (success, neutral and skipped pass), and
-`unreadable` for a verdict that isn't one of the three. When a person runs
-`review-pr` by hand on a pull request, the skill grades from the same rubric in
-the same order, and ends with the grade line and then a `Verdict:` line; the
+[`review-rubric.json`](review-rubric.json) at the factory's root. The shipped
+rubric gives each verdict a number, with one for a failed check (success,
+neutral and skipped pass) and one for a verdict it can't read. A ladder rubric
+instead defines each grade by the verdicts and the named check runs it needs,
+such as a 10 that needs `security-scan` to have passed.
+[`docs/review-rubric.md`](docs/review-rubric.md) has both shapes, worked examples, and how each reads
+against `auto_merge`'s `min_grade`. `python3 scripts/loop.py grade <n> --verdict
+"<verdict>"` prints the grade a verdict would get on a pull request's head and
+changes nothing, so you can try a rubric first. When a person runs
+`review-pr` by hand on a pull request, the skill grades with that command, and
+ends with the grade line and then a `Verdict:` line; the
 loop and CI grade their own runs. The checks are the
 reviewed commit's check runs, not the pull request's newer head. A commit with
 no check runs counts as passing, and the grade says `no checks ran`. While a
-check is still running, or GitHub can't say, the trailer reads `Grade pending:
+check the grade needs is still running, or GitHub can't say, the trailer reads `Grade pending:
 checks still running.` and the status row's `grade` is `pending`; the next poll
 reads the checks again, with no agent, and once they've finished edits the
 grade into your own comment's trailer and nothing else, logging `REVIEW #31
 4f2a9c1 graded 10/10`. A comment someone else posted, or a send-back with
 another header, is never edited, and a newer send-back under your login doesn't
 hide the comment that's waiting. If that comment is gone, the row stops waiting
-and no later poll asks again. A rubric that's missing, isn't valid JSON, or
-lacks a key, has another key or a value outside 0 to 10 grades every review 0,
-with the file named in the trailer. Edit the file to change the grades. A
+and no later poll asks again. A rubric that's missing, isn't valid JSON or
+breaks its shape's rules grades every review 0, with the file named in the
+trailer. Edit the file to change the grades. A
 project under [`projects/`](projects/) gets its own with `review_rubric` in the
 factory's `projects` entry, a path from the factory's root. The project's own
 `loop.json` can't set it, since anyone who can push to the project could

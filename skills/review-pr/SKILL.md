@@ -72,40 +72,33 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
    a cost of tidiness is a nit. If you still can't tell, call it a block and
    say why, so a person decides.
 6. **Grade it (only when a person runs this).** Grade only when a person ran
-   this skill on a GitHub PR number and `gh pr checks <n>` works: `gh` is
-   installed and can see the PR. Read the state column, not the exit code,
-   which isn't zero when a check failed, is pending or none ran. Write **no
-   grade line** in two cases:
+   this skill on a GitHub PR number in this factory's repo or in a project
+   under [`projects/`](../../projects/). Write **no grade line** in these cases:
    - the prompt that ran this skill names the report's last line itself (the
      loop and the CI review both do, and grade their own runs)
-   - `gh` isn't available
+   - a branch, a diff or "my current changes"
+   - the pull request is in any other repo, since the factory can't name it
+     to `gh`
 
-   The same goes for a branch, a diff or "my current changes": no grade line.
+   **Don't apply the rubric yourself.** The loop grades it, so a hand-run
+   review gets the same grade the loop and CI would give. Find the factory's
+   root from this SKILL.md's own path: resolve symlinks first, since
+   `.claude/skills/review-pr` may be a link, and the root is three levels
+   above the resolved file. Then run, from that root, with the verdict from
+   step 5:
 
-   **The rubric.** Find the factory's root from this SKILL.md's own path.
-   Resolve symlinks first, since `.claude/skills/review-pr` may be a link. The
-   root is three levels above the resolved file, and the rubric is
-   `<root>/review-rubric.json`. Never read a rubric from the working folder or
-   from the repo under review. A valid rubric is a JSON object with exactly
-   the keys `ready`, `ready with nits`, `changes needed`, `failing` and
-   `unreadable`, each a whole number from 0 to 10.
+   ```bash
+   python3 scripts/loop.py grade <n> --verdict "<verdict>"
+   ```
 
-   **The checks.** From `gh pr checks <n>`: any `fail` or `cancel` is
-   failing; otherwise any `pending` is pending; no checks reported is none;
-   otherwise passing.
-
-   **The grade.** Take the first of these that applies:
-   1. The rubric is missing or invalid: grade `0`, with a reason naming the
-      file, such as `review-rubric.json is missing`.
-   2. A check failed: the rubric's `failing`, with the reason
-      `<verdict>, a check failed`. If the verdict isn't one of the three, the
-      reason is `unreadable, a check failed`.
-   3. The verdict isn't one of the three: the rubric's `unreadable`, with the
-      reason `the verdict is unreadable`.
-   4. Checks are pending: no number, the line is
-      `Grade pending: checks still running.`
-   5. Otherwise: the rubric's value for the verdict, with the reason
-      `<verdict>, checks passing` or `<verdict>, no checks ran`.
+   For a project's pull request, add `--project projects/<name>`. It reads
+   the factory's [`review-rubric.json`](../../review-rubric.json), never one from the repo under review,
+   and the pull request head's check runs, and changes nothing. Copy the line
+   it prints into the report as it is: `Grade <n>/10: <reason>.` or
+   `Grade pending: checks still running.` If it exits non-zero, write no
+   grade line and say why in one sentence after the findings.
+   [`docs/review-rubric.md`](../../docs/review-rubric.md) says how the rubric
+   turns a verdict and the checks into a grade.
 
 ## Output
 
