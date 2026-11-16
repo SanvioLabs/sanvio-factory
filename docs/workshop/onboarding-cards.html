@@ -51,7 +51,7 @@
   <h1>Sanvio Factory: onboarding cards</h1>
   <span class="by">github.com/SanvioLabs/sanvio-factory</span>
 </header>
-<p class="lede">Seven one-page cards, one for each session of getting a team onto the factory. Each builds on the one before, from the first commands to your own loop and a deploy to production. Each ends with what to do before the next card.</p>
+<p class="lede">Eight one-page cards, one for each session of getting a team onto the factory. Each builds on the one before, from the first commands to your own loop, a deploy to production, and the monthly review that decides what the factory does next. Each ends with what to do before the next card.</p>
 <table class="contents">
 <tr><td><b>1 · Getting started</b></td><td>How to work with it, the setup that has to be right, and the commands you'll use every day</td></tr>
 <tr><td><b>2 · Knowledge and skills</b></td><td>Connect one source of your own knowledge, write your first skill, and vet someone else's</td></tr>
@@ -60,6 +60,7 @@
 <tr><td><b>5 · Specs</b></td><td>Move up from tasks to features: write, challenge, plan, build and review a spec</td></tr>
 <tr><td><b>6 · Team and your loop</b></td><td>Bring the team in, keep a sprint rhythm, and let your loop run on its own</td></tr>
 <tr><td><b>7 · Deploy</b></td><td>Take what the loop built to an environment people use: staging first, then production by hand</td></tr>
+<tr><td><b>8 · Leading and funding it</b></td><td>For the owner and finance, monthly: what it cost, what it bought, one decision</td></tr>
 </table>
 <div class="model" style="margin-top:12pt">
   <p style="margin:0">Skills named <code>/stelliad:&lt;name&gt;</code> come from the Stelliad skills library, which the factory switches on: <b>github.com/Stelliad/stelliad-skills</b>. The rest are in this repo's <code>skills/</code>.</p>
@@ -743,9 +744,109 @@
 </section>
 
 <footer>
-  <span>The next engineer starts at card 1</span>
+  <span>Next: Card 8 · Leading and funding it</span>
   <span>More skills: github.com/Stelliad/stelliad-skills</span>
   <span>Read next: steering/deploying.md · docs/factory-in-ci.md</span>
+</footer>
+</div>
+<div class="page">
+<header>
+  <h1><span class="card">Card 8</span> · Leading and funding it</h1>
+  <span class="by">Sanvio Factory · github.com/SanvioLabs/sanvio-factory</span>
+</header>
+
+<p class="lede">For the factory's owner and a finance partner. Once a month, read what the factory cost, what it bought and whether it's getting better, then decide one thing. Items marked <i>coming</i> aren't built yet.</p>
+
+<div class="model">
+  <p><b>Observe before you direct.</b> Read what the spend bought before you cut it. Spend read alone, without the merged work beside it, is half the picture.</p>
+  <p style="margin:0"><b>An estimate is not a bill.</b> The dashboard prices tokens from <code>.sanvio/prices.json</code>. The invoice is the record, and every cost in the review says which one it is.</p>
+</div>
+
+<div class="grid">
+<div>
+
+<section>
+<h2>Before the first review</h2>
+<ul>
+<li>The team has run a sprint on card 6, so there's a month of loop and usage data.</li>
+<li><b>A finance partner is named</b>, beside the factory's owner.</li>
+<li><code>.sanvio/prices.json</code> is checked against the current price list, with the date.</li>
+<li>The month's AI invoices, from every account the factory runs on.</li>
+</ul>
+</section>
+
+<section>
+<h2>The five questions</h2>
+<table>
+<tr><td><b>1 · Where did the time go?</b></td><td>Dashboard: the median time at each stage, the slowest marked</td></tr>
+<tr><td><b>2 · What did it buy?</b></td><td>Dashboard: merged by type, with what the loop spent on each. <code>/work-report</code> for the page</td></tr>
+<tr><td><b>3 · What does a change cost?</b></td><td><i>Coming:</i> loop and conversation spend over merged pull requests, beside the invoice</td></tr>
+<tr><td><b>4 · Did it hold up?</b></td><td>Dashboard: rework and evals. <i>Coming:</i> reverts and fixes within 14 days of a merge</td></tr>
+<tr><td><b>5 · How's the team finding it?</b></td><td><code>/pulse</code> counts and <code>/factory-trends</code> reports</td></tr>
+</table>
+</section>
+
+<section>
+<h2>The rhythm</h2>
+<table>
+<tr><td><b>Every sprint</b></td><td>Each person, by choice: a <code>/factory-trends</code> report</td></tr>
+<tr><td><b>Monthly</b></td><td>The owner runs the log review. Then owner and finance: the five questions, the invoice beside the estimate, one decision</td></tr>
+<tr><td><b>Quarterly</b></td><td>The last three reviews against each other</td></tr>
+</table>
+</section>
+
+</div>
+<div>
+
+<section>
+<h2>Sanvio skills for this card</h2>
+<table>
+<tr><td><code>/factory-dashboard</code></td><td>The pane: stage times, merged by type, the loop's spend and rework</td></tr>
+<tr><td><code>/work-report</code></td><td>One page of what merged by type, and who approved it</td></tr>
+<tr><td><code>/factory-trends</code></td><td>Each person's sprint report, shared by their choice</td></tr>
+<tr><td><code>/pulse</code></td><td>The team's answers as counts, and a summary for leadership</td></tr>
+<tr><td><code>usage_report.py --review</code></td><td>The monthly log review: guard refusals, loop errors, any day the loop spent over 3 times its median</td></tr>
+<tr><td><code>dashboard_data.py --json</code></td><td>The same numbers, for a spreadsheet or for Claude to answer questions from</td></tr>
+</table>
+</section>
+
+<section>
+<h2>Who brings what</h2>
+<ul>
+<li><b>Finance:</b> the invoices, and the gap between estimate and bill.</li>
+<li><b>Product:</b> what the team meant to ship, against merged by type.</li>
+<li><b>Engineering:</b> the slowest stage and the costliest issues.</li>
+<li><b>QA:</b> rework, eval stability and failures after merge.</li>
+<li><b>Operations:</b> guard refusals, blocked issues, anything that reached production.</li>
+</ul>
+</section>
+
+<section>
+<h2>Rules of the road</h2>
+<ul>
+<li><b>Team level only.</b> Never rank people. The usage log holds names and counts, never content, on each person's own machine.</li>
+<li><b>Your own last months are the benchmark</b>, not other companies.</li>
+<li><b>A decision agreed in a meeting hasn't happened</b> until it's written, dated, into the file it changes.</li>
+</ul>
+</section>
+
+</div>
+</div>
+
+<section class="box after">
+<h2 style="margin-top:0">Reviewed when</h2>
+<ol>
+<li>The owner and the finance partner have read one month's review together.</li>
+<li>The gap between the estimate and the bill is explained.</li>
+<li>One thing is kept, changed or stopped, with its cost, written into the file it governs, dated, with an owner.</li>
+<li>Next month's expected spend is agreed.</li>
+</ol>
+</section>
+
+<footer>
+  <span>The next engineer starts at card 1</span>
+  <span>More skills: github.com/Stelliad/stelliad-skills</span>
+  <span>Read next: examples/mods/factory-dashboard/README.md</span>
 </footer>
 </div>
 </body>

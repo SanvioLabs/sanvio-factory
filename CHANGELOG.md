@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Onboarding card 8, leading and funding the factory
+
+An eighth onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) is for the factory's owner and a finance partner. Once a month they answer five questions from the dashboard, `/work-report`, `/pulse` and `/factory-trends`: where the time went, what the spend bought, what a merged change costs, whether it held up, and how the team is finding it. They set the invoice beside the dashboard's estimate and decide one thing to keep, change or stop, written down with its cost. All-in cost per merged change and reverts after a merge are marked as coming. Card 7 now points to it.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`docs/workshop/README.md`](docs/workshop/README.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** name a finance partner beside the factory's owner, then send the new PDF to both.
+
 ## 2026-11-15: Onboarding card 7, deploy
 
 A seventh onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) takes what the loop built to an environment people use: what has to exist before the first deploy, the path from pull request to production, the way back, and the skills that go with it. It follows [`steering/deploying.md`](steering/deploying.md). Card 6 now points to it.
