@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The Crew names each job's model
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each lane in the Crew view now ends its line with the model the issue's latest agent run used, as the List already did: `#12 Gate · build, round 2 · opus-5-5`. On a narrow terminal the title gives way first. A lane whose `.loop/status.json` row has no model, from an older `loop.py`, shows none. The mod is now 0.9.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts).
+
+**Do:** nothing.
+
 ## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
 
 Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.
