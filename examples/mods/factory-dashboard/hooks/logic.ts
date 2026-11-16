@@ -247,14 +247,14 @@ export function workByType(doc: Doc): { tables: Table[]; lines: Line[] } {
 // with no price, or a part the script couldn't count. A script that doesn't give the section draws nothing.
 export function allIn(doc: Doc): Line[] {
   if (doc.all_in === undefined) return []
-  const label = 'All in per merged pull request'
+  const label = 'All in per merged PR'
   const why = missing(doc.all_in)
   const a = obj(doc.all_in)
   if (why || !a) return [line('quiet', `${label}: ${why ?? "couldn't read it"}`)]
   const per = num(a.per_merged_usd)
   const merged = num(a.merged)
   if (per !== null && merged !== null) {
-    return [line('quiet', `${label}: ${money(per)} (${merged} merged), an estimate at API prices, not a bill`)]
+    return [line('quiet', `${label}: ${money(per)} (${merged} merged, an estimate)`)]
   }
   const reason = merged === 0 ? 'nothing merged'
     : num(a.conversation_cost_usd) === null

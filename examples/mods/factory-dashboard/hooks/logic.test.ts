@@ -256,27 +256,27 @@ group('all in per merged pull request', () => {
   test('one quiet line with the figure and how many merged, before the line saying it is not a bill', () => {
     const found = allIn(ALL_IN)
     expect(found).toEqual([{ tone: 'quiet',
-      text: 'All in per merged pull request: $3.50 (4 merged), an estimate at API prices, not a bill' }])
+      text: 'All in per merged PR: $3.50 (4 merged, an estimate)' }])
     const lines = spend({ ...DOC, all_in: ALL_IN }).lines.map(l => l.text)
     expect(lines.indexOf(found[0]!.text)).toBe(lines.length - 2)
   })
   test("a section the script couldn't fill says its why", () => {
-    expect(allIn(GONE('gh unavailable'))).toEqual([{ tone: 'quiet', text: 'All in per merged pull request: gh unavailable' }])
+    expect(allIn(GONE('gh unavailable'))).toEqual([{ tone: 'quiet', text: 'All in per merged PR: gh unavailable' }])
   })
   test('nothing merged says so, not $0.00', () => {
-    expect(text(allIn({ ...ALL_IN, merged: 0, per_merged_usd: null }))).toBe('All in per merged pull request: nothing merged')
+    expect(text(allIn({ ...ALL_IN, merged: 0, per_merged_usd: null }))).toBe('All in per merged PR: nothing merged')
   })
   test('a null part says which: a model with no price, or a part the script could not count', () => {
     const unpriced = { ...ALL_IN, conversation_cost_usd: null, cost_usd: null, per_merged_usd: null, unpriced: { 'm-b': 'not in prices.json' } }
-    expect(text(allIn(unpriced))).toBe('All in per merged pull request: a model has no price')
+    expect(text(allIn(unpriced))).toBe('All in per merged PR: a model has no price')
     expect(text(allIn(unpriced, { conversations: GONE('no transcripts') })))
-      .toBe("All in per merged pull request: the conversations' cost isn't known")
+      .toBe("All in per merged PR: the conversations' cost isn't known")
     const quiet = { ...ALL_IN, loop_cost_usd: null, cost_usd: null, per_merged_usd: null }
-    expect(text(allIn(quiet))).toBe("All in per merged pull request: the loop's cost isn't known")
+    expect(text(allIn(quiet))).toBe("All in per merged PR: the loop's cost isn't known")
   })
   test('with no loop spend it still draws, under the why', () => {
     const lines = spend({ ...DOC, loop_spend: GONE('no loop records'), all_in: { ...ALL_IN, loop_cost_usd: null, cost_usd: null, per_merged_usd: null } }).lines
-    expect(text(lines)).toBe("no loop records\nAll in per merged pull request: the loop's cost isn't known")
+    expect(text(lines)).toBe("no loop records\nAll in per merged PR: the loop's cost isn't known")
   })
   test('a document without the section draws no line for it', () => {
     expect(spend(DOC).lines.filter(l => l.text.startsWith('All in'))).toEqual([])
