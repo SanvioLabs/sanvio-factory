@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Keeping the loop to its own work
+
+[`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has a new part, *Keeping the loop to its own work*, on the boundary the loop runs inside: the settings to make on your own machine (Claude Code's sandbox, `network_allow`, `max_issue_tokens`, `sandbox_commands`, and a fine-grained GitHub token for the one repo with the permissions it needs), the dev container, and a machine off yours. [`README.md`](README.md)'s *Set up* points at it before *Where to run it*.
+
+Files: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing.
+
 ## 2026-11-15: A review rubric can define each grade
 
 [`review-rubric.json`](review-rubric.json) can now be a ladder: an object with one key, `levels`, giving each grade from `"0"` to `"10"` the verdicts it takes and the check runs, by name, that have to have passed, with `"*"` for every check run. A review gets the highest grade whose rung is met, pending while a check a higher rung names is still running. The five-key rubric grades exactly as before. The loop, the CI review and `python3 scripts/loop.py grade <pr> --verdict "<verdict>"` all grade through the same code, and the new command prints the grade a verdict would get without posting or changing anything, so you can try a rubric before `auto_merge` relies on it. [`skills/review-pr/`](skills/review-pr/SKILL.md) now runs that command for a review a person runs by hand, instead of applying the rubric itself. [`docs/review-rubric.md`](docs/review-rubric.md) explains both shapes, with three worked rubrics and how `min_grade` reads against each.

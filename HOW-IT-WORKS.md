@@ -809,6 +809,63 @@ It's never written into a file, the workflow, `loop.json` or an issue.
 secret it names, and read its opening comment: it lists the repository setting
 that has to be on for a workflow to open a pull request at all.
 
+### Keeping the loop to its own work
+
+An agent the loop starts can do what the login it runs as can do. The factory
+narrows that in places: [`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses credential files by name
+and a few commands that print secrets, and the loop drops anything named like a
+secret from its agents' and tests' environment. The guard is a backstop rather
+than a sandbox. It refuses the paths and commands it knows, and anything it
+doesn't know goes through. What keeps the loop to its own work is the boundary
+it runs inside, and there are three: your own machine, the dev container, and a
+machine that isn't yours. None of the three stops an agent from reading what's
+inside its own boundary. Put nothing inside it that you'd mind an agent reading.
+
+#### On your own machine
+
+On your laptop the loop and every agent it starts run as you, so they can reach
+whatever your login can: every repo `gh` can push to, your cloud command-line
+sign-ins, your other projects. Before the loop takes real work, set these:
+
+- **Claude Code's sandbox, for your own sessions.** Turn on [Claude Code's
+  sandbox](https://code.claude.com/docs/en/sandboxing) in your own settings, so
+  the shell commands in the sessions you run here reach only the folders and
+  network it allows. The factory's shared [`.claude/settings.json`](.claude/settings.json) doesn't turn
+  it on.
+- **The loop's limits, for its agents.** In the factory's `loop.json`, set
+  `network_allow` to the domains your builds need, so a `claude` build or
+  tester agent's shell runs in that same sandbox, and set `max_issue_tokens`,
+  so one issue can't spend without limit. Keep `sandbox_commands` on: it keeps
+  the loop's test, generate and setup commands away from your credential files,
+  and it works on a Mac only. Their rows in the table under [The loop](#the-loop)
+  say what each covers.
+- **A GitHub token for the one repo.** Agents can still reach the login `gh`
+  holds, so sign `gh` in, for the login the loop runs as, with a fine-grained
+  personal access token for the one repo the loop works on rather than your
+  full login. Give it these repository permissions: Contents read and write,
+  Pull requests read and write, Issues read and write, Commit statuses read,
+  Checks read, and Metadata read. Contents write is needed only where the loop
+  pushes branches or `auto_merge` is on.
+- **Nothing you'd mind it reading.** Keep production cloud credentials and
+  customer data out of the login the loop runs as: run it as a separate user,
+  or on a machine that has neither.
+
+#### In the dev container
+
+[`.devcontainer/README.md`](.devcontainer/README.md) sets up a Linux container that takes nothing from your
+machine but this repo's folder. The container is the boundary around Claude
+Code and the loop, and it's the same on Mac, Linux and Windows. Inside it,
+`sandbox_commands` doesn't run, and the container has no `bwrap` or `socat`, so
+`network_allow` stops the loop with an `ERROR`. Its README's *What the container
+doesn't stop* says what's still in reach: the two sign-ins, the workspace and
+the network.
+
+#### Off your machine
+
+A VM or GitHub Actions moves the boundary off your machine altogether. The VM
+and GitHub Actions rows in the table under *Off your laptop* above say what each
+needs and costs.
+
 ## Handing work to another factory
 
 A factory is any system that takes work in and puts checked work out. This
