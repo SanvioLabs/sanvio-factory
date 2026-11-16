@@ -28,9 +28,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-# Each check run on the commit, one per line: its status, its conclusion or '', and its page, which names
-# the workflow run it belongs to.
-RUNS_JQ = '.check_runs[] | [.status, (.conclusion // ""), .html_url, (.id | tostring)] | @tsv'
+# Each check run on the commit, one per line: its status, its conclusion or '', its page, which names the
+# workflow run it belongs to, its id, and its name, which a ladder rubric's rungs name.
+RUNS_JQ = '.check_runs[] | [.status, (.conclusion // ""), .html_url, (.id | tostring), .name] | @tsv'
 MAX_WAIT_MINUTES = 15  # the job's timeout is 30 minutes, and the review posts after this step
 NOT_LATER = ("Nothing grades this review later: it stays pending until the workflow runs again on a new push "
              "or a re-run.")
@@ -51,38 +51,41 @@ def wait_minutes(environ):
 
 def read_checks(repo, sha, run_id, own_check_run, passing):
     """(passing, none, failing or pending; why reading them failed, or None; whether reading again could
-    change it), the way loop.py's pr_checks() reads them, without the review's own job. A failed read is
-    pending, as it is in the loop. A refused one is final, since reading again gets the same refusal."""
+    change it; the runs as (status, conclusion, name), or None when they couldn't be read), the way loop.py's
+    pr_runs() and pr_checks() read them, without the review's own job. A failed read is pending, as it is in
+    the loop. A refused one is final, since reading again gets the same refusal."""
     try:
         done = subprocess.run(["gh", "api", "--paginate", "repos/{}/commits/{}/check-runs".format(repo, sha),
                                "--jq", RUNS_JQ], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError) as error:
-        return "pending", "gh couldn't be run ({})".format(error), False
+        return "pending", "gh couldn't be run ({})".format(error), False, None
     if done.returncode != 0:
         said = (done.stderr.strip().splitlines() or ["nothing"])[0]
         if "HTTP 403" in said:
             return "pending", ("GitHub refused it ({}). The workflow's token needs checks: read to grade the "
-                               "checks".format(said)), True
-        return "pending", "gh api exited {}: {}".format(done.returncode, said), False
+                               "checks".format(said)), True, None
+        return "pending", "gh api exited {}: {}".format(done.returncode, said), False, None
     own = "/actions/runs/{}/".format(run_id)
     runs = []
     for line in done.stdout.split("\n"):
         if not line.strip():
             continue
         run = line.split("\t")
-        if len(run) != 4:
-            return "pending", "gh api gave a line that isn't a check run", False
+        if len(run) == 4:  # a line without a name, which a ladder's rung can't match
+            run.append("")
+        if len(run) != 5:
+            return "pending", "gh api gave a line that isn't a check run", False, None
         if own_check_run:
             if run[3] == own_check_run:
                 continue
         elif run_id and own in run[2]:
             continue
-        runs.append(run[:2])
-    if any(status == "completed" and conclusion not in passing for status, conclusion in runs):
-        return "failing", None, False
-    if any(status != "completed" for status, _ in runs):
-        return "pending", None, False
-    return ("passing" if runs else "none"), None, False
+        runs.append((run[0], run[1], run[4]))
+    if any(status == "completed" and conclusion not in passing for status, conclusion, _ in runs):
+        return "failing", None, False, runs
+    if any(status != "completed" for status, _, _ in runs):
+        return "pending", None, False, runs
+    return ("passing" if runs else "none"), None, False, runs
 
 
 def grade(environ):
@@ -98,16 +101,16 @@ def grade(environ):
     rubric, why = loop.load_rubric(loop.ROOT / loop.DEFAULTS["review_rubric"])
     poll = number(environ, "GRADE_POLL_SECONDS", 30)
     deadline = time.monotonic() + wait_minutes(environ) * 60
-    notes, checks, final = [], "", False
+    notes, checks, final, runs = [], "", False, ()
     while True:
         if rubric is not None:  # a bad rubric grades 0 whatever the checks say, as in the loop
-            checks, failed, final = read_checks(environ.get("REPO", ""), environ.get("HEAD_SHA", ""),
-                                                environ.get("GITHUB_RUN_ID", ""), environ.get("OWN_CHECK_RUN_ID", ""),
-                                                loop.PASSING_CHECKS)
+            checks, failed, final, runs = read_checks(environ.get("REPO", ""), environ.get("HEAD_SHA", ""),
+                                                      environ.get("GITHUB_RUN_ID", ""),
+                                                      environ.get("OWN_CHECK_RUN_ID", ""), loop.PASSING_CHECKS)
             note = "Reading the check runs failed, so they count as pending: {}.".format(failed) if failed else None
             if note and note not in notes:
                 notes.append(note)
-        result = loop.review_grade_for(verdict, checks, rubric, why)
+        result = loop.review_grade_for(verdict, checks, rubric, why, runs=runs)
         left = deadline - time.monotonic()
         if result[0] is not None or final or left <= 0:
             break

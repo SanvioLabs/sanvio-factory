@@ -226,12 +226,17 @@ the same rubric and code the loop grades its own reviews with:
 factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scripts/loop.py`](../../scripts/loop.py), both read
 from the factory's default branch. A [`review-rubric.json`](../../review-rubric.json) in the product repo,
 or in the pull request, is never read. It combines the report's verdict with
-the pull request's other checks: a failed check gives the rubric's `failing`
-grade, and a report whose last line isn't a verdict gives its `unreadable`
-one. A rubric that's missing or isn't valid grades 0 and names the file.
+the pull request's other checks. The shipped rubric gives a failed check, and
+a report whose last line isn't a verdict, a grade of their own. A ladder
+rubric says what each grade needs instead, such as a 10 that needs a check run
+named `security-scan` to have passed, matched by the check run's name.
+[`docs/review-rubric.md`](../../docs/review-rubric.md) has both shapes and worked examples. A rubric
+that's missing or isn't valid grades 0 and names the file.
 
-To change the grades, edit [`review-rubric.json`](../../review-rubric.json) in your factory's repo. Every
-product repo's next review uses the new numbers.
+To change the grades, edit [`review-rubric.json`](../../review-rubric.json) in your factory's repo, and try
+it on an open pull request first with `python3 scripts/loop.py grade <n>
+--verdict "ready"` from the factory. Every product repo's next review uses the
+new rubric.
 
 The grade waits up to 10 minutes for the pull request's other checks to
 finish. It leaves out only the review's own job, so a test job beside it in

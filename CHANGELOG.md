@@ -44,6 +44,14 @@ Files: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`CHANGEL
 
 **Do:** nothing.
 
+## 2026-11-15: A review rubric can define each grade
+
+[`review-rubric.json`](review-rubric.json) can now be a ladder: an object with one key, `levels`, giving each grade from `"0"` to `"10"` the verdicts it takes and the check runs, by name, that have to have passed, with `"*"` for every check run. A review gets the highest grade whose rung is met, pending while a check a higher rung names is still running. The five-key rubric grades exactly as before. The loop, the CI review and `python3 scripts/loop.py grade <pr> --verdict "<verdict>"` all grade through the same code, and the new command prints the grade a verdict would get without posting or changing anything, so you can try a rubric before `auto_merge` relies on it. [`skills/review-pr/`](skills/review-pr/SKILL.md) now runs that command for a review a person runs by hand, instead of applying the rubric itself. [`docs/review-rubric.md`](docs/review-rubric.md) explains both shapes, with three worked rubrics and how `min_grade` reads against each.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`docs/review-rubric.md`](docs/review-rubric.md), [`docs/review-rubric.svg`](docs/review-rubric.svg), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To define what each grade needs, read [`docs/review-rubric.md`](docs/review-rubric.md), then try your rubric with `python3 scripts/loop.py grade <pr> --verdict "ready"` before `auto_merge` relies on it.
+
 ## 2026-11-15: A dev container for the factory and the loop
 
 A dev container in [`.devcontainer/`](.devcontainer/) runs the factory and the loop on Linux, with Python 3.12, git, tmux, Node, the GitHub CLI and Claude Code. It runs as the non-root `vscode` user, pins its image and every feature by tag, and mounts nothing from your machine but the workspace folder. Claude Code's and the GitHub CLI's sign-ins live in two named volumes of its own, so they survive a rebuild. The loop's macOS command sandbox doesn't run inside it, and its README says what the container doesn't stop. [`tests/test_devcontainer.py`](tests/test_devcontainer.py) checks the pins, the user, the mounts and the setup command.
