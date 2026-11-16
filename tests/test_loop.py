@@ -901,6 +901,9 @@ elif args[:2] == ["issue", "edit"] and "--remove-label" in args and os.path.exis
         open(path + ".part", "w").write(json.dumps(listed))
         os.replace(path + ".part", path)
 elif args[:2] == ["issue", "view"]:
+    if os.path.exists(os.path.join(state, "issue-view-fails")):
+        print("HTTP 502")  # on stdout, as gh prints its errors
+        sys.exit(1)
     path = os.path.join(state, "issue-state")
     print(open(path).read().strip() if os.path.exists(path) else "OPEN")
 elif args[:2] == ["pr", "create"]:
@@ -3510,6 +3513,82 @@ class TestAPass(unittest.TestCase):
         self.assertTrue(tree.exists())
         self.assertTrue(self.branch_exists())
         self.assertIn("could not read the pull request's state: HTTP 502", "\n".join(self.lines()))
+        self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
+
+    # -- a blocked issue that's closed later ---------------------------------
+
+    def blocked_runner(self):
+        """A runner whose #12 is blocked, with nothing ready on GitHub."""
+        runner = loop.Loop(self.work, self.cfg)
+        runner.mark(12, state="blocked", note="five rounds")
+        (self.state / "issues.json").write_text("[]")
+        return runner
+
+    def poll(self, runner):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return runner.run(once=True)
+
+    def row(self, number):
+        return next(r for r in self.status()["issues"] if r["number"] == number)
+
+    @staticmethod
+    def issue_views(gh):
+        return [c for c in gh.call_args_list if c.args[:2] == ("issue", "view")]
+
+    def test_a_blocked_issue_closed_later_is_marked_skipped(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("CLOSED")
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "skipped")
+        self.assertEqual(self.row(12)["note"], "issue closed while blocked")
+        cleanup = [l for l in self.lines() if l.split()[2] == "CLEANUP"]
+        self.assertEqual(len(cleanup), 1)
+        self.assertIn("#12", cleanup[0])
+
+    def test_a_blocked_issue_still_open_stays_blocked(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("OPEN")
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "blocked")
+        self.assertEqual(self.row(12)["note"], "five rounds")
+        self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
+
+    def test_a_failed_issue_read_leaves_the_row_blocked_and_logs_once(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-view-fails").write_text("")
+        self.poll(runner)
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "blocked")
+        errors = [l for l in self.lines() if l.split()[2] == "ERROR"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("could not read whether the blocked issue is closed: HTTP 502", errors[0])
+
+    def test_an_open_blocked_issue_is_looked_up_again_only_after_an_hour(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("OPEN")
+        with mock.patch.object(runner, "gh", wraps=runner.gh) as gh:
+            self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 1)
+            self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 1)
+            (self.state / "issue-state").write_text("CLOSED")
+            later = runner.open_checked[12] + loop.BLOCKED_RECHECK_SECONDS + 1
+            with mock.patch.object(loop.time, "monotonic", return_value=later):
+                self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 2)
+        self.assertEqual(self.row(12)["state"], "skipped")
+
+    def test_a_closed_issue_with_a_pull_request_or_stopped_keeps_its_row(self):
+        runner = loop.Loop(self.work, self.cfg)
+        runner.mark(12, state="pr", note="opened")
+        runner.mark(13, state="stopped", note="interrupted")
+        (self.state / "issues.json").write_text("[]")
+        (self.state / "issue-state").write_text("CLOSED")
+        with mock.patch.object(runner, "gh", wraps=runner.gh) as gh:
+            self.poll(runner)
+        self.assertEqual(self.issue_views(gh), [])
+        self.assertEqual((self.row(12)["state"], self.row(12)["note"]), ("pr", "opened"))
+        self.assertEqual((self.row(13)["state"], self.row(13)["note"]), ("stopped", "interrupted"))
         self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
 
     # -- a pull request that conflicts with its base in CHANGELOG.md ---------
