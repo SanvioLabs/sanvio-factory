@@ -22,7 +22,7 @@ flowchart LR
 - In VS Code, with the Dev Containers extension: open this folder and run **Dev Containers: Reopen in Container** from the command palette.
 - From a terminal, with the `devcontainer` CLI: run `devcontainer up --workspace-folder .` in this folder, then `devcontainer exec --workspace-folder . bash` to get a shell.
 
-The first build takes a few minutes. When it finishes, it points git at `.githooks` and runs `python3 scripts/check_setup.py`, whose output says what's still to set up.
+The first build takes a few minutes. When it finishes, it points git at [`.githooks`](../.githooks) and runs `python3 scripts/check_setup.py`, whose output says what's still to set up.
 
 ## Sign in
 
