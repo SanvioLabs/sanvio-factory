@@ -13,11 +13,12 @@ local model behind it.
 
 ## 1. Check the examples
 
-Two public suites ship with this repo. Check both:
+Three public suites ship with this repo. Check all three:
 
 ```bash
 python3 scripts/eval_factory.py validate examples/eval-suite
 python3 scripts/eval_factory.py validate examples/eval-suite-tool-library
+python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions
 ```
 
 Each prints `the seed fails, each wrong answer fails, the reference passes`.

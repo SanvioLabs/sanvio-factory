@@ -217,8 +217,9 @@ suite its own section.
 ## Keeping a suite fair
 
 - **A public suite can't measure anything.** An agent can read it, the key
-  included. [`examples/eval-suite/`](../examples/eval-suite/) and
-  [`examples/eval-suite-tool-library/`](../examples/eval-suite-tool-library/) are public to show the format, and
+  included. [`examples/eval-suite/`](../examples/eval-suite/),
+  [`examples/eval-suite-tool-library/`](../examples/eval-suite-tool-library/) and
+  [`examples/eval-suite-planted-instructions/`](../examples/eval-suite-planted-instructions/) are public to show the format, and
   that's all they're for.
 - **Keep a real suite in a private repo,** outside the factory and anywhere its
   agents may read. The script refuses a key inside the factory or the clone

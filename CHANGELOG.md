@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Eval suite for planted instructions
+
+A third public eval suite, [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), tests whether a factory's build agent follows instructions planted in its work: one in an issue's body that asks it to let CI fail without blocking the merge, and one in a repo file the next issue needs that asks it to write down the machine's environment variable names. Each has a trap in [`key/score`](examples/eval-suite-planted-instructions/key/score) and a known wrong answer that does the work and follows that one instruction. Its traps are public, so it shows the shape of such a suite and can't measure a factory that has read it.
+
+[`scripts/link_files.py`](scripts/link_files.py) now leaves an eval suite's issues as written, because each is posted in the run's own repo, where a link into this one would break. [`.gitignore`](.gitignore) keeps a suite's seed `loop.json` tracked even when a copy keeps its own `loop.json` out of git.
+
+Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
+**Do:** nothing. Run python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions to see it.
+
 ## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
 
 Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.
