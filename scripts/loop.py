@@ -232,6 +232,11 @@ STATUS_KEEP = 20  # issues kept in status.json, newest first
 UNTRUSTED_CLAUDE = ["--restricted", "--strict-mcp-config", "--tools", "Read,Grep,Glob"]
 # What agent() returns when it won't start a reader it can't confine on someone else's files.
 REFUSED = 125
+# What stream() returns when it stopped a claude build or tester because its issue went over max_issue_tokens.
+# Past 255, so no exit status an agent gives itself is taken for it.
+OVER_BUDGET = 1000
+# How the commit of a build or tester stopped over max_issue_tokens ends, after "Loop: issue #N, round R, ".
+STOPPED_OVER_BUDGET = "stopped over max_issue_tokens."
 # The agents loop.json can name instead of giving a command line, each with an optional :model.
 AGENT_NAMES = ("claude", "codex", "ollama")
 # Who may write an issue the loop builds from as it stands. Anyone else's issue is taken only as it
@@ -1525,17 +1530,53 @@ def result_line(line):
         # An error result has no reply, only its kind, such as error_max_turns: the log says which.
         kind = found.get("subtype")
         text = "claude ended: {}".format(kind if isinstance(kind, str) else "error") if found.get("is_error") else ""
-    counts = found.get("usage") if isinstance(found.get("usage"), dict) else {}
-
-    def number(value):
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-    usage = {"input_tokens": number(counts.get("input_tokens")),
-             "output_tokens": number(counts.get("output_tokens")),
-             "cache_write_tokens": number(counts.get("cache_creation_input_tokens")),
-             "cache_read_tokens": number(counts.get("cache_read_input_tokens")),
-             "cost_usd": number(found.get("total_cost_usd"))}
+    usage = token_counts(found.get("usage") if isinstance(found.get("usage"), dict) else {})
+    usage["cost_usd"] = usage_number(found.get("total_cost_usd"))
     return text, (usage if any(value is not None for value in usage.values()) else None)
+
+
+def usage_number(value):
+    """value when it's a number, else None. A bool is not a number here."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def token_counts(counts):
+    """claude's usage dict as usage.json names its four token counts, each a number or None."""
+    return {"input_tokens": usage_number(counts.get("input_tokens")),
+            "output_tokens": usage_number(counts.get("output_tokens")),
+            "cache_write_tokens": usage_number(counts.get("cache_creation_input_tokens")),
+            "cache_read_tokens": usage_number(counts.get("cache_read_input_tokens"))}
+
+
+def stop_message(number, round_no):
+    """The message of the commit that holds what a build or tester stopped over max_issue_tokens had made."""
+    return "Loop: issue #{}, round {}, {}".format(number, round_no, STOPPED_OVER_BUDGET)
+
+
+def assistant_usage(line):
+    """(message id, the four token counts) on a line that is claude's assistant event, else None.
+
+    The counts are its message's usage; None too when the event reports none of them. claude splits one
+    message into an event per content block, thinking, text and each tool call, and repeats the whole
+    message's usage on each, so the caller counts a message once by its id. The id is None when the event
+    has none, and then the event counts on its own.
+    """
+    if not line.lstrip().startswith("{"):
+        return None
+    try:
+        found = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(found, dict) or found.get("type") != "assistant" or not isinstance(found.get("message"), dict):
+        return None
+    counts = found["message"].get("usage")
+    if not isinstance(counts, dict):
+        return None
+    usage = token_counts(counts)
+    if not any(value is not None for value in usage.values()):
+        return None
+    ident = found["message"].get("id")
+    return (ident if isinstance(ident, str) and ident else None), usage
 
 
 def init_event(line):
@@ -2700,6 +2741,11 @@ class Loop:
         replaced by the reply's text, which goes to the log too and is all the return value holds, so
         everything built from it reads as plain text, and its usage is recorded for number.
 
+        A streaming claude build or tester is watched against max_issue_tokens: the issue's run so far, plus
+        each assistant event's tokens as they come. Once that passes the budget it is killed, with everything
+        it started, and nothing more is read. What its events counted is recorded as its usage, with no cost,
+        and the return is (OVER_BUDGET, what it had said). Any other agent or step always runs to its end.
+
         The model is the one claude's init event names, which the log shows ahead of the first tool
         call and the status row takes. Without one, it's the model cfg[which] names, or None.
         """
@@ -2754,6 +2800,11 @@ class Loop:
         session = None  # the id claude's init event names, for a retro to find its log
         answered = False
         stray = []  # stream-json: lines that weren't JSON, the reply when no result event comes
+        # The budget's watch. base is read once: only one agent of an issue runs at a time.
+        limit = budget(self.cfg)[0] if streaming and step in ("build", "test") and number is not None else None
+        base = self.run_tokens(number) if limit else 0
+        messages = {}  # message id, or a key of its own for an event with none -> its latest token counts
+        stopped = False
         with proc:
             self.agents.add(proc)
             if self.interrupted.is_set():
@@ -2793,6 +2844,20 @@ class Loop:
                             if shown is not None:
                                 handle.write(shown + "\n")
                                 handle.flush()
+                            found = assistant_usage(line) if limit else None
+                            if found:
+                                ident, event = found
+                                messages[ident if ident is not None else ("event", len(messages))] = event
+                                counted = {name: sum(m[name] or 0 for m in messages.values()) for name in USAGE_TOKENS}
+                                if base + sum(counted.values()) > limit:
+                                    stopped = True
+                                    try:
+                                        kill_tree(proc)
+                                    except (ProcessLookupError, PermissionError):
+                                        pass  # it ended on its own meanwhile
+                                    if usage is None:  # no result came, so these counts are all there is
+                                        usage = dict(counted, cost_usd=None)
+                                    break
                             continue
                         said.append(line)
                         handle.write(line)
@@ -2806,6 +2871,8 @@ class Loop:
                 except OSError as err:
                     # Never hides the run's own result.
                     self.log("ERROR", "could not record usage: {}".format(err.strerror or err), number)
+        if stopped:  # ahead of the timeout: the timer can't turn this stop into one
+            return OVER_BUDGET, "".join(said)
         if expired.is_set():
             return 124, "timed out after {}s".format(timeout)
         if streaming and not answered:
@@ -3285,6 +3352,19 @@ class Loop:
             self.block(number, "{} is at {}, which isn't the pull request's head, {}".format(
                 remote, tip.strip()[:12], str(pr["headRefOid"])[:12]))
             return False
+        # What a build stopped over max_issue_tokens had made is a person's to push or drop: never reset away.
+        code, out = self.git("log", "--format=%h", "--fixed-strings", "--all-match",
+                             "--grep=Loop: issue #{}, round ".format(number), "--grep=" + STOPPED_OVER_BUDGET,
+                             "HEAD", "--not", "--remotes", cwd=tree)
+        if code != 0:
+            self.block(number, "could not look for a stopped build's commit on {} (git exit {}), so the round "
+                               "reset nothing".format(branch, code))
+            return False
+        if out.strip():
+            self.block(number, "{0} has a build that was stopped over max_issue_tokens, committed here and never "
+                               "pushed, so the round reset nothing. Push it to the pull request's branch to keep it, "
+                               "or reset the branch to {1} to drop it, then put the issue back".format(branch, remote))
+            return False
         # Only what no remote has: a new worktree starts at the base, whose commits are pushed, not dropped.
         _, ahead = self.git("rev-list", "--count", "HEAD", "--not", "--remotes", cwd=tree)
         code, out = self.git(*NO_HOOKS, "reset", "-q", "--hard", remote, cwd=tree)
@@ -3538,6 +3618,8 @@ class Loop:
                                                           fixed, self.cfg["test_command"]
                                                           if self.builder_runs_tests() else ""),
                                     tree, number=number, step="build", round_no=round_no)
+            if code == OVER_BUDGET:
+                return self.stop_over_budget(number, tree, "build", round_no)
             if code != 0:
                 return self.block(number, "build failed (agent exit {})".format(code))
             # Before the add, so what it writes is in this round's commit and counts as a change below.
@@ -3690,6 +3772,20 @@ class Loop:
                                       "so no agent ran".format(number, code))
         if found.strip():
             return record(found.split()[0], "kept the tester's commit with")
+        # A tester stopped over max_issue_tokens left unfinished tests in a commit of their own. A new tester on
+        # top would count them as files that already existed, or leave them out of the files the build may not
+        # touch, so a person finishes or drops them first.
+        code, found = self.sh(["git", "log", "--format=%H", "--fixed-strings", "--grep=" + stop_message(number, 0),
+                               "origin/{}..HEAD".format(self.cfg["base"])], cwd=tree, stderr=False)
+        if code != 0:
+            return self.block(number, "could not look for a stopped tester's commit on loop/issue-{} (git exit {}), "
+                                      "so no agent ran".format(number, code))
+        if found.strip():
+            return self.block(number, (
+                "the tester was stopped over max_issue_tokens in an earlier run, and its unfinished tests are "
+                'committed on loop/issue-{0} as "{1}", so no tester ran. Finish them in that commit and reword '
+                'it to "{2}", or reset the branch to origin/{3} to drop it, then put the issue back'
+            ).format(number, stop_message(number, 0), message, self.cfg["base"]))
 
         if self.stopped():
             self.mark(number, state="stopped", note="stopped before the tester")
@@ -3702,6 +3798,8 @@ class Loop:
         code, _ = self.agent(self.tester(),
                              tester_prompt(issue, plan, self.cfg["test_paths"], self.rules, self.cfg["test_command"]),
                              tree, number=number, step="test")
+        if code == OVER_BUDGET:  # not reject(): what it wrote is kept, committed for a person to pick up
+            return self.stop_over_budget(number, tree, "test", 0)
         if code != 0:
             return reject("tester failed (agent exit {})".format(code))
 
@@ -3749,6 +3847,38 @@ class Loop:
             return self.block(number, "could not find the tester's commit on loop/issue-{} (git exit {}), "
                                       "so no build ran".format(number, code))
         return record(found.split()[0], "committed")
+
+    def stop_over_budget(self, number, tree, step, round_no):
+        """Block the issue after stream() stopped its build or tester over max_issue_tokens.
+
+        What the agent had changed is committed on the local loop/issue-N, hooks off as the build commit is,
+        and never pushed: a person finishes it, or relabels the issue to start a fresh budget. The message
+        matches the lockfile check's grep, so a reused branch's lockfiles are still checked, and never the
+        tester's "round 0 (tests)." lookup, so a stopped tester's commit isn't taken for a finished one.
+        A relabel won't build over a stopped tester's commit (tests_first) or reset away an unpushed stop
+        commit under an open pull request (from_remote): both block for a person instead.
+        """
+        who = "tester" if step == "test" else "build"
+        self.git("add", "-A", cwd=tree)
+        staged = [p for p in self.git("diff", "--cached", "--name-only", "--no-renames", "-z",
+                                      cwd=tree)[1].split("\0") if p]
+        ccode = 0
+        if staged:
+            ccode = self.git(*NO_HOOKS, "commit", "-q", "-m", stop_message(number, round_no), cwd=tree)[0]
+        total = self.run_tokens(number)
+        self.log("BUDGET", "{} round {} stopped at {:,} tokens".format(step, round_no, total), number)
+        # over_budget() is None only if the stopped run's usage couldn't be written: say what is known.
+        why = self.over_budget(number) or "went over max_issue_tokens {:,}".format(budget(self.cfg)[0])
+        if not staged:
+            return self.block(number, "{}; the {} was stopped part way, before it had changed anything".format(
+                why, who))
+        if ccode != 0:
+            # git's output stays out: it lands on the issue.
+            return self.block(number, "{}; the {} was stopped part way, and what it had made could not be "
+                                      "committed (git exit {}), so it is uncommitted in the worktree".format(
+                                          why, who, ccode))
+        return self.block(number, "{}; the {} was stopped part way, and what it had made is committed on "
+                                  "loop/issue-{}, not pushed".format(why, who, number))
 
     def discard_edits(self, tree, step, who, number):
         """Throw away whatever a reader changed in the worktree. It was told not to edit, and only

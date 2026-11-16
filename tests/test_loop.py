@@ -979,6 +979,48 @@ else:
     print("Added feature.txt.")
 """
 
+# A stand-in claude for the budget's watch, streaming as claude -p --output-format stream-json does, each
+# line flushed. The build writes feature.txt and partial.txt, and the tester tests/test_partial.txt, unless
+# idle-<step> is there. Then each step prints events-<step> assistant events (none by default) of 100 tokens
+# each, all one message's when same-<step> is there, as claude repeats a message's usage on each of its blocks,
+# and sleeps linger-<step> seconds (none by default), writes LATE-<step> in the state folder, and prints its
+# result: 100 tokens an event, or 10 with none. The review passes, or asks for a fix when fix-review is there.
+BUDGET_AGENT = """#!/usr/bin/env python3
+import json, os, sys, time
+prompt = sys.stdin.read()
+state = os.environ["LOOP_TEST_STATE"]
+step = ("plan" if "You are planning" in prompt else "test" if "You are writing the tests" in prompt
+        else "review" if "You are the reviewer" in prompt else "build")
+def setting(name):
+    path = os.path.join(state, name + "-" + step)
+    return float(open(path).read()) if os.path.exists(path) else 0
+def say(event):
+    sys.stdout.write(json.dumps(event) + "\\n")
+    sys.stdout.flush()
+if os.path.exists(os.path.join(state, "idle-" + step)):
+    pass
+elif step == "build":
+    open("feature.txt", "a").write("done")
+    open("partial.txt", "a").write("x")
+elif step == "test":
+    os.makedirs("tests", exist_ok=True)
+    open(os.path.join("tests", "test_partial.txt"), "a").write("x")
+events = int(setting("events"))
+same = os.path.exists(os.path.join(state, "same-" + step))
+for i in range(events):
+    say({"type": "assistant", "message": {"id": "msg_one" if same else "msg_%d" % i,
+                                          "content": [{"type": "text", "text": "Working."}], "usage": {
+        "input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}})
+time.sleep(setting("linger"))
+open(os.path.join(state, "LATE-" + step), "w").write("")
+verdict = "feature.txt is wrong.\\nVERDICT: FIX" if os.path.exists(os.path.join(state, "fix-review")) else \\
+    "Looks right.\\nVERDICT: PASS"
+reply = {"plan": "Plan: add feature.txt.", "review": verdict, "test": "Wrote the tests.",
+         "build": "Added feature.txt."}[step]
+say({"type": "result", "subtype": "success", "result": reply + "\\n", "total_cost_usd": 0.01,
+     "usage": {"input_tokens": 100 * events or 10, "output_tokens": 0}})
+"""
+
 
 def git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, check=True)
@@ -5178,6 +5220,29 @@ class TestRoundOnOpenPullRequest(unittest.TestCase):
         self.assertTrue(any("dropped 1 local commit that was never pushed" in l for l in self.lines()), self.lines())
         self.assertFalse((tree / "unpushed.txt").exists())
 
+    def test_a_build_stopped_over_the_budget_is_never_reset_away_and_blocks_the_round(self):
+        self.go()
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        (tree / "partial.txt").write_text("x")
+        git(tree, "add", "partial.txt")
+        git(tree, "commit", "-q", "-m", loop.stop_message(12, 2))
+        stop = git(tree, "rev-parse", "HEAD").stdout
+        before = self.origin_head()
+        started = (self.state / "agents-started").read_text()
+        self.open_pr()
+        self.go()
+        self.assertEqual(git(tree, "rev-parse", "HEAD").stdout, stop)
+        self.assertTrue((tree / "partial.txt").exists())
+        self.assertEqual(self.origin_head(), before)
+        self.assertEqual((self.state / "agents-started").read_text(), started, "an agent ran on the round")
+        self.assertFalse(any("dropped" in l for l in self.lines()), self.lines())
+        row = [r for r in self.status()["issues"] if r["number"] == 12][0]
+        self.assertEqual(row["state"], "blocked")
+        self.assertEqual(row["note"], "loop/issue-12 has a build that was stopped over max_issue_tokens, committed "
+                                      "here and never pushed, so the round reset nothing. Push it to the pull "
+                                      "request's branch to keep it, or reset the branch to origin/loop/issue-12 to "
+                                      "drop it, then put the issue back")
+
     def test_a_fresh_worktree_on_a_newer_main_drops_nothing_it_has_to_say(self):
         # The branch was pushed, then main moved on: a new worktree starts at main, whose commits are pushed.
         self.push_from_other()
@@ -6291,6 +6356,273 @@ class TestProject(unittest.TestCase):
         path = Path(self.tmp.name) / "bin" / "claude"
         path.write_text("#!/usr/bin/env python3\nimport os, sys\nsys.stdin.read()\n"
                         "sys.stdout.write(open(os.path.join(os.environ['LOOP_TEST_STATE'], 'stream')).read())\n")
+
+    def budget_run(self, fail_stop_commit=False, unrecorded=None, **changes):
+        """One pass with BUDGET_AGENT as claude, and the project's config with changes, where None drops a key.
+        Every command the loop runs goes in self.ran. fail_stop_commit fails the stop commit as git would, and
+        unrecorded names a step whose usage can't be written. Returns how many seconds it took."""
+        (Path(self.tmp.name) / "bin" / "claude").write_text(BUDGET_AGENT)
+        cfg = loop.load_project_config(self.harness, self.project)
+        for key, value in changes.items():
+            if value is None:
+                cfg.pop(key, None)
+            else:
+                cfg[key] = value
+        self.ran = []
+        sh, record = loop.Loop.sh, loop.Loop.record_usage
+
+        def spy(me, cmd, *args, **kwargs):
+            self.ran.append(cmd)
+            if fail_stop_commit and isinstance(cmd, list) and "commit" in cmd and \
+                    any(loop.STOPPED_OVER_BUDGET in part for part in cmd):
+                return 1, ""
+            return sh(me, cmd, *args, **kwargs)
+
+        def recording(me, number, step, *args, **kwargs):
+            if step == unrecorded:
+                raise OSError(28, "No space left on device")
+            return record(me, number, step, *args, **kwargs)
+
+        began = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                mock.patch.object(loop.Loop, "sh", spy), mock.patch.object(loop.Loop, "record_usage", recording):
+            loop.Loop(self.harness, cfg, project=self.project).run(once=True)
+        return time.monotonic() - began
+
+    def pushes(self):
+        """Each git push the last budget_run ran."""
+        return [cmd for cmd in self.ran if isinstance(cmd, list) and cmd[:1] == ["git"] and "push" in cmd]
+
+    def stop_comment(self):
+        """The text of the last comment on the issue."""
+        calls = (self.state / "gh-calls").read_text()
+        return calls.split("issue comment ")[-1] if "issue comment " in calls else ""
+
+    def budget_lines(self):
+        """What follows the step word on each BUDGET line of the project's loop.log."""
+        log = (self.harness / ".loop" / "projects" / "app" / "loop.log").read_text()
+        return [l.split(" ", 3)[3] for l in log.splitlines() if l.split()[2] == "BUDGET"]
+
+    def budget_comment(self):
+        calls = (self.state / "gh-calls").read_text()
+        return calls.split("issue comment ", 1)[1] if "issue comment " in calls else ""
+
+    def budget_usage(self):
+        return json.loads((self.harness / ".loop" / "projects" / "app" / "issue-12" / "usage.json").read_text())
+
+    def budget_row(self):
+        return json.loads((self.harness / ".loop" / "projects" / "app" / "status.json").read_text())["issues"][0]
+
+    def test_one_message_split_into_events_counts_once_so_the_build_isnt_stopped_early(self):
+        # Three events of one message, 100 tokens each as claude repeats it: the plan's 10 and the message's
+        # 100 stay under 150, where counting each event would reach 310 and stop the build at its second.
+        (self.state / "events-build").write_text("3")
+        (self.state / "same-build").write_text("")
+        self.budget_run(max_issue_tokens=150)
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_lines(), [])
+
+    def test_assistant_usage_names_the_message_so_its_blocks_count_once(self):
+        line = json.dumps({"type": "assistant", "message": {"id": "msg_1", "content": [], "usage": {
+            "input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 3}}})
+        self.assertEqual(loop.assistant_usage(line), ("msg_1", {"input_tokens": 2, "output_tokens": 4,
+                                                                "cache_write_tokens": 3, "cache_read_tokens": 10}))
+        no_id = json.dumps({"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 5}}})
+        self.assertEqual(loop.assistant_usage(no_id)[0], None)
+        self.assertIsNone(loop.assistant_usage(json.dumps({"type": "user", "message": {"usage": {"input_tokens": 5}}})))
+
+    def test_a_build_over_the_budget_is_stopped_at_once_and_what_it_made_is_committed_not_pushed(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        # The plan's 10, then the build's first event takes the run to 110 and its second to 210.
+        took = self.budget_run(max_issue_tokens=150)
+        self.assertLess(took, 20)
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.budget_comment()
+        self.assertIn("used 210 tokens this run, over max_issue_tokens 150", comment)
+        self.assertIn("the build was stopped part way", comment)
+        self.assertIn("committed on loop/issue-12, not pushed", comment)
+        shown = git(self.project, "show", "--name-only", "--format=%s", "loop/issue-12").stdout.splitlines()
+        self.assertEqual(shown[0], "Loop: issue #12, round 1, stopped over max_issue_tokens.")
+        self.assertIn("partial.txt", shown)
+        calls = (self.state / "gh-calls").read_text()
+        self.assertNotIn("pr create", calls)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(git(self.project, "ls-remote", "origin", "loop/issue-12").stdout, "")
+        self.assertEqual(git(self.origin, "rev-parse", "develop").stdout, base)
+        entries = self.budget_usage()
+        self.assertEqual([(e["step"], e["round"], e["input_tokens"], e["cost_usd"]) for e in entries],
+                         [("plan", 0, 10, 0.01), ("build", 1, 200, None)])
+        self.assertEqual(loop.usage_totals(entries)[0], 210)  # what the comment says
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+        self.assertFalse((self.state / "LATE-review").exists())
+
+    def test_a_tester_over_the_budget_is_stopped_the_same_way_and_its_files_are_committed(self):
+        (self.state / "events-test").write_text("3")
+        (self.state / "linger-test").write_text("30")
+        took = self.budget_run(max_issue_tokens=150, test_first=True)
+        self.assertLess(took, 20)
+        self.assertFalse((self.state / "LATE-test").exists())
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.budget_comment()
+        self.assertIn("used 210 tokens this run, over max_issue_tokens 150", comment)
+        self.assertIn("the tester was stopped part way", comment)
+        shown = git(self.project, "show", "--name-only", "--format=%s", "loop/issue-12").stdout.splitlines()
+        self.assertEqual(shown[0], "Loop: issue #12, round 0, stopped over max_issue_tokens.")
+        self.assertIn("tests/test_partial.txt", shown)
+        # Never taken for the tester's finished commit when the issue is put back.
+        self.assertNotIn("round 0 (tests).", git(self.project, "log", "--format=%B", "loop/issue-12").stdout)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(git(self.project, "ls-remote", "origin", "loop/issue-12").stdout, "")
+        self.assertEqual(self.budget_lines(), ["test round 0 stopped at 210 tokens"])
+
+    def test_a_relabel_after_a_stopped_tester_runs_no_tester_over_its_unfinished_tests(self):
+        (self.state / "events-test").write_text("3")
+        (self.state / "linger-test").write_text("30")
+        self.budget_run(max_issue_tokens=150, test_first=True)
+        stop = git(self.project, "rev-parse", "loop/issue-12").stdout
+        for name in ("events-test", "linger-test", "LATE-plan"):
+            (self.state / name).unlink()
+        self.budget_run(max_issue_tokens=150, test_first=True)  # put back: a fresh budget
+        self.assertTrue((self.state / "LATE-plan").exists())
+        self.assertFalse((self.state / "LATE-test").exists(), "a tester ran over the unfinished tests")
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, stop)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.stop_comment()
+        self.assertIn("the tester was stopped over max_issue_tokens in an earlier run", comment)
+        self.assertIn('reword it to "Loop: issue #12, round 0 (tests)."', comment)
+        self.assertIn("reset the branch to origin/develop to drop it", comment)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["test round 0 stopped at 210 tokens"])  # the first run's alone
+
+    def test_a_build_stopped_before_it_changed_anything_commits_nothing_and_says_so(self):
+        (self.state / "idle-build").write_text("")
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        self.assertLess(self.budget_run(max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("used 210 tokens this run, over max_issue_tokens 150; the build was stopped part way, "
+               "before it had changed anything")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, base)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+
+    def test_a_stop_commit_git_refuses_leaves_the_work_uncommitted_and_says_so(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        self.assertLess(self.budget_run(fail_stop_commit=True, max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("used 210 tokens this run, over max_issue_tokens 150; the build was stopped part way, and what it "
+               "had made could not be committed (git exit 1), so it is uncommitted in the worktree")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, base)
+        tree = self.trees / "app" / "issue-12"
+        self.assertIn("partial.txt", git(tree, "status", "--porcelain").stdout)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+
+    def test_a_stop_whose_usage_could_not_be_written_still_names_the_budget(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        self.assertLess(self.budget_run(unrecorded="build", max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("went over max_issue_tokens 150; the build was stopped part way, and what it had made is committed "
+               "on loop/issue-12, not pushed")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual([e["step"] for e in self.budget_usage()], ["plan"])
+        self.assertEqual(len(self.budget_lines()), 1)
+        self.assertTrue(self.budget_lines()[0].startswith("build round 1 stopped at "), self.budget_lines())
+        self.assertEqual(self.pushes(), [])
+
+    def assert_not_stopped(self):
+        """No BUDGET line, no stop commit and no stop in the comment: the build ran to its end."""
+        self.assertEqual(self.budget_lines(), [])
+        self.assertNotIn("stopped part way", self.budget_comment())
+        self.assertNotIn("stopped over max_issue_tokens",
+                         git(self.project, "log", "--format=%B", "--all").stdout)
+
+    def test_a_build_under_the_budget_finishes_and_opens_its_pull_request(self):
+        (self.state / "events-build").write_text("3")
+        self.budget_run(max_issue_tokens=1000)
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "pr")
+        self.assertIn("pr create", (self.state / "gh-calls").read_text())
+
+    def test_with_no_budget_a_build_is_never_stopped(self):
+        for value in (0, None):
+            with self.subTest(value=value):
+                self.tearDown()
+                self.setUp()
+                (self.state / "events-build").write_text("3")
+                self.budget_run(max_issue_tokens=value)
+                self.assertTrue((self.state / "LATE-build").exists())
+                self.assert_not_stopped()
+                self.assertEqual(self.budget_row()["state"], "pr")
+
+    def test_a_planner_over_the_budget_finishes_and_the_block_before_the_build_still_applies(self):
+        (self.state / "events-plan").write_text("3")
+        (self.state / "linger-plan").write_text("0.5")
+        self.budget_run(max_issue_tokens=150)
+        self.assertTrue((self.state / "LATE-plan").exists())
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        self.assertIn("used 300 tokens this run, over max_issue_tokens 150", self.budget_comment())
+
+    def test_a_reviewer_over_the_budget_finishes_and_the_block_before_the_next_build_still_applies(self):
+        for verdict in ("PASS", "FIX"):
+            with self.subTest(verdict=verdict):
+                self.tearDown()
+                self.setUp()
+                if verdict == "FIX":
+                    (self.state / "fix-review").write_text("")
+                (self.state / "events-review").write_text("3")
+                (self.state / "linger-review").write_text("0.5")
+                self.budget_run(max_issue_tokens=150)  # the plan's 10 and the build's 10, then the review's 300
+                self.assertTrue((self.state / "LATE-review").exists())
+                self.assert_not_stopped()
+                # No second build: the block before round 2 stops a FIX, and a PASS needs none.
+                self.assertEqual([e["input_tokens"] for e in self.budget_usage()], [10, 10, 300])
+                if verdict == "PASS":
+                    self.assertEqual(self.budget_row()["state"], "pr")
+                else:
+                    self.assertEqual(self.budget_row()["state"], "blocked")
+                    self.assertEqual(self.budget_row()["note"], "used 320 tokens this run, over max_issue_tokens 150")
+                    self.assertNotIn("pr create", (self.state / "gh-calls").read_text())
+
+    def test_an_agent_other_than_claude_is_never_stopped(self):
+        builder = Path(self.tmp.name) / "bin" / "builder"
+        builder.write_text(BUDGET_AGENT)
+        builder.chmod(builder.stat().st_mode | stat.S_IEXEC)
+        (self.state / "events-build").write_text("3")
+        self.budget_run(max_issue_tokens=150, agent="builder")
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+
+    def test_tokens_from_an_earlier_run_do_not_count_toward_a_stop(self):
+        folder = self.harness / ".loop" / "projects" / "app" / "issue-12"
+        folder.mkdir(parents=True)
+        old = {"step": "build", "round": 1, "run_started": "2020-01-01T00:00:00", "reported": True,
+               "input_tokens": 9_000_000, "output_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0,
+               "cost_usd": 1.0}
+        (folder / "usage.json").write_text(json.dumps([old]))
+        (self.state / "events-build").write_text("2")
+        self.budget_run(max_issue_tokens=250)  # this run: the plan's 10, the build's 200, the review's 10
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "pr")
+        self.assertEqual(self.budget_usage()[0], old)
 
     def test_the_log_shows_each_tool_call_by_name_and_target_and_the_reply_is_the_result(self):
         command = "cd scripts &&\npython3 -m unittest " + "tests.test_loop " * 10

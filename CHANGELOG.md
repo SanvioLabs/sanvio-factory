@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Stop a build over the token budget
+
+The loop now stops a `claude` build or tester that streams its events (the default) as soon as its issue goes over `max_issue_tokens`, instead of letting the run finish. It counts each message once, though claude repeats a message's usage on each of its blocks. What it had changed is committed on the local `loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, and the issue is blocked with a comment saying the build or tester was stopped part way. A person finishes the branch and pushes it, or relabels the issue to start a fresh budget. A relabel never builds over a stopped tester's unfinished tests, and never drops a stopped build's commit to start from an open pull request: both block until a person finishes, pushes or drops that commit. Planning and review agents, and agents other than `claude`, still finish their run.
+
+**Needs:** 2026-10-22: Loop token budget per issue; 2026-10-22: Loop records each issue's usage
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-15: The Crew names each job's model
 
 In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each lane in the Crew view now ends its line with the model the issue's latest agent run used, as the List already did: `#12 Gate · build, round 2 · opus-5-5`. On a narrow terminal the title gives way first. A lane whose `.loop/status.json` row has no model, from an older `loop.py`, shows none. The mod is now 0.9.0.
