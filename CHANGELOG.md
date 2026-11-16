@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Stop a build over the token budget
+
+The loop now stops a `claude` build or tester that streams its events (the default) as soon as its issue goes over `max_issue_tokens`, instead of letting the run finish. What it had changed is committed on the local `loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, and the issue is blocked with a comment saying the build or tester was stopped part way. A person finishes the branch and pushes it, or relabels the issue to start a fresh budget. Planning and review agents, and agents other than `claude`, still finish their run.
+
+**Needs:** 2026-10-22: Loop token budget per issue; 2026-10-22: Loop records each issue's usage
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
 
 Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.

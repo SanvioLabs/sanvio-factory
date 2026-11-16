@@ -205,9 +205,17 @@ written, `loop.log` gets an `ERROR` line and the run ends as it would have.
 the loop counts the tokens one run of an issue has used, over its plan, builds
 and reviews. Before each build and before each review it checks: over the
 number, it starts no more agents and blocks the issue, and the block comment
-says `used N tokens this run, over max_issue_tokens M`. A run already started
-always finishes, so one run can overshoot by up to a run's worth. Relabelling
-the issue starts a fresh budget, though `usage.json` keeps the earlier runs.
+says `used N tokens this run, over max_issue_tokens M`. A `claude` build or
+tester that streams its events, as it does unless its command sets another
+`--output-format`, is also watched while it works, and it is stopped as soon as the run
+passes the number. What it had changed is committed on the local
+`loop/issue-N` branch and not pushed, the issue is blocked, and its comment
+adds that the build or tester was stopped part way. To carry on, a person finishes that
+branch and pushes it, or relabels the issue, which starts a fresh budget and
+builds on the branch. Planning and review agents, and agents other than
+`claude`, still finish their run, so they can overshoot by up to a run's worth.
+Relabelling the issue starts a fresh budget, though `usage.json` keeps the
+earlier runs.
 Only a run that reports its tokens counts, so `codex`, `ollama` and a timed-out
 run add nothing, and the loop logs a `WARN` at start-up naming each such
 agent. `0` or empty means no budget; anything else that isn't a whole number
