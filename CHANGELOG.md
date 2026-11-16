@@ -42,7 +42,7 @@ A third public eval suite, [`examples/eval-suite-planted-instructions/`](example
 
 [`scripts/link_files.py`](scripts/link_files.py) now leaves an eval suite's issues as written, because each is posted in the run's own repo, where a link into this one would break. [`.gitignore`](.gitignore) keeps a suite's seed `loop.json` tracked even when a copy keeps its own `loop.json` out of git.
 
-Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
 
 **Do:** nothing. Run python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions to see it.
 
