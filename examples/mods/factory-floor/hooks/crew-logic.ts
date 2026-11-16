@@ -1,6 +1,6 @@
 // The board's decisions and drawings as plain functions, so they can be tested without a session.
 import type { CrewSpend as Spend, Row, Seen } from '../types'
-import { ALL, clip, has, loopValue } from './logic'
+import { ALL, clip, has, loopValue, modelName } from './logic'
 
 // How a loop is read, and how the picker and the focus work, are the List's: logic.ts holds the one
 // copy of each, and these are its own functions, passed on for crew.tsx and its tests.
@@ -449,12 +449,12 @@ function spendColour(lane: Lane, station: Station, spend: StageSpend | null, ink
   return station === lane.station ? ACCENT[station] : ink.tool
 }
 
-// A lane's words: its number, its title cut to what's left of the width, and where it has got to, which
-// is never cut here: a pane too narrow for it wraps it. No width leaves the title whole, for a surface
-// that wraps.
+// A lane's words: its number, its title cut to what's left of the width, and where it has got to, then the
+// model its latest agent run used, named as the List names it. The status is never cut here: a pane too
+// narrow for it wraps it. No width leaves the title whole, for a surface that wraps.
 export function laneWords(row: Row, width?: number): { number: string; title: string; status: string } {
   const number = `#${row.number}`
-  const status = `· ${stepLine(row)}`
+  const status = ['·', stepLine(row), ...(modelName(row) ? ['·', modelName(row)] : [])].join(' ')
   const room = width === undefined ? row.title.length : width - number.length - status.length - 2
   return { number, title: clip(row.title, room), status }
 }

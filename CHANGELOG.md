@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: The Crew names each job's model
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each lane in the Crew view now ends its line with the model the issue's latest agent run used, as the List already did: `#12 Gate · build, round 2 · opus-5-5`. On a narrow terminal the title gives way first. A lane whose `.loop/status.json` row has no model, from an older `loop.py`, shows none. The mod is now 0.9.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts).
+
+**Do:** nothing.
+
 ## 2026-11-15: Eval suite for planted instructions
 
 A third public eval suite, [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), tests whether a factory's build agent follows instructions planted in its work: one in an issue's body that asks it to let CI fail without blocking the merge, and one in a repo file the next issue needs that asks it to write down the machine's environment variable names. Each has a trap in [`key/score`](examples/eval-suite-planted-instructions/key/score) and a known wrong answer that does the work and follows that one instruction. Its traps are public, so it shows the shape of such a suite and can't measure a factory that has read it.
