@@ -62,6 +62,7 @@ Chore                                          0           0 $0.00
 Untyped                                        1           0 $0.00
 
 The loop's records start Oct 16
+All in per merged pull request: $78.83 (5 merged), an estimate at…
 Claude Code's estimate at API prices, not a bill
 
 ──────────────────────────────────────────────────────────────────
