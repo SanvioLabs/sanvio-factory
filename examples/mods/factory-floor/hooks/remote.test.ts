@@ -304,7 +304,7 @@ group('reading other machines', () => {
     const ui = await $.ui.mount(PANE)
     await pastFirstRead(clock)
     // The odd path and project were each read as one word, so their loops are listed.
-    expect(await labels(ui)).toEqual(['All loops', '● far', 'starter', `far · ${project}`])
+    expect(await labels(ui)).toEqual(['All loops', '● far (1)', 'starter', `far · ${project}`])
     expect(calls.length).toBeGreaterThan(0)
     // Watch's has-session is the one command more, and only a press sends it: a poll never does.
     const allowed = [/^ls -1A '.*\/\.loop(\/.*)?'$/s, /^cat '.*\/\.loop\/.*'$/s, /^kill -0 \d+$/, /^tmux( -S '[^']*')? has-session -t '=[^']*'$/]
@@ -367,12 +367,12 @@ group('reading other machines', () => {
     // The first look shows this machine's loop, with nothing waiting on ssh.
     expect(await ui.find({ key: 'tab-queue' })).toBeDefined()
     await pastFirstRead(clock)
-    expect(await labels(ui)).toEqual(['All loops', '● ok', 'starter', 'ok · app'])
+    expect(await labels(ui)).toEqual(['All loops', '● ok (1)', 'starter', 'ok · app'])
     await clock.advance(10_000)
     await drain()
     await clock.advance(2000)
     await drain()
-    expect(await labels(ui)).toEqual(['All loops', '● ok', 'starter', 'ok · app', 'slow · down, never read'])
+    expect(await labels(ui)).toEqual(['All loops', '● ok (1)', 'starter', 'ok · app', 'slow · down, never read'])
     // Picking the machine that's down does nothing.
     await (ui as unknown as { select: (t: { key: string; value: string }) => Promise<unknown> }).select({ key: 'loop-pick', value: 'ssh:0' })
     await drain()

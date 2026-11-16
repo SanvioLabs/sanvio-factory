@@ -835,7 +835,7 @@ group('the loop picker', () => {
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
     const options = (await picker(ui))?.props.options as { value: string; label: string }[]
-    expect(options.map(o => o.label)).toEqual(['All loops', '● alpha 2', 'starter', 'beta'])
+    expect(options.map(o => o.label)).toEqual(['All loops', '● alpha (2)', 'starter', 'beta'])
     expect(options.map(o => o.value)).toEqual(['*', 'alpha', '', 'beta'])
     expect((await picker(ui))?.props.value).toBe('')
     await ui.unmount()
@@ -1790,7 +1790,7 @@ group('another machine', () => {
     await wait(clock, 4000, 2000)
     await ui.redraw()
     const options = (await ui.find({ key: 'loop-pick' }))?.props.options as { value: string; label: string }[]
-    expect(options.map(o => [o.value, o.label])).toEqual([['*', 'All loops'], ['', '● starter'], ['ssh:0/', '● spare-mac']])
+    expect(options.map(o => [o.value, o.label])).toEqual([['*', 'All loops'], ['', '● starter (1)'], ['ssh:0/', '● spare-mac (1)']])
     await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
     await drain()
     expect(titles[titles.length - 1]).toBe('Loop crew: spare-mac')

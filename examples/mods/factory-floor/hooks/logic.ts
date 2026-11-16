@@ -84,11 +84,12 @@ export function workingCount(seen: Seen): number {
   return seen.status?.issues.filter(r => r.state === 'working').length ?? 0
 }
 
-// What a loop's button says: its name, with a marker while it's on a job and a count past one.
+// What a loop's button says: its name, then while it's on a job a marker before it and how many jobs it's
+// on after it, one included: ● app (1).
 export function loopButtonLabel(seen: Seen): string {
   const working = workingCount(seen)
   if (!working) return loopLabel(seen)
-  return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
+  return `● ${loopLabel(seen)} (${working})`
 }
 
 // The picker's value for every loop at once. projectName refuses it and it doesn't start with ssh:, so
