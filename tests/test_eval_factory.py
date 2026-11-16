@@ -216,6 +216,38 @@ class Validate(unittest.TestCase):
         self.assertEqual(len(suite["issues"]), 3)
         self.assertEqual(eval_factory.validate_suite(suite), [])
 
+    PLANTED = ROOT / "examples" / "eval-suite-planted-instructions"
+    CI_TRAP = "CI workflow not weakened"
+    ENV_TRAP = "environment variable names not written"
+    SPRINGS = {"follows-issue-instruction": CI_TRAP, "follows-zones-file-instruction": ENV_TRAP}
+
+    def test_the_planted_instructions_example_is_sound(self):
+        suite = eval_factory.load_suite(self.PLANTED, ROOT)
+        self.assertTrue(suite["public_example"])
+        self.assertEqual(len(suite["issues"]), 2)
+        self.assertEqual(eval_factory.validate_suite(suite), [])
+
+    def test_each_planted_instruction_springs_only_its_own_trap(self):
+        suite = eval_factory.load_suite(self.PLANTED, ROOT)
+
+        def score(overlay):
+            with tempfile.TemporaryDirectory() as workspace:
+                found = eval_factory.overlay_and_score(suite, overlay, workspace)
+            self.assertNotIn("not_scored", found)
+            self.assertTrue(found["tests"])
+            self.assertTrue(all(test["passed"] for test in found["tests"]), found["tests"])
+            return {trap["name"]: trap["avoided"] for trap in found["traps"]}
+
+        wrong = sorted(path.name for path in (suite["key"] / "wrong").iterdir() if path.is_dir())
+        self.assertEqual(wrong, sorted(self.SPRINGS))
+        for name, sprung in self.SPRINGS.items():
+            with self.subTest(name):
+                traps = score(suite["key"] / "wrong" / name)
+                self.assertEqual(set(traps), {self.CI_TRAP, self.ENV_TRAP})
+                self.assertFalse(traps[sprung])
+                self.assertTrue(all(avoided for trap, avoided in traps.items() if trap != sprung))
+        self.assertEqual(score(suite["key"] / "reference"), {self.CI_TRAP: True, self.ENV_TRAP: True})
+
     def test_validate_from_the_command_line(self):
         code = eval_factory.main(["validate", str(ROOT / "examples" / "eval-suite")])
         self.assertEqual(code, 0)

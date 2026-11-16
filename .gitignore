@@ -25,5 +25,7 @@ reports/trends/*
 !reports/trends/README.md
 .inbox/
 *.git/
+# A copy may keep its own loop.json out of git; an eval suite's seed needs its copy tracked
+!examples/*/seed/loop.json
 # scripts/draw_dashboard.py writes this for one run and deletes it; a killed run can leave it
 examples/mods/factory-dashboard/hooks/draw-picture.test.ts
