@@ -44,6 +44,14 @@ Files: [`scripts/bills.example.json`](scripts/bills.example.json), [`scripts/das
 
 **Do:** copy [`scripts/bills.example.json`](scripts/bills.example.json) to `.sanvio/bills.json` and enter last month's bill.
 
+## 2026-11-15: All-in cost per merged pull request
+
+The factory dashboard's Loop spend now shows what a merged pull request cost all in: the loop's spend since the date counted from, plus this machine's factory conversations priced at `.sanvio/prices.json`, over how many pull requests merged. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) gives it as a new `all_in` section, made from the sections it already reads, with no gh call or transcript read of its own. The loop's own conversations are left out, because the loop's spend already counts them. It's an estimate at API prices, not a bill, and on a team it undercounts, since it reads only this machine's conversations. When there's no figure, the line says why: nothing merged, a model with no price, or a part it couldn't count.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; fill .sanvio/prices.json to see the conversation side priced.
+
 ## 2026-11-15: Onboarding card 8, leading and funding the factory
 
 An eighth onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) is for the factory's owner and a finance partner. Once a month they answer five questions from the dashboard, `/work-report`, `/pulse` and `/factory-trends`: where the time went, what the spend bought, what a merged change costs, whether it held up, and how the team is finding it. They set the invoice beside the dashboard's estimate and decide one thing to keep, change or stop, written down with its cost. All-in cost per merged change and reverts after a merge are marked as coming. Card 7 now points to it.

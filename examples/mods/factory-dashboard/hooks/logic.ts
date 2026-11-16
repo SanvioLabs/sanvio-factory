@@ -170,11 +170,12 @@ const total = (v: unknown): { tokens: number | null; cost: number | null } => {
 
 // The loop's spend as tables: today, the last 7 days, since the document's date and per pull
 // request; the costliest issues; each model; and, when the script gives it, what merged by type and
-// what the loop spent on it. Then when its records start, if after that date, and the day-by-day chart.
+// what the loop spent on it. Then when its records start, if after that date, what a merged pull request
+// cost all in, and the day-by-day chart.
 export function spend(doc: Doc): Section {
   const why = missing(doc.loop_spend)
   const s = obj(doc.loop_spend)
-  if (why || !s) return { key: 'spend', title: 'Loop spend', lines: [line('quiet', why ?? 'not in this script')] }
+  if (why || !s) return { key: 'spend', title: 'Loop spend', lines: [line('quiet', why ?? 'not in this script'), ...allIn(doc)] }
   const cells = (v: unknown): string[] => {
     const t = total(v)
     return [money(t.cost), tokens(t.tokens)]
@@ -214,6 +215,7 @@ export function spend(doc: Doc): Section {
   if (!points?.length) out.push(NO_DAILY)
   out.push(...types.lines)
   out.push(...billed.lines)
+  out.push(...allIn(doc))
   out.push(line('quiet', "Claude Code's estimate at API prices, not a bill"))
   if (!points?.length) return { key: 'spend', title: 'Loop spend', lines: out, tables }
   const alt = `The loop's estimated spend each day, ${day(points[0]?.date ?? null)} to ${day(points[points.length - 1]?.date ?? null)}`
@@ -270,6 +272,27 @@ export function bill(doc: Doc): { tables: Table[]; lines: Line[] } {
   const table: Table = { key: 'spend-bill', title: 'Bill and estimate', head: ['Month', 'Bill', 'Estimate', 'Gap'],
     rows: rows.map(r => [month(str(r.month)), money(num(r.billed_usd)), money(num(r.estimate_usd)), gap(r)]) }
   return { tables: [table], lines: [...out, line('quiet', "This machine's estimate; the bill covers every seat on the account")] }
+}
+
+// What a merged pull request cost all in, the loop's spend and this machine's conversations over how many
+// merged, in one line. Without a figure the line says why: the section's own, nothing merged, a model
+// with no price, or a part the script couldn't count. A script that doesn't give the section draws nothing.
+export function allIn(doc: Doc): Line[] {
+  if (doc.all_in === undefined) return []
+  const label = 'All in per merged PR'
+  const why = missing(doc.all_in)
+  const a = obj(doc.all_in)
+  if (why || !a) return [line('quiet', `${label}: ${why ?? "couldn't read it"}`)]
+  const per = num(a.per_merged_usd)
+  const merged = num(a.merged)
+  if (per !== null && merged !== null) {
+    return [line('quiet', `${label}: ${money(per)} (${merged} merged, an estimate)`)]
+  }
+  const reason = merged === 0 ? 'nothing merged'
+    : num(a.conversation_cost_usd) === null
+      ? (missing(doc.conversations) ? "the conversations' cost isn't known" : 'a model has no price')
+      : num(a.loop_cost_usd) === null ? "the loop's cost isn't known" : "couldn't read it"
+  return [line('quiet', `${label}: ${reason}`)]
 }
 
 // How the loop's recent issues ended, then how many of its merged pull requests needed a commit from
