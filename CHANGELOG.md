@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: A review rubric can define each grade
+
+[`review-rubric.json`](review-rubric.json) can now be a ladder: an object with one key, `levels`, giving each grade from `"0"` to `"10"` the verdicts it takes and the check runs, by name, that have to have passed, with `"*"` for every check run. A review gets the highest grade whose rung is met, pending while a check a higher rung names is still running. The five-key rubric grades exactly as before. The loop, the CI review and `python3 scripts/loop.py grade <pr> --verdict "<verdict>"` all grade through the same code, and the new command prints the grade a verdict would get without posting or changing anything, so you can try a rubric before `auto_merge` relies on it. [`skills/review-pr/`](skills/review-pr/SKILL.md) now runs that command for a review a person runs by hand, instead of applying the rubric itself. [`docs/review-rubric.md`](docs/review-rubric.md) explains both shapes, with three worked rubrics and how `min_grade` reads against each.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_loop.py`](tests/test_loop.py), [`docs/review-rubric.md`](docs/review-rubric.md), [`docs/review-rubric.svg`](docs/review-rubric.svg), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To define what each grade needs, read [`docs/review-rubric.md`](docs/review-rubric.md), then try your rubric with `python3 scripts/loop.py grade <pr> --verdict "ready"` before `auto_merge` relies on it.
+
 ## 2026-11-15: Stop a build over the token budget
 
 The loop now stops a `claude` build or tester that streams its events (the default) as soon as its issue goes over `max_issue_tokens`, instead of letting the run finish. It counts each message once, though claude repeats a message's usage on each of its blocks. What it had changed is committed on the local `loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, and the issue is blocked with a comment saying the build or tester was stopped part way. A person finishes the branch and pushes it, or relabels the issue to start a fresh budget. A relabel never builds over a stopped tester's unfinished tests, and never drops a stopped build's commit to start from an open pull request: both block until a person finishes, pushes or drops that commit. Planning and review agents, and agents other than `claude`, still finish their run.

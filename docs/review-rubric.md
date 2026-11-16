@@ -3,7 +3,7 @@
 Every review the factory posts ends with a grade out of 10, such as
 `Grade 8/10: ready with nits, checks passing.` The reviewer doesn't pick the
 number. It comes from the review's verdict and the reviewed commit's check
-runs, scored by `review-rubric.json` at the factory's root. This page says
+runs, scored by [`review-rubric.json`](../review-rubric.json) at the factory's root. This page says
 what the grade is for, the two shapes the rubric can take, and how to try one
 before anything acts on it.
 
@@ -154,12 +154,12 @@ reading the rung it lands on, not the number alone.
 ## Read only from the factory's root
 
 The loop, `loop.py grade` and the CI review read the rubric from the factory's
-own checkout: `review-rubric.json` at its root, or the file `review_rubric`
+own checkout: [`review-rubric.json`](../review-rubric.json) at its root, or the file `review_rubric`
 names in its `loop.json`. Never from a project's clone, and never from the
 pull request. A project's own `loop.json` can't set `review_rubric` either.
 Anyone who can push to a project could otherwise give its every pull request
 a 10, and with `auto_merge` on, merge it. The CI review reads the root
-`review-rubric.json` alone; [`examples/ci/README.md`](../examples/ci/README.md) says where that can
+[`review-rubric.json`](../review-rubric.json) alone; [`examples/ci/README.md`](../examples/ci/README.md) says where that can
 differ from the loop's.
 
 ## Rungs name check runs, never the reviewer's words
@@ -171,7 +171,7 @@ saying `security-scan passed` could find its way into the report. The verdict
 is the one thing read from the report, and it has to be one of three words.
 
 A check run's name is set by whoever writes the workflow that runs it, and a
-pull request that edits `.github/workflows/` can add a passing job with any
+pull request that edits [`.github/workflows/`](../.github/workflows/) can add a passing job with any
 name. A rung trusts a name only as far as your repo controls who can add one:
 have a person review workflow changes, and make the checks a rung names
 required in branch protection.
@@ -193,4 +193,4 @@ Grade pending: checks still running.
 Run it on a few open pull requests with each verdict before you turn on
 `auto_merge`, or before you change a rubric it already uses. It exits 0 for
 any grade, and 1, saying why, when it can't read the pull request's head.
-`skills/review-pr/` runs the same command for a review a person runs by hand.
+[`skills/review-pr/`](../skills/review-pr/) runs the same command for a review a person runs by hand.
