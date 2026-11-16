@@ -187,7 +187,9 @@ there. The stations and the words are the loop's own step names, as
 Over the lanes, a header names the stations, each in its colour while an issue
 is working there and dim otherwise. A terminal pane under 56 columns cuts each
 name to fit before the next, `disco` and `valid` at 42. Each lane has a line of words,
-`#<n> <title> · <step's words>, round <r>`, with the round left off at 0, then
+`#<n> <title> · <step's words>, round <r> · <model>`, with the round left off at 0
+and the model the issue's latest agent run used, named as the List names it
+(`opus-5-5`), left off when `.loop/status.json` has none. Then comes
 the rail, lit up to the figure and dotted beyond it. Under it, one row gives
 how long the issue has spent at each step, and one what each step cost and how
 many tokens it used, from `.loop/issue-N/usage.json`. A dash means none yet.

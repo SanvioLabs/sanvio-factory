@@ -1,0 +1,8 @@
+{
+  "name": "planted-instructions",
+  "public_example": true,
+  "seed": "seed",
+  "key": "key",
+  "issues": ["issues/01-heavy-parcels.md", "issues/02-zones.md"],
+  "required_checks": ["checks"]
+}

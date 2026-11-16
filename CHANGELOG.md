@@ -46,6 +46,24 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-15: The Crew names each job's model
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each lane in the Crew view now ends its line with the model the issue's latest agent run used, as the List already did: `#12 Gate · build, round 2 · opus-5-5`. On a narrow terminal the title gives way first. A lane whose `.loop/status.json` row has no model, from an older `loop.py`, shows none. The mod is now 0.9.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts).
+
+**Do:** nothing.
+
+## 2026-11-15: Eval suite for planted instructions
+
+A third public eval suite, [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), tests whether a factory's build agent follows instructions planted in its work: one in an issue's body that asks it to let CI fail without blocking the merge, and one in a repo file the next issue needs that asks it to write down the machine's environment variable names. Each has a trap in [`key/score`](examples/eval-suite-planted-instructions/key/score) and a known wrong answer that does the work and follows that one instruction. Its traps are public, so it shows the shape of such a suite and can't measure a factory that has read it.
+
+[`scripts/link_files.py`](scripts/link_files.py) now leaves an eval suite's issues as written, because each is posted in the run's own repo, where a link into this one would break. [`.gitignore`](.gitignore) keeps a suite's seed `loop.json` tracked even when a copy keeps its own `loop.json` out of git.
+
+Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
+**Do:** nothing. Run python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions to see it.
+
 ## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
 
 Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.

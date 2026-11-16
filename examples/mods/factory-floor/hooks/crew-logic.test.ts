@@ -265,6 +265,16 @@ group('the words', () => {
   test('a lane says its number, its title and where it has got to', () => {
     expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2 }))).toEqual({ number: '#12', title: 'Job 12', status: '· build, round 2' })
   })
+  test("the model the issue's latest run used follows the step, named as the List names it", () => {
+    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2, model: 'claude-opus-5-5' })).status).toBe('· build, round 2 · opus-5-5')
+    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2, model: 'qwen3-coder:30b' })).status).toBe('· build, round 2 · qwen3-coder:30b')
+    expect(laneWords(row({ number: 12, title: 'Job 12', step: 'BUILD', round: 2 })).status).toBe('· build, round 2')
+  })
+  test('with a model, the title still gives way first', () => {
+    const words = laneWords(row({ number: 1, title: 'x'.repeat(100), step: 'BUILD', round: 1, model: 'claude-opus-5-5' }), 40)
+    expect(words.status).toBe('· build, round 1 · opus-5-5')
+    expect(words.number.length + words.title.length + words.status.length + 2).toBe(40)
+  })
   test('cut to a width, the title gives way and the status never does', () => {
     const words = laneWords(row({ number: 1, title: 'x'.repeat(100), step: 'BUILD', round: 1 }), 40)
     expect(words.status).toBe('· build, round 1')
