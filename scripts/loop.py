@@ -235,6 +235,8 @@ REFUSED = 125
 # What stream() returns when it stopped a claude build or tester because its issue went over max_issue_tokens.
 # Past 255, so no exit status an agent gives itself is taken for it.
 OVER_BUDGET = 1000
+# How the commit of a build or tester stopped over max_issue_tokens ends, after "Loop: issue #N, round R, ".
+STOPPED_OVER_BUDGET = "stopped over max_issue_tokens."
 # The agents loop.json can name instead of giving a command line, each with an optional :model.
 AGENT_NAMES = ("claude", "codex", "ollama")
 # Who may write an issue the loop builds from as it stands. Anyone else's issue is taken only as it
@@ -1544,6 +1546,11 @@ def token_counts(counts):
             "output_tokens": usage_number(counts.get("output_tokens")),
             "cache_write_tokens": usage_number(counts.get("cache_creation_input_tokens")),
             "cache_read_tokens": usage_number(counts.get("cache_read_input_tokens"))}
+
+
+def stop_message(number, round_no):
+    """The message of the commit that holds what a build or tester stopped over max_issue_tokens had made."""
+    return "Loop: issue #{}, round {}, {}".format(number, round_no, STOPPED_OVER_BUDGET)
 
 
 def assistant_usage(line):
@@ -3339,6 +3346,19 @@ class Loop:
             self.block(number, "{} is at {}, which isn't the pull request's head, {}".format(
                 remote, tip.strip()[:12], str(pr["headRefOid"])[:12]))
             return False
+        # What a build stopped over max_issue_tokens had made is a person's to push or drop: never reset away.
+        code, out = self.git("log", "--format=%h", "--fixed-strings", "--all-match",
+                             "--grep=Loop: issue #{}, round ".format(number), "--grep=" + STOPPED_OVER_BUDGET,
+                             "HEAD", "--not", "--remotes", cwd=tree)
+        if code != 0:
+            self.block(number, "could not look for a stopped build's commit on {} (git exit {}), so the round "
+                               "reset nothing".format(branch, code))
+            return False
+        if out.strip():
+            self.block(number, "{0} has a build that was stopped over max_issue_tokens, committed here and never "
+                               "pushed, so the round reset nothing. Push it to the pull request's branch to keep it, "
+                               "or reset the branch to {1} to drop it, then put the issue back".format(branch, remote))
+            return False
         # Only what no remote has: a new worktree starts at the base, whose commits are pushed, not dropped.
         _, ahead = self.git("rev-list", "--count", "HEAD", "--not", "--remotes", cwd=tree)
         code, out = self.git(*NO_HOOKS, "reset", "-q", "--hard", remote, cwd=tree)
@@ -3746,6 +3766,20 @@ class Loop:
                                       "so no agent ran".format(number, code))
         if found.strip():
             return record(found.split()[0], "kept the tester's commit with")
+        # A tester stopped over max_issue_tokens left unfinished tests in a commit of their own. A new tester on
+        # top would count them as files that already existed, or leave them out of the files the build may not
+        # touch, so a person finishes or drops them first.
+        code, found = self.sh(["git", "log", "--format=%H", "--fixed-strings", "--grep=" + stop_message(number, 0),
+                               "origin/{}..HEAD".format(self.cfg["base"])], cwd=tree, stderr=False)
+        if code != 0:
+            return self.block(number, "could not look for a stopped tester's commit on loop/issue-{} (git exit {}), "
+                                      "so no agent ran".format(number, code))
+        if found.strip():
+            return self.block(number, (
+                "the tester was stopped over max_issue_tokens in an earlier run, and its unfinished tests are "
+                'committed on loop/issue-{0} as "{1}", so no tester ran. Finish them in that commit and reword '
+                'it to "{2}", or reset the branch to origin/{3} to drop it, then put the issue back'
+            ).format(number, stop_message(number, 0), message, self.cfg["base"]))
 
         if self.stopped():
             self.mark(number, state="stopped", note="stopped before the tester")
@@ -3815,6 +3849,8 @@ class Loop:
         and never pushed: a person finishes it, or relabels the issue to start a fresh budget. The message
         matches the lockfile check's grep, so a reused branch's lockfiles are still checked, and never the
         tester's "round 0 (tests)." lookup, so a stopped tester's commit isn't taken for a finished one.
+        A relabel won't build over a stopped tester's commit (tests_first) or reset away an unpushed stop
+        commit under an open pull request (from_remote): both block for a person instead.
         """
         who = "tester" if step == "test" else "build"
         self.git("add", "-A", cwd=tree)
@@ -3822,8 +3858,7 @@ class Loop:
                                       cwd=tree)[1].split("\0") if p]
         ccode = 0
         if staged:
-            ccode = self.git(*NO_HOOKS, "commit", "-q", "-m", "Loop: issue #{}, round {}, stopped over "
-                             "max_issue_tokens.".format(number, round_no), cwd=tree)[0]
+            ccode = self.git(*NO_HOOKS, "commit", "-q", "-m", stop_message(number, round_no), cwd=tree)[0]
         total = self.run_tokens(number)
         self.log("BUDGET", "{} round {} stopped at {:,} tokens".format(step, round_no, total), number)
         # over_budget() is None only if the stopped run's usage couldn't be written: say what is known.

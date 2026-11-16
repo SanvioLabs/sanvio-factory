@@ -209,13 +209,19 @@ says `used N tokens this run, over max_issue_tokens M`. A `claude` build or
 tester that streams its events, as it does unless its command sets another
 `--output-format`, is also watched while it works, and it is stopped as soon as the run
 passes the number. What it had changed is committed on the local
-`loop/issue-N` branch and not pushed, the issue is blocked, and its comment
-adds that the build or tester was stopped part way. To carry on, a person finishes that
-branch and pushes it, or relabels the issue, which starts a fresh budget and
-builds on the branch. Planning and review agents, and agents other than
-`claude`, still finish their run, so they can overshoot by up to a run's worth.
-Relabelling the issue starts a fresh budget, though `usage.json` keeps the
-earlier runs.
+`loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, the
+issue is blocked, and its comment adds that the build or tester was stopped
+part way. To carry on, a person finishes that branch and pushes it, or
+relabels the issue to start a fresh budget. A relabel builds on the stopped
+build's commit only while the issue has no open pull request. With one open,
+the round starts from the pull request's branch, so it blocks rather than drop
+that commit: push it to the pull request's branch, or reset the branch to drop
+it, then relabel. A stopped tester's commit also blocks a relabel, because a
+new tester can't add to unfinished tests: finish them in that commit and
+reword its message to `Loop: issue #N, round 0 (tests).`, or drop it. Planning
+and review agents, and agents other than `claude`, still finish their run, so
+they can overshoot by up to a run's worth. Relabelling the issue starts a
+fresh budget, though `usage.json` keeps the earlier runs.
 Only a run that reports its tokens counts, so `codex`, `ollama` and a timed-out
 run add nothing, and the loop logs a `WARN` at start-up naming each such
 agent. `0` or empty means no budget; anything else that isn't a whole number
