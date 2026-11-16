@@ -465,15 +465,29 @@ function stamp(text: string | null): string {
 }
 
 // What the estimate rests on. Several lines, each within the 66 columns the terminal's pane has,
-// because a line wider than the pane is clipped. The last says what to do when no model has a price
-// only because there's no price file. A model missing from a file that exists is the README's to explain.
+// because a line wider than the pane is clipped. Three openings, so none claims what isn't so:
+// - no price file, when every unpriced model says so: no cost was worked out, so no date or time,
+//   and a last line saying to fill the file
+// - a price file with no checked date: says it has none, then the time the split was worked out
+// - a price file with a date: the date it was checked and the time the split was worked out
+// A model missing from a file that exists is the README's to explain.
 function estimate(a: Obj): Line[] {
   const whys = Object.values(obj(a.unpriced) ?? {})
+  if (whys.length && whys.every(w => w === 'no prices.json')) {
+    return [
+      line('quiet', "Est. cost: can't be worked out without .sanvio/prices.json."),
+      line('quiet', "Skills' and commands' tokens are attributed from where each"),
+      line('quiet', 'started to the next prompt.'),
+      line('quiet', 'Fill .sanvio/prices.json to see dollars'),
+    ]
+  }
+  const checked = str(a.prices_checked)
   return [
-    line('quiet', `Est. cost: an estimate from .sanvio/prices.json, checked ${day(str(a.prices_checked))},`),
+    line('quiet', checked === null
+      ? 'Est. cost: an estimate from .sanvio/prices.json, no checked date,'
+      : `Est. cost: an estimate from .sanvio/prices.json, checked ${day(checked)},`),
     line('quiet', `worked out ${stamp(str(a.spend_at))}. Skills' and commands' tokens are`),
     line('quiet', 'attributed from where each started to the next prompt.'),
-    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .sanvio/prices.json to see dollars')] : []),
   ]
 }
 
@@ -515,7 +529,8 @@ export function activity(doc: Doc): Section {
       }) : rows,
       tones: field === 'guard_refusals' ? rows.map(() => 'now') : undefined })
   }
-  const out = [...(estimated ? estimate(a) : []), line('quiet', `Guard asked ${num(a.asks) ?? 0} times, since ${day(str(doc.since))}`)]
+  const n = num(a.asks) ?? 0
+  const out = [...(estimated ? estimate(a) : []), line('quiet', `Guard asked ${n} ${n === 1 ? 'time' : 'times'}, since ${day(str(doc.since))}`)]
   if (!tables.length) out.unshift(line('quiet', 'Nothing used yet'))
   return { key: 'activity', title: 'Activity', lines: [...out, ...lastReview(doc)], tables }
 }

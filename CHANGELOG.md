@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: The dashboard's cost footer says only what's true
+
+With no `.sanvio/prices.json`, the factory-dashboard pane's Activity footer now says `Est. cost: can't be worked out without .sanvio/prices.json.`, with no checked date and no time it was worked out, then how to fill the file. A price file with no checked date says `no checked date` instead of `checked ?`, and one ask from the guard reads `Guard asked 1 time`.
+
+**Needs:** 2026-10-30: Activity tokens and estimated cost in the pane; 2026-11-08: New names for the state folder, the variables and bin/harness
+
+Files: [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if you installed the mod, `/plugin update`, then `/reload-plugins` or a new session.
+
 ## 2026-11-16: A closed issue clears its blocked row
 
 While it's idle, the loop now looks up each blocked issue on GitHub and marks its row `skipped`, with the note `issue closed while blocked` and a `CLEANUP` line in the log, once the issue is closed, for example after a person merges the loop's commit by hand. An issue still open is looked up again after an hour, a failed lookup leaves the row blocked, and the `loop:blocked` label stays on the issue.

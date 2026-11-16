@@ -489,14 +489,59 @@ group('activity', () => {
     ])
     expect(text(activity(spending({ spend_at: '2026-10-27T23:30:00-07:00' })).lines)).toContain('worked out Oct 27 23:30.')
   })
-  test("a price file with no date, or no time for the split, says ?", () => {
+  const NO_FILE = { unpriced: { a: 'no prices.json', b: 'no prices.json' } }
+  test("with no price file it says the cost can't be worked out, with no date or time, and says to fill it", () => {
+    const lines = activity(spending(NO_FILE)).lines
+    expect(lines).toEqual([
+      { tone: 'quiet', text: "Est. cost: can't be worked out without .sanvio/prices.json." },
+      { tone: 'quiet', text: "Skills' and commands' tokens are attributed from where each" },
+      { tone: 'quiet', text: 'started to the next prompt.' },
+      { tone: 'quiet', text: 'Fill .sanvio/prices.json to see dollars' },
+      { tone: 'quiet', text: 'Guard asked 2 times, since Oct 13' },
+    ])
+    expect(text(lines)).not.toContain('checked')
+    expect(text(lines)).not.toContain('an estimate from')
+  })
+  test("a price file with no date says it has none, and no time for the split says ?", () => {
     const lines = text(activity(spending({ prices_checked: null, spend_at: null })).lines)
-    expect(lines).toContain('checked ?,')
+    expect(lines.split('\n')[0]).toBe('Est. cost: an estimate from .sanvio/prices.json, no checked date,')
+    expect(lines).not.toContain('checked ?')
     expect(lines).toContain('worked out ?.')
   })
-  test('each line fits the 66 columns of the pane, even with the longest dates', () => {
-    const doc = spending({ prices_checked: '2026-09-30', spend_at: '2026-09-30T23:59:00-07:00', unpriced: { a: 'no prices.json' } })
-    for (const l of activity(doc).lines) expect(l.text.length <= 66).toBe(true)
+  const fits = (lines: { text: string }[]) => lines.every(l => l.text.length <= 66)
+  test('the width check fails a line one column too wide', () => {
+    expect(fits([{ text: 'x'.repeat(66) }])).toBe(true)
+    expect(fits([{ text: 'x'.repeat(67) }])).toBe(false)
+  })
+  test('each line fits the 66 columns of the pane: no file, no date, and the longest dates', () => {
+    const longest = spending({ prices_checked: '2026-09-30', spend_at: '2026-09-30T23:59:00-07:00' })
+    for (const doc of [spending(NO_FILE), spending({ prices_checked: null }), longest]) expect(fits(activity(doc).lines)).toBe(true)
+  })
+  test('says how many times the guard asked, one as 1 time', () => {
+    const asked = (asks: number) => text(activity(spending({ asks })).lines).split('\n').find(l => l.startsWith('Guard asked'))
+    expect(asked(0)).toBe('Guard asked 0 times, since Oct 13')
+    expect(asked(1)).toBe('Guard asked 1 time, since Oct 13')
+    expect(asked(2)).toBe('Guard asked 2 times, since Oct 13')
+  })
+  test("with no price file the tables' cells and the skills' rows stay as they were", () => {
+    const without = activity(spending({ ...NO_FILE, skill_spend: { 'review-pr': { tokens: 410_000, cost_usd: null } } })).tables?.[0]
+    expect(without?.rows).toEqual([['review-pr', '5', '410k', '?'], ['learn', '1', '?', '?']])
+    expect(activity(spending(NO_FILE)).tables).toEqual(activity(spending()).tables)
+  })
+  test('the last log review line is the same whichever opening the estimate has', () => {
+    const review = { last_review: { date: '2026-10-20', days_since: 7 } }
+    const tail = (over: object) => activity({ ...spending(over), ...review }).lines.slice(-1)[0]
+    const dated = tail({})
+    expect(dated).toEqual({ tone: 'quiet', text: 'Last log review: Oct 20, 7 days ago' })
+    expect(tail(NO_FILE)).toEqual(dated)
+    expect(tail({ prices_checked: null })).toEqual(dated)
+  })
+  test('a model missing from a file that exists, or a file it could not read, keeps the file-based opening', () => {
+    for (const unpriced of [{ a: 'not in prices.json' }, { a: 'unreadable' }, { a: 'no prices.json', b: 'not in prices.json' }]) {
+      const lines = text(activity(spending({ unpriced })).lines)
+      expect(lines.split('\n')[0]).toBe('Est. cost: an estimate from .sanvio/prices.json, checked Oct 1,')
+      expect(lines).not.toContain('Fill')
+    }
   })
   test('says to fill the price file only when that is why every unpriced model has no price', () => {
     const lines = (unpriced: object) => text(activity(spending({ unpriced })).lines)

@@ -148,6 +148,17 @@ Guard asked 2 times, since Oct 15
 Last log review: Oct 20, 7 days ago
 ```
 
+With no `.sanvio/prices.json`, no cost is worked out, so the footer gives no
+date or time for one and says what to fill:
+
+```
+Est. cost: can't be worked out without .sanvio/prices.json.
+Skills' and commands' tokens are attributed from where each
+started to the next prompt.
+Fill .sanvio/prices.json to see dollars
+Guard asked 1 time, since Oct 15
+```
+
 </details>
 
 A line separates each section. A section with a chart starts with it, then its
