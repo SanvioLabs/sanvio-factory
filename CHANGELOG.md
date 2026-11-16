@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
+
+Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** send the new PDF to the owner and the finance partner.
+
 ## 2026-11-15: Bill beside the estimate
 
 The factory dashboard's Loop spend section now has a **Bill and estimate** table. For each of the last three months entered in `.sanvio/bills.json`, it shows the bill beside this machine's estimate and the gap between them, in dollars and as a share of the bill. The estimate prices the loop's runs and the factory's conversations that month at `.sanvio/prices.json`. A line under the table says the bill covers every seat on the account. `dashboard_data.py --json` gives the figures as a new `bill` section, and it never writes `bills.json`.
