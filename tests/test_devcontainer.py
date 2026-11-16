@@ -21,6 +21,7 @@ FORBIDDEN = (".ssh", ".aws", ".gnupg", ".kube", ".docker", ".netrc", ".npmrc", "
 SIGN_INS = (".claude", ".config/gh")
 CLAUDE_FEATURE = "ghcr.io/anthropics/devcontainer-features/claude-code"
 GH_FEATURE = "ghcr.io/devcontainers/features/github-cli"
+NODE_FEATURE = "ghcr.io/devcontainers/features/node"
 HOOKS = "git config core.hooksPath .githooks"
 SETUP = "python3 scripts/check_setup.py"
 NO_KEYS = ("privileged", "capAdd", "securityOpt", "initializeCommand")
@@ -28,6 +29,11 @@ NO_RUN_ARGS = ("--privileged", "--cap-add", "--security-opt", "-v", "--volume", 
 WARN = ("test_command, generate_command and setup_command run without a sandbox here, since only macOS has "
         "sandbox-exec: they can read any file your user can")
 SHARED = "The workspace folder is shared with the host"
+# What the README has to say: how to open it, how to sign in, the shared workspace, the loop's warning,
+# what the container doesn't stop, and a figure with its alt text.
+README_WORDS = ("Dev Containers: Reopen in Container", "devcontainer up --workspace-folder .", "run `claude`",
+                "gh auth login", "survive a rebuild", SHARED, WARN, "What the container doesn't stop",
+                "There is no egress firewall", "Alt text:", "```mermaid")
 
 
 def load():
@@ -103,10 +109,33 @@ def feature_name(ref):
 
 def tool_problems(cfg, dockerfile):
     features = [feature_name(ref) for ref in cfg.get("features", {})]
-    found = ["no {} feature".format(name) for name in (CLAUDE_FEATURE, GH_FEATURE) if name not in features]
+    found = ["no {} feature".format(name) for name in (CLAUDE_FEATURE, GH_FEATURE, NODE_FEATURE)
+             if name not in features]
     installs = [line.split() for line in dockerfile_lines(dockerfile) if "apt-get install" in line]
     words = {word for line in installs for word in line}
     found += ["the Dockerfile doesn't install {}".format(tool) for tool in ("git", "tmux") if tool not in words]
+    return found
+
+
+def build_problems(cfg):
+    build = cfg.get("build")
+    if not isinstance(build, dict) or build.get("dockerfile") != "Dockerfile":
+        return ['devcontainer.json doesn\'t build from "build": {"dockerfile": "Dockerfile"}']
+    return []
+
+
+def folder_problems(cfg, dockerfile):
+    """The Dockerfile makes both volume folders and gives them to the remote user, or they start owned by root."""
+    user = cfg.get("remoteUser", "")
+    lines = dockerfile_lines(dockerfile)
+    folders = ["{}/{}".format(home(cfg), name) for name in SIGN_INS]
+    made = {word for line in lines if "mkdir -p" in line for word in line.split()}
+    owned = [word for line in lines
+             for match in re.finditer(r"chown -R {0}:{0} ([^&;|]+)".format(re.escape(user)), line)
+             for word in match.group(1).split()]
+    found = ["the Dockerfile doesn't make {}".format(folder) for folder in folders if folder not in made]
+    found += ["the Dockerfile doesn't give {} to {}".format(folder, user) for folder in folders
+              if not any(folder == path or folder.startswith(path.rstrip("/") + "/") for path in owned)]
     return found
 
 
@@ -172,13 +201,13 @@ def privilege_problems(cfg):
 
 
 def readme_problems(text):
-    return ["the README doesn't say {!r}".format(words) for words in (WARN, "gh auth login", SHARED)
-            if words not in text]
+    return ["the README doesn't say {!r}".format(words) for words in README_WORDS if words not in text]
 
 
 def problems(cfg, dockerfile, readme=None):
-    found = (user_problems(cfg) + pin_problems(cfg, dockerfile) + tool_problems(cfg, dockerfile)
-             + mount_problems(cfg) + volume_problems(cfg) + post_create_problems(cfg) + privilege_problems(cfg))
+    found = (user_problems(cfg) + build_problems(cfg) + pin_problems(cfg, dockerfile)
+             + tool_problems(cfg, dockerfile) + folder_problems(cfg, dockerfile) + mount_problems(cfg)
+             + volume_problems(cfg) + post_create_problems(cfg) + privilege_problems(cfg))
     return found + (readme_problems(readme) if readme is not None else [])
 
 
@@ -282,11 +311,38 @@ class BadInputs(unittest.TestCase):
         self.assertTrue(tool_problems(self.changed(features=features), self.dockerfile))
         features = {k: v for k, v in self.cfg["features"].items() if "github-cli" not in k}
         self.assertTrue(tool_problems(self.changed(features=features), self.dockerfile))
+        features = {k: v for k, v in self.cfg["features"].items() if "features/node" not in k}
+        self.assertIn("no {} feature".format(NODE_FEATURE), tool_problems(self.changed(features=features),
+                                                                          self.dockerfile))
         self.assertIn("the Dockerfile doesn't install tmux",
                       tool_problems(self.cfg, re.sub(r"\btmux\b", "", self.dockerfile)))
 
+    def test_an_image_alone_or_another_dockerfile_fails(self):
+        cfg = copy.deepcopy(self.cfg)
+        del cfg["build"]
+        cfg["image"] = "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm"
+        self.assertTrue(build_problems(cfg))
+        self.assertTrue(build_problems(self.changed(build={"dockerfile": "../Dockerfile"})))
+
+    def test_a_volume_folder_left_to_root_fails(self):
+        self.assertEqual(folder_problems(self.cfg, self.dockerfile), [])
+        no_chown = re.sub(r"chown -R \S+", "true", self.dockerfile)
+        self.assertEqual(folder_problems(self.cfg, no_chown),
+                         ["the Dockerfile doesn't give /home/vscode/{} to vscode".format(name) for name in SIGN_INS])
+        root = self.dockerfile.replace("vscode:vscode", "root:root")
+        self.assertTrue(folder_problems(self.cfg, root))
+        only_claude = re.sub(r"(chown -R vscode:vscode)[^\n]*", r"\1 /home/vscode/.claude", self.dockerfile)
+        self.assertEqual(folder_problems(self.cfg, only_claude),
+                         ["the Dockerfile doesn't give /home/vscode/.config/gh to vscode"])
+        no_gh = self.dockerfile.replace("/home/vscode/.config/gh", "")
+        self.assertIn("the Dockerfile doesn't make /home/vscode/.config/gh", folder_problems(self.cfg, no_gh))
+
     def test_privileged_fails(self):
         self.assertEqual(privilege_problems(self.changed(privileged=True)), ["privileged is set"])
+
+    def test_an_initialize_command_fails(self):
+        cfg = self.changed(initializeCommand="cp ~/.ssh/id_ed25519 .")
+        self.assertEqual(privilege_problems(cfg), ["initializeCommand is set"])
 
     def test_cap_add_or_a_volume_in_run_args_fails(self):
         for args in (["--cap-add=NET_ADMIN"], ["-v", "/:/host"], ["--mount=type=bind,src=/,dst=/host"]):
@@ -316,6 +372,12 @@ class BadInputs(unittest.TestCase):
     def test_a_readme_missing_its_warning_fails(self):
         _, _, readme = load()
         self.assertEqual(readme_problems(readme.replace(WARN, "")), ["the README doesn't say {!r}".format(WARN)])
+
+    def test_a_readme_missing_any_section_fails(self):
+        _, _, readme = load()
+        for words in README_WORDS:
+            with self.subTest(words=words):
+                self.assertIn("the README doesn't say {!r}".format(words), readme_problems(readme.replace(words, "")))
 
 
 class GoodInputs(unittest.TestCase):
