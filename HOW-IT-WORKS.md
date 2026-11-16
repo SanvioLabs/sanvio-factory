@@ -111,7 +111,9 @@ the next. Nothing runs until you start it, and `run` never merges.
 | Scale | On PASS, and if the issue is still open, it opens a pull request that says `Closes #N`, the files changed, the last test lines, the review in full and the plan (collapsed), and comments the link on the issue. A blocked issue gets a comment saying why. It writes what went wrong into `.loop/lessons.md`, in the shape [`skills/learn/`](skills/learn/) reads, then takes the next issue | the pull request |
 
 Build and Validate repeat up to five rounds. After that the issue is labelled
-`loop:blocked` and the loop moves on without it. A round after the first that
+`loop:blocked` and the loop moves on without it.
+If the issue is closed later, for example when a person merges the loop's commit by hand, the loop marks its row `skipped` with the note `issue closed while blocked` while it's idle, within an hour, so the dashboard stops listing it. The `loop:blocked` label stays on the issue.
+A round after the first that
 adds nothing new ends the run there, blocked, with the agent's reply quoted on
 the issue: the tests and the review would only repeat. A pass needs the tests to exit 0
 **and** the review to say PASS: the script runs the tests, so the agent never

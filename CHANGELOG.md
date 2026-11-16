@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: A closed issue clears its blocked row
+
+While it's idle, the loop now looks up each blocked issue on GitHub and marks its row `skipped`, with the note `issue closed while blocked` and a `CLEANUP` line in the log, once the issue is closed, for example after a person merges the loop's commit by hand. An issue still open is looked up again after an hour, a failed lookup leaves the row blocked, and the `loop:blocked` label stays on the issue.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-15: Keeping the loop to its own work
 
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has a new part, *Keeping the loop to its own work*, on the boundary the loop runs inside: the settings to make on your own machine (Claude Code's sandbox, `network_allow`, `max_issue_tokens`, `sandbox_commands`, and a fine-grained GitHub token for the one repo with the permissions it needs), the dev container, and a machine off yours. [`README.md`](README.md)'s *Set up* points at it before *Where to run it*.

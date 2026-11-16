@@ -232,6 +232,7 @@ SAID_CAP = 2_000  # how much of the build agent's last reply a block comment quo
 DIRTY_CAP = 10  # how many paths a block names, of those setup left behind or an agent wrote where it shouldn't
 REVIEW_KEEP = 200  # pull requests kept in status.json, newest first
 STATUS_KEEP = 20  # issues kept in status.json, newest first
+BLOCKED_RECHECK_SECONDS = 3600  # how long a blocked issue found open waits before it's looked up again
 # For an agent reading someone else's pull request: read tools only, confined to the checkout.
 UNTRUSTED_CLAUDE = ["--restricted", "--strict-mcp-config", "--tools", "Read,Grep,Glob"]
 # What agent() returns when it won't start a reader it can't confine on someone else's files.
@@ -2388,6 +2389,7 @@ class Loop:
         self.rules = rules_preamble(self.root) if self.project else ""
         self.me = None
         self.said = set()  # skips and tidy lines already logged by this process, so a poll doesn't repeat them
+        self.open_checked = {}  # blocked issue number -> time.monotonic() of the last lookup that found it open
         self.reopened = {}  # issue number: its open pull request, for an issue put back while that's open
         self.only_pr = None  # review --pr: the one pull request to review
         self.busy = False  # review --pr found another review of it under way
@@ -4125,6 +4127,33 @@ class Loop:
                 continue
             self.log("CLEANUP", "pull request {}, removed its worktree and {}".format(state.lower(), branch), number)
 
+    def clear_blocked(self):
+        """Mark skipped each blocked issue that has since been closed, such as by a person merging its commit.
+
+        Runs on every idle poll, beside tidy(). An issue found open isn't looked up again for
+        BLOCKED_RECHECK_SECONDS. Only CLOSED clears a row: a failed lookup leaves it blocked, logged
+        once per run, and tried again on the next poll. The loop:blocked label stays on the issue.
+        """
+        for row in list(self.status["issues"]):  # mark() reorders the rows
+            if row.get("state") != "blocked":
+                continue
+            number = row["number"]
+            checked = self.open_checked.get(number)
+            if checked is not None and time.monotonic() - checked < BLOCKED_RECHECK_SECONDS:
+                continue
+            # The exit code decides, not the output: gh prints its errors to stdout.
+            code, out = self.gh("issue", "view", str(number), "--json", "state", "-q", ".state")
+            if code != 0:
+                self.log_once("ERROR", "could not read whether the blocked issue is closed: " + out.strip()[:200],
+                              number)
+                continue
+            if out.strip() == "CLOSED":
+                self.mark(number, state="skipped", note="issue closed while blocked")
+                self.log("CLEANUP", "issue closed while blocked, marked skipped", number)
+                self.open_checked.pop(number, None)
+            else:
+                self.open_checked[number] = time.monotonic()
+
     def update_prs(self):
         """Merge the base into each open loop pull request whose only conflict with it is CHANGELOG.md.
 
@@ -4456,6 +4485,7 @@ class Loop:
                         idle = True
                     if not dry_run:
                         self.tidy()
+                        self.clear_blocked()
                         self.update_prs()
                     self.stale()
                     if once or dry_run or only is not None:
