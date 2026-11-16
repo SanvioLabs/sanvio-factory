@@ -776,7 +776,7 @@ group('project loops', () => {
     }
     await close()
   })
-  test('a loop on one job marks its button, and on two adds the count', async ($, on) => {
+  test('a loop on one job marks its button with a count of one, and on two with two', async ($, on) => {
     const files = threeLoops()
     files.set(`${ALPHA}/status.json`, statusText('alpha job', { issues: [JOB] }))
     files.set(`${ALPHA}/lock`, '4242')
@@ -784,11 +784,11 @@ group('project loops', () => {
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
     const label = async (value: string) => (await pickOptions(ui)).find(o => o.value === value)?.label
-    expect(await label('alpha')).toBe('● alpha')
+    expect(await label('alpha')).toBe('● alpha (1)')
     expect(await label('beta')).toBe('beta')
     files.set(`${ALPHA}/status.json`, statusText('alpha job', { issues: [JOB, { ...JOB, number: 13 }] }))
     await clock.advance(POLL)
-    expect(await label('alpha')).toBe('● alpha 2')
+    expect(await label('alpha')).toBe('● alpha (2)')
     await ui.unmount()
     await close()
   })
@@ -804,11 +804,11 @@ group('project loops', () => {
     await ui.press({ key: 'loop-beta' })
     await drain()
     const alpha = await ui.find({ key: 'loop-alpha' })
-    expect(alpha?.props.label).toBe('● alpha')
+    expect(alpha?.props.label).toBe('● alpha (1)')
     expect(alpha?.props.variant).toBeUndefined()
     expect(alpha?.props.dimColor).toBe(true)
     const beta = await ui.find({ key: 'loop-beta' })
-    expect(beta?.props.label).toBe('● beta')
+    expect(beta?.props.label).toBe('● beta (1)')
     expect(beta?.props.variant).toBe('primary')
     const header = (await ui.find({ key: 'header' })) as unknown as { children: { children: string[] }[] }
     expect(header.children[0]?.children).toEqual(['beta'])
@@ -1018,8 +1018,8 @@ group('project loops', () => {
       const pick = await ui.find({ key: 'loop-pick' })
       expect(pick?.props.options).toEqual([
         { value: '*', label: 'All loops' },
-        { value: 'beta', label: '● beta' },
-        { value: 'gamma', label: '● gamma' },
+        { value: 'beta', label: '● beta (1)' },
+        { value: 'gamma', label: '● gamma (1)' },
         { value: '', label: 'starter' },
         { value: 'alpha', label: 'alpha' },
         { value: 'delta', label: 'delta' },
@@ -1501,7 +1501,7 @@ group('project loops', () => {
     expect((await pickOptions(ui)).map(o => o.value)).toEqual(['*', '', 'alpha', 'beta'])
     await pastRemoteRead(clock)
     const options = await pickOptions(ui)
-    expect(options.find(o => o.value === 'ssh:0/alpha')?.label).toBe('● spare-mac · alpha')
+    expect(options.find(o => o.value === 'ssh:0/alpha')?.label).toBe('● spare-mac · alpha (1)')
     expect(options.find(o => o.value === 'ssh:0/')?.label).toBe('spare-mac')
     // This machine's alpha stays an option of its own.
     expect(options.find(o => o.value === 'alpha')?.label).toBe('alpha')
