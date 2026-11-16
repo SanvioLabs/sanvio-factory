@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Bill beside the estimate
+
+The factory dashboard's Loop spend section now has a **Bill and estimate** table. For each of the last three months entered in `.sanvio/bills.json`, it shows the bill beside this machine's estimate and the gap between them, in dollars and as a share of the bill. The estimate prices the loop's runs and the factory's conversations that month at `.sanvio/prices.json`. A line under the table says the bill covers every seat on the account. `dashboard_data.py --json` gives the figures as a new `bill` section, and it never writes `bills.json`.
+
+Files: [`scripts/bills.example.json`](scripts/bills.example.json), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/register.tsx`](examples/mods/factory-dashboard/hooks/register.tsx), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/hooks/pane.test.ts`](examples/mods/factory-dashboard/hooks/pane.test.ts), [`examples/mods/factory-dashboard/hooks/sample.test.ts`](examples/mods/factory-dashboard/hooks/sample.test.ts), [`examples/mods/factory-dashboard/hooks/sample.ts`](examples/mods/factory-dashboard/hooks/sample.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** copy [`scripts/bills.example.json`](scripts/bills.example.json) to `.sanvio/bills.json` and enter last month's bill.
+
 ## 2026-11-15: All-in cost per merged pull request
 
 The factory dashboard's Loop spend now shows what a merged pull request cost all in: the loop's spend since the date counted from, plus this machine's factory conversations priced at `.sanvio/prices.json`, over how many pull requests merged. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) gives it as a new `all_in` section, made from the sections it already reads, with no gh call or transcript read of its own. The loop's own conversations are left out, because the loop's spend already counts them. It's an estimate at API prices, not a bill, and on a team it undercounts, since it reads only this machine's conversations. When there's no figure, the line says why: nothing merged, a model with no price, or a part it couldn't count.
