@@ -1554,10 +1554,12 @@ def stop_message(number, round_no):
 
 
 def assistant_usage(line):
-    """The four token counts on a line that is claude's assistant event, from its message's usage, else None.
+    """(message id, the four token counts) on a line that is claude's assistant event, else None.
 
-    None too when the event reports none of them. Each event is counted in full: if claude repeats a
-    message's usage across its content blocks, a sum over-counts, which is the safe side for a budget.
+    The counts are its message's usage; None too when the event reports none of them. claude splits one
+    message into an event per content block, thinking, text and each tool call, and repeats the whole
+    message's usage on each, so the caller counts a message once by its id. The id is None when the event
+    has none, and then the event counts on its own.
     """
     if not line.lstrip().startswith("{"):
         return None
@@ -1571,7 +1573,10 @@ def assistant_usage(line):
     if not isinstance(counts, dict):
         return None
     usage = token_counts(counts)
-    return usage if any(value is not None for value in usage.values()) else None
+    if not any(value is not None for value in usage.values()):
+        return None
+    ident = found["message"].get("id")
+    return (ident if isinstance(ident, str) and ident else None), usage
 
 
 def init_event(line):
@@ -2798,7 +2803,7 @@ class Loop:
         # The budget's watch. base is read once: only one agent of an issue runs at a time.
         limit = budget(self.cfg)[0] if streaming and step in ("build", "test") and number is not None else None
         base = self.run_tokens(number) if limit else 0
-        counted = {name: 0 for name in USAGE_TOKENS}
+        messages = {}  # message id, or a key of its own for an event with none -> its latest token counts
         stopped = False
         with proc:
             self.agents.add(proc)
@@ -2839,10 +2844,11 @@ class Loop:
                             if shown is not None:
                                 handle.write(shown + "\n")
                                 handle.flush()
-                            event = assistant_usage(line) if limit else None
-                            if event:
-                                for name in USAGE_TOKENS:
-                                    counted[name] += event[name] or 0
+                            found = assistant_usage(line) if limit else None
+                            if found:
+                                ident, event = found
+                                messages[ident if ident is not None else ("event", len(messages))] = event
+                                counted = {name: sum(m[name] or 0 for m in messages.values()) for name in USAGE_TOKENS}
                                 if base + sum(counted.values()) > limit:
                                     stopped = True
                                     try:

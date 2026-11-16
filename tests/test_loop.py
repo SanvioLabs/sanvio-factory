@@ -982,7 +982,8 @@ else:
 # A stand-in claude for the budget's watch, streaming as claude -p --output-format stream-json does, each
 # line flushed. The build writes feature.txt and partial.txt, and the tester tests/test_partial.txt, unless
 # idle-<step> is there. Then each step prints events-<step> assistant events (none by default) of 100 tokens
-# each, sleeps linger-<step> seconds (none by default), writes LATE-<step> in the state folder, and prints its
+# each, all one message's when same-<step> is there, as claude repeats a message's usage on each of its blocks,
+# and sleeps linger-<step> seconds (none by default), writes LATE-<step> in the state folder, and prints its
 # result: 100 tokens an event, or 10 with none. The review passes, or asks for a fix when fix-review is there.
 BUDGET_AGENT = """#!/usr/bin/env python3
 import json, os, sys, time
@@ -1005,8 +1006,10 @@ elif step == "test":
     os.makedirs("tests", exist_ok=True)
     open(os.path.join("tests", "test_partial.txt"), "a").write("x")
 events = int(setting("events"))
-for _ in range(events):
-    say({"type": "assistant", "message": {"content": [{"type": "text", "text": "Working."}], "usage": {
+same = os.path.exists(os.path.join(state, "same-" + step))
+for i in range(events):
+    say({"type": "assistant", "message": {"id": "msg_one" if same else "msg_%d" % i,
+                                          "content": [{"type": "text", "text": "Working."}], "usage": {
         "input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}})
 time.sleep(setting("linger"))
 open(os.path.join(state, "LATE-" + step), "w").write("")
@@ -6409,6 +6412,24 @@ class TestProject(unittest.TestCase):
 
     def budget_row(self):
         return json.loads((self.harness / ".loop" / "projects" / "app" / "status.json").read_text())["issues"][0]
+
+    def test_one_message_split_into_events_counts_once_so_the_build_isnt_stopped_early(self):
+        # Three events of one message, 100 tokens each as claude repeats it: the plan's 10 and the message's
+        # 100 stay under 150, where counting each event would reach 310 and stop the build at its second.
+        (self.state / "events-build").write_text("3")
+        (self.state / "same-build").write_text("")
+        self.budget_run(max_issue_tokens=150)
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_lines(), [])
+
+    def test_assistant_usage_names_the_message_so_its_blocks_count_once(self):
+        line = json.dumps({"type": "assistant", "message": {"id": "msg_1", "content": [], "usage": {
+            "input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 3}}})
+        self.assertEqual(loop.assistant_usage(line), ("msg_1", {"input_tokens": 2, "output_tokens": 4,
+                                                                "cache_write_tokens": 3, "cache_read_tokens": 10}))
+        no_id = json.dumps({"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 5}}})
+        self.assertEqual(loop.assistant_usage(no_id)[0], None)
+        self.assertIsNone(loop.assistant_usage(json.dumps({"type": "user", "message": {"usage": {"input_tokens": 5}}})))
 
     def test_a_build_over_the_budget_is_stopped_at_once_and_what_it_made_is_committed_not_pushed(self):
         (self.state / "events-build").write_text("3")
