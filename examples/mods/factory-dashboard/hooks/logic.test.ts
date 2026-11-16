@@ -249,6 +249,40 @@ group('work by type', () => {
   })
 })
 
+group('bill and estimate', () => {
+  const row = (month: string, billed_usd: number, estimate_usd: number | null, gap_usd: number | null, gap_pct: number | null) =>
+    ({ month, billed_usd, estimate_usd, gap_usd, gap_pct, unpriced: {} })
+  const billed = (bill: unknown) => spend({ ...DOC, bill })
+  const LINE = "This machine's estimate; the bill covers every seat on the account"
+  test('a table after the periods, each month newest first with its bill, estimate and gap, and the line', () => {
+    const section = billed({ months: [row('2026-10', 6.5, 5, 1.5, 23.1), row('2026-09', 0, 2, -2, null)], skipped: 0 })
+    expect(section.tables?.map(t => t.key).slice(0, 2)).toEqual(['spend-periods', 'spend-bill'])
+    const table = section.tables?.find(t => t.key === 'spend-bill')
+    expect(table?.title).toBe('Bill and estimate')
+    expect(table?.head).toEqual(['Month', 'Bill', 'Estimate', 'Gap'])
+    expect(table?.rows).toEqual([['Oct 2026', '$6.50', '$5.00', '$1.50 (23.1%)'], ['Sep 2026', '$0.00', '$2.00', '$-2.00']])
+    expect(section.lines.filter(l => l.text === LINE)).toEqual([{ tone: 'quiet', text: LINE }])
+  })
+  test('an estimate with a model that has no price shows ? for the estimate and the gap', () => {
+    const table = billed({ months: [row('2026-10', 6.5, null, null, null)], skipped: 0 }).tables?.find(t => t.key === 'spend-bill')
+    expect(table?.rows).toEqual([['Oct 2026', '$6.50', '?', '?']])
+  })
+  test('a missing bill says why in a quiet line, and a document without one draws no table and no line', () => {
+    const gone = billed(GONE('no bills.json'))
+    expect(gone.tables?.find(t => t.key === 'spend-bill')).toBeUndefined()
+    expect(gone.lines.filter(l => l.text.startsWith('Bill'))).toEqual([{ tone: 'quiet', text: 'Bill: no bills.json' }])
+    expect(text(gone.lines)).not.toContain(LINE)
+    const without = spend(DOC)
+    expect(without.tables?.find(t => t.key === 'spend-bill')).toBeUndefined()
+    expect(text(without.lines)).not.toContain('Bill')
+    expect(text(without.lines)).not.toContain(LINE)
+  })
+  test('entries the script left out are counted in a line', () => {
+    expect(text(billed({ months: [row('2026-10', 6.5, 5, 1.5, 23.1)], skipped: 2 }).lines))
+      .toContain('Bill: 2 entries in bills.json left out')
+  })
+})
+
 group('throughput and rework', () => {
   test('a table of how recent issues ended and the repeats, then one of rework split into fixes and merges', () => {
     const [issues, rework] = throughput(DOC).tables ?? []

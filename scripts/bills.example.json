@@ -1,0 +1,7 @@
+{
+  "source": "An example of the shape only: these figures are not a real bill. Copy this file to .sanvio/bills.json, then put in each month's bill from your provider's invoice, in dollars, keyed by month as YYYY-MM.",
+  "months": {
+    "2026-01": 120.0,
+    "2026-02": 95.5
+  }
+}

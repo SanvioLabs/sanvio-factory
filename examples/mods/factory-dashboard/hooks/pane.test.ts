@@ -178,6 +178,16 @@ group('the spend tables', () => {
     expect(JSON.stringify(await ui.find({ key: 'spend-issues' }))).toContain('#38')
     await ui.unmount()
   })
+  test("a table's title is drawn above its header, and a table without one draws none", async ($, on) => {
+    const bill = { months: [{ month: '2026-10', billed_usd: 6.5, estimate_usd: 5, gap_usd: 1.5, gap_pct: 23.1, unpriced: {} }], skipped: 0 }
+    seed(on, SEEN({ doc: { ...spent, bill } }))
+    const ui = await $.ui.mount(PANE)
+    const shown = JSON.stringify(await ui.find({ key: 'spend-bill' }))
+    expect(shown).toContain('Bill and estimate')
+    expect(shown.indexOf('Bill and estimate')).toBeLessThan(shown.indexOf('Month'))
+    expect(JSON.stringify(await ui.find({ key: 'spend-periods' }))).not.toContain('-title')
+    await ui.unmount()
+  })
 })
 
 group('the tables in a narrow pane', () => {

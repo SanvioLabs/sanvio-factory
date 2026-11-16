@@ -184,6 +184,7 @@ export const register: Register = on => {
       }
       return (
         <Box key={t.key} flexDirection="column" marginBottom={1}>
+          {t.title ? <Text key={`${t.key}-title`} bold>{fit(t.title)}</Text> : null}
           {row(t.head, `${t.key}-head`, true)}
           {t.rows.map((r, i) => row(r, `${t.key}-${i}`, false, t.tones?.[i]))}
         </Box>

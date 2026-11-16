@@ -203,7 +203,7 @@ class Layout(Factory):
         self.assertEqual(code, 0)
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
-                                       "evals", "conversations", "waiting", "loop_rework", "stage_times",
+                                       "evals", "conversations", "bill", "waiting", "loop_rework", "stage_times",
                                        "loop_history", "work_by_type", "last_review"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
@@ -952,6 +952,144 @@ class LastReview(Factory):
         self.assertIn("\n    last_review ", dashboard_data.__doc__)
 
 
+BILL_TODAY = datetime.date(2026, 11, 15)
+BILL_NOW = datetime.datetime(2026, 11, 15, 12, 0, tzinfo=datetime.timezone.utc)
+
+
+class Bill(Factory):
+    """October's bill beside October's work, today 2026-11-15. At PRICE_A, the loop's run is 2,000,000 input
+    tokens, $2.00, and the factory's reply 100,000, 200,000, 300,000 and 400,000 tokens, $3.00: $5.00 in all."""
+
+    def setUp(self):
+        super().setUp()
+        self.loop = self.root.parent / "loop-checkouts"
+        write(self.root, "loop.json", {"worktree_dir": str(self.loop)})
+        write(self.root, ".sanvio/prices.json", {"models": {"m-a": PRICE_A}})
+        # Its cost_usd is far from what prices.json makes of its tokens, so a test sees which one is used.
+        write(self.root, ".loop/issue-7/usage.json", [run("2026-10-10T09:00:00", "build", "m-a", 2_000_000, 99.0)])
+        # Replies at noon UTC stay on their day in any zone. The second transcript holds a resumed session's
+        # copy of the same reply, which counts once.
+        first = reply(self.root, 100_000, "1", "s1", ts="2026-10-12T12:00:00Z")
+        lines(self.transcripts, "a/s1.jsonl", [first])
+        lines(self.transcripts, "b/s2.jsonl", [dict(first, sessionId="s2")])
+
+    def bills(self, months, **fields):
+        write(self.root, ".sanvio/bills.json", dict(fields, months=months))
+
+    def bill(self, since="2026-11-01"):
+        return dashboard_data.build(self.root, since, BILL_TODAY, BILL_NOW, projects_dir=self.transcripts)["bill"]
+
+    def october(self):
+        self.bills({"2026-10": 6.5})
+        return self.bill()["months"][0]
+
+    def test_a_month_with_a_bill_and_both_sides_of_the_estimate(self):
+        self.bills({"2026-10": 6.5})
+        self.assertEqual(self.bill(), {"months": [
+            {"month": "2026-10", "billed_usd": 6.5, "estimate_usd": 5.0, "gap_usd": 1.5, "gap_pct": 23.1, "unpriced": {}}],
+            "skipped": 0})
+
+    def test_no_file_is_no_bills_json(self):
+        self.assertEqual(self.bill(), {"value": None, "why": "no bills.json"})
+
+    def test_a_file_without_a_months_object_is_unreadable(self):
+        for junk in ("not json", "[1, 2]", {"months": ["2026-10", 6.5]}, {"source": "a bill"}):
+            with self.subTest(junk=junk):
+                write(self.root, ".sanvio/bills.json", junk)
+                self.assertEqual(self.bill(), {"value": None, "why": "unreadable"})
+
+    def test_a_folder_in_its_place_is_unreadable(self):
+        (self.root / ".sanvio" / "bills.json").mkdir(parents=True)
+        self.assertEqual(self.bill(), {"value": None, "why": "unreadable"})
+
+    def test_a_month_that_isnt_a_month_or_a_bill_thats_not_a_number_is_skipped(self):
+        write(self.root, ".sanvio/bills.json",
+              '{"months": {"2026-10": 6.5, "2026-09": -5, "2026-08": NaN, "2026-07": "100", "2026-06": true,'
+              ' "2026-13": 10, "2026-05": Infinity, "2026-04": 1' + "0" * 400 + ', "October": 6.5}}')
+        found = self.bill()
+        self.assertEqual([row["month"] for row in found["months"]], ["2026-10"])
+        self.assertEqual(found["skipped"], 8)
+        json.dumps(found, allow_nan=False)
+
+    def test_a_model_with_no_price_makes_the_estimate_and_gap_null_and_is_named(self):
+        write(self.root, ".loop/issue-8/usage.json", [run("2026-10-11T09:00:00", "build", "m-z", 10, 0.5)])
+        self.assertEqual(self.october(), {"month": "2026-10", "billed_usd": 6.5, "estimate_usd": None, "gap_usd": None,
+                                          "gap_pct": None, "unpriced": {"m-z": "not in prices.json"}})
+
+    def test_no_price_file_names_every_model(self):
+        (self.root / ".sanvio" / "prices.json").unlink()
+        row = self.october()
+        self.assertIsNone(row["estimate_usd"])
+        self.assertEqual(row["unpriced"], {"m-a": "no prices.json"})
+
+    def test_a_run_with_no_model_is_unknown(self):
+        write(self.root, ".loop/issue-8/usage.json", [run("2026-10-11T09:00:00", "build", None, 10, 0.5)])
+        self.assertEqual(self.october()["unpriced"], {"unknown": "not in prices.json"})
+
+    def test_this_month_and_later_are_left_out_and_only_the_3_newest_shown(self):
+        self.bills({"2026-11": 1.0, "2026-12": 1.0, "2027-01": 1.0, "2026-08": 2.0, "2026-10": 6.5,
+                    "2026-07": 3.0, "2026-09": 1.0})
+        found = self.bill()
+        self.assertEqual([row["month"] for row in found["months"]], ["2026-10", "2026-09", "2026-08"])
+        self.assertEqual(found["skipped"], 0)
+
+    def test_a_bill_of_0_has_a_gap_but_no_percentage(self):
+        self.bills({"2026-10": 0})
+        row = self.bill()["months"][0]
+        self.assertEqual((row["billed_usd"], row["gap_usd"], row["gap_pct"]), (0.0, -5.0, None))
+
+    def test_a_month_with_no_work_is_estimated_at_0(self):
+        self.bills({"2026-06": 12.0})
+        self.assertEqual(self.bill()["months"], [{"month": "2026-06", "billed_usd": 12.0, "estimate_usd": 0.0,
+                                                  "gap_usd": 12.0, "gap_pct": 100.0, "unpriced": {}}])
+
+    def test_the_loops_replies_in_the_transcripts_dont_count_twice(self):
+        # The loop's own reply is the run usage.json already holds.
+        lines(self.transcripts, "loop/issue-7.jsonl", [
+            reply(self.loop / "issue-7" / "src", 1_000_000, "l7", "l7", ts="2026-10-10T12:00:00Z")])
+        self.assertEqual(self.october()["estimate_usd"], 5.0)
+
+    def test_a_run_started_on_the_last_day_of_september_counts_in_september(self):
+        write(self.root, ".loop/issue-8/usage.json", [run("2026-09-30T23:30:00", "build", "m-a", 4_000_000, 0.1)])
+        self.bills({"2026-10": 6.5, "2026-09": 4.0})
+        self.assertEqual([(row["month"], row["estimate_usd"]) for row in self.bill()["months"]],
+                         [("2026-10", 5.0), ("2026-09", 4.0)])
+
+    def test_with_no_transcripts_the_factory_side_adds_nothing(self):
+        shutil.rmtree(self.transcripts)
+        self.assertEqual(self.october()["estimate_usd"], 2.0)
+
+    def test_since_doesnt_change_it(self):
+        self.bills({"2026-10": 6.5, "2026-09": 4.0})
+        self.assertEqual(self.bill(since="2026-11-01"), self.bill(since="2026-09-01"))
+
+    def test_it_writes_neither_bills_json_nor_prices_json(self):
+        self.bills({"2026-10": 6.5}, source=LEAK)
+        state = self.root / ".sanvio"
+        before = {name: (state / name).read_bytes() for name in ("bills.json", "prices.json")}
+        self.bill()
+        self.assertEqual({name: (state / name).read_bytes() for name in before}, before)
+
+    def test_no_path_or_source_reaches_the_output(self):
+        self.bills({"2026-10": 6.5}, source=LEAK)
+        write(self.root, ".loop/issue-8/usage.json", [run("2026-10-11T09:00:00", "build", "m-z", 10, 0.5)])
+        found = json.dumps(self.bill())
+        for leak in (LEAK, str(self.root), str(self.root.parent), str(self.transcripts)):
+            self.assertNotIn(leak, found)
+
+    def test_the_example_file_is_read_and_says_where_it_came_from(self):
+        path = self.root / ".sanvio" / dashboard_data.BILLS
+        shutil.copy(ROOT / "scripts" / "bills.example.json", path)
+        self.assertIn("source", json.loads(path.read_text()))
+        found = self.bill()
+        self.assertEqual([(row["month"], row["billed_usd"]) for row in found["months"]],
+                         [("2026-02", 95.5), ("2026-01", 120.0)])
+        self.assertEqual(found["skipped"], 0)
+
+    def test_the_docstring_lists_the_section(self):
+        self.assertIn("\n    bill ", dashboard_data.__doc__)
+
+
 class MissingOrCorrupt(Factory):
     def test_every_source_missing_gives_null_and_why_and_exits_0(self):
         code, out = self.main()
@@ -967,6 +1105,7 @@ class MissingOrCorrupt(Factory):
         self.assertEqual(found["waiting"], {"pull_requests": {"value": None, "why": "gh unavailable"},
                                             "blocked": {"value": None, "why": "no status.json"}})
         self.assertEqual(found["loop_history"], {"value": None, "why": "no run history"})
+        self.assertEqual(found["bill"], {"value": None, "why": "no bills.json"})
 
     def test_every_source_corrupt_gives_null_and_why_and_exits_0(self):
         write(self.root, ".loop/issue-7/usage.json", "not json")
@@ -1511,6 +1650,13 @@ class Sample(GitHarness):
             write(self.root, ".loop/{}/usage.json".format(issue), [run(*e) for e in entries])
         write(self.root, ".loop/projects/app/issue-3/usage.json", [
             run("2026-10-22T14:00:00", "build", OPUS, 880_000, 1.30)])
+        # August's and September's runs, for the bill: issues finished before the period, off status.json.
+        write(self.root, ".loop/issue-27/usage.json", [run("2026-08-19T09:00:00", "build", OPUS, 1_600_000, 2.40)])
+        write(self.root, ".loop/issue-29/usage.json", [run("2026-09-15T09:00:00", "build", OPUS, 2_400_000, 3.60),
+                                                       run("2026-09-16T09:00:00", "build", OPUS, 1_900_000, 2.80)])
+        # What the provider billed for those months, typed in by hand. October's isn't in yet.
+        write(self.root, ".sanvio/bills.json", {"source": "made up for the sample",
+                                                "months": {"2026-08": 28.10, "2026-09": 54.20}})
 
         def issue(number, title, state, round, note="", pull=None, started=None, steps=None):
             return {"number": number, "title": title, "state": state, "round": round, "note": note,
@@ -1657,6 +1803,11 @@ class Sample(GitHarness):
                 entries.insert(0, {"type": "user", "cwd": str(self.root), "sessionId": "s26", "timestamp": ts, "uuid": "u26",
                                    "message": {"role": "user", "content": "<command-name>/standup</command-name>"}})
             lines(self.transcripts, "harness/s{}.jsonl".format(day), entries)
+        # Earlier months' conversations, before the period: only the bill's estimate counts them.
+        for month, n in (("08", 250_000), ("09", 400_000)):
+            lines(self.transcripts, "harness/s{}-16.jsonl".format(month), [
+                reply(self.root, n, "h{}-16".format(month), "s{}-16".format(month), model=OPUS,
+                      ts="2026-{}-16T12:00:00Z".format(month))])
         write(self.root, ".sanvio/prices.json", {
             "checked": "2026-10-01",
             "models": {OPUS: {"input": 5, "output": 25, "cache_writes": 6.25, "cache_reads": 0.5},

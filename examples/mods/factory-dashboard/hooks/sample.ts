@@ -43,6 +43,27 @@ export const SAMPLE: Doc = {
     "spend_at": "2026-10-27T12:00:00+00:00",
     "unpriced": {}
   },
+  "bill": {
+    "months": [
+      {
+        "billed_usd": 54.2,
+        "estimate_usd": 51.8,
+        "gap_pct": 4.4,
+        "gap_usd": 2.4,
+        "month": "2026-09",
+        "unpriced": {}
+      },
+      {
+        "billed_usd": 28.1,
+        "estimate_usd": 26.94,
+        "gap_pct": 4.1,
+        "gap_usd": 1.16,
+        "month": "2026-08",
+        "unpriced": {}
+      }
+    ],
+    "skipped": 0
+  },
   "conversations": {
     "factory": {
       "by_day": [

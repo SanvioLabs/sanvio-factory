@@ -5,12 +5,12 @@ import { SAMPLE } from './sample'
 
 // SAMPLE is what scripts/dashboard_data.py printed, written by tests/test_dashboard_data.py, so a field
 // the script renames or moves shows here as a section the pane can't read.
-const KEYS = ['loop_spend', 'loop_throughput', 'activity', 'evals', 'conversations', 'waiting', 'loop_rework', 'work_by_type']
+const KEYS = ['loop_spend', 'loop_throughput', 'activity', 'evals', 'conversations', 'waiting', 'loop_rework', 'work_by_type', 'bill']
 // What the pane says when a field isn't where it looks.
 const UNREAD = ["couldn't read", 'not in this script', "doesn't give them yet"]
 // Every why the script gives a missing section, and the one missing() gives when it has none.
 const WHYS = ['no loop records', 'unreadable', 'no status.json', 'no usage log', 'no saved evals', 'no transcripts',
-  'gh unavailable', 'gh failed', 'unavailable']
+  'gh unavailable', 'gh failed', 'unavailable', 'no bills.json']
 // Every why the script gives when it can't tell whether a reviewer's saved result is stale.
 const STALE_WHYS = ['folder missing', 'no saved time', 'no git']
 

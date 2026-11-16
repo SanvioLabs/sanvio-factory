@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-15: Bill beside the estimate
+
+The factory dashboard's Loop spend section now has a **Bill and estimate** table. For each of the last three months entered in `.sanvio/bills.json`, it shows the bill beside this machine's estimate and the gap between them, in dollars and as a share of the bill. The estimate prices the loop's runs and the factory's conversations that month at `.sanvio/prices.json`. A line under the table says the bill covers every seat on the account. `dashboard_data.py --json` gives the figures as a new `bill` section, and it never writes `bills.json`.
+
+Files: [`scripts/bills.example.json`](scripts/bills.example.json), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/register.tsx`](examples/mods/factory-dashboard/hooks/register.tsx), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/hooks/pane.test.ts`](examples/mods/factory-dashboard/hooks/pane.test.ts), [`examples/mods/factory-dashboard/hooks/sample.test.ts`](examples/mods/factory-dashboard/hooks/sample.test.ts), [`examples/mods/factory-dashboard/hooks/sample.ts`](examples/mods/factory-dashboard/hooks/sample.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** copy [`scripts/bills.example.json`](scripts/bills.example.json) to `.sanvio/bills.json` and enter last month's bill.
+
 ## 2026-11-15: Onboarding card 8, leading and funding the factory
 
 An eighth onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) is for the factory's owner and a finance partner. Once a month they answer five questions from the dashboard, `/work-report`, `/pulse` and `/factory-trends`: where the time went, what the spend bought, what a merged change costs, whether it held up, and how the team is finding it. They set the invoice beside the dashboard's estimate and decide one thing to keep, change or stop, written down with its cost. All-in cost per merged change and reverts after a merge are marked as coming. Card 7 now points to it.
