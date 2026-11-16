@@ -204,7 +204,7 @@ class Layout(Factory):
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
                                        "evals", "conversations", "waiting", "loop_rework", "stage_times",
-                                       "loop_history", "work_by_type", "last_review"])
+                                       "loop_history", "work_by_type", "all_in", "last_review"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -1438,6 +1438,82 @@ class ActivitySpend(Factory):
         path = self.root / ".sanvio" / dashboard_data.PRICES
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+
+class AllIn(Factory):
+    """WorkByType's five pull requests merged since SINCE over the loop's $11.00 since then (fill()'s $4.00 and
+    issue-11's $7.00), with a factory reply of 100,100 m-a tokens a count, $3.003 at PRICE_A, and a reply
+    in a loop worktree, which loop_spend already counts."""
+
+    def setUp(self):
+        super().setUp()
+        self.fill()
+        write(self.root, ".loop/issue-11/usage.json", [run("2026-10-20T09:00:00", "plan", "claude-a", 777, 7.0)])
+        self.answer_gh()
+        prs = [
+            search_pr(201, "loop/issue-7", "2026-10-20T12:00:00Z", closes=[(7, ["enhancement"])]),
+            search_pr(202, "feature/x", "2026-10-21T12:00:00Z", labels=["enhancement"], closes=[(7, [])]),
+            search_pr(203, "loop/issue-9", "2026-10-22T12:00:00Z", labels=["bug"], closes=[(9, ["enhancement"])]),
+            search_pr(204, "feature/docs", "2026-10-23T12:00:00Z", labels=["documentation"], closes=[(3, [])]),
+            search_pr(205, "feature/y", "2026-10-24T12:00:00Z"),
+            search_pr(206, "loop/issue-12", "2026-10-01T12:00:00Z", labels=["chore"], closes=[(9, [])])]  # before SINCE
+        write(self.bin, "search.json", [search_page(prs, len(prs))])
+        self.loop = self.root.parent / "loop-checkouts"
+        write(self.root, "loop.json", {"worktree_dir": str(self.loop)})
+        write(self.root, ".sanvio/prices.json", {"checked": "2026-10-20", "models": {"m-a": PRICE_A}})
+        lines(self.transcripts, "a/s1.jsonl", [reply(self.root, 100_100, "1", "s1")])
+        self.worktree("2", 1000)
+
+    def worktree(self, id, n):
+        lines(self.transcripts, "b/s2.jsonl", [reply(self.loop / "issue-7" / "src", n, id, "s2")])
+
+    def all_in(self):
+        return self.build()["all_in"]
+
+    def test_both_parts_priced_give_the_cost_per_merged_pull_request(self):
+        self.assertEqual(self.all_in(), {"merged": 5, "loop_cost_usd": 11.0, "conversation_cost_usd": 3.003,
+                                         "cost_usd": 14.003, "per_merged_usd": 2.8, "unpriced": {}})
+
+    def test_the_loop_side_of_conversations_is_left_out(self):
+        before = self.build()
+        self.worktree("3", 900_000)
+        after = self.build()
+        self.assertNotEqual(after["conversations"]["loop"], before["conversations"]["loop"])
+        self.assertEqual(after["all_in"], before["all_in"])
+        self.assertEqual(after["all_in"]["conversation_cost_usd"], 3.003)
+
+    def test_nothing_merged_has_a_cost_but_no_cost_per_merge(self):
+        write(self.bin, "search.json", [search_page([], 0)])
+        found = self.all_in()
+        self.assertEqual((found["merged"], found["per_merged_usd"], found["cost_usd"]), (0, None, 14.003))
+
+    def test_a_factory_model_with_no_price_makes_the_conversations_part_null_and_is_named(self):
+        lines(self.transcripts, "c/s4.jsonl", [reply(self.root, 10, "4", "s4", model="m-b")])
+        self.assertEqual(self.all_in(), {"merged": 5, "loop_cost_usd": 11.0, "conversation_cost_usd": None,
+                                         "cost_usd": None, "per_merged_usd": None,
+                                         "unpriced": {"m-b": "not in prices.json"}})
+
+    def test_no_work_by_type_gives_its_why(self):
+        (self.bin / "search.json").unlink()
+        self.assertEqual(self.all_in(), {"value": None, "why": "gh unavailable"})
+
+    def test_no_loop_spend_leaves_the_conversations_part(self):
+        for path in (self.root / ".loop").rglob("usage.json"):
+            path.unlink()
+        found = self.build()
+        self.assertEqual(found["loop_spend"], {"value": None, "why": "no loop records"})
+        self.assertEqual(found["all_in"], {"merged": 5, "loop_cost_usd": None, "conversation_cost_usd": 3.003,
+                                           "cost_usd": None, "per_merged_usd": None, "unpriced": {}})
+
+    def test_it_prints_no_title_login_path_or_address(self):
+        code, out = self.main()
+        self.assertEqual(code, 0)
+        found = json.dumps(json.loads(out)["all_in"])
+        for leak in (LEAK, str(self.root), str(self.transcripts), str(self.loop)):
+            self.assertNotIn(leak, found)
+
+    def test_the_docstring_lists_the_section(self):
+        self.assertIn("\n    all_in ", dashboard_data.__doc__)
 
 
 @contextlib.contextmanager

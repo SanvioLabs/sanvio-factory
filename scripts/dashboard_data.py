@@ -135,6 +135,19 @@
                      truncated is true when the search matched more than the 1000 it returns, and then
                      the counts are low. Why values are work_report.py's: "gh unavailable" and "GitHub's
                      search returned a page it couldn't read". It prints no title, author, login or address
+    all_in           what a merged pull request costs all in, made from the sections above with no gh call or
+                     transcript read of its own. merged is work_by_type's merged over every type.
+                     loop_cost_usd is loop_spend's since cost_usd, null when loop_spend is missing.
+                     conversation_cost_usd prices conversations' factory side at .sanvio/prices.json, as
+                     activity does, and is null when conversations is missing or a model with tokens has no
+                     price. The loop side of conversations is left out, because loop_spend already counts
+                     that work. cost_usd is the two added, null when either is, and per_merged_usd is
+                     cost_usd over merged to 2 decimals, null when nothing merged or cost_usd is null.
+                     unpriced names each factory-side model with no price and why, as activity's does.
+                     The conversations are this machine's transcripts only, so on a team the figure
+                     undercounts what everyone spent. It's an estimate at API prices, not a bill. With
+                     work_by_type missing it is {"value": null, "why": ...} with work_by_type's why. It
+                     prints no title, login, path or address
     last_review      the last monthly log review, from .sanvio/usage/last-review, which
                      usage_report.py --review writes: date, YYYY-MM-DD, and days_since, the days from
                      it to today. Why values: "no review yet" when there's no file, and "unreadable"
@@ -151,7 +164,8 @@ stage_times reads the same status.json and pull requests and prints none. Nowher
 request's address, a pull request's or review's author, a prompt, a commit's message or author, an eval's reasons or a
 file path other than those in changed, which are from the harness root: counts, dollars, dates, issue
 names, step, model, skill, agent, rule and case names, and a run's outcome, tests and verdicts. The dollars are the loop's estimate at API
-prices, or under activity an estimate at the prices in .sanvio/prices.json, not what was billed.
+prices, or under activity and all_in's conversation part an estimate at the prices in .sanvio/prices.json,
+not what was billed.
 """
 import argparse
 import contextlib
@@ -1017,6 +1031,27 @@ def work_by_type(root, since):
     return {"types": out, "truncated": matched > work_report.LIMIT}
 
 
+def all_in(work, loop, convs, root):
+    """What the period's merged pull requests cost all in, from the sections build() has already made, so it
+    asks gh and reads the transcripts no more than they did.
+
+    The loop's part is loop_spend's since cost. The conversations' part prices only their factory side: the
+    loop side is the loop's own work, which loop_spend already counts. A part whose section is missing is null."""
+    if "why" in work:
+        return missing(work["why"])
+    merged = sum(row["merged"] for row in work["types"])
+    loop_cost = None if "why" in loop else loop["since"]["cost_usd"]
+    unpriced, talk_cost = {}, None
+    if "why" not in convs:
+        rates, why, _ = prices(root)
+        models = {model: [row[c] for c in COUNTS] for model, row in convs["factory"]["by_model"].items()}
+        talk_cost = spent(models, rates, why, unpriced)["cost_usd"]
+    cost = None if loop_cost is None or talk_cost is None else round(loop_cost + talk_cost, 4)
+    return {"merged": merged, "loop_cost_usd": loop_cost, "conversation_cost_usd": talk_cost, "cost_usd": cost,
+            "per_merged_usd": round(cost / merged, 2) if merged and cost is not None else None,
+            "unpriced": {model: unpriced[model] for model in sorted(unpriced, key=natural)}}
+
+
 def last_review(root, today):
     """{date, days_since} from .sanvio/usage/last-review, which usage_report.py --review writes."""
     try:
@@ -1033,17 +1068,28 @@ def last_review(root, today):
 
 def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
     now = now or datetime.datetime.now().astimezone()
+    spent_by_loop = loop_spend(root, since, today)
+    throughput = loop_throughput(root)
+    used = spend(activity(root, since), root, since, now, projects_dir)
+    saved = evals(root)
+    talk = conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE)
+    open_now = waiting(root, now)
+    rework = loop_rework(root, since)
+    stages = stage_times(root, since)
+    history = loop_history(root, since, today)
+    work = work_by_type(root, since)
     return {"schema": SCHEMA, "generated": now.isoformat(timespec="seconds"), "since": since,
-            "loop_spend": loop_spend(root, since, today),
-            "loop_throughput": loop_throughput(root),
-            "activity": spend(activity(root, since), root, since, now, projects_dir),
-            "evals": evals(root),
-            "conversations": conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE),
-            "waiting": waiting(root, now),
-            "loop_rework": loop_rework(root, since),
-            "stage_times": stage_times(root, since),
-            "loop_history": loop_history(root, since, today),
-            "work_by_type": work_by_type(root, since),
+            "loop_spend": spent_by_loop,
+            "loop_throughput": throughput,
+            "activity": used,
+            "evals": saved,
+            "conversations": talk,
+            "waiting": open_now,
+            "loop_rework": rework,
+            "stage_times": stages,
+            "loop_history": history,
+            "work_by_type": work,
+            "all_in": all_in(work, spent_by_loop, talk, root),
             "last_review": last_review(root, today)}
 
 

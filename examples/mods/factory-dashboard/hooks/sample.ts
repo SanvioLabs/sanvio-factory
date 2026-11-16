@@ -43,6 +43,14 @@ export const SAMPLE: Doc = {
     "spend_at": "2026-10-27T12:00:00+00:00",
     "unpriced": {}
   },
+  "all_in": {
+    "conversation_cost_usd": 359.55,
+    "cost_usd": 394.15,
+    "loop_cost_usd": 34.6,
+    "merged": 5,
+    "per_merged_usd": 78.83,
+    "unpriced": {}
+  },
   "conversations": {
     "factory": {
       "by_day": [
