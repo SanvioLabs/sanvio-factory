@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: A control register that fails CI when its evidence moves
+
+New: [`controls.json`](controls.json), the factory's own mapping of five security controls to the files that carry them, from NIST SP 800-53 Rev. 5 and the OWASP Top 10 for LLM Applications. It isn't a certification or an assessment. `python3 scripts/controls.py check` fails when an entry is malformed or an evidence path is gone, and the tests run it, so renaming or deleting one of those files fails CI until the register follows. `python3 scripts/controls.py touched origin/<base>` lists the controls a branch's changes reach, and the review-pr skill reports them on a `Controls touched:` line. [`docs/controls.md`](docs/controls.md) explains the fields, the six statuses and both commands.
+
+Files: [`controls.json`](controls.json), [`scripts/controls.py`](scripts/controls.py), [`tests/test_controls.py`](tests/test_controls.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`docs/controls.md`](docs/controls.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: The workshop teaches workflows
 
 The workshop deck and its walkthrough now open with the factory's mental model: it runs workflows, each one work coming in, an agent drafting, a script checking, a second reader, and a named person approving. Section 4 is now Skills and workflows: after the skill, you interview someone about one piece of work they repeat, from [`docs/building-workflows.md`](docs/building-workflows.md), and the blueprint ends in build it, write the rules down first, or not a fit. The path slide adds deploying and the monthly review. The deck is 36 slides, and the walkthrough's slide numbers follow it.
