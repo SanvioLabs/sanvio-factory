@@ -1186,8 +1186,11 @@ group('project loops', () => {
   const FOCUS = (id: string) => `${ROOT}/.sanvio/project/${id}`
   const underFocus = (path: string) => path.includes('/.sanvio/project/')
   // A pick switches, then writes and reads the focus back: several engine calls, so wait out more turns.
+  // Since Claude Code 2.1.326 the test kit finishes a Select's onSelect after a timer turn, not within
+  // microtasks alone, so a few real setTimeout turns follow: without them the pick hasn't written yet.
   const settle = async () => {
     for (let i = 0; i < 10; i++) await drain()
+    for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0))
   }
   const FOLDERS: Kinds = { alpha: 'dir', beta: 'dir', gamma: 'dir' }
   const pickValue = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
