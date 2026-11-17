@@ -69,9 +69,9 @@ The review-pr skill runs `touched` in its step 3 and reports what it printed
 on a `Controls touched:` line, so a reviewer sees which controls a pull request
 moves. See [`skills/review-pr/SKILL.md`](../skills/review-pr/SKILL.md).
 
-Without `--file`, both commands read `controls.json` at the git root of the
-folder you run them from, or in that folder when it isn't in a git repo, so
-run from the factory they read [`controls.json`](../controls.json). Both take `--file <path>` to
+Without `--file`, both commands find the git root of the folder you run them
+from and read its own `controls.json` there, or the one in that folder when it
+isn't in a git repo, so run from the factory they read [`controls.json`](../controls.json). Both take `--file <path>` to
 read another register, and `touched` runs `git diff` in that register's
 folder. For a project cloned under `projects/<name>/`, run from the harness
 root:

@@ -27,8 +27,8 @@ def clean_env():
     return env
 
 
-def run(*args, cwd=None):
-    done = subprocess.run([sys.executable, str(SCRIPT)] + list(args), cwd=cwd, env=clean_env(),
+def run(*args, cwd=None, **env):
+    done = subprocess.run([sys.executable, str(SCRIPT)] + list(args), cwd=cwd, env=dict(clean_env(), **env),
                           capture_output=True, text=True)
     return done.returncode, done.stdout.splitlines()
 
@@ -213,6 +213,29 @@ class Touched(unittest.TestCase):
         (self.repo / "controls.json").write_text(json.dumps([control("only", evidence=("AGENTS.md",))]))
         self.assertEqual(run("check", cwd=self.repo / "scripts"),
                          (0, ["controls.json: 1 control, all evidence present"]))
+
+
+class OutsideGit(unittest.TestCase):
+    """With no --file, a folder that isn't in a git repo reads controls.json in that folder."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name) / "plain"
+        self.dir.mkdir()
+        # git may not look above the temp folder, so no repo around $TMPDIR can count.
+        self.ceiling = os.path.realpath(self.tmp.name)
+
+    def run_here(self, *args):
+        return run(*args, cwd=self.dir, GIT_CEILING_DIRECTORIES=self.ceiling)
+
+    def test_check_reads_the_register_in_the_current_folder(self):
+        (self.dir / "a.md").write_text("x\n")
+        (self.dir / "controls.json").write_text(json.dumps([control("here")]))
+        self.assertEqual(self.run_here("check"), (0, ["controls.json: 1 control, all evidence present"]))
+
+    def test_touched_with_no_register_in_the_current_folder_says_so(self):
+        self.assertEqual(self.run_here("touched", "main"), (0, ["no controls.json"]))
 
 
 class ReviewPrSkill(unittest.TestCase):
