@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "amount $43.50 isn't in any source", "why": "The rye flour is $41.50 in both the agreement and the price list. An amount no input states is never written as fact."}
