@@ -44,6 +44,16 @@ Files: [`controls.json`](controls.json), [`scripts/controls.py`](scripts/control
 
 **Do:** nothing.
 
+## 2026-11-16: Interview the person who does a workflow
+
+New: the [`skills/blueprint-workflow/`](skills/blueprint-workflow/) skill is step 1 of building a workflow. It interviews the person who does the work, one question at a time in the order [`docs/building-workflows.md`](docs/building-workflows.md) gives, starting from the last real time it happened, and asks what data it touches before the detail. It writes the answers to `blueprints/<name>.md` with all 22 keys, names every key nobody could answer in `gaps` instead of guessing it, and ends in `build`, `write-standard` or `no-fit`. `python3 scripts/check_blueprint.py blueprints/<name>.md` checks a blueprint's keys and values, prints `PASS` or one problem per line, and never writes anything. [`examples/blueprints/supplier-terms.md`](examples/blueprints/supplier-terms.md) is an invented one to copy.
+
+**Needs:** 2026-11-16: How to build a workflow; 2026-11-16: Check a workflow folder with one command
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`scripts/check_blueprint.py`](scripts/check_blueprint.py), [`examples/blueprints/supplier-terms.md`](examples/blueprints/supplier-terms.md), [`tests/test_check_blueprint.py`](tests/test_check_blueprint.py), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: The handout shows how to bring a project in
 
 [`docs/workshop/handout.md`](docs/workshop/handout.md) has a new section, *Bring your own project in, by asking*: open Claude Code in the factory, ask it to check out your app's repo into [`projects/`](projects/), ask about the app, make a first small change, then hand the next one to the loop.
