@@ -44,6 +44,22 @@ Files: [`controls.json`](controls.json), [`scripts/controls.py`](scripts/control
 
 **Do:** nothing.
 
+## 2026-11-16: The handout shows how to bring a project in
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) has a new section, *Bring your own project in, by asking*: open Claude Code in the factory, ask it to check out your app's repo into [`projects/`](projects/), ask about the app, make a first small change, then hand the next one to the loop.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-16: A handout and a PowerPoint for the workshop
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) is the page to send the people coming to the two-hour session: about 20 minutes of setup before, what they'll leave with, the path after, and the rules of the road. [`docs/workshop/prep.md`](docs/workshop/prep.md) now sends it a week before. The deck is also there as [`docs/workshop/workshop-deck.pptx`](docs/workshop/workshop-deck.pptx), the same 36 slides as the PDF, to present from or edit.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`docs/workshop/workshop-deck.pptx`](docs/workshop/workshop-deck.pptx), [`docs/workshop/prep.md`](docs/workshop/prep.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running the workshop? Send `handout.md` a week before.
+
 ## 2026-11-16: Check a workflow folder with one command
 
 New: `python3 scripts/check_workflow.py workflows/<name>` checks one workflow folder against [`docs/building-workflows.md`](docs/building-workflows.md). It checks every file and folder *The workflow folder* lists; the keys and values in its `workflow.json`, and that each path it names exists; that the gate refuses every gate case and prints its `says` text, passes every review case and sample output, and refuses the template; that every sample input says `invented: true`; that no sample output or eval names `standard/` where it means `sample/standard/`; that there are at least six gate cases and two review cases; and that the workflow's own tests run and pass. It prints `PASS`, or one problem per line and exits 1, and never edits the folder. The [`skills/check-workflow/`](skills/check-workflow/) skill runs it and says how to read each line.
