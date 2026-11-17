@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: How to build a workflow
+
+New: [`docs/building-workflows.md`](docs/building-workflows.md), the reference for turning a piece of work your team repeats into a workflow: the interview that understands it, the blueprint it writes, the workflow folder and its `workflow.json`, the seven rules every workflow follows, its trust tests, and the three ways to run one. [`workflows/`](workflows/) is where your workflows live. The skills that use this land separately.
+
+Files: [`docs/building-workflows.md`](docs/building-workflows.md), [`workflows/README.md`](workflows/README.md)
+
+**Do:** nothing.
+
 ## 2026-11-16: The dashboard's cost footer says only what's true
 
 With no `.sanvio/prices.json`, the factory-dashboard pane's Activity footer now says `Est. cost: can't be worked out without .sanvio/prices.json.`, with no checked date and no time it was worked out, then how to fill the file. A price file with no checked date says `no checked date` instead of `checked ?`, and one ask from the guard reads `Guard asked 1 time`.
