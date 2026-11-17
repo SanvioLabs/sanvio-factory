@@ -16,8 +16,10 @@ language, the habits are the same.
   folders and waste time in an agent session. Write the config and folders
   directly, then check a build passes before writing features.
 - **Know which kind of change it is.** If it stores or moves personal data,
-  changes access or logging, adds a dependency or outside service, or changes
-  deployment, [`compliance.md`](compliance.md) has that kind's question. Answer it before
+  changes access or logging, adds a dependency or outside service, changes
+  deployment, widens what an agent does unattended, lets outside text reach a
+  prompt, changes who merges or decides, or changes the model, the provider or
+  an agent's instructions, [`compliance.md`](compliance.md) has that kind's question. Answer it before
   calling the work done.
 
 ## While you build

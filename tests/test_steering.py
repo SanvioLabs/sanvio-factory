@@ -51,6 +51,76 @@ class Compliance(unittest.TestCase):
         text = (ROOT / "agents" / "security-reviewer.md").read_text()
         self.assertIn("NOT-READY means at least one Critical or High", text)
 
+    STEERING = ROOT / "steering" / "compliance.md"
+    AI_WORDS = ("unattended", "prompt", "merge", "model")
+    HEADER = "| Kind of change | Families to keep in mind | The question to answer before calling it done |"
+    KINDS = [
+        "Stores or moves personal data",
+        "Adds or changes access",
+        "Adds or changes logging",
+        "Adds a dependency or outside service",
+        "Changes deployment or infrastructure",
+        "Widens what an agent does unattended: a new tool, command, permission, path, network reach or token budget",
+        "Lets text from outside reach a prompt: an issue, a pull request, a comment, a caller's repo, a web page "
+        "or a file someone sends",
+        "Changes who merges, approves or decides: `auto_merge`, the review rubric, a gate, or a step a person decides",
+        "Changes the model, the provider or an agent's instructions: a model id, an agent's file, steering, "
+        "or a review brief",
+    ]
+
+    @staticmethod
+    def bullet(text, start):
+        """The list item whose first line starts with start (after its indent), with its indented continuation lines."""
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith(start):
+                indent = len(line) - len(line.lstrip())
+                item = [line]
+                for follow in lines[i + 1:]:
+                    if not follow.strip() or len(follow) - len(follow.lstrip()) <= indent:
+                        break
+                    item.append(follow)
+                return "\n".join(item)
+        return ""
+
+    def test_the_baseline_names_the_ai_companions(self):
+        text = " ".join(section(self.STEERING.read_text(), "## The baseline", "## ").split())
+        for name in ("NIST AI RMF 1.0", "ISO/IEC 42001:2023", "OWASP Top 10 for LLM Applications"):
+            self.assertIn(name, text)
+
+    def test_each_read_when_names_the_ai_kinds(self):
+        agents_rows = [line for line in AGENTS.splitlines() if line.startswith("| [`steering/compliance.md`]")]
+        self.assertEqual(len(agents_rows), 1, "AGENTS.md should have one steering/compliance.md row")
+        texts = {
+            "steering/compliance.md": paragraph(self.STEERING.read_text(), "Read this when"),
+            "AGENTS.md": agents_rows[0],
+            "steering/tickets.md": paragraph((ROOT / "steering" / "tickets.md").read_text(),
+                                             "**A ticket that touches personal data"),
+            "steering/building-and-testing.md": self.bullet((ROOT / "steering" / "building-and-testing.md").read_text(),
+                                                            "- **Know which kind of change it is.**"),
+        }
+        for name, text in texts.items():
+            self.assertTrue(text, "{}: the text that lists the kinds wasn't found".format(name))
+            for word in self.AI_WORDS:
+                self.assertIn(word, text, "{} doesn't name the kind with '{}'".format(name, word))
+
+    def test_the_table_keeps_the_old_kinds_then_adds_the_ai_ones(self):
+        text = section(self.STEERING.read_text(), "## By kind of change", "## ")
+        rows = [line for line in text.splitlines() if line.startswith("|")]
+        self.assertEqual(rows[:1], [self.HEADER])
+        body = [line for line in rows[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
+        self.assertEqual([row.split("|")[1].strip() for row in body], self.KINDS)
+
+    def test_it_still_says_what_it_is_not(self):
+        text = section(self.STEERING.read_text(), "## What this is not", "## ")
+        self.assertIn("not a formal SP 800-53A assessment", " ".join(text.split()))
+
+    def test_a_finding_names_the_owasp_risk_beside_the_control(self):
+        text = self.bullet((ROOT / "agents" / "security-reviewer.md").read_text(), "- **Control:**")
+        self.assertTrue(text, "security-reviewer.md has no **Control:** bullet")
+        self.assertIn("SP 800-53", text)
+        self.assertIn("OWASP", text)
+
 
 # What Sanvio Factory ships. Your own files (AGENTS.md, your skills, gates and briefs)
 # aren't held to the house style: an agent's em dash shouldn't fail your suite.

@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: AI kinds of change in compliance steering
+
+[`steering/compliance.md`](steering/compliance.md) now names four kinds of change that carry AI risk: one that widens what an agent does unattended, one that lets outside text reach a prompt, one that changes who merges or decides, and one that changes the model, the provider or an agent's instructions. Each row gives its SP 800-53 controls, the OWASP Top 10 for LLM Applications risk by name, the NIST AI RMF 1.0 function and the ISO/IEC 42001:2023 Annex A control, and the question to answer before calling it done. The baseline names those three frameworks as companions to SP 800-53. AGENTS.md's Read when, the tickets paragraph and the builder's bullet list the new kinds, a ticket of one of them names its OWASP risk and AI RMF and ISO references, and the security reviewer names the OWASP risk on such a finding.
+
+**Needs:** 2026-11-11: Compliance steering with NIST SP 800-53
+
+Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.md), [`steering/tickets.md`](steering/tickets.md), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`agents/security-reviewer.md`](agents/security-reviewer.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: The workshop teaches workflows
 
 The workshop deck and its walkthrough now open with the factory's mental model: it runs workflows, each one work coming in, an agent drafting, a script checking, a second reader, and a named person approving. Section 4 is now Skills and workflows: after the skill, you interview someone about one piece of work they repeat, from [`docs/building-workflows.md`](docs/building-workflows.md), and the blueprint ends in build it, write the rules down first, or not a fit. The path slide adds deploying and the monthly review. The deck is 36 slides, and the walkthrough's slide numbers follow it.
