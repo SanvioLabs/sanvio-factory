@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { FINISHED_MS, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
+import { ALL, FINISHED_MS, allActive, allHeader, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopTag, loopValue, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
 import type { Row, Seen, Status } from '../types'
 
 const ROW: Row = {
@@ -65,21 +65,76 @@ group('project loops', () => {
   })
 })
 
+group('all loops', () => {
+  // A live loop on this machine, and one on spare-mac, each with these rows.
+  const ours = (project?: string, rows: Row[] = []): Seen => ({ ...seen(status(rows, []), true), ...(project ? { project } : {}) })
+  const theirs = (project?: string, rows: Row[] = []): Seen => ({ ...ours(project, rows), root: '/r/factory', machine: 'spare-mac', machineIndex: 0 })
+  const down = { index: 1, label: 'shelf-board', lastReadAt: null }
+  test('the picker offers All loops first once it lists two loops, and not with one, even beside a machine that is down', () => {
+    expect(loopOptions([ours(), ours('alpha')])[0]).toEqual({ value: ALL, label: 'All loops' })
+    expect(loopOptions([ours(), ours('alpha')]).map(o => o.value)).toEqual([ALL, '', 'alpha'])
+    expect(loopOptions([ours()]).map(o => o.value)).toEqual([''])
+    expect(loopOptions([ours()], [down], 0).map(o => o.value)).toEqual(['', 'ssh:1'])
+    expect(loopOptions([], [down], 0).map(o => o.value)).toEqual(['ssh:1'])
+  })
+  test('no loop or folder name can take the value All loops has', () => {
+    expect('name' in projectName(ALL)).toBe(false)
+    expect(ALL.startsWith('ssh:')).toBe(false)
+    expect([ours(), ours('alpha'), theirs(), theirs('alpha')].map(loopValue)).not.toContain(ALL)
+  })
+  test("a tag is the machine, this one's by its folder, then the project for a project's loop", () => {
+    expect(loopTag(ours())).toBe('starter')
+    expect(loopTag(ours('alpha'))).toBe('starter · alpha')
+    expect(loopTag(theirs())).toBe('spare-mac')
+    expect(loopTag(theirs('alpha'))).toBe('spare-mac · alpha')
+  })
+  test('two loops working #12 are two entries, each with its own loop and tag', () => {
+    const here = ours('alpha', [ROW])
+    const there = theirs('alpha', [{ ...ROW, title: 'Other gate' }])
+    const all = allActive([ours(), here, there])
+    expect(all.map(t => [t.tag, t.row.number, t.row.title])).toEqual([
+      ['starter · alpha', 12, ROW.title],
+      ['spare-mac · alpha', 12, 'Other gate'],
+    ])
+    expect(all[0]?.seen).toBe(here)
+    expect(all[1]?.seen).toBe(there)
+  })
+  test("each loop's entries are its own Active tab's, the loops on a job first", () => {
+    const ended = { ...ROW, number: 9, state: 'pr', updated: '2026-10-09T18:19:55' }
+    // beta's run was killed with #40 at working: still on its Active tab, but beta is on no job.
+    const idle = { ...ours('beta', [{ ...ROW, number: 40 }, { ...ROW, number: 41, state: 'blocked' }]), isLocked: false }
+    const busy = ours('alpha', [ended, { ...ROW, number: 30 }])
+    const all = allActive([idle, busy])
+    expect(all.map(t => [t.tag, t.row.number])).toEqual([['starter · alpha', 30], ['starter · beta', 40]])
+    expect(all.filter(t => t.seen === busy).map(t => t.row)).toEqual(lists(busy.status, 0).active)
+    expect(all.filter(t => t.seen === idle).map(t => t.row)).toEqual(lists(idle.status, 0).active)
+  })
+  test("the header names All loops and counts every loop, or says nothing runs", () => {
+    const busy = allHeader([ours(), ours('alpha', [ROW])], 72)
+    expect(busy.left).toBe('All loops')
+    expect(busy.right.text).toBe('● 1 running')
+    expect(busy.isPulsing).toBe(true)
+    const still = allHeader([{ ...ours(), isLocked: false }, { ...ours('alpha'), isLocked: false }], 72)
+    expect(still.right.text).toBe('○ Nothing running')
+    expect(still.isPulsing).toBe(false)
+  })
+})
+
 group('the loop buttons', () => {
   const app = (s: Status | null, isLocked: boolean, isStopping = false, isStaleLock = false): Seen =>
     ({ ...seen(s, isLocked, isStopping, isStaleLock), project: 'app' })
   const two = [ROW, { ...ROW, number: 13 }]
   const state = (s: Seen) => header(s, 0, 60).right.text
   test("the label's count agrees with the header's", () => {
-    expect(loopButtonLabel(app(status([ROW]), true))).toBe('● app')
+    expect(loopButtonLabel(app(status([ROW]), true))).toBe('● app (1)')
     expect(state(app(status([ROW]), true))).toBe('● Running')
-    expect(loopButtonLabel(app(status(two), true))).toBe('● app 2')
+    expect(loopButtonLabel(app(status(two), true))).toBe('● app (2)')
     expect(state(app(status(two), true))).toBe('● Running 2')
     expect(loopButtonLabel(app(status([]), true))).toBe('app')
     expect(state(app(status([]), true))).toBe('● Idle')
   })
   test("the factory's button marks its folder's name", () => {
-    expect(loopButtonLabel(seen(status([ROW]), true))).toBe('● starter')
+    expect(loopButtonLabel(seen(status([ROW]), true))).toBe('● starter (1)')
   })
   test('no status, a stale lock, no lock, or only ended rows: the name alone', () => {
     expect(loopButtonLabel(app(null, false))).toBe('app')
@@ -93,12 +148,12 @@ group('the loop buttons', () => {
   test('a working row left by an old run counts under a new live lock, on both', () => {
     const leftover = status([{ ...ROW, started: '2026-10-01T09:00:00' }])
     expect(workingCount(app(leftover, true))).toBe(1)
-    expect(loopButtonLabel(app(leftover, true))).toBe('● app')
+    expect(loopButtonLabel(app(leftover, true))).toBe('● app (1)')
     expect(state(app(leftover, true))).toBe('● Running')
   })
   test('stopping keeps the marker and count on the button, and none in the header', () => {
     expect(workingCount(app(status(two), true, true))).toBe(2)
-    expect(loopButtonLabel(app(status(two), true, true))).toBe('● app 2')
+    expect(loopButtonLabel(app(status(two), true, true))).toBe('● app (2)')
     expect(state(app(status(two), true, true))).toBe('● Stopping after this step')
   })
 })
@@ -261,12 +316,12 @@ group('a waiting issue', () => {
 group('an issue', () => {
   test('in progress: the step and the round, and the last round under it', () => {
     const { head, detail } = describe(ROW, true)
-    expect(head).toEqual({ tone: 'now', text: 'building, round 2 of 5' })
+    expect(head).toEqual({ tone: 'now', text: 'build, round 2 of 5' })
     expect(detail).toBe('tests failed (1), review FIX')
   })
-  test('planning has no round yet', () => {
+  test('shape has no round yet', () => {
     expect(describe({ ...ROW, step: 'SHAPE', round: 0, tests: null, review: null }, true)).toEqual({
-      head: { tone: 'now', text: 'planning' }, detail: null,
+      head: { tone: 'now', text: 'shape' }, detail: null,
     })
   })
   test('ended: a pull request, a block with its reason', () => {
@@ -276,7 +331,7 @@ group('an issue', () => {
     expect(blocked.detail).toBe('tests failed (1), review FIX. still failing after 5 rounds')
   })
   test('working with no loop running was left part way', () => {
-    expect(describe(ROW, false).head).toEqual({ tone: 'fail', text: 'left at building' })
+    expect(describe(ROW, false).head).toEqual({ tone: 'fail', text: 'left at build' })
   })
 })
 

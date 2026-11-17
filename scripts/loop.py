@@ -5,6 +5,7 @@ Usage:
     python3 scripts/loop.py run [--once] [--issue N] [--dry-run] [--for DURATION] [--hours HOURS] [--project PATH]
     python3 scripts/loop.py review [--once] [--for DURATION] [--hours HOURS] [--project PATH]
     python3 scripts/loop.py stop [--project PATH]
+    python3 scripts/loop.py grade N --verdict VERDICT [--project PATH]
 
 One pass is one turn of the flywheel:
 
@@ -23,6 +24,9 @@ request, edited in place on later commits. It never approves or pushes, and it n
 auto_merge in loop.json is on. Then it merges a pull request it graded at least min_grade on the head it
 graded, into a base auto_merge names, by an author it names, once every check on that commit has passed.
 review --pr never merges.
+
+`grade` prints the grade a verdict would get on a pull request's head commit, from the rubric, and
+changes nothing: try a rubric with it before auto_merge relies on it. docs/review-rubric.md has the rubric.
 
 --for 8h (or 90m, 2d) on either one starts nothing new once that long has passed, lets what's
 running finish, and then exits, logging an END line. An UNTIL line at the start says when.
@@ -93,10 +97,11 @@ DEFAULTS = {
     # Run by this script once per worktree, before its first agent, such as `npm ci`. It may write only
     # what git ignores, since anything else would go in a commit. Empty means nothing runs.
     "setup_command": "",
-    # Whether those three commands run inside macOS's sandbox-exec, which keeps them from reading credential
-    # files under the home folder and the factory's own data (sandbox_profile() lists both). Only true turns
-    # it on, and only on a Mac: elsewhere they run as before and the loop logs a WARN. A project whose tests
-    # need one of those paths sets it false in its own loop.json.
+    # Whether those three commands run inside macOS's sandbox-exec, which keeps them from reading or writing
+    # credential files under the home folder and the factory's own data (sandbox_profile() lists both). Only
+    # true turns it on, and only on a Mac where sandbox-exec can apply a profile: elsewhere they run as before
+    # and the loop logs a WARN. For a project whose tests need one of those paths, the factory's loop.json
+    # sets it false under "projects".
     "sandbox_commands": True,
     # Whether a separate agent writes failing tests after the planner and before round 1, which the build then
     # has to make pass without changing them. Only true turns it on. A machine key, like the next two: they
@@ -193,6 +198,9 @@ LOCKFILES = {
 REQUIREMENTS = re.compile(r"^requirements.*\.txt$")
 
 VERDICT = re.compile(r"^\s*VERDICT:\s*(PASS|FIX)\s*$", re.I | re.M)
+REASONS = re.compile(r"^\s*REASONS:(.*)$", re.I | re.M)
+# The reasons a review may give for FIX, in the order the history records them.
+FIX_REASONS = ("tests-failed", "untested-requirement", "worked-around-tests", "real-cost")
 OUTPUT_CAP = 100_000
 REVIEW_MARKER = "<!-- loop-review-pr-report -->"  # first line of the one comment per pull request
 # A pull request's comments as newest_review() reads them, one per line: the loop and any script reading a
@@ -224,10 +232,16 @@ SAID_CAP = 2_000  # how much of the build agent's last reply a block comment quo
 DIRTY_CAP = 10  # how many paths a block names, of those setup left behind or an agent wrote where it shouldn't
 REVIEW_KEEP = 200  # pull requests kept in status.json, newest first
 STATUS_KEEP = 20  # issues kept in status.json, newest first
+BLOCKED_RECHECK_SECONDS = 3600  # how long a blocked issue found open waits before it's looked up again
 # For an agent reading someone else's pull request: read tools only, confined to the checkout.
 UNTRUSTED_CLAUDE = ["--restricted", "--strict-mcp-config", "--tools", "Read,Grep,Glob"]
 # What agent() returns when it won't start a reader it can't confine on someone else's files.
 REFUSED = 125
+# What stream() returns when it stopped a claude build or tester because its issue went over max_issue_tokens.
+# Past 255, so no exit status an agent gives itself is taken for it.
+OVER_BUDGET = 1000
+# How the commit of a build or tester stopped over max_issue_tokens ends, after "Loop: issue #N, round R, ".
+STOPPED_OVER_BUDGET = "stopped over max_issue_tokens."
 # The agents loop.json can name instead of giving a command line, each with an optional :model.
 AGENT_NAMES = ("claude", "codex", "ollama")
 # Who may write an issue the loop builds from as it stands. Anyone else's issue is taken only as it
@@ -713,6 +727,19 @@ def parse_verdict(text):
     return found[-1].upper() if found else "FIX"
 
 
+def parse_reasons(text, verdict, ran):
+    """The FIX reasons from a review's last REASONS line, the known ones only, each once, in FIX_REASONS order.
+
+    A PASS gives none. A FIX whose review didn't run, has no REASONS line, or names none of them gives
+    ["unstated"]. It never changes the verdict.
+    """
+    if verdict == "PASS":
+        return []
+    found = REASONS.findall(text or "") if ran else []
+    named = {word.lower() for word in re.split(r"[,\s]+", found[-1]) if word} if found else set()
+    return [reason for reason in FIX_REASONS if reason in named] or ["unstated"]
+
+
 def findings(text, limit=3):
     """The first few lines of a review that aren't the verdict, for the log and the lessons."""
     lines = [l.strip() for l in (text or "").splitlines() if l.strip() and not VERDICT.match(l)]
@@ -989,11 +1016,22 @@ def env_for_tests(environ):
 
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
-# What test_command, generate_command and setup_command may not read inside the sandbox: credential files under
-# the home folder, then the factory's own data under its root. A file or a folder, each with all it holds.
-SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg",
-                       ".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains")
+# What test_command, generate_command and setup_command may not read or write inside the sandbox: credential
+# files under the home folder, then the factory's own data under its root. A file or a folder, each with all
+# it holds. Each .config/ entry is denied under XDG_CONFIG_HOME too, where that's set.
+SANDBOX_HOME_DENIED = (".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/git", ".config/op", ".azure",
+                       ".kube", ".docker", ".gnupg", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+                       ".gitconfig", ".m2/settings.xml", ".terraform.d", ".claude/.credentials.json",
+                       "Library/Keychains")
 SANDBOX_ROOT_DENIED = ("company", "local-data", ".inbox", ".claude/settings.local.json")
+# What git reads from the home folder whatever GIT_CONFIG_GLOBAL says: its default ignore and attributes files
+# under ~/.config/git, or XDG_CONFIG_HOME's git folder. It warns on every command where reading one is refused,
+# so in the sandbox both point at /dev/null instead.
+SANDBOX_GIT_CONFIG = (("core.excludesFile", os.devnull), ("core.attributesFile", os.devnull))
+SANDBOX_PROBE_TIMEOUT = 10
+NOT_PROBED = object()  # Loop.sandbox_error before sandbox_probe() has run
+# The loop's WARN when it starts with the sandbox on and sandbox_probe() finding it can't apply a profile.
+SANDBOX_PROBE_WARN = "sandbox-exec can't apply a profile here ({error}), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again"
 
 
 def sandbox_available():
@@ -1001,19 +1039,82 @@ def sandbox_available():
     return sys.platform == "darwin" and os.path.exists(SANDBOX_EXEC)
 
 
-def sandbox_profile(home, root):
-    """sandbox-exec's profile: everything allowed, then reading denied for each path in SANDBOX_HOME_DENIED
-    under home and SANDBOX_ROOT_DENIED under root that exists. Each is resolved first, since the sandbox
-    matches the real path (macOS's /var is /private/var). subpath matches a file as well as a folder, and
-    never a neighbour such as .sshx. os.path.exists, not Path.exists: inside this sandbox a denied path can't
-    even be looked at, and before Python 3.13 Path.exists raises on that where os.path.exists says False."""
+def sandbox_probe():
+    """None when sandbox-exec can apply a profile here, or why not: the first line of what it said, at most
+    200 characters, or "exit N" when it said nothing. It can't inside another sandbox, as under Claude Code's,
+    where every command run through it would fail. Never raises."""
+    try:
+        done = subprocess.run([SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=SANDBOX_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "no answer in {} seconds".format(SANDBOX_PROBE_TIMEOUT)
+    except OSError as err:
+        return (str(err).strip().splitlines() or [type(err).__name__])[0][:200]
+    if done.returncode == 0:
+        return None
+    said = (done.stderr + done.stdout).decode("utf-8", "replace").strip()
+    return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
+
+
+def sandbox_env(env):
+    """A copy of env for a command run in the sandbox: GIT_CONFIG_GLOBAL=/dev/null, so git reads no global
+    config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
+    GIT_CONFIG_VALUE_n after any entries env's GIT_CONFIG_COUNT already holds, so git doesn't warn that it
+    can't read its default ignore and attributes files."""
+    env = dict(env, GIT_CONFIG_GLOBAL=os.devnull)
+    count = env.get("GIT_CONFIG_COUNT", "")
+    start = int(count) if count.isdigit() else 0
+    for number, (key, value) in enumerate(SANDBOX_GIT_CONFIG, start):
+        env["GIT_CONFIG_KEY_{}".format(number)] = key
+        env["GIT_CONFIG_VALUE_{}".format(number)] = value
+    env["GIT_CONFIG_COUNT"] = str(start + len(SANDBOX_GIT_CONFIG))
+    return env
+
+
+def sandbox_profile(home, root, environ=None):
+    """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
+    SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
+    of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
+    absolute path. environ is os.environ unless given.
+
+    Every path is denied whether or not it exists, so one made after the profile is built is covered too.
+    Each is resolved first, since the sandbox matches the real path (macOS's /var is /private/var); a missing
+    path or one that can't be looked at resolves as far as it can, never raising. subpath matches a file as
+    well as a folder, and never a neighbour such as .sshx. Then each folder from a denied path's base down to
+    its parent may not be unlinked, which is what renaming it needs: moving ~/.config aside would otherwise
+    take what's under it out of the deny. The base is home; for root's paths, home where root is inside it, so
+    the folders that hold the factory can't be moved either, and root itself where it isn't; XDG_CONFIG_HOME;
+    and GH_CONFIG_DIR's parent. Where a link takes the path outside its base, only its parent is guarded, and /
+    never is. Files can still be made beside a denied path, and the folders still written to."""
+    environ = os.environ if environ is None else environ
+    paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED]
+    home_real, root_real = Path(home).resolve(), Path(root).resolve()
+    root_base = Path(home) if root_real == home_real or home_real in root_real.parents else Path(root)
+    xdg = environ.get("XDG_CONFIG_HOME") or ""
+    if os.path.isabs(xdg):
+        paths += [(Path(xdg) / name.split("/", 1)[1], Path(xdg))
+                  for name in SANDBOX_HOME_DENIED if name.startswith(".config/")]
+    gh = environ.get("GH_CONFIG_DIR") or ""
+    if os.path.isabs(gh):
+        paths.append((Path(gh), None))  # None: its parent is its base
+    paths += [(Path(root) / name, root_base) for name in SANDBOX_ROOT_DENIED]
+
+    def quoted(path):
+        return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+    denied, folders = [], []
+    for path, base in paths:
+        real = path.resolve()
+        base = real.parent if base is None else base.resolve()
+        if real not in denied:
+            denied.append(real)
+        above = [folder for folder in reversed(real.parents) if folder == base or base in folder.parents]
+        for folder in above or [real.parent]:
+            if folder != Path(folder.anchor) and folder not in folders:
+                folders.append(folder)
     rules = ["(version 1)(allow default)"]
-    for base, names in ((Path(home), SANDBOX_HOME_DENIED), (Path(root), SANDBOX_ROOT_DENIED)):
-        for name in names:
-            path = base / name
-            if os.path.exists(path):
-                quoted = str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
-                rules.append('(deny file-read* (subpath "{}"))'.format(quoted))
+    rules += ['(deny file-read* file-write* (subpath "{}"))'.format(quoted(path)) for path in denied]
+    rules += ['(deny file-write-unlink (literal "{}"))'.format(quoted(folder)) for folder in folders]
     return "\n".join(rules)
 
 
@@ -1278,6 +1379,11 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
         "the code do that the plan's requirements don't ask for, such as an extra refusal, gets its own "
         "row. With no test in the diff it gets none in the Test column, for the person who merges, and "
         "doesn't make the verdict FIX.\n"
+        "On a line of its own just above the verdict line, write REASONS: followed by each reason for FIX "
+        "that applies, separated by commas, from these four: tests-failed (the tests didn't exit 0), "
+        "untested-requirement (a requirement in the plan has no test), worked-around-tests (the build got "
+        "around tests written before it), real-cost (a problem that would cost something real). On a PASS "
+        "the line is REASONS: none.\n"
         "Your last line must be exactly VERDICT: PASS or VERDICT: FIX. Say VERDICT: FIX only for one of "
         "these: the tests didn't exit 0, a requirement in the plan has no test{worked}, or a problem that would cost "
         "something real if this merged, such as wrong behaviour, a security or privacy gap, or lost data. "
@@ -1508,17 +1614,53 @@ def result_line(line):
         # An error result has no reply, only its kind, such as error_max_turns: the log says which.
         kind = found.get("subtype")
         text = "claude ended: {}".format(kind if isinstance(kind, str) else "error") if found.get("is_error") else ""
-    counts = found.get("usage") if isinstance(found.get("usage"), dict) else {}
-
-    def number(value):
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-    usage = {"input_tokens": number(counts.get("input_tokens")),
-             "output_tokens": number(counts.get("output_tokens")),
-             "cache_write_tokens": number(counts.get("cache_creation_input_tokens")),
-             "cache_read_tokens": number(counts.get("cache_read_input_tokens")),
-             "cost_usd": number(found.get("total_cost_usd"))}
+    usage = token_counts(found.get("usage") if isinstance(found.get("usage"), dict) else {})
+    usage["cost_usd"] = usage_number(found.get("total_cost_usd"))
     return text, (usage if any(value is not None for value in usage.values()) else None)
+
+
+def usage_number(value):
+    """value when it's a number, else None. A bool is not a number here."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def token_counts(counts):
+    """claude's usage dict as usage.json names its four token counts, each a number or None."""
+    return {"input_tokens": usage_number(counts.get("input_tokens")),
+            "output_tokens": usage_number(counts.get("output_tokens")),
+            "cache_write_tokens": usage_number(counts.get("cache_creation_input_tokens")),
+            "cache_read_tokens": usage_number(counts.get("cache_read_input_tokens"))}
+
+
+def stop_message(number, round_no):
+    """The message of the commit that holds what a build or tester stopped over max_issue_tokens had made."""
+    return "Loop: issue #{}, round {}, {}".format(number, round_no, STOPPED_OVER_BUDGET)
+
+
+def assistant_usage(line):
+    """(message id, the four token counts) on a line that is claude's assistant event, else None.
+
+    The counts are its message's usage; None too when the event reports none of them. claude splits one
+    message into an event per content block, thinking, text and each tool call, and repeats the whole
+    message's usage on each, so the caller counts a message once by its id. The id is None when the event
+    has none, and then the event counts on its own.
+    """
+    if not line.lstrip().startswith("{"):
+        return None
+    try:
+        found = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(found, dict) or found.get("type") != "assistant" or not isinstance(found.get("message"), dict):
+        return None
+    counts = found["message"].get("usage")
+    if not isinstance(counts, dict):
+        return None
+    usage = token_counts(counts)
+    if not any(value is not None for value in usage.values()):
+        return None
+    ident = found["message"].get("id")
+    return (ident if isinstance(ident, str) and ident else None), usage
 
 
 def init_event(line):
@@ -1803,8 +1945,13 @@ COMMENT_KINDS_JQ = ('.[] | [.id, .user.login, (.body | gsub("\\r"; "") | if star
 RUBRIC_KEYS = ("ready", "ready with nits", "changes needed", "failing", "unreadable")  # a rubric's keys, and only these
 GRADED_VERDICTS = ("ready", "ready with nits", "changes needed")
 PASSING_CHECKS = ("success", "neutral", "skipped")  # a completed check run's conclusions that don't fail it
-# A commit's check runs as pr_checks() reads them, one per line: its status, then its conclusion or ''.
+# A commit's check runs as commit_checks() reads them, one per line: its status, then its conclusion or ''.
 CHECK_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // "")] | @tsv'
+# And as pr_runs() reads them for a grade: the same, then the check run's name, which a ladder's rung names.
+NAMED_RUNS_JQ = '.check_runs[] | [.status, (.conclusion // ""), .name] | @tsv'
+LADDER_GRADES = tuple(str(n) for n in range(11))  # a ladder's rungs: the grades "0" to "10"
+RUNG_KEYS = ("verdict", "checks")  # what a rung may ask for, and only these
+EVERY_CHECK = "*"  # in a rung's checks: every check run on the commit
 PENDING = "checks still running"  # the reason a grade waits, which regrade() looks for in the trailer
 # The grade in a trailer: read there only, as the verdict is.
 GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
@@ -1812,7 +1959,8 @@ GRADE = re.compile(r"\. Grade (?:(\d{1,2})/10|(pending)): ")
 
 def load_rubric(path):
     """(rubric, None) from the rubric file at path, or (None, why not), why naming the file. It has to be a
-    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10."""
+    JSON object with RUBRIC_KEYS and no other, each a whole number from 0 to 10, or a ladder: an object whose
+    one key, "levels", holds the rungs ladder_problem() accepts."""
     name = Path(path).name
     try:
         rubric = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1824,6 +1972,9 @@ def load_rubric(path):
         return None, "{} isn't valid JSON".format(name)
     if not isinstance(rubric, dict):
         return None, "{} isn't a JSON object".format(name)
+    if "levels" in rubric:
+        why = ladder_problem(rubric)
+        return (None, "{} {}".format(name, why)) if why else (rubric, None)
     missing = [key for key in RUBRIC_KEYS if key not in rubric]
     if missing:
         return None, '{} has no "{}"'.format(name, missing[0])
@@ -1836,12 +1987,102 @@ def load_rubric(path):
     return rubric, None
 
 
-def review_grade_for(verdict, checks, rubric, why):
+def ladder_problem(rubric):
+    """What's wrong with a ladder rubric, said after its file's name, or None for one that grades. Its one key
+    is "levels", an object from grades "0" to "10", "0" among them, to rungs. A rung may ask for a "verdict",
+    a list of GRADED_VERDICTS, and "checks", a list of check run names, EVERY_CHECK among them if it likes."""
+    others = [key for key in rubric if key != "levels"]
+    if others:
+        return 'has a key other than "levels": {}'.format(json.dumps(others[0]))
+    levels = rubric["levels"]
+    if not isinstance(levels, dict):
+        return 'gives "levels" something other than a JSON object'
+    for grade, rung in levels.items():
+        if grade not in LADDER_GRADES:
+            return 'has a rung {} that isn\'t a grade from "0" to "10"'.format(json.dumps(grade))
+        if not isinstance(rung, dict):
+            return 'gives rung "{}" something other than a JSON object'.format(grade)
+        for key, value in rung.items():
+            if key not in RUNG_KEYS:
+                return 'gives rung "{}" a key other than "verdict" or "checks": {}'.format(grade, json.dumps(key))
+            if not isinstance(value, list) or not value:
+                return 'gives rung "{}" a "{}" that isn\'t a list with something in it'.format(grade, key)
+        if any(verdict not in GRADED_VERDICTS for verdict in rung.get("verdict", ())):
+            return 'gives rung "{}" a verdict that isn\'t one of {}'.format(grade, ", ".join(GRADED_VERDICTS))
+        if any(not isinstance(check, str) or not check.strip() for check in rung.get("checks", ())):
+            return 'gives rung "{}" a check name that isn\'t a non-empty string'.format(grade)
+    if "0" not in levels:
+        return 'has no "0" rung'
+    return None
+
+
+def rung_state(rung, verdict, runs):
+    """("met", None), ("missed", what the rung needs that it didn't get) or ("unsettled", None) while a check
+    it names is still running, or the runs couldn't be read. runs is pr_runs()'s. A named check that failed,
+    or ran nowhere on the commit, misses the rung at once, whatever else is still running."""
+    if "verdict" in rung and verdict not in rung["verdict"]:
+        return "missed", "a verdict of {}".format(" or ".join(rung["verdict"]))
+    unsettled = False
+    for name in rung.get("checks", ()):
+        if runs is None:
+            unsettled = True
+            continue
+        mine = list(runs) if name == EVERY_CHECK else [run for run in runs if run[2] == name]
+        if not mine and name != EVERY_CHECK:
+            return "missed", "a check named {}, and none ran".format(name)
+        # A name several runs share passes only when every one of them did.
+        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion, _ in mine):
+            return "missed", "every check to pass" if name == EVERY_CHECK else "{} to pass".format(name)
+        if any(status != "completed" for status, _, _ in mine):
+            unsettled = True
+    return ("unsettled", None) if unsettled else ("met", None)
+
+
+def ladder_grade(verdict, levels, runs):
+    """(grade, reason) on a ladder: the highest rung met, walking down from "10". A rung above it that's still
+    unsettled makes the grade wait, (None, PENDING). With no rung met the grade is 0, the floor. The reason
+    names the nearest rung above that was missed, and what it needed."""
+    verdict = verdict if verdict in GRADED_VERDICTS else "unreadable"
+    waiting, missed = False, ""
+    for grade in sorted(levels, key=int, reverse=True):
+        rung = levels[grade]
+        state, fault = rung_state(rung, verdict, runs)
+        if state == "unsettled":
+            waiting = True
+        elif state == "missed":
+            missed = "; {} needs {}".format(grade, fault)
+        elif waiting:
+            return None, PENDING
+        else:
+            names = rung.get("checks")
+            return int(grade), "{}, {}{}".format(
+                verdict, "checks ({}) passed".format(", ".join(names)) if names else "no checks needed", missed)
+    if waiting:
+        return None, PENDING
+    return 0, "{}, no rung was met{}".format(verdict, missed)
+
+
+def checks_state(runs):
+    """pr_runs()'s list, or its None, as one word: passing, none when no check ran, failing when one that
+    finished didn't pass, or pending while one runs or when the runs couldn't be read."""
+    if runs is None:
+        return "pending"
+    if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion, _ in runs):
+        return "failing"
+    if any(status != "completed" for status, _, _ in runs):
+        return "pending"
+    return "passing" if runs else "none"
+
+
+def review_grade_for(verdict, checks, rubric, why, runs=()):
     """(the grade out of 10, or None while it waits on the checks, the reason it gives). verdict is the
-    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s.
-    A bad rubric grades 0. A failing check or an unreadable verdict is final, so neither waits on the rest."""
+    trailer's; checks is pr_checks()'s passing, none, failing or pending; rubric and why are load_rubric()'s;
+    runs is pr_runs()'s, which only a ladder reads. A bad rubric grades 0. On the five keys, a failing check
+    or an unreadable verdict is final, so neither waits on the rest. A ladder goes to ladder_grade()."""
     if rubric is None:
         return 0, why
+    if "levels" in rubric:
+        return ladder_grade(verdict, rubric["levels"], runs)
     if checks == "failing":
         return rubric["failing"], "{}, a check failed".format(verdict if verdict in GRADED_VERDICTS else "unreadable")
     if verdict not in GRADED_VERDICTS:
@@ -2092,6 +2333,33 @@ def changelog_with(base, added):
     return head + top + "".join(sections)
 
 
+CHANGELOG_HEADING = re.compile(r"## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+
+
+def changelog_redated(base, added, today):
+    """added, with each section dated before the one under it moved to today, or to the date under it when
+    that's later, so the log stays newest first. A base entry can be dated after the loop's today: written
+    where the date had already turned, or on a machine whose clock is ahead.
+
+    The one under the bottom section is base's newest entry. Only the date changes: the name, the body
+    and the order stay as they are, and base's own sections are never touched. Returns (sections,
+    changes), changes a (name, old date, new date) for each section re-dated, top first."""
+    dates = [m.group(1) for m in (CHANGELOG_HEADING.match(s) for s in changelog_sections(base)[1]) if m]
+    floor = max(dates) if dates else None
+    out, changes = [], []
+    for section in reversed(added):
+        match = CHANGELOG_HEADING.match(section)
+        if match and floor is not None and match.group(1) < floor:
+            new = max(today, floor)
+            changes.append((match.group(2), match.group(1), new))
+            section = section[:match.start(1)] + new + section[match.end(1):]
+            floor = new
+        elif match:
+            floor = match.group(1)
+        out.append(section)
+    return out[::-1], changes[::-1]
+
+
 def state_dir(root, project):
     """The loop's state folder under the factory at root. project is a name, or None for the factory's own.
 
@@ -2200,12 +2468,15 @@ class Loop:
         self.rules = rules_preamble(self.root) if self.project else ""
         self.me = None
         self.said = set()  # skips and tidy lines already logged by this process, so a poll doesn't repeat them
+        self.open_checked = {}  # blocked issue number -> time.monotonic() of the last lookup that found it open
         self.reopened = {}  # issue number: its open pull request, for an issue put back while that's open
         self.only_pr = None  # review --pr: the one pull request to review
         self.busy = False  # review --pr found another review of it under way
         self.pinned = None  # review, and run with fork set: origin's OWNER/NAME, named to gh on every call
         self.fork_checked = None  # fork_problem()'s answer, once GitHub gave one: '' for a fork that checks out
         self.fork_lock = threading.Lock()  # workers share that answer, so one asks and the rest wait for it
+        self.sandbox_error = NOT_PROBED  # sandbox_probe()'s answer once sandboxed() has asked: None means it works
+        self.probe_lock = threading.Lock()  # so workers starting at once ask it only once between them
         self.unposted = {}  # pull request number -> (sha, base, comment) the agent wrote and GitHub refused
         self.posted = {}  # pull request number -> the comment this process last wrote for it
         self.status = self.read_status()
@@ -2218,7 +2489,9 @@ class Loop:
         self.session = None  # the tmux session this run is in, once locked() has asked
         self.windows = {}  # issue number -> the tmux window following its agent.log
         self.claims = {}  # issue number -> the paths its Scope named when a worker started on it
-        self.rounds = {}  # issue number -> {"tests": [...], "verdicts": [...]}, a round each, for its history line
+        # issue number -> {"tests": [...], "verdicts": [...], "fix_reasons": [...], "tests_changed": [...]},
+        # a round each, for its history line
+        self.rounds = {}
         # issue number -> {round: {"tests", "verdict"}}, for its retro. Apart from self.rounds, which the run's
         # last mark() pops before lesson() runs on a pass.
         self.outcomes = {}
@@ -2379,7 +2652,7 @@ class Loop:
         the path, and the run's outcome stands.
         """
         number, started = row["number"], row["started"]
-        rounds = self.rounds.pop(number, {"tests": [], "verdicts": []})
+        rounds = self.rounds.pop(number, {"tests": [], "verdicts": [], "fix_reasons": [], "tests_changed": []})
         with self.write_lock:
             try:
                 tokens, cost = usage_totals([e for e in self.usage(number) if e.get("run_started") == started])
@@ -2387,7 +2660,9 @@ class Loop:
                         "project": self.project.name if self.project else None,
                         "started": started, "ended": datetime.now().isoformat(timespec="seconds"),
                         "outcome": row["state"], "rounds": row.get("round", 0),
-                        "tests": rounds["tests"], "verdicts": rounds["verdicts"], "tokens": tokens, "cost_usd": cost,
+                        "tests": rounds["tests"], "verdicts": rounds["verdicts"],
+                        "fix_reasons": rounds.get("fix_reasons", []), "tests_changed": rounds.get("tests_changed", []),
+                        "tokens": tokens, "cost_usd": cost,
                         "agent": command_name(self.cfg.get("agent")),
                         "reviewer": command_name(self.cfg.get(self.reviewer()))}
                 with open(self.dir / "history.jsonl", "a", encoding="utf-8") as handle:
@@ -2395,14 +2670,27 @@ class Loop:
             except (OSError, ValueError) as err:
                 self.log("ERROR", "could not write history.jsonl: {}".format(type(err).__name__), number)
 
+    def sandboxed(self):
+        """Whether own_command runs in sandbox-exec: sandbox_commands true, on a Mac with sandbox-exec, and
+        sandbox_probe() finding it can apply a profile here. The probe runs once a Loop, the first time this
+        is asked: when the loop starts, or a command's first run where nothing started it."""
+        if self.cfg.get("sandbox_commands") is not True or not sandbox_available():
+            return False
+        with self.probe_lock:
+            if self.sandbox_error is NOT_PROBED:
+                self.sandbox_error = sandbox_probe()
+        return self.sandbox_error is None
+
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
-        environment. With sandbox_commands true on a Mac, inside sandbox-exec, which can't read what
-        sandbox_profile denies. Anything else runs it as before: only true turns the sandbox on."""
+        environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
+        sandbox_profile denies, with sandbox_env's git settings, so git neither stops on the denied
+        ~/.gitconfig nor warns about ~/.config/git. Anything else runs it as before: only true turns the
+        sandbox on."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
-        if self.cfg.get("sandbox_commands") is True and sandbox_available():
+        if self.sandboxed():
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
-            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+            return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
@@ -2661,6 +2949,10 @@ class Loop:
         everything built from it reads as plain text, and its usage is recorded for number.
 
         held_to is what held_to() gave, for the agent's SANVIO_CONFINE: see env_for_agents().
+        A streaming claude build or tester is watched against max_issue_tokens: the issue's run so far, plus
+        each assistant event's tokens as they come. Once that passes the budget it is killed, with everything
+        it started, and nothing more is read. What its events counted is recorded as its usage, with no cost,
+        and the return is (OVER_BUDGET, what it had said). Any other agent or step always runs to its end.
 
         The model is the one claude's init event names, which the log shows ahead of the first tool
         call and the status row takes. Without one, it's the model cfg[which] names, or None.
@@ -2716,6 +3008,11 @@ class Loop:
         session = None  # the id claude's init event names, for a retro to find its log
         answered = False
         stray = []  # stream-json: lines that weren't JSON, the reply when no result event comes
+        # The budget's watch. base is read once: only one agent of an issue runs at a time.
+        limit = budget(self.cfg)[0] if streaming and step in ("build", "test") and number is not None else None
+        base = self.run_tokens(number) if limit else 0
+        messages = {}  # message id, or a key of its own for an event with none -> its latest token counts
+        stopped = False
         with proc:
             self.agents.add(proc)
             if self.interrupted.is_set():
@@ -2755,6 +3052,20 @@ class Loop:
                             if shown is not None:
                                 handle.write(shown + "\n")
                                 handle.flush()
+                            found = assistant_usage(line) if limit else None
+                            if found:
+                                ident, event = found
+                                messages[ident if ident is not None else ("event", len(messages))] = event
+                                counted = {name: sum(m[name] or 0 for m in messages.values()) for name in USAGE_TOKENS}
+                                if base + sum(counted.values()) > limit:
+                                    stopped = True
+                                    try:
+                                        kill_tree(proc)
+                                    except (ProcessLookupError, PermissionError):
+                                        pass  # it ended on its own meanwhile
+                                    if usage is None:  # no result came, so these counts are all there is
+                                        usage = dict(counted, cost_usd=None)
+                                    break
                             continue
                         said.append(line)
                         handle.write(line)
@@ -2768,6 +3079,8 @@ class Loop:
                 except OSError as err:
                     # Never hides the run's own result.
                     self.log("ERROR", "could not record usage: {}".format(err.strerror or err), number)
+        if stopped:  # ahead of the timeout: the timer can't turn this stop into one
+            return OVER_BUDGET, "".join(said)
         if expired.is_set():
             return 124, "timed out after {}s".format(timeout)
         if streaming and not answered:
@@ -3247,6 +3560,19 @@ class Loop:
             self.block(number, "{} is at {}, which isn't the pull request's head, {}".format(
                 remote, tip.strip()[:12], str(pr["headRefOid"])[:12]))
             return False
+        # What a build stopped over max_issue_tokens had made is a person's to push or drop: never reset away.
+        code, out = self.git("log", "--format=%h", "--fixed-strings", "--all-match",
+                             "--grep=Loop: issue #{}, round ".format(number), "--grep=" + STOPPED_OVER_BUDGET,
+                             "HEAD", "--not", "--remotes", cwd=tree)
+        if code != 0:
+            self.block(number, "could not look for a stopped build's commit on {} (git exit {}), so the round "
+                               "reset nothing".format(branch, code))
+            return False
+        if out.strip():
+            self.block(number, "{0} has a build that was stopped over max_issue_tokens, committed here and never "
+                               "pushed, so the round reset nothing. Push it to the pull request's branch to keep it, "
+                               "or reset the branch to {1} to drop it, then put the issue back".format(branch, remote))
+            return False
         # Only what no remote has: a new worktree starts at the base, whose commits are pushed, not dropped.
         _, ahead = self.git("rev-list", "--count", "HEAD", "--not", "--remotes", cwd=tree)
         code, out = self.git(*NO_HOOKS, "reset", "-q", "--hard", remote, cwd=tree)
@@ -3433,7 +3759,7 @@ class Loop:
         self.log("DISCOVER", 'picked "{}"'.format(issue["title"]), number)
         # started: when this run of the issue began, for the pane's clock. A relabelled issue starts again.
         # window: the tmux window following its agent.log, None outside tmux.
-        self.rounds[number] = {"tests": [], "verdicts": []}
+        self.rounds[number] = {"tests": [], "verdicts": [], "fix_reasons": [], "tests_changed": []}
         self.outcomes[number] = {}
         self.mark(number, title=issue["title"], step="SHAPE", state="working", round=0,
                   tests=None, review=None, pr=None, note="", max_rounds=self.cfg["max_rounds"],
@@ -3500,6 +3826,8 @@ class Loop:
                                                           fixed, self.cfg["test_command"]
                                                           if self.builder_runs_tests() else ""),
                                     tree, number=number, step="build", round_no=round_no)
+            if code == OVER_BUDGET:
+                return self.stop_over_budget(number, tree, "build", round_no)
             if code != 0:
                 return self.block(number, "build failed (agent exit {})".format(code))
             # Before the add, so what it writes is in this round's commit and counts as a change below.
@@ -3584,12 +3912,25 @@ class Loop:
             self.discard_edits(tree, "REVIEW", "reviewer", number)
             (folder / "review.md").write_text(review, encoding="utf-8")
             verdict = parse_verdict(review) if rcode == 0 else "FIX"
+            reasons = parse_reasons(review, verdict, rcode == 0)
+            # Whether the branch changed or deleted a test file its base already had: files it added don't
+            # count, and a rename counts as a deletion. A git that fails, or test_paths that aren't a list of
+            # strings (checked only with test_first on), prove nothing.
+            paths = self.cfg.get("test_paths")
+            mcode, mout = self.git("diff", "--name-only", "--no-renames", "-z", "--diff-filter=MD",
+                                   "origin/{}...HEAD".format(self.cfg["base"]), cwd=tree)
+            if mcode != 0 or not paths or not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                tests_changed = None
+            else:
+                tests_changed = any(path_matches(p, paths) for p in mout.split("\0") if p)
 
             passed = tcode == 0 and verdict == "PASS"
             self.log("VALIDATE", "round {} tests {} review {}".format(
                 round_no, "passed" if tcode == 0 else "failed ({})".format(tcode), verdict), number)
             self.rounds[number]["tests"].append("passed" if tcode == 0 else "failed")
             self.rounds[number]["verdicts"].append(verdict)
+            self.rounds[number]["fix_reasons"].append(reasons)
+            self.rounds[number]["tests_changed"].append(tests_changed)
             self.outcomes[number][round_no] = {"tests": "passed" if tcode == 0 else "failed", "verdict": verdict}
             self.mark(number, tests="passed" if tcode == 0 else "failed ({})".format(tcode), review=verdict)
             if passed:
@@ -3639,6 +3980,20 @@ class Loop:
                                       "so no agent ran".format(number, code))
         if found.strip():
             return record(found.split()[0], "kept the tester's commit with")
+        # A tester stopped over max_issue_tokens left unfinished tests in a commit of their own. A new tester on
+        # top would count them as files that already existed, or leave them out of the files the build may not
+        # touch, so a person finishes or drops them first.
+        code, found = self.sh(["git", "log", "--format=%H", "--fixed-strings", "--grep=" + stop_message(number, 0),
+                               "origin/{}..HEAD".format(self.cfg["base"])], cwd=tree, stderr=False)
+        if code != 0:
+            return self.block(number, "could not look for a stopped tester's commit on loop/issue-{} (git exit {}), "
+                                      "so no agent ran".format(number, code))
+        if found.strip():
+            return self.block(number, (
+                "the tester was stopped over max_issue_tokens in an earlier run, and its unfinished tests are "
+                'committed on loop/issue-{0} as "{1}", so no tester ran. Finish them in that commit and reword '
+                'it to "{2}", or reset the branch to origin/{3} to drop it, then put the issue back'
+            ).format(number, stop_message(number, 0), message, self.cfg["base"]))
 
         if self.stopped():
             self.mark(number, state="stopped", note="stopped before the tester")
@@ -3651,6 +4006,8 @@ class Loop:
         code, _ = self.agent(self.tester(),
                              tester_prompt(issue, plan, self.cfg["test_paths"], self.rules, self.cfg["test_command"]),
                              tree, number=number, step="test")
+        if code == OVER_BUDGET:  # not reject(): what it wrote is kept, committed for a person to pick up
+            return self.stop_over_budget(number, tree, "test", 0)
         if code != 0:
             return reject("tester failed (agent exit {})".format(code))
 
@@ -3698,6 +4055,38 @@ class Loop:
             return self.block(number, "could not find the tester's commit on loop/issue-{} (git exit {}), "
                                       "so no build ran".format(number, code))
         return record(found.split()[0], "committed")
+
+    def stop_over_budget(self, number, tree, step, round_no):
+        """Block the issue after stream() stopped its build or tester over max_issue_tokens.
+
+        What the agent had changed is committed on the local loop/issue-N, hooks off as the build commit is,
+        and never pushed: a person finishes it, or relabels the issue to start a fresh budget. The message
+        matches the lockfile check's grep, so a reused branch's lockfiles are still checked, and never the
+        tester's "round 0 (tests)." lookup, so a stopped tester's commit isn't taken for a finished one.
+        A relabel won't build over a stopped tester's commit (tests_first) or reset away an unpushed stop
+        commit under an open pull request (from_remote): both block for a person instead.
+        """
+        who = "tester" if step == "test" else "build"
+        self.git("add", "-A", cwd=tree)
+        staged = [p for p in self.git("diff", "--cached", "--name-only", "--no-renames", "-z",
+                                      cwd=tree)[1].split("\0") if p]
+        ccode = 0
+        if staged:
+            ccode = self.git(*NO_HOOKS, "commit", "-q", "-m", stop_message(number, round_no), cwd=tree)[0]
+        total = self.run_tokens(number)
+        self.log("BUDGET", "{} round {} stopped at {:,} tokens".format(step, round_no, total), number)
+        # over_budget() is None only if the stopped run's usage couldn't be written: say what is known.
+        why = self.over_budget(number) or "went over max_issue_tokens {:,}".format(budget(self.cfg)[0])
+        if not staged:
+            return self.block(number, "{}; the {} was stopped part way, before it had changed anything".format(
+                why, who))
+        if ccode != 0:
+            # git's output stays out: it lands on the issue.
+            return self.block(number, "{}; the {} was stopped part way, and what it had made could not be "
+                                      "committed (git exit {}), so it is uncommitted in the worktree".format(
+                                          why, who, ccode))
+        return self.block(number, "{}; the {} was stopped part way, and what it had made is committed on "
+                                  "loop/issue-{}, not pushed".format(why, who, number))
 
     def discard_edits(self, tree, step, who, number):
         """Throw away whatever a reader changed in the worktree. It was told not to edit, and only
@@ -3841,6 +4230,33 @@ class Loop:
                 continue
             self.log("CLEANUP", "pull request {}, removed its worktree and {}".format(state.lower(), branch), number)
 
+    def clear_blocked(self):
+        """Mark skipped each blocked issue that has since been closed, such as by a person merging its commit.
+
+        Runs on every idle poll, beside tidy(). An issue found open isn't looked up again for
+        BLOCKED_RECHECK_SECONDS. Only CLOSED clears a row: a failed lookup leaves it blocked, logged
+        once per run, and tried again on the next poll. The loop:blocked label stays on the issue.
+        """
+        for row in list(self.status["issues"]):  # mark() reorders the rows
+            if row.get("state") != "blocked":
+                continue
+            number = row["number"]
+            checked = self.open_checked.get(number)
+            if checked is not None and time.monotonic() - checked < BLOCKED_RECHECK_SECONDS:
+                continue
+            # The exit code decides, not the output: gh prints its errors to stdout.
+            code, out = self.gh("issue", "view", str(number), "--json", "state", "-q", ".state")
+            if code != 0:
+                self.log_once("ERROR", "could not read whether the blocked issue is closed: " + out.strip()[:200],
+                              number)
+                continue
+            if out.strip() == "CLOSED":
+                self.mark(number, state="skipped", note="issue closed while blocked")
+                self.log("CLEANUP", "issue closed while blocked, marked skipped", number)
+                self.open_checked.pop(number, None)
+            else:
+                self.open_checked[number] = time.monotonic()
+
     def update_prs(self):
         """Merge the base into each open loop pull request whose only conflict with it is CHANGELOG.md.
 
@@ -3917,13 +4333,17 @@ class Loop:
         why = self.fork_problem()  # the push goes to the fork, never origin, so a fork that fails pushes nothing
         if why:
             return self.update_error(number, why)
-        self.merge_changelog(row, tree, target, changelog_with(texts[2], added))
+        # The base may have a newer entry than the branch's: the merge's day keeps the log newest first.
+        added, changes = changelog_redated(texts[2], added, datetime.now().strftime("%Y-%m-%d"))
+        self.merge_changelog(row, tree, target, changelog_with(texts[2], added), changes)
 
     def merging(self, tree):
         return self.git("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=tree)[0] == 0
 
-    def merge_changelog(self, row, tree, target, resolved):
+    def merge_changelog(self, row, tree, target, resolved, changes=()):
         """Build the merge on a detached HEAD at the pushed commit, test it, and push it if they pass.
+
+        changes are changelog_redated()'s, each said in the comment that follows a push.
 
         loop/issue-<N> stays where it is until the push succeeds, and whatever happens the worktree
         ends up back on it. A Ctrl-C carries on up to work() with no comment and no update_tried.
@@ -3978,8 +4398,10 @@ class Loop:
             if code != 0:
                 self.log("ERROR", UPDATE_FAILED + out.strip()[:200], number)
             self.log("UPDATE", "merged {}, kept both CHANGELOG.md entries".format(base), number)
+            redated = "".join(" It re-dated `{}` from {} to {}, so the log stays newest first.".format(
+                safe_to_post(name), old, new) for name, old, new in changes)
             self.comment_on_pr(row, "The loop merged `{}` into this branch to keep both `CHANGELOG.md` entries, "
-                                    "this one on top. The tests passed.".format(base))
+                                    "this one on top. The tests passed.{}".format(base, redated))
         finally:
             if self.merging(tree):
                 self.git(*NO_HOOKS, "merge", "--abort", cwd=tree)
@@ -4041,6 +4463,8 @@ class Loop:
                 self.log("WARN", "sandbox_commands is false in the factory's loop.json, so test_command, "
                          "generate_command and setup_command run without the sandbox: they can read any file "
                          "your user can")
+            elif self.cfg.get("sandbox_commands") is True and not self.sandboxed():
+                self.log("WARN", SANDBOX_PROBE_WARN.format(error=self.sandbox_error))
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:
@@ -4164,6 +4588,7 @@ class Loop:
                         idle = True
                     if not dry_run:
                         self.tidy()
+                        self.clear_blocked()
                         self.update_prs()
                     self.stale()
                     if once or dry_run or only is not None:
@@ -4569,35 +4994,40 @@ class Loop:
             return None, "review_rubric in loop.json isn't a file name"
         return load_rubric(self.root / name)
 
+    def pr_runs(self, sha):
+        """The check runs on commit sha, each (status, conclusion or '', name), or None when GitHub can't be
+        asked or gives a line that isn't a run. A line with no name gets the name ''."""
+        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
+                            "--jq", NAMED_RUNS_JQ)
+        if code != 0:
+            return None
+        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
+        if any(len(run) not in (2, 3) for run in runs):
+            return None
+        return [tuple(run) if len(run) == 3 else (run[0], run[1], "") for run in runs]
+
     def pr_checks(self, sha):
         """The check runs on commit sha: passing, none when no check ran, failing when one that finished
         didn't pass, or pending while one runs. Pending when GitHub can't be asked too, so the next pass asks
         again rather than failing the pull request for an outage."""
-        code, out = self.gh("api", "repos/{{owner}}/{{repo}}/commits/{}/check-runs".format(sha), "--paginate",
-                            "--jq", CHECK_RUNS_JQ)
-        if code != 0:
-            return "pending"
-        runs = [line.split("\t") for line in out.split("\n") if line.strip()]
-        if any(len(run) != 2 for run in runs):
-            return "pending"
-        if any(status == "completed" and conclusion not in PASSING_CHECKS for status, conclusion in runs):
-            return "failing"
-        if any(status != "completed" for status, _ in runs):
-            return "pending"
-        return "passing" if runs else "none"
+        return checks_state(self.pr_runs(sha))
 
     def grade(self, verdict, sha):
         """review_grade_for() for verdict on commit sha, with the rubric as it is on disk now."""
         rubric, why = self.rubric()
-        return review_grade_for(verdict, self.pr_checks(sha) if rubric else "", rubric, why)
+        runs = self.pr_runs(sha) if rubric else ()
+        return review_grade_for(verdict, checks_state(runs) if rubric else "", rubric, why, runs=runs)
 
     def regrade(self, number, sha, before):
         """Give a posted review whose grade waited on the checks its grade, once they've finished: this login's
         own agent comment for sha, read back, with the grade in its trailer replaced and nothing else. No agent
-        runs. before is the review's status row, which gets the grade."""
+        runs. before is the review's status row, which gets the grade. On the five keys, running checks wait
+        before the comment is read; a ladder needs the verdict to know whether they matter, so it reads first."""
         rubric, why = self.rubric()
-        checks = self.pr_checks(sha) if rubric else ""
-        if checks == "pending":
+        runs = self.pr_runs(sha) if rubric else ()
+        checks = checks_state(runs) if rubric else ""
+        ladder = rubric is not None and "levels" in rubric
+        if checks == "pending" and not ladder:
             self.skip(number, sha, PENDING)
             return
         code, out = self.gh("api", "--paginate", "repos/{{owner}}/{{repo}}/issues/{}/comments".format(number),
@@ -4618,7 +5048,10 @@ class Loop:
             self.save_status()
             self.skip(number, sha, "no review of its own waiting for a grade")
             return
-        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why)
+        grade = review_grade_for(review_verdict(body)[1], checks, rubric, why, runs=runs)
+        if grade[0] is None:
+            self.skip(number, sha, PENDING)
+            return
         start = REVIEWED.search(body).start()
         graded = body[:start] + body[start:].replace(grade_text((None, PENDING)), grade_text(grade), 1)
         failed = self.post_review(number, graded)
@@ -4631,6 +5064,29 @@ class Loop:
                 before, grade=grade[0], updated=datetime.now().isoformat(timespec="seconds"))
         self.save_status()
         self.log("REVIEW", "#{} {} graded {}/10".format(number, sha[:7], grade[0]))
+
+    def grade_pr(self, number, verdict):
+        """loop.py grade: print the grade verdict gets on pull request number's head commit, through grade(),
+        so a person can try a rubric before auto_merge acts on it. It reports only: no lock, no comment, no
+        status row. It names origin's repo to gh, as review --pr does. 0 for any grade, 1 when the head can't
+        be read."""
+        self.pinned, why, _ = origin(self.repo)
+        if not self.pinned:
+            print("{}, so grade can't name its repo to gh, and gh could pick another: nothing was read.".format(why),
+                  file=sys.stderr)
+            return 1
+        code, out = self.gh("pr", "view", str(number), "--json", "headRefOid")
+        try:
+            if code != 0:
+                raise ValueError(" ".join(out.split())[:200] or "gh exited {}".format(code))
+            sha = json.loads(out)["headRefOid"]
+            if not isinstance(sha, str) or not sha.strip():
+                raise ValueError("it has no head commit")
+        except (ValueError, KeyError, TypeError) as err:
+            print("Could not read pull request #{}'s head commit: {}".format(number, err), file=sys.stderr)
+            return 1
+        print(grade_text(self.grade(verdict, sha)).strip(), flush=True)
+        return 0
 
     # -- merging what review graded, with auto_merge on --------------------
 
@@ -4814,7 +5270,13 @@ def build_parser():
     review.add_argument("--pr", type=int, metavar="N",
                         help="review only pull request N, whatever review_query finds, then exit")
     stop = sub.add_parser("stop", help="ask a running loop to stop after its current step")
-    for each in (run, review, stop):
+    grade_help = "print the grade a verdict gets on a pull request's head commit, from the rubric; changes nothing"
+    grade = sub.add_parser("grade", help=grade_help, description=grade_help)
+    grade.add_argument("pr", type=int, metavar="N", help="the pull request to grade")
+    grade.add_argument("--verdict", required=True,
+                       help='the review\'s verdict: "ready", "ready with nits" or "changes needed"; '
+                            "anything else grades as unreadable")
+    for each in (run, review, stop, grade):
         each.add_argument("--project", metavar="PATH",
                           help="a clone under projects/ to work instead of this repo; its loop.json sets test_command")
     return parser
@@ -4830,6 +5292,8 @@ def main(argv=None):
         if project is None:
             return 1
     loop = Loop() if project is None else Loop(ROOT, project=project)
+    if args.command == "grade":  # reports only: before anything that takes a lock or reads the hours
+        return loop.grade_pr(args.pr, args.verdict)
     if getattr(args, "hours", None) is not None:
         # Checked by locked(), as loop.json's is, so a bad value is refused in the log, not by argparse.
         loop.cfg["hours"], loop.hours_from = args.hours, "--hours"

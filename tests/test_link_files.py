@@ -95,6 +95,20 @@ class TheScript(unittest.TestCase):
         self.assertIn("--check", result.stdout)
         self.assertEqual(self.readme.read_bytes(), self.before)
 
+    def test_an_eval_suites_issue_stays_plain_and_other_issues_folders_still_link(self):
+        # A suite's issue is posted in the run's own repo, where a link into this one would break.
+        suite, other = self.repo / "suite" / "issues", self.repo / "notes" / "issues"
+        suite.mkdir(parents=True)
+        other.mkdir(parents=True)
+        (self.repo / "suite" / "suite.json").write_text("{}\n")
+        (suite / "01.md").write_text("Title\n\nEdit `a.md`.\n")
+        (other / "01.md").write_text("Edit `a.md`.\n")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((suite / "01.md").read_text(), "Title\n\nEdit `a.md`.\n")
+        self.assertEqual((other / "01.md").read_text(), "Edit [`a.md`](../../a.md).\n")
+
     def test_an_unknown_flag_stops_and_changes_nothing(self):
         result = self.run_script("--chek")
         self.assertEqual(result.returncode, 2)

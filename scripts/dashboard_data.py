@@ -69,7 +69,23 @@
                      only when the file's size or time changes: per reply, its message and request
                      ids, UTC day, side, model, session id, local day and counts, under the
                      transcript's path, and nothing else
-    waiting          what's waiting on you, in two halves that each fail on their own: pull_requests,
+    bill             what the provider billed beside the estimate for it, from .sanvio/bills.json, which you
+                     keep by hand (scripts/bills.example.json has the shape): months, each a YYYY-MM key with
+                     the month's bill in dollars. months lists up to 3 of the latest months before today's,
+                     newest first, each with month, billed_usd, estimate_usd, gap_usd (billed less estimate)
+                     and gap_pct (the gap over the bill, as a percentage to 1 decimal, null when the bill is
+                     0), dollars to 2 decimals, and unpriced, as activity's. The estimate is the loop's
+                     usage.json records whose run_started is in the month, and the factory side's replies in
+                     the conversations cache whose local day is, each reply once, both priced from their
+                     tokens at .sanvio/prices.json, not from the loop's cost_usd. The cache's loop side is
+                     left out, since those replies are the loop's runs, and with no cache the factory side adds
+                     nothing. A model with tokens and no price makes estimate_usd, gap_usd and gap_pct null.
+                     It covers this machine's records, where the bill covers every seat on the account, and
+                     --since doesn't change it. skipped counts the months left out because the key isn't a
+                     YYYY-MM month or the bill isn't a finite, non-negative number; today's month and later
+                     are left out without counting. Why values: "no bills.json" and "unreadable", when the
+                     file can't be read or has no months object. It never writes bills.json
+    waiting        what's waiting on you, in two halves that each fail on their own: pull_requests,
                      this repo's open pull requests from gh, each with its title, when it
                      opened, hours waited, its loop issue if its branch is loop/issue-N, whether it's
                      a draft, its checks (pass, fail, pending, or null with none) and whether it
@@ -135,6 +151,19 @@
                      truncated is true when the search matched more than the 1000 it returns, and then
                      the counts are low. Why values are work_report.py's: "gh unavailable" and "GitHub's
                      search returned a page it couldn't read". It prints no title, author, login or address
+    all_in           what a merged pull request costs all in, made from the sections above with no gh call or
+                     transcript read of its own. merged is work_by_type's merged over every type.
+                     loop_cost_usd is loop_spend's since cost_usd, null when loop_spend is missing.
+                     conversation_cost_usd prices conversations' factory side at .sanvio/prices.json, as
+                     activity does, and is null when conversations is missing or a model with tokens has no
+                     price. The loop side of conversations is left out, because loop_spend already counts
+                     that work. cost_usd is the two added, null when either is, and per_merged_usd is
+                     cost_usd over merged to 2 decimals, null when nothing merged or cost_usd is null.
+                     unpriced names each factory-side model with no price and why, as activity's does.
+                     The conversations are this machine's transcripts only, so on a team the figure
+                     undercounts what everyone spent. It's an estimate at API prices, not a bill. With
+                     work_by_type missing it is {"value": null, "why": ...} with work_by_type's why. It
+                     prints no title, login, path or address
     last_review      the last monthly log review, from .sanvio/usage/last-review, which
                      usage_report.py --review writes: date, YYYY-MM-DD, and days_since, the days from
                      it to today. Why values: "no review yet" when there's no file, and "unreadable"
@@ -151,7 +180,9 @@ stage_times reads the same status.json and pull requests and prints none. Nowher
 request's address, a pull request's or review's author, a prompt, a commit's message or author, an eval's reasons or a
 file path other than those in changed, which are from the harness root: counts, dollars, dates, issue
 names, step, model, skill, agent, rule and case names, and a run's outcome, tests and verdicts. The dollars are the loop's estimate at API
-prices, or under activity an estimate at the prices in .sanvio/prices.json, not what was billed.
+prices, or under activity, all_in's conversation part and bill an estimate at the prices in
+.sanvio/prices.json, not what was billed. Only bill's billed_usd is a bill, as typed into
+.sanvio/bills.json.
 """
 import argparse
 import contextlib
@@ -193,6 +224,9 @@ ACTIVITY_CACHE = Path("cache") / "activity.json"
 ACTIVITY_KEEP = datetime.timedelta(minutes=15)  # how long a read of the transcripts is used again
 PRICES = Path("prices.json")
 PRICED_TOKENS = 1_000_000  # prices.json's figures are dollars for this many tokens
+BILLS = Path("bills.json")  # under names.state_dir(), kept by hand; scripts/bills.example.json has the shape
+BILL_MONTHS = 3  # how many of the latest billed months bill() shows
+MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")  # a bills.json key, YYYY-MM, matched whole
 SPEND_FIELDS = {"skills": "skill_spend", "agents": "agent_spend", "commands": "command_spend"}
 OUTCOMES = ("pr", "blocked", "stopped", "skipped")  # the states a run ends in; see record_run in loop.py
 STAGE_STEPS = ("SHAPE", "BUILD", "VALIDATE", "SCALE")  # the loop's steps stage_times takes medians of
@@ -1017,6 +1051,27 @@ def work_by_type(root, since):
     return {"types": out, "truncated": matched > work_report.LIMIT}
 
 
+def all_in(work, loop, convs, root):
+    """What the period's merged pull requests cost all in, from the sections build() has already made, so it
+    asks gh and reads the transcripts no more than they did.
+
+    The loop's part is loop_spend's since cost. The conversations' part prices only their factory side: the
+    loop side is the loop's own work, which loop_spend already counts. A part whose section is missing is null."""
+    if "why" in work:
+        return missing(work["why"])
+    merged = sum(row["merged"] for row in work["types"])
+    loop_cost = None if "why" in loop else loop["since"]["cost_usd"]
+    unpriced, talk_cost = {}, None
+    if "why" not in convs:
+        rates, why, _ = prices(root)
+        models = {model: [row[c] for c in COUNTS] for model, row in convs["factory"]["by_model"].items()}
+        talk_cost = spent(models, rates, why, unpriced)["cost_usd"]
+    cost = None if loop_cost is None or talk_cost is None else round(loop_cost + talk_cost, 4)
+    return {"merged": merged, "loop_cost_usd": loop_cost, "conversation_cost_usd": talk_cost, "cost_usd": cost,
+            "per_merged_usd": round(cost / merged, 2) if merged and cost is not None else None,
+            "unpriced": {model: unpriced[model] for model in sorted(unpriced, key=natural)}}
+
+
 def last_review(root, today):
     """{date, days_since} from .sanvio/usage/last-review, which usage_report.py --review writes."""
     try:
@@ -1031,19 +1086,105 @@ def last_review(root, today):
     return {"date": found, "days_since": (today - datetime.date.fromisoformat(found)).days}
 
 
+def billed(value):
+    """value as a float when it's a finite, non-negative number that isn't a bool, else None."""
+    found = number(value)
+    try:
+        return float(found) if found is not None and found >= 0 and math.isfinite(found) else None
+    except OverflowError:  # a whole number too big for a float
+        return None
+
+
+def add(models, model, counts):
+    models[model] = [a + b for a, b in zip(models.get(model, [0] * len(COUNTS)), counts)]
+
+
+def bill(root, today):
+    """Each of the latest BILL_MONTHS months in .sanvio/bills.json, before today's month and newest first,
+    beside the estimate for it: the loop's usage.json records and the factory's replies in the
+    conversations cache, both priced at prices.json, each by its local date."""
+    try:
+        found = json.loads((names.state_dir(root) / BILLS).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return missing("no bills.json")
+    except (OSError, ValueError):
+        return missing("unreadable")
+    months = found.get("months") if isinstance(found, dict) else None
+    if not isinstance(months, dict):
+        return missing("unreadable")
+    current, kept, skipped = today.isoformat()[:7], {}, 0
+    for month, value in months.items():
+        amount = billed(value)
+        if not MONTH.fullmatch(month) or amount is None:
+            skipped += 1
+        elif month < current:
+            kept[month] = amount
+    shown = sorted(kept, reverse=True)[:BILL_MONTHS]
+    used = {month: {} for month in shown}
+    # The loop's side: its runs, by the month the loop picked the issue up.
+    for entries in loop_runs(root, "0000-01-01").values():
+        for e in entries:
+            month = e["run_started"][:7]
+            if month in used:
+                add(used[month], text_or_none(e.get("model")) or "unknown",
+                    [number(e.get(name)) or 0 for name in USAGE_TOKENS])
+    # The factory's side, from the cache conversations() keeps. Its loop side is left out: those replies
+    # are the loop's runs, already counted from usage.json.
+    try:
+        cache = json.loads((names.state_dir(root) / CACHE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    seen = set()
+    for entry in (cache.values() if isinstance(cache, dict) else ()):
+        if not cached(entry):
+            continue
+        for message_id, request_id, _, side, model, _, local, *counts in entry["replies"]:
+            if side != "factory" or local[:7] not in used:
+                continue
+            if (message_id, request_id) != (None, None):
+                if (message_id, request_id) in seen:
+                    continue
+                seen.add((message_id, request_id))
+            add(used[local[:7]], model, counts)
+    rates, why, _ = prices(root)
+    rows = []
+    for month in shown:
+        unpriced = {}
+        cost = spent(used[month], rates, why, unpriced)["cost_usd"]
+        amount = round(kept[month], 2)
+        estimate = None if cost is None else round(cost, 2)
+        gap = None if estimate is None else round(amount - estimate, 2)
+        rows.append({"month": month, "billed_usd": amount, "estimate_usd": estimate, "gap_usd": gap,
+                     "gap_pct": round(gap / amount * 100, 1) if gap is not None and amount else None,
+                     "unpriced": {model: unpriced[model] for model in sorted(unpriced, key=natural)}})
+    return {"months": rows, "skipped": skipped}
+
+
 def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
     now = now or datetime.datetime.now().astimezone()
+    spent_by_loop = loop_spend(root, since, today)
+    throughput = loop_throughput(root)
+    used = spend(activity(root, since), root, since, now, projects_dir)
+    saved = evals(root)
+    talk = conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE)
+    open_now = waiting(root, now)
+    rework = loop_rework(root, since)
+    stages = stage_times(root, since)
+    history = loop_history(root, since, today)
+    work = work_by_type(root, since)
     return {"schema": SCHEMA, "generated": now.isoformat(timespec="seconds"), "since": since,
-            "loop_spend": loop_spend(root, since, today),
-            "loop_throughput": loop_throughput(root),
-            "activity": spend(activity(root, since), root, since, now, projects_dir),
-            "evals": evals(root),
-            "conversations": conversations(root, since, today, projects_dir, names.state_dir(root) / CACHE),
-            "waiting": waiting(root, now),
-            "loop_rework": loop_rework(root, since),
-            "stage_times": stage_times(root, since),
-            "loop_history": loop_history(root, since, today),
-            "work_by_type": work_by_type(root, since),
+            "loop_spend": spent_by_loop,
+            "loop_throughput": throughput,
+            "activity": used,
+            "evals": saved,
+            "conversations": talk,
+            "bill": bill(root, today),  # after conversations, which refreshes the cache it reads
+            "waiting": open_now,
+            "loop_rework": rework,
+            "stage_times": stages,
+            "loop_history": history,
+            "work_by_type": work,
+            "all_in": all_in(work, spent_by_loop, talk, root),
             "last_review": last_review(root, today)}
 
 

@@ -548,7 +548,7 @@ group('a job in the pane', () => {
     const ui = await $.ui.mount(PANE)
     const clockRow = JSON.stringify(await ui.find({ key: 'clock-12' }))
     expect(clockRow).toContain(`started ${p(d.getHours())}:${p(d.getMinutes())}`)
-    expect(clockRow).not.toContain('building')
+    expect(clockRow).not.toContain('build')
     expect(JSON.stringify(await ui.drawn())).not.toContain(' · started')
     await ui.unmount()
   })
@@ -614,11 +614,14 @@ group('project loops', () => {
   // The folders under .loop/projects come from those paths. The test changes `files` between polls,
   // `panes` to stand a pane behind another, and `flip` to refuse a close, take the root away, refuse
   // every write or hold one open. fs.read records each path it reads, and fs.write each path and text, storing the text
-  // in `files`. Nothing touches the disk.
-  function world(on: On, files: Map<string, string>, focus: Focus = {}) {
+  // in `files`. Nothing touches the disk. An ssh is answered by `remote`, from the remote command alone, as
+  // [exit code, stdout], and recorded in `sshes`; with no answer it fails as a connection would, with 255.
+  // Nothing connects anywhere.
+  function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Map<string, [number, string]> = new Map()) {
     const clock = mock.clock(on, { now: 1_800_000_000_000 })
     const toasts: string[] = []
     const ran: string[][] = []
+    const sshes: string[] = []
     const reads: string[] = []
     const stats: string[] = []
     const writes: { path: string; text: string }[] = []
@@ -661,6 +664,12 @@ group('project loops', () => {
     })
     on('process.run', async (_$, e) => {
       ran.push([...e.argv])
+      if (e.argv[0] === 'ssh') {
+        const command = e.argv[e.argv.length - 1] ?? ''
+        sshes.push(command)
+        const [exitCode, stdout] = remote.get(command) ?? [255, '']
+        return { value: { exitCode, stdout, stderr: exitCode === 255 ? 'ssh: connect to host: Connection refused' : '', isStdoutTruncated: false, isStderrTruncated: false } }
+      }
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     })
     on('ui.open', async () => {
@@ -684,7 +693,7 @@ group('project loops', () => {
       await clock.advance(500)
     }
     return {
-      clock, toasts, panes, flip, close, reads, stats, writes, session,
+      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes,
       idsAsked: () => idsAsked,
       opened: () => ran.filter(argv => argv[0] === 'open'),
     }
@@ -744,7 +753,7 @@ group('project loops', () => {
     const { close } = world(on, threeLoops())
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
-    expect((await pickOptions(ui)).map(o => o.label)).toEqual(['starter', 'alpha', 'beta'])
+    expect((await pickOptions(ui)).map(o => o.label)).toEqual(['All loops', 'starter', 'alpha', 'beta'])
     const top = (await ui.drawn()) as unknown as { children: unknown[] }
     const at = (needle: string) => top.children.findIndex(c => JSON.stringify(c).includes(needle))
     expect(at('"loop-pick"')).toBeGreaterThan(-1)
@@ -767,7 +776,7 @@ group('project loops', () => {
     }
     await close()
   })
-  test('a loop on one job marks its button, and on two adds the count', async ($, on) => {
+  test('a loop on one job marks its button with a count of one, and on two with two', async ($, on) => {
     const files = threeLoops()
     files.set(`${ALPHA}/status.json`, statusText('alpha job', { issues: [JOB] }))
     files.set(`${ALPHA}/lock`, '4242')
@@ -775,11 +784,11 @@ group('project loops', () => {
     await open($ as unknown as Dollar)
     const ui = await $.ui.mount(PANE)
     const label = async (value: string) => (await pickOptions(ui)).find(o => o.value === value)?.label
-    expect(await label('alpha')).toBe('● alpha')
+    expect(await label('alpha')).toBe('● alpha (1)')
     expect(await label('beta')).toBe('beta')
     files.set(`${ALPHA}/status.json`, statusText('alpha job', { issues: [JOB, { ...JOB, number: 13 }] }))
     await clock.advance(POLL)
-    expect(await label('alpha')).toBe('● alpha 2')
+    expect(await label('alpha')).toBe('● alpha (2)')
     await ui.unmount()
     await close()
   })
@@ -795,11 +804,11 @@ group('project loops', () => {
     await ui.press({ key: 'loop-beta' })
     await drain()
     const alpha = await ui.find({ key: 'loop-alpha' })
-    expect(alpha?.props.label).toBe('● alpha')
+    expect(alpha?.props.label).toBe('● alpha (1)')
     expect(alpha?.props.variant).toBeUndefined()
     expect(alpha?.props.dimColor).toBe(true)
     const beta = await ui.find({ key: 'loop-beta' })
-    expect(beta?.props.label).toBe('● beta')
+    expect(beta?.props.label).toBe('● beta (1)')
     expect(beta?.props.variant).toBe('primary')
     const header = (await ui.find({ key: 'header' })) as unknown as { children: { children: string[] }[] }
     expect(header.children[0]?.children).toEqual(['beta'])
@@ -933,7 +942,7 @@ group('project loops', () => {
     files.delete(`${ALPHA}/status.json`)
     await clock.advance(POLL)
     expect(await titles(ui)).toEqual(['#30 factory job'])
-    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['', 'beta'])
+    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['*', '', 'beta'])
     expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('')
     await ui.unmount()
     await close()
@@ -990,7 +999,7 @@ group('project loops', () => {
       const { close } = world(on, twoLoops())
       await open($ as unknown as Dollar)
       const ui = await $.ui.mount({ ...PANE, surface })
-      expect((await pickOptions(ui)).map(o => o.value)).toEqual(['', 'alpha'])
+      expect((await pickOptions(ui)).map(o => o.value)).toEqual(['*', '', 'alpha'])
       expect(await ui.find({ key: 'loops' })).toBeUndefined()
       await ui.unmount()
       await close()
@@ -1008,8 +1017,9 @@ group('project loops', () => {
       expect(await ui.find({ key: 'loop-alpha' })).toBeUndefined()
       const pick = await ui.find({ key: 'loop-pick' })
       expect(pick?.props.options).toEqual([
-        { value: 'beta', label: '● beta' },
-        { value: 'gamma', label: '● gamma' },
+        { value: '*', label: 'All loops' },
+        { value: 'beta', label: '● beta (1)' },
+        { value: 'gamma', label: '● gamma (1)' },
         { value: '', label: 'starter' },
         { value: 'alpha', label: 'alpha' },
         { value: 'delta', label: 'delta' },
@@ -1125,7 +1135,7 @@ group('project loops', () => {
     expect(await ui.find({ key: 'loop-pick' })).toBeUndefined()
     const row = await ui.find({ key: 'loops' })
     const labels = (row?.children as unknown as { props: { label: string } }[]).map(c => c.props.label)
-    expect(labels).toEqual(['starter', 'alpha', 'beta', 'delta'])
+    expect(labels).toEqual(['All loops', 'starter', 'alpha', 'beta', 'delta'])
     await ui.unmount()
     await close()
   })
@@ -1136,7 +1146,7 @@ group('project loops', () => {
     expect(await ui.find({ key: 'loop-pick' })).toBeUndefined()
     const row = await ui.find({ key: 'loops' })
     const labels = (row?.children as unknown as { props: { label: string } }[]).map(c => c.props.label)
-    expect(labels).toEqual(['starter', 'alpha', 'beta', 'delta', 'gamma', 'omega'])
+    expect(labels).toEqual(['All loops', 'starter', 'alpha', 'beta', 'delta', 'gamma', 'omega'])
     await ui.unmount()
     await close()
   })
@@ -1176,8 +1186,11 @@ group('project loops', () => {
   const FOCUS = (id: string) => `${ROOT}/.sanvio/project/${id}`
   const underFocus = (path: string) => path.includes('/.sanvio/project/')
   // A pick switches, then writes and reads the focus back: several engine calls, so wait out more turns.
+  // Since Claude Code 2.1.326 the test kit finishes a Select's onSelect after a timer turn, not within
+  // microtasks alone, so a few real setTimeout turns follow: without them the pick hasn't written yet.
   const settle = async () => {
     for (let i = 0; i < 10; i++) await drain()
+    for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0))
   }
   const FOLDERS: Kinds = { alpha: 'dir', beta: 'dir', gamma: 'dir' }
   const pickValue = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
@@ -1439,6 +1452,163 @@ group('project loops', () => {
     expect([...new Set(reads.filter(underFocus))]).toEqual([FOCUS(B)])
     expect(writes).toEqual([{ path: FOCUS(B), text: 'alpha\n' }])
     expect(files.get(FOCUS(A))).toBe('alpha\n')
+    await ui.unmount()
+    await close()
+  })
+
+  // Another machine, spare-mac, as machines.json names it, and what its ssh answers each command with:
+  // a factory loop that isn't running, and a project alpha working #12 in tmux. hooks/remote.test.ts
+  // checks the commands themselves.
+  const MACHINES = `${ROOT}/.sanvio/factory-floor/machines.json`
+  const SPARE = '/r/factory'
+  const machinesText = JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] })
+  const spareMac = () => new Map<string, [number, string]>([
+    [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nprojects\n']],
+    [`cat '${SPARE}/.loop/status.json'`, [0, statusText('spare factory job')]],
+    [`ls -1A '${SPARE}/.loop/projects'`, [0, 'alpha\n']],
+    [`ls -1A '${SPARE}/.loop/projects/alpha'`, [0, 'status.json\nlock\n']],
+    [`cat '${SPARE}/.loop/projects/alpha/status.json'`, [0, statusText('spare alpha job', { tmux: 'loop-alpha', issues: [JOB] })]],
+    [`cat '${SPARE}/.loop/projects/alpha/lock'`, [0, '4242\n']],
+    ['kill -0 4242', [0, '']],
+    [`cat '${SPARE}/.loop/projects/alpha/issue-12/usage.json'`, [1, '']],
+  ])
+  // Past the poll's first read, which starts the other machines' reads in the background, and its next,
+  // which shows what they found.
+  const pastRemoteRead = async (clock: { advance: (ms: number) => Promise<unknown> }) => {
+    await clock.advance(500)
+    await settle()
+    await clock.advance(POLL)
+    await settle()
+  }
+
+  test('with no machines.json nothing runs ssh, and the picker is as it was', async ($, on) => {
+    const { clock, ran, close } = world(on, threeLoops(), {}, spareMac())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await pastRemoteRead(clock)
+    await clock.advance(30_000)
+    await settle()
+    expect(ran.filter(argv => argv[0] === 'ssh')).toEqual([])
+    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['*', '', 'alpha', 'beta'])
+    expect((await pickOptions(ui)).map(o => o.label)).toEqual(['All loops', 'starter', 'alpha', 'beta'])
+    await ui.unmount()
+    await close()
+  })
+  test("another machine's loops are options, and picking one shows it with Watch on its issues alone and leaves the focus alone", async ($, on) => {
+    const files = threeLoops()
+    files.set(MACHINES, machinesText)
+    const { clock, writes, close } = world(on, files, { session: { id: A }, projects: FOLDERS }, spareMac())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    // The pane's first look is this machine's alone: nothing waits on ssh.
+    expect((await pickOptions(ui)).map(o => o.value)).toEqual(['*', '', 'alpha', 'beta'])
+    await pastRemoteRead(clock)
+    const options = await pickOptions(ui)
+    expect(options.find(o => o.value === 'ssh:0/alpha')?.label).toBe('● spare-mac · alpha (1)')
+    expect(options.find(o => o.value === 'ssh:0/')?.label).toBe('spare-mac')
+    // This machine's alpha stays an option of its own.
+    expect(options.find(o => o.value === 'alpha')?.label).toBe('alpha')
+    await ui.select({ key: 'loop-pick', value: 'ssh:0/alpha' })
+    await settle()
+    expect(await left(ui)).toContain('spare-mac · alpha')
+    expect(await titles(ui)).toEqual(['#12 Gate'])
+    // Its tmux is on spare-mac, so nothing here offers to watch or attach to the loop, and its issue's Watch
+    // is the one that copies an attach over ssh.
+    for (const key of ['watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
+    expect(await ui.find({ key: 'watch-12' })).toBeDefined()
+    await clock.advance(POLL)
+    await settle()
+    expect(await titles(ui)).toEqual(['#12 Gate'])
+    expect(writes).toEqual([])
+    // This machine's alpha is still its own loop, and picking it sets the focus as before.
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    expect(await titles(ui)).toEqual(['#30 alpha job'])
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
+    await ui.unmount()
+    await close()
+  })
+
+  // All loops: this machine's alpha and spare-mac's alpha both working #12, each with its own pull request.
+  // This machine's runs in tmux with #12 in its own window, so it can be watched from here.
+  const HERE_PR = 'https://github.com/o/r/pull/1'
+  const THERE_PR = 'https://github.com/o/r/pull/2'
+  const twoTwelves = () => {
+    const files = threeLoops()
+    files.set(MACHINES, machinesText)
+    files.set(`${ALPHA}/status.json`, statusText('alpha job', { tmux: 'loop-alpha', issues: [{ ...JOB, pr: HERE_PR }] }))
+    files.set(`${ALPHA}/lock`, '4242')
+    const remote = spareMac()
+    remote.set(`cat '${SPARE}/.loop/projects/alpha/status.json'`, [0, statusText('spare alpha job', { tmux: 'loop-alpha', issues: [{ ...JOB, pr: THERE_PR }] })])
+    return { files, remote }
+  }
+  // The jobs' titles under All loops, which start with their loop's tag.
+  const tagged = async (ui: { findAll: (q: { type: string; text: RegExp }) => Promise<{ text: string }[]> }) =>
+    (await ui.findAll({ type: 'Text', text: /^\S.* {2}#\d+ / })).map(t => t.text)
+
+  test('All loops lists every loop\'s working issues, two #12s apart by their tags, on the Active tab alone, and writes no focus', async ($, on) => {
+    const { files, remote } = twoTwelves()
+    files.set(FOCUS(A), 'beta\n')
+    const { clock, writes, opened, close } = world(on, files, { session: { id: A }, projects: FOLDERS }, remote)
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await pastRemoteRead(clock)
+    expect((await pickOptions(ui))[0]).toEqual({ value: '*', label: 'All loops' })
+    await ui.select({ key: 'loop-pick', value: '*' })
+    await settle()
+    expect(await pickValue(ui)).toBe('*')
+    expect(await left(ui)).toContain('All loops')
+    expect(await tagged(ui)).toEqual(['starter · alpha  #12 Gate', 'spare-mac · alpha  #12 Gate'])
+    // Only the Active tab, and no loop's own Watch it or attach command.
+    expect(await ui.find({ key: 'tab-active' })).toBeDefined()
+    for (const key of ['tab-queue', 'tab-finished', 'watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
+    // Watch on both #12s, this machine's and spare-mac's, and each pull request button opens its own row's link.
+    expect(await ui.find({ key: 'watch-alpha#12' })).toBeDefined()
+    expect(await ui.find({ key: 'watch-ssh:0/alpha#12' })).toBeDefined()
+    await ui.press({ key: 'pr-alpha#12' })
+    await ui.press({ key: 'pr-ssh:0/alpha#12' })
+    await settle()
+    expect(opened()).toEqual([['open', HERE_PR], ['open', THERE_PR]])
+    await ui.press({ key: 'watch-alpha#12' })
+    await settle()
+    expect(opened()[2]).toEqual(['open', `${ALPHA}/issue-12/watch.command`])
+    // The pick holds across a read, and the focus file is as it was.
+    await clock.advance(POLL)
+    await settle()
+    expect(await pickValue(ui)).toBe('*')
+    expect(await tagged(ui)).toEqual(['starter · alpha  #12 Gate', 'spare-mac · alpha  #12 Gate'])
+    expect(writes).toEqual([])
+    expect(files.get(FOCUS(A))).toBe('beta\n')
+    // Picking one loop brings Queue and Finished back, and writes the focus as before.
+    await ui.select({ key: 'loop-pick', value: 'alpha' })
+    await settle()
+    expect(await titles(ui)).toEqual(['#12 Gate'])
+    expect(await ui.find({ key: 'tab-queue' })).toBeDefined()
+    expect(await ui.find({ key: 'tab-finished' })).toBeDefined()
+    expect(writes).toEqual([{ path: FOCUS(A), text: 'alpha\n' }])
+    await ui.unmount()
+    await close()
+  })
+  test('under All loops a machine that goes down adds no rows, and a line names it and when it was last read', async ($, on) => {
+    const { files, remote } = twoTwelves()
+    const { clock, close } = world(on, files, {}, remote)
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await pastRemoteRead(clock)
+    await ui.select({ key: 'loop-pick', value: '*' })
+    await settle()
+    expect(await tagged(ui)).toEqual(['starter · alpha  #12 Gate', 'spare-mac · alpha  #12 Gate'])
+    // From here every ssh fails as a connection does, with 255, at spare-mac's next read.
+    remote.clear()
+    await clock.advance(30_000)
+    await settle()
+    await clock.advance(POLL)
+    await settle()
+    expect(await pickValue(ui)).toBe('*')
+    expect(await tagged(ui)).toEqual(['starter · alpha  #12 Gate'])
+    const lines = (await ui.findAll({ type: 'Text', text: /^spare-mac · down/ })).map(t => t.text)
+    expect(lines.length).toBe(1)
+    expect(/^spare-mac · down, last read \d.* ago$/.test(lines[0] ?? '')).toBe(true)
     await ui.unmount()
     await close()
   })

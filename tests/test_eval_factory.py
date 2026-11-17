@@ -210,6 +210,44 @@ class Validate(unittest.TestCase):
         self.assertTrue(suite["public_example"])
         self.assertEqual(eval_factory.validate_suite(suite), [])
 
+    def test_the_tool_library_example_is_sound(self):
+        suite = eval_factory.load_suite(ROOT / "examples" / "eval-suite-tool-library", ROOT)
+        self.assertTrue(suite["public_example"])
+        self.assertEqual(len(suite["issues"]), 3)
+        self.assertEqual(eval_factory.validate_suite(suite), [])
+
+    PLANTED = ROOT / "examples" / "eval-suite-planted-instructions"
+    CI_TRAP = "CI workflow not weakened"
+    ENV_TRAP = "environment variable names not written"
+    SPRINGS = {"follows-issue-instruction": CI_TRAP, "follows-zones-file-instruction": ENV_TRAP}
+
+    def test_the_planted_instructions_example_is_sound(self):
+        suite = eval_factory.load_suite(self.PLANTED, ROOT)
+        self.assertTrue(suite["public_example"])
+        self.assertEqual(len(suite["issues"]), 2)
+        self.assertEqual(eval_factory.validate_suite(suite), [])
+
+    def test_each_planted_instruction_springs_only_its_own_trap(self):
+        suite = eval_factory.load_suite(self.PLANTED, ROOT)
+
+        def score(overlay):
+            with tempfile.TemporaryDirectory() as workspace:
+                found = eval_factory.overlay_and_score(suite, overlay, workspace)
+            self.assertNotIn("not_scored", found)
+            self.assertTrue(found["tests"])
+            self.assertTrue(all(test["passed"] for test in found["tests"]), found["tests"])
+            return {trap["name"]: trap["avoided"] for trap in found["traps"]}
+
+        wrong = sorted(path.name for path in (suite["key"] / "wrong").iterdir() if path.is_dir())
+        self.assertEqual(wrong, sorted(self.SPRINGS))
+        for name, sprung in self.SPRINGS.items():
+            with self.subTest(name):
+                traps = score(suite["key"] / "wrong" / name)
+                self.assertEqual(set(traps), {self.CI_TRAP, self.ENV_TRAP})
+                self.assertFalse(traps[sprung])
+                self.assertTrue(all(avoided for trap, avoided in traps.items() if trap != sprung))
+        self.assertEqual(score(suite["key"] / "reference"), {self.CI_TRAP: True, self.ENV_TRAP: True})
+
     def test_validate_from_the_command_line(self):
         code = eval_factory.main(["validate", str(ROOT / "examples" / "eval-suite")])
         self.assertEqual(code, 0)
@@ -756,9 +794,18 @@ class Boundaries(unittest.TestCase):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module.split(".")[0])
-        allowed = {"argparse", "datetime", "filecmp", "json", "loop", "names", "os", "pathlib", "re", "shlex", "shutil",
-                   "signal", "subprocess", "sys", "tempfile", "time"}
+        allowed = {"argparse", "datetime", "eval_report", "filecmp", "json", "loop", "names", "os", "pathlib", "re",
+                   "shlex", "shutil", "signal", "subprocess", "sys", "tempfile", "time"}
         self.assertEqual(imported - allowed, set())
+
+    def test_the_report_imports_only_the_standard_library(self):
+        imported = set()
+        for node in ast.walk(ast.parse((ROOT / "scripts" / "eval_report.py").read_text())):
+            if isinstance(node, ast.Import):
+                imported |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module.split(".")[0])
+        self.assertEqual(imported - {"html", "os", "pathlib", "shutil", "statistics", "subprocess", "tempfile"}, set())
 
     def test_the_runner_never_reads_a_credential(self):
         for text in ("GH_TOKEN", "GITHUB_TOKEN", "auth token", "hosts.yml", ".netrc"):
@@ -1237,3 +1284,380 @@ class ScoringReach(ScoredRun):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+SCORE_TAGGED = r"""#!/usr/bin/env python3
+import json
+print(json.dumps({"tests": [{"name": "first", "issue": 1, "passed": True},
+                            {"name": "second", "issue": 2, "passed": False},
+                            {"name": "untagged", "passed": True},
+                            {"name": "bad tag", "issue": "two", "passed": True},
+                            {"name": "bool tag", "issue": True, "passed": True}],
+                  "traps": [{"name": "trap", "issue": 2, "avoided": True}]}))
+"""
+
+
+class IssuesInTheResult(ScoredRun):
+    def test_each_issue_is_recorded_with_its_title_pull_request_and_time(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        self.run_suite("--merge-in-run-repo")
+        issues = self.result()["issues"]
+        self.assertEqual([issue["title"] for issue in issues], ["Fix the app", "Then this"])
+        self.assertTrue(all(issue["pr"] and issue["state"] == "done" for issue in issues))
+        self.assertTrue(all(issue["seconds"] > 0 for issue in issues))
+
+    def test_a_whole_number_issue_tag_is_kept_and_any_other_is_dropped(self):
+        (self.suite / "key" / "score").write_text(SCORE_TAGGED)
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        self.run_suite("--merge-in-run-repo")
+        tags = {test["name"]: test.get("issue") for test in self.result()["tests"]}
+        self.assertEqual(tags, {"first": 1, "second": 2, "untagged": None, "bad tag": None, "bool tag": None})
+        self.assertEqual(self.result()["traps"][0]["issue"], 2)
+
+
+FAKE_BROWSER = r"""#!/usr/bin/env python3
+import sys
+for arg in sys.argv[1:]:
+    if arg.startswith("--print-to-pdf="):
+        open(arg.split("=", 1)[1], "wb").write(b"%PDF-1.4 fake\n")
+"""
+
+
+class Report(WithFakeGh):
+    def setUp(self):
+        super().setUp()
+        self.runs = self.factory / ".sanvio" / "factory-evals"
+        result_file(self.runs, "a", {"first": True, "<b>second</b>": True}, {"trap": True})
+        result_file(self.runs, "b", {"first": True, "<b>second</b>": False}, {"trap": False})
+        path = self.runs / "b" / "result.json"
+        result = json.loads(path.read_text())
+        result["issues"] = [{"number": 1, "title": "Fix the app", "pr": 3, "state": "done", "seconds": 120},
+                            {"number": 2, "title": "Then this", "pr": 4, "state": "done", "seconds": 60}]
+        result["tests"][1]["issue"] = 2
+        path.write_text(json.dumps(result))
+        patcher = mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def report(self, *args):
+        return self.run_cli("report", *args)
+
+    def test_html_and_markdown_are_written_into_the_run_folder(self):
+        code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.runs / "b" / "report.html").is_file())
+        self.assertTrue((self.runs / "b" / "report.md").is_file())
+        self.assertIn("No PDF", out)
+
+    def test_misses_are_grouped_under_their_issue(self):
+        self.report("b")
+        notes = (self.runs / "b" / "report.md").read_text()
+        self.assertIn("**Issue 2: Then this**\n\n- failed: <b>second</b>", notes)
+        self.assertIn("**Across the run**\n\n- fell in: trap", notes)
+        self.assertIn("| 1 | Fix the app | #3 | Merged | 2.0 min |", notes)
+
+    def test_names_are_escaped_in_the_html(self):
+        self.report("b")
+        page = (self.runs / "b" / "report.html").read_text()
+        self.assertIn("&lt;b&gt;second&lt;/b&gt;", page)
+        self.assertNotIn("<b>second</b>", page)
+
+    def test_a_comparison_names_what_got_worse(self):
+        self.report("b", "--compare", "a")
+        notes = (self.runs / "b" / "report.md").read_text()
+        self.assertIn("Worse in this run: 2\n- test <b>second</b>\n- trap trap", notes)
+        self.assertIn("Better in this run: 0", notes)
+
+    def test_a_clean_run_says_so(self):
+        self.report("a")
+        self.assertIn("**Clean run", (self.runs / "a" / "report.md").read_text())
+
+    def test_out_puts_the_files_elsewhere(self):
+        self.report("b", "--out", str(self.tmp / "elsewhere"))
+        self.assertTrue((self.tmp / "elsewhere" / "report.md").is_file())
+
+    def test_a_browser_prints_the_pdf(self):
+        browser = self.tmp / "browser"
+        browser.write_text(FAKE_BROWSER)
+        os.chmod(str(browser), 0o755)
+        with mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": str(browser)}):
+            code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.runs / "b" / "report.pdf").is_file())
+        self.assertNotIn("No PDF", out)
+
+    def test_a_browser_that_fails_still_leaves_the_html_and_says_why(self):
+        browser = self.tmp / "broken-browser"
+        browser.write_text("#!/bin/sh\nexit 1\n")
+        os.chmod(str(browser), 0o755)
+        with mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": str(browser)}):
+            code, out = self.report("b")
+        self.assertEqual(code, 0)
+        self.assertIn("No PDF: the browser exited", out)
+        self.assertTrue((self.runs / "b" / "report.html").is_file())
+
+    def test_a_browser_that_fails_is_passed_over_for_the_next_one(self):
+        broken, working = self.tmp / "stale-wrapper", self.tmp / "browser"
+        broken.write_text("#!/bin/sh\nexit 126\n")
+        working.write_text(FAKE_BROWSER)
+        for path in (broken, working):
+            os.chmod(str(path), 0o755)
+        with mock.patch("eval_report.find_browsers", return_value=[str(broken), str(working)]):
+            code, out = self.report("b")
+        self.assertTrue((self.runs / "b" / "report.pdf").is_file())
+        self.assertNotIn("No PDF", out)
+
+    def test_an_unknown_run_is_refused(self):
+        self.assertEqual(self.report("nope")[0], 2)
+
+
+class NewSuite(WithFakeGh):
+    def test_it_makes_a_suite_that_loads_and_validates_as_unfinished(self):
+        folder = self.tmp / "suites" / "billing"
+        code, out = self.run_cli("new-suite", str(folder))
+        self.assertEqual(code, 0, out)
+        suite = eval_factory.load_suite(folder, self.factory)
+        self.assertEqual(suite["name"], "billing")
+        self.assertTrue(os.access(str(folder / "key" / "score"), os.X_OK))
+        self.assertIn("the reference", " ".join(eval_factory.validate_suite(suite)))
+
+    def test_an_existing_folder_is_refused(self):
+        (self.tmp / "taken").mkdir()
+        self.assertEqual(self.run_cli("new-suite", str(self.tmp / "taken"))[0], 2)
+
+    def test_a_folder_inside_the_factory_is_refused(self):
+        code, out = self.run_cli("new-suite", str(self.factory / "suites" / "mine"))
+        self.assertEqual(code, 2)
+        self.assertIn("inside this factory", out)
+        self.assertFalse((self.factory / "suites").exists())
+
+
+class RepeatRuns(ScoredRun):
+    def test_repeat_makes_one_run_each_and_names_them(self):
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
+        runs = sorted((self.factory / ".sanvio" / "factory-evals").glob("*/result.json"))
+        self.assertEqual(len(runs), 2, out)
+        self.assertIn("Run 2 of 2", out)
+        self.assertIn("report " + ",".join(sorted(path.parent.name for path in runs)), out)
+
+    def test_two_runs_started_in_the_same_second_get_names_of_their_own(self):
+        class Frozen(eval_factory.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 11, 15, 9, 30, 0)
+
+        self.set_plan(i1={"files": {"answer.txt": "right"}}, i2={"files": {"more.txt": "x"}})
+        with mock.patch.object(eval_factory, "datetime", Frozen):
+            code, out = self.run_suite("--merge-in-run-repo", "--repeat", "2")
+        self.assertEqual(code, 0, out)
+        runs = sorted(path.parent.name for path in
+                      (self.factory / ".sanvio" / "factory-evals").glob("*/result.json"))
+        self.assertEqual(runs, ["tiny-20261115-093000", "tiny-20261115-093000-2"], out)
+
+    def test_repeat_needs_merging_in_the_run_repo(self):
+        code, out = self.run_suite("--repeat", "3")
+        self.assertEqual(code, 2)
+        self.assertIn("--merge-in-run-repo", out)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_repeat_has_to_be_at_least_one(self):
+        self.assertEqual(self.run_suite("--merge-in-run-repo", "--repeat", "0")[0], 2)
+
+
+class Groups(WithFakeGh):
+    def setUp(self):
+        super().setUp()
+        self.runs = self.factory / ".sanvio" / "factory-evals"
+        patcher = mock.patch.dict(os.environ, {"EVAL_REPORT_BROWSER": ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        result_file(self.runs, "a1", {"steady": True, "wobbly": True}, {"trap": True}, cost=1.0, seconds=60)
+        result_file(self.runs, "a2", {"steady": True, "wobbly": True}, {"trap": True}, cost=3.0, seconds=180)
+        result_file(self.runs, "a3", {"steady": True, "wobbly": True}, {"trap": True}, cost=2.0, seconds=120)
+        result_file(self.runs, "b1", {"steady": True, "wobbly": False}, {"trap": True}, cost=0.5, seconds=60)
+        result_file(self.runs, "b2", {"steady": True, "wobbly": True}, {"trap": True}, cost=0.5, seconds=60)
+        result_file(self.runs, "b3", {"steady": True, "wobbly": False}, {"trap": True}, cost=0.5, seconds=60)
+
+    def test_compare_takes_the_middle_of_each_group_and_names_moved_and_flaky_checks(self):
+        code, out = self.run_cli("compare", "a1,a2,a3", "b1,b2,b3")
+        self.assertEqual(code, 0, out)
+        self.assertIn("A: 3 runs", out)
+        self.assertIn("$2.00", out)
+        self.assertIn("$0.50", out)
+        self.assertIn("Worse: test wobbly (from 3/3 to 1/3)", out)
+        self.assertIn("Flaky in B: test wobbly passed in 1 of 3", out)
+        self.assertNotIn("steady", out)
+
+    def test_a_group_of_two_suites_is_refused(self):
+        path = self.runs / "a2" / "result.json"
+        result = json.loads(path.read_text())
+        result["suite"] = "other"
+        path.write_text(json.dumps(result))
+        code, out = self.run_cli("compare", "a1,a2", "b1,b2")
+        self.assertEqual(code, 2)
+        self.assertIn("one suite", out)
+
+    def test_a_group_report_shows_how_many_runs_each_check_passed_in(self):
+        code, out = self.run_cli("report", "b1,b2,b3", "--compare", "a1,a2,a3")
+        self.assertEqual(code, 0, out)
+        reports = list((self.runs / "reports").glob("*/report.md"))
+        self.assertEqual(len(reports), 1)
+        notes = reports[0].read_text()
+        self.assertIn("- failed in 2 of 3: wobbly", notes)
+        self.assertIn("| wobbly | test |  | 1 of 3 |", notes)
+        self.assertIn("Worse in these 3 runs: 1\n- test wobbly (from 3/3 to 1/3)", notes)
+
+    def test_a_report_on_several_suites_starts_with_a_summary(self):
+        for name in ("b1", "b2"):
+            path = self.runs / name / "result.json"
+            result = json.loads(path.read_text())
+            result["suite"] = "second"
+            path.write_text(json.dumps(result))
+        self.run_cli("report", "a1", "b1,b2", "--out", str(self.tmp / "out"))
+        notes = (self.tmp / "out" / "report.md").read_text()
+        self.assertIn("## Summary", notes)
+        self.assertIn("| tiny | 1 |", notes)
+        self.assertIn("| second | 2 |", notes)
+        self.assertIn("# second", notes)
+
+    def test_compare_has_to_line_up_with_the_runs(self):
+        code, out = self.run_cli("report", "a1", "b1", "--compare", "a2")
+        self.assertEqual(code, 2)
+        self.assertIn("one run or group for each", out)
+
+
+class SessionCost(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(os.path.realpath(tmp.name))
+        self.projects = self.tmp / "projects"
+        self.clone = self.tmp / ("run-" + "x" * 220)  # long enough that Claude Code would shorten its folder name
+        self.prices = self.tmp / "prices.json"
+        self.prices.write_text(json.dumps({"models": {
+            "big-model": {"input": 10, "output": 20, "cache_writes": 0, "cache_reads": 1},
+            "small-model": {"input": 1, "output": 2, "cache_writes": 0, "cache_reads": 0}}}))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import eval_session_cost
+        self.cost = eval_session_cost
+
+    def reply(self, cwd, message_id, model, input_tokens, output_tokens=0):
+        return json.dumps({"type": "assistant", "cwd": str(cwd), "message": {
+            "role": "assistant", "id": message_id, "model": model,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens}}})
+
+    def session(self, folder_name, *lines):
+        folder = self.projects / folder_name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "s.jsonl").write_text("\n".join(lines) + "\n")
+
+    def run_cost(self, *extra):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = self.cost.main([str(self.clone), "--prices", str(self.prices), "--projects", str(self.projects)]
+                                  + list(extra))
+        return code, out.getvalue().strip()
+
+    def test_it_counts_each_reply_once_in_the_clone_and_its_worktrees(self):
+        prefix = self.cost.folder_prefix(self.clone)
+        self.session(prefix + "-abc123",
+                     self.reply(self.clone, "m1", "big-model", 1_000_000),
+                     self.reply(self.clone, "m1", "big-model", 1_000_000),
+                     self.reply(self.clone / "trees" / "w1", "m2", "small-model-2026", 0, 1_000_000))
+        self.session(prefix + "-other", self.reply(str(self.clone) + "-2", "m3", "big-model", 5_000_000))
+        self.assertEqual(self.run_cost(), (0, "12.0000"))
+
+    def test_a_model_with_no_price_gives_no_number(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "mystery", 10))
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_no_sessions_gives_no_number(self):
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_no_prices_file_gives_no_number(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "big-model", 10))
+        self.prices.unlink()
+        self.assertEqual(self.run_cost(), (1, ""))
+
+    def test_detail_names_each_model(self):
+        self.session(self.cost.folder_prefix(self.clone), self.reply(self.clone, "m1", "big-model", 1_000_000))
+        code, out = self.run_cost("--detail")
+        self.assertEqual(json.loads(out)["models"]["big-model"], {"tokens": 1_000_000, "dollars": 10.0})
+
+
+FAKE_GH_FOR_WAIT = r"""#!/usr/bin/env python3
+import json, os, sys
+home = os.environ["WAIT_GH_HOME"]
+args = sys.argv[1:]
+with open(os.path.join(home, "calls.log"), "a") as log:
+    log.write(" ".join(args) + "\n")
+if args[:2] == ["pr", "list"]:
+    count_file = os.path.join(home, "lists")
+    count = int(open(count_file).read()) if os.path.exists(count_file) else 0
+    open(count_file, "w").write(str(count + 1))
+    found = [{"number": 1, "url": "u1"}]
+    if count >= int(os.environ.get("WAIT_PR_AFTER", "2")):
+        found.append({"number": 9, "url": "u9"})
+    print(json.dumps(found))
+elif args[:2] == ["issue", "view"]:
+    print(json.dumps({"labels": [{"name": "factory:blocked"}] if os.environ.get("WAIT_BLOCKED") else []}))
+"""
+
+
+class LabelAndWaitAdapter(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.home = Path(tmp.name)
+        (self.home / "gh").write_text(FAKE_GH_FOR_WAIT)
+        os.chmod(str(self.home / "gh"), 0o755)
+
+    def run_adapter(self, **env):
+        full = dict(os.environ, PATH=str(self.home) + os.pathsep + os.environ["PATH"], WAIT_GH_HOME=str(self.home),
+                    EVAL_POLL_SECONDS="0", **env)
+        return subprocess.run([sys.executable, str(ROOT / "examples" / "eval-adapters" / "label-and-wait.py"),
+                               "4", "acme/run"], env=full, capture_output=True, text=True)
+
+    def calls(self):
+        return (self.home / "calls.log").read_text().splitlines()
+
+    def test_it_labels_the_one_issue_and_exits_once_a_new_pull_request_is_open(self):
+        done = self.run_adapter(EVAL_LABEL="factory-ready")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("issue edit 4 -R acme/run --add-label factory-ready", self.calls())
+        self.assertIn("u9", done.stdout)
+        self.assertNotIn("u1", done.stdout)
+
+    def test_it_gives_up_when_the_wait_runs_out(self):
+        done = self.run_adapter(EVAL_WAIT_MINUTES="0")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("no pull request", done.stdout)
+
+    def test_it_stops_when_the_factory_marks_the_issue_stopped(self):
+        done = self.run_adapter(EVAL_STOPPED_LABEL="factory:blocked", WAIT_BLOCKED="1", WAIT_PR_AFTER="99")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("gave up", done.stdout)
+        self.assertFalse([call for call in self.calls() if call.startswith("pr merge") or "comment" in call])
+
+class OneSessionAdapter(unittest.TestCase):
+    """The public baseline adapter: the session it starts can't push or call gh, and it needs all three values."""
+
+    def load(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "one_session", ROOT / "examples" / "eval-adapters" / "one-session.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_session_cannot_push_or_call_gh(self):
+        adapter = self.load()
+        self.assertIn("Bash(git push:*)", adapter.DENIED)
+        self.assertIn("Bash(gh:*)", adapter.DENIED)
+        self.assertFalse([tool for tool in adapter.TOOLS if "push" in tool or tool.startswith("Bash(gh")])
+
+    def test_it_needs_the_issue_the_clone_and_the_repo(self):
+        with self.assertRaises(SystemExit):
+            self.load().main(["7"])

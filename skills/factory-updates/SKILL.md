@@ -25,9 +25,10 @@ person decides and runs every command that changes a file here.
 2. **Fetch Sanvio Factory into a scratch clone.** Say first that this
    downloads the public Sanvio Factory into a temporary folder and changes none
    of their files. Nothing in that clone is ever run. The commands below use
-   `$clone`, `$base`, `$heading`, `$sha` and `$path`. Each shell call starts
+   `$clone`, `$base`, `$heading`, `$sha`, `$target`, `$need`, `$need_sha`,
+   `$start`, `$count`, `$first` and `$last`. Each shell call starts
    fresh, so set the ones a command uses at the start of the same call, as in
-   `base=<sha> path=<file>;` before it. The clone always lives here:
+   `base=<sha> target=<file>;` before it. The clone always lives here:
 
    ```bash
    clone="${TMPDIR:-/tmp}/factory-updates/factory"
@@ -105,31 +106,31 @@ person decides and runs every command that changes a file here.
    upstream is still offered what it lacks. Stop there only if no capability has
    a path missing, or the table isn't there to say.
 
-   For one file, set `path` to it and run:
+   For one file, set `target` to it and run:
 
    ```bash
-   git -C "$clone" log --format='%H %s' "$base"..origin/main -- "$path"
+   git -C "$clone" log --format='%H %s' "$base"..origin/main -- "$target"
    ```
 
    It lists every commit since the baseline that touches one file. Step 9
    uses it.
 5. **Find the files this copy adapted.** For each file a commit touches, set
-   `path` to it and check, from the harness root:
+   `target` to it and check, from the harness root:
    - Did it exist at the baseline? If not, it's new upstream. If a file
-     of that name is here anyway (`test -f "$path"`), this copy built its own:
+     of that name is here anyway (`test -f "$target"`), this copy built its own:
      that's step 8, never a `cp`.
 
      ```bash
-     git -C "$clone" cat-file -e "$base:$path"
+     git -C "$clone" cat-file -e "$base:$target"
      ```
 
-   - If it did, is it still here (`test -f "$path"`)? If not, this copy
+   - If it did, is it still here (`test -f "$target"`)? If not, this copy
      removed it.
    - If it is, does it still match the baseline? This fails when this copy
      changed it, and that file is **adapted**:
 
      ```bash
-     git -C "$clone" show "$base:$path" | cmp -s - "$path"
+     git -C "$clone" show "$base:$target" | cmp -s - "$target"
      ```
 
    Flag each commit that touches an adapted file, and list those files under
@@ -147,11 +148,11 @@ person decides and runs every command that changes a file here.
 
    If the file isn't there, say so and go on with the commit list alone. Only
    the table's rows are asked about, never the list under it. When you set
-   `path` to a folder, drop the table's trailing slash, so `cp -R`, `dirname`
+   `target` to a folder, drop the table's trailing slash, so `cp -R`, `dirname`
    and `cat-file` act on the folder itself.
 
    - **A new window** for each capability with any path missing here
-     (`test -e "$path"` is false). Its title is the chip. Its question opens
+     (`test -e "$target"` is false). Its title is the chip. Its question opens
      with the name and kind, as "The loop (a script, a skill and a pane):",
      then what it gives, then "Bring it over?". Its options are **Yes, bring it
      over**, **No, leave it**, **Tell me more** and **Skip the rest**.
@@ -172,7 +173,7 @@ person decides and runs every command that changes a file here.
    - **A [`.claude/agents/`](../../.claude/agents/) wrapper** gets no window of its own. It follows its
      agent's update window, and with no such window it counts as undecided.
    - **If the path didn't exist at the baseline**
-     (`git -C "$clone" cat-file -e "$base:$path"` fails), the update window's
+     (`git -C "$clone" cat-file -e "$base:$target"` fails), the update window's
      question says this copy built its own, and a yes goes to step 8. Check
      this first: such a path isn't adapted.
    - **If the path is adapted,** the update window's question says so, and its
@@ -180,7 +181,7 @@ person decides and runs every command that changes a file here.
      A folder is adapted if any file this lists fails step 5's `cmp` check:
 
      ```bash
-     git -C "$clone" ls-tree -r --name-only "$base" -- "$path"
+     git -C "$clone" ls-tree -r --name-only "$base" -- "$target"
      ```
 
    Windows use `AskUserQuestion`, one question per call, waiting for the
@@ -208,12 +209,88 @@ person decides and runs every command that changes a file here.
    | **merge by hand** | It touches an adapted file |
    | **skip** | It changes something this copy removed |
    | **ask** | A line in it weakens a guard or a gate, sends data off the machine, or runs downloaded code. Quote that line |
+   | **take X first** | Its entry's `**Needs:**` line names an entry X this copy hasn't taken. Name X. If they said no to X, it's **merge by hand** instead. **ask** and **skip** still win over it |
 
    "This copy covers it already" and general caution aren't reasons. If the
    copy covers it its own way, that's step 8.
 
+   **What an entry needs.** An entry's `**Needs:**` line names the earlier
+   entries it edits code from. This lists them, one per line:
+
+   ```bash
+   git -C "$clone" show "$sha" -- CHANGELOG.md | sed -n 's/^+\*\*Needs:\*\* //p' | awk -F'; ' '{for(i=1;i<=NF;i++) print $i}'
+   ```
+
+   For each, set `need` to it and `heading` to `## ` followed by it, whole, and
+   run step 3's `-S"$heading"` command. What it prints is `need_sha`. If it
+   prints nothing, say the item names no upstream entry. The entry is
+   **taken** if either holds, and otherwise it isn't:
+
+   - Its commit is in the baseline, whichever way step 3 found it:
+
+     ```bash
+     git -C "$clone" merge-base --is-ancestor "$need_sha" "$base"
+     ```
+
+   - This copy's log names it anywhere, as a heading, a bullet or a line,
+     checked from the harness root:
+
+     ```bash
+     grep -qF -- "$need" CHANGELOG.md
+     ```
+
+   **A backstop for what a `Needs:` line missed.** For each file the commit
+   touches other than [`CHANGELOG.md`](../../CHANGELOG.md), set `target` to it. This prints each of
+   its hunks as `start count`, from `@@ -start,count`:
+
+   ```bash
+   git -C "$clone" show -U0 --format= "$sha" -- "$target" | awk '/^@@ /{n=split(substr($2,2),a,","); print a[1], (n>1 ? a[2] : 1)}'
+   ```
+
+   Skip a hunk whose count is 0: it only adds lines. For each other, set
+   `start` and `count`, and this names the commit that wrote each line it
+   changes, first on each line, with any leading `^` dropped:
+
+   ```bash
+   git -C "$clone" blame -s -L "$start,+$count" "$sha^" -- "$target"
+   ```
+
+   Each blamed commit that has an entry (step 4's [`CHANGELOG.md`](../../CHANGELOG.md) command, with
+   `sha` set to it) this copy hasn't taken, by the two rules above with
+   `need_sha` set to that commit and `need` to its heading without the `## `,
+   gets "probably needs X" beside the commit, X being that entry's name. It's
+   a hint and never changes the answer.
+
+   Then the lines around each change. A commit that only adds lines, or edits
+   lines beside code an entry added, can need that entry without changing any
+   line of it. For the same files, every hunk counts here, the ones that only
+   add lines included. A file the commit creates has nothing to blame at the
+   parent, so it's skipped. This prints one range per hunk as `first last`:
+   the 3 lines before and after the hunk, measured at the parent and kept
+   inside the file:
+
+   ```bash
+   git -C "$clone" cat-file -e "$sha^:$target" && git -C "$clone" show -U0 --format= "$sha" -- "$target" | awk -v end="$(git -C "$clone" show "$sha^:$target" | wc -l)" '/^@@ /{n=split(substr($2,2),a,","); s=a[1]; c=(n>1 ? a[2] : 1); if (c==0) s++; lo=s-3; hi=s+c+2; if (lo<1) lo=1; if (hi>end+0) hi=end+0; if (lo<=hi) print lo, hi}'
+   ```
+
+   For each range, set `first` and `last`, and this names the commit that
+   wrote each line in it, the same way:
+
+   ```bash
+   git -C "$clone" blame -s -L "$first,$last" "$sha^" -- "$target"
+   ```
+
+   Each blamed commit that has an entry this copy hasn't taken, by the same
+   two rules, and that the blame of the changed lines didn't already name,
+   gets "probably needs X (nearby lines)". It's a hint too, and never changes
+   the answer.
+
+   Say each **take X first** before naming any command in step 9, so the
+   person sees it before they apply anything.
+
    The answers stay as this table has them, and what the person said in step 6
-   never changes one. It only adds a note beside the answer. A commit touching
+   never changes one, except the no that turns **take X first** into **merge
+   by hand**. It only adds a note beside the answer. A commit touching
    an item they said no to says so, as "(you said no to The loop)", and one
    touching an undecided item as "(undecided: Standup)". One whose answer is
    **skip** because of a path they said yes to says "(covered by bringing over
@@ -234,22 +311,22 @@ person decides and runs every command that changes a file here.
    this copy's file:
 
    ```bash
-   cp "$clone/$path" "$path"
+   cp "$clone/$target" "$target"
    ```
 
    For an adapted file, offer upstream's change since the baseline
    instead, to merge by hand:
 
    ```bash
-   git -C "$clone" diff "$base" origin/main -- "$path"
+   git -C "$clone" diff "$base" origin/main -- "$target"
    ```
 
    - **A missing path brought over:** make its parent, then copy it, with
      `cp -R` for a folder or the `cp` above for a file:
 
      ```bash
-     mkdir -p "$(dirname "$path")"
-     cp -R "$clone/$path" "$path"
+     mkdir -p "$(dirname "$target")"
+     cp -R "$clone/$target" "$target"
      ```
 
    - **A yes on an update window:** the merge command above for an adapted
@@ -314,7 +391,9 @@ The baseline and how it was found. Then, leaving out any with nothing in it:
 
 Then each commit, oldest first, as one line, with no prose between commits:
 its subject, its changelog entry name, its recommendation with its reason and
-any note from step 7, its **Do:** line, and any adapted files it touches. Leave
+any note from step 7, any **take X first**, "probably needs X" and "probably
+needs X (nearby lines)", its **Do:**
+line, and any adapted files it touches. Leave
 out a name or **Do:** line it doesn't have. Then any competing build with its direction
 and `Go:` line, the commands to take each file under no table path, and the
 `starter:` line to add. End there: the next step is theirs to run.

@@ -33,7 +33,7 @@ from usage_report import log_path  # noqa: E402 (same reason)
 
 # The keys record_run in scripts/loop.py writes. Any other key on a history line is dropped.
 LOOP_KEYS = ("v", "run", "issue", "project", "started", "ended", "outcome", "rounds",
-             "tests", "verdicts", "tokens", "cost_usd", "agent", "reviewer")
+             "tests", "verdicts", "fix_reasons", "tests_changed", "tokens", "cost_usd", "agent", "reviewer")
 
 
 def loop_runs(root, since):

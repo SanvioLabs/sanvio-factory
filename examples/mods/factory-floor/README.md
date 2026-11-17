@@ -23,14 +23,14 @@ starter                                ● Running 2 · up 1h 04m
 
 ● #14 Gate: an empty Role cell passes
   started 14:22 · running 6m 12s · 840k tokens · ~$3.40 · opus-5-5
-  building, round 2 of 5
+  build, round 2 of 5
   tests failed (1), review FIX
 
   [ Watch ]
 
 ● #15 Proposal: stamp the phase
   started 14:27 · running 1m 03s · 95k tokens · ~$0.41 · sonnet-5-5
-  planning
+  shape
 
 
   [ Watch ]
@@ -125,9 +125,9 @@ it.
 | The header | The loop's name on the left: the project's, or the factory's folder. On the right, **Running** while a live loop holds its lock and works a job (**Running 2** for two), **Idle** in dim green while it holds the lock with nothing to work, **Stopping after this step** after `loop.py stop`, **Not running** otherwise, with how long a live loop has been up. Red when the last run was killed: its lock is still there but its process isn't, and the next run replaces it. A loop.py older than this one writes no start, so no uptime |
 | **Copy attach command** | While a loop started in tmux is running, copies the command that opens its session. `loop-control` starts the loop that way when tmux is installed |
 | **Watch it** | On a Mac, opens a new Terminal window attached to that session, read-only: you see the loop work and can't type into it. Close the window and the loop keeps running. If the window can't open, it copies the read-only attach command instead. It shows only while the loop runs in tmux on macOS |
-| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name (`● app`), with a count from two jobs up (`● app 2`). A loop with no live lock shows its name alone. A project that has never run isn't listed. The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
+| The loop picker | Above the tabs when there's more than one loop. In the terminal, VS Code and Claude Desktop it's a dropdown: the factory's own loop and each project with a `.loop/projects/<name>/status.json`, the loops working a job first, and beside it a line counting the loops running a job and the live loops with ready issues waiting, the one on screen included (`● 2 running · 3 queued`). Pick one to show that loop, on its busiest tab. A loop working a job shows `● ` before its name and how many jobs it's on after it, one included: `● app (1)`, `● app (2)`. A loop on no job, or with no live lock, shows its name alone. A project that has never run isn't listed. It can list other machines' loops too: see [Other machines](#other-machines). With more than one loop, its first option is **All loops**, every loop's working issues on one Active tab: see [All loops](#all-loops). The mobile app draws no dropdown, so it shows a button for each loop instead, the factory's then the projects' by name, and pressing one shows that loop |
 | **Queue** | Ready issues the loop will take next, lowest first. One that depends on an open issue says **waiting on** and which |
-| **Active** | Issues being worked: what each is on (planning, building, checking, opening the pull request) with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
+| **Active** | Issues being worked: what each is on, named as `.loop/loop.log` names the step (shape, test, build, validate, scale), with the round. One left part way by a run that stopped shows where it was left. In tmux, **Watch** opens a read-only Terminal window on that issue's own `issue-N` window, or copies its attach command when it can't. tmux has one current window per session, so it also switches any other window attached to the session, **Watch it**'s included |
 | **Finished** | Issues that reached an end in the last 24 hours: a pull request, blocked, stopped or skipped. Older ones drop off; `.loop/status.json` still has them |
 | Under an issue | The last round's test and review results, and why it was blocked |
 | **Open pull request** | Opens the issue's pull request in the browser. It copies the link instead when the link isn't an `https://` link or no browser opens |
@@ -171,30 +171,41 @@ Neither button closes the pane, writes the session's focus or changes the
 loop.
 
 A lane's figure runs to its step's station when the step changes and works
-there:
+there. The stations and the words are the loop's own step names, as
+`.loop/loop.log` writes them, so a lane at `build, round 2` matches the log's
+`BUILD round 2`:
 
 | Station | Step | The figure | The work beside it | The words |
 |---|---|---|---|---|
-| `start` | No step yet, or any other step | Standing | Three dots taking turns | `starting`, or the step lowercased |
-| `plan` | `SHAPE` | Holding a pen | Two lines being ruled | `planning` |
-| `test` | `TEST` | Raising and lowering a pen | Four checks turning green | `writing tests` |
-| `build` | `BUILD` | Swinging a hammer | Bricks dropping into a stack | `building` |
-| `check` | `VALIDATE` | Holding something up to read | A bar reading across a page | `checking` |
-| `ship` | `SCALE` | Stepping with a parcel | A parcel sliding off along the rail | `opening the pull request` |
+| `discover` | No step yet (the loop logs `DISCOVER` as it picks the issue), or any other step | Standing | Three dots taking turns | `discover`, or the step lowercased |
+| `shape` | `SHAPE` | Holding a pen | Two lines being ruled | `shape` |
+| `test` | `TEST` | Raising and lowering a pen | Four checks turning green | `test` |
+| `build` | `BUILD` | Swinging a hammer | Bricks dropping into a stack | `build` |
+| `validate` | `VALIDATE` | Holding something up to read | A bar reading across a page | `validate` |
+| `scale` | `SCALE` | Stepping with a parcel | A parcel sliding off along the rail | `scale` |
 
 Over the lanes, a header names the stations, each in its colour while an issue
-is working there and dim otherwise. Each lane has a line of words,
-`#<n> <title> · <step's words>, round <r>`, with the round left off at 0, then
+is working there and dim otherwise. A terminal pane under 56 columns cuts each
+name to fit before the next, `disco` and `valid` at 42. Each lane has a line of words,
+`#<n> <title> · <step's words>, round <r> · <model>`, with the round left off at 0
+and the model the issue's latest agent run used, named as the List names it
+(`opus-5-5`), left off when `.loop/status.json` has none. Then comes
 the rail, lit up to the figure and dotted beyond it. Under it, one row gives
 how long the issue has spent at each step, and one what each step cost and how
 many tokens it used, from `.loop/issue-N/usage.json`. A dash means none yet.
 
 ```
-[ List ] [ Crew ]
- start   plan   test   build   check   ship
-#14 Gate: an empty Role cell passes · building, round 2
+[ List ] [ Crew ] [ Watch it ] [ Copy attach command ]
+ discover  shape  test  build  validate  scale
+#14 Gate: an empty Role cell passes · build, round 2 [ Watch ] [ Open pull request ]
   (the lane: a figure at build, each step's time and spend under it)
 ```
+
+The Crew has the list's buttons too, and they do the same: **Watch it** and
+**Copy attach command** beside List and Crew while the loop runs in tmux, and on
+each lane's line **Watch** while the issue has its own window and **Open pull
+request** once it has one. On a narrow terminal the top row wraps and a lane's
+title is cut to leave room for its buttons.
 
 With more than one loop, the Crew view has its own loop picker under the
 buttons. It follows the
@@ -209,6 +220,117 @@ in the Crew view.
 Only the view on screen reads the loop's files: the list's two-second read
 stops while the Crew is drawn, and the Crew's reads and its animation stop
 while the list is.
+
+## Other machines
+
+If the loop also runs on another machine, the picker can list that machine's
+loops beside this one's, in the List and the Crew. Name each machine in
+`.sanvio/factory-floor/machines.json`, under the factory's root. Git ignores
+`.sanvio/`, so the file stays on this machine. Start from the example:
+
+```bash
+mkdir -p .sanvio/factory-floor
+cp examples/mods/factory-floor/machines.example.json .sanvio/factory-floor/machines.json
+```
+
+The file chooses which hosts this machine connects to over SSH, with your
+keys, so [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py) asks you before an agent changes anything
+under `.sanvio/factory-floor/`, and refuses it outright for a loop agent or a
+headless run, where nobody is there to answer. Editing it yourself needs no
+yes.
+
+Then put your own machines in place of the two made-up ones:
+
+```json
+{
+  "machines": [
+    { "label": "spare-mac", "ssh": "builder@spare-mac.local", "path": "/Users/builder/factory" }
+  ]
+}
+```
+
+| Field | Is |
+|---|---|
+| `label` | What the picker calls the machine: `spare-mac` for its factory's loop, `spare-mac · app` for its project `app` |
+| `ssh` | Where `ssh` connects: a `user@host`, or a `Host` from your `~/.ssh/config`. One that starts with `-` is skipped |
+| `path` | The factory's folder on that machine, the one holding its `.loop/`. It has to start with `/`: a `~/factory` is skipped |
+| `tmux_socket` | Optional. The socket of the tmux server the loop runs in on that machine, when it isn't the default one, such as a loop run as a service with `TMUX_TMPDIR` set. Only **Watch** uses it. It has to start with `/` and hold only letters, digits, spaces and `_ . @ % + , : / -`. Any other value gets a dim line, and that machine's issues get no **Watch**, though it's still read |
+
+A machine the file skips gets a dim line under the picker saying why, and the
+others are still read. With no file, nothing changes and nothing runs `ssh`.
+
+The pane reads a machine with `ssh -o BatchMode=yes`, so it never asks for a
+password: the machine needs key-based SSH from this one, which you set up
+yourself. Check it with `ssh -o BatchMode=yes builder@spare-mac.local true`.
+
+While the pane is open, each machine is read at most every 30 seconds, in the
+background, so a slow machine never holds up this one's two-second read. A
+read that gets no answer within 10 seconds, or can't connect, marks the
+machine **down**. It's then one option in the picker, `spare-mac · down, last
+read 2m 05s ago` or `never read`, and picking it does nothing until a later
+read answers. A loop you're on whose machine goes down falls back to this
+factory's loop.
+
+Another machine's loop shows as this one's does, with its own notices
+(`spare-mac · app: #14 has a pull request`). Picking it leaves the session's
+focus alone, since the project isn't a folder here, and a focus change never
+moves the pane to another machine. It has no **Watch it** or **Copy attach
+command**: its tmux session is on that machine. Its issues have **Watch**, which
+copies a command rather than opening a window: see below.
+
+### Watching an issue on another machine
+
+**Watch** on another machine's issue copies a command that attaches to that
+issue's tmux window over SSH, read-only, and a toast says it was copied. Paste
+it into a terminal to watch; detach with `Ctrl-b d` and the loop keeps running.
+It shows only while that loop is live and was started in tmux, so the machine
+needs the loop started as [`loop-control`](../../../skills/loop-control/SKILL.md) starts it, and `tmux_socket` in its
+entry when its tmux server isn't on the default socket. It doesn't show for a
+session or window whose name holds anything but letters, digits, spaces and
+`_ . @ % + , -`.
+
+Pressing it first asks that machine, over SSH, whether the session is still
+there (`tmux has-session`). If it isn't, or the machine doesn't answer, a toast
+says so and nothing is copied. The copied command is:
+
+```bash
+ssh -t -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no -o ControlPath=none -- 'builder@spare-mac.local' "tmux attach -r -t '=loop-factory:=issue-14'"
+```
+
+with `tmux -S '<socket>'` in place of `tmux` when `tmux_socket` is set. The
+pane never opens a window or runs that command itself.
+
+Watching hands that machine your terminal, as any `ssh` to it does. What it
+sends isn't filtered the way the pane filters what it reads, so don't watch a
+machine you think is compromised, and if you do, turn off your terminal's
+clipboard writes (OSC 52) first.
+
+### All loops
+
+Once the picker lists more than one loop, its first option is **All loops**,
+in the List and the Crew. A machine that's down doesn't count towards the two:
+it has nothing to show. Picking it shows every issue being worked on every
+loop, this machine's and the other machines', each tagged with where it's
+running: `spare-mac · alpha #12`, or this machine's by its folder name,
+`starter · alpha #12`, as the picker names it. Two loops working the same
+issue number are two rows, or two lanes, told apart by their tags. The mobile
+app draws no dropdown, so there **All loops** is the first of the loop
+buttons.
+
+The List shows only its Active tab while **All loops** is picked: Queue and
+Finished come back when you pick one loop. The Crew draws a lane for every
+issue a running loop is working, as it does for one loop. Each row and lane
+keeps its **Open pull request** and its **Watch**: a remote issue's copies its
+attach command, as above. Neither view shows **Watch it** or
+**Copy attach command** under **All loops**, since those belong to one loop.
+
+A machine that's down adds nothing, and a dim line names it, as the picker
+does: `spare-mac · down, last read 2m 05s ago`. Picking **All loops** leaves
+the session's focus alone, but a change of focus still moves the pane to that
+project's loop. With fewer than two loops listed, the pane goes back to this
+factory's loop. **All loops** reads no machine or file the pane doesn't
+already read: it combines every loop's last read, and the Crew reads each
+drawn lane's `usage.json` by the same rule as for one loop.
 
 ## What it doesn't do
 
@@ -234,11 +356,37 @@ It shows the loops of the factory the session started in: the nearest folder
 at or above it with [`scripts/loop.py`](../../../scripts/loop.py), and the projects that factory has run with
 `--project`.
 
+With a `.sanvio/factory-floor/machines.json`, it also reads each machine that
+file lists, over SSH, at most every 30 seconds while the pane is open and
+never while it's closed. Each read is a few separate `ssh` commands, one at a
+time, and each runs one of three commands there: `ls -1A` of a folder under
+that machine's `.loop/`, `cat` of a file under it (`status.json`, `lock`, and
+`issue-N/usage.json` for a working issue's spend), and `kill -0` on the
+process its lock names. A fourth, `tmux has-session`, runs only when you press
+**Watch** on one of its issues. It never writes, starts or stops anything on
+another machine, never attaches to its tmux itself (**Watch** copies the command
+for you to run), and never sets up SSH keys or config. `ls` and `cat` follow links, so a link on that machine under `.loop/`
+can make them read a file elsewhere there; what they read stays in the pane.
+
+Each `ssh` overrides your own SSH config to forward nothing (no agent, X11 or
+ports), to run no local command, to share no connection (`ControlPath=none`,
+so a master connection your config opened is never used and none is left
+behind), and to take no stdin, since it runs in the background every 30
+seconds. It connects only to a host already in your
+`known_hosts`, so connect to each machine once by hand first. The `ssh` value
+may hold only a host name's characters, with a user before `@`; the path
+can't hold a `'` or a `\`; and a project folder there is listed only if its
+name is letters, digits, `_`, `.` and `-`. Text read from a machine has its
+control characters removed before it's drawn. It reads `machines.json` again at each two-second read, so an edit
+shows without reopening the pane.
+
 ## Changing it
 
 [`hooks/logic.ts`](hooks/logic.ts) holds the decisions as plain functions, so they can be tested.
-[`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. The Crew view is
-[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), brought over from the retired `loop-crew` mod. Both views read
+[`hooks/register.tsx`](hooks/register.tsx) reads the files and draws the pane. [`hooks/remote.ts`](hooks/remote.ts) is the
+only place that builds or runs `ssh`, for other machines, and both views take their loops from it. The Crew view is
+[`hooks/crew.tsx`](hooks/crew.tsx) and [`hooks/crew-logic.ts`](hooks/crew-logic.ts), brought over from the retired `loop-crew` mod. Both views draw
+their watch and pull request buttons from one copy, [`hooks/buttons.tsx`](hooks/buttons.tsx). Both views read
 loops through one copy: the Crew imports `parseStatus`, the picker's labels and
 the focus rules from [`hooks/logic.ts`](hooks/logic.ts), and takes a loop as the same `Seen` and `Row`
 in [`types/index.d.ts`](types/index.d.ts). [`tests/test_factory_floor.py`](../../../tests/test_factory_floor.py) fails if a second copy comes back.

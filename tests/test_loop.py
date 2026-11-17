@@ -22,6 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import loop  # noqa: E402 (needs scripts/ on the path first)
 import names  # noqa: E402 (same reason)
 
+sys.path.append(str(Path(__file__).resolve().parent))  # last, so nothing here shadows a module in scripts/
+from test_changelog import problems  # noqa: E402 (the rule whats-new reads CHANGELOG.md by)
+
 REAL_ORIGIN = loop.origin if hasattr(loop, "origin") else None  # the fixture names its bare origin o/r
 # A made-up credential, built from parts so no scanner reads it as one (#413).
 TOKEN = "made" + "up" + "tok" + "en42"
@@ -147,6 +150,34 @@ class TestPureParts(unittest.TestCase):
         self.assertEqual(loop.parse_verdict("VERDICT: PASS\nbut wait\nVERDICT: FIX"), "FIX")
         self.assertEqual(loop.parse_verdict("looks fine to me"), "FIX")
         self.assertEqual(loop.parse_verdict(""), "FIX")
+
+    def test_reasons_are_the_known_ones_from_the_last_line_in_a_fixed_order(self):
+        text = "REASONS: tests-failed\nREASONS: Real-Cost, untested-requirement,real-cost\nVERDICT: FIX"
+        self.assertEqual(loop.parse_reasons(text, "FIX", True), ["untested-requirement", "real-cost"])
+        self.assertEqual(loop.parse_reasons("REASONS: worked-around-tests tests-failed\nVERDICT: FIX", "FIX", True),
+                         ["tests-failed", "worked-around-tests"])
+
+    def test_a_fix_with_no_known_reason_is_unstated_and_a_pass_has_none(self):
+        unstated = [
+            ("only unknown words", "REASONS: flaky, style\nVERDICT: FIX", True),
+            ("none on a FIX", "REASONS: none\nVERDICT: FIX", True),
+            ("no REASONS line", "feature.txt is wrong.\nVERDICT: FIX", True),
+            ("the review didn't run", "REASONS: tests-failed\nVERDICT: FIX", False),
+            ("no verdict line and no reasons", "it broke", True),
+            ("empty", "", True),
+        ]
+        for name, text, ran in unstated:
+            with self.subTest(name):
+                verdict = loop.parse_verdict(text) if ran else "FIX"
+                self.assertEqual(verdict, "FIX")
+                self.assertEqual(loop.parse_reasons(text, verdict, ran), ["unstated"])
+        # No verdict line is a FIX, and a REASONS line it did write still counts.
+        cut = "REASONS: tests-failed"
+        self.assertEqual(loop.parse_verdict(cut), "FIX")
+        self.assertEqual(loop.parse_reasons(cut, "FIX", True), ["tests-failed"])
+        named ="REASONS: tests-failed, real-cost\nVERDICT: PASS"
+        self.assertEqual(loop.parse_reasons(named, loop.parse_verdict(named), True), [])
+        self.assertEqual(loop.parse_verdict(named), "PASS")
 
     def test_for_takes_a_whole_number_of_minutes_hours_or_days(self):
         self.assertEqual(loop.duration("90m"), ("90m", 90 * 60))
@@ -871,6 +902,9 @@ elif args[:2] == ["issue", "edit"] and "--remove-label" in args and os.path.exis
         open(path + ".part", "w").write(json.dumps(listed))
         os.replace(path + ".part", path)
 elif args[:2] == ["issue", "view"]:
+    if os.path.exists(os.path.join(state, "issue-view-fails")):
+        print("HTTP 502")  # on stdout, as gh prints its errors
+        sys.exit(1)
     path = os.path.join(state, "issue-state")
     print(open(path).read().strip() if os.path.exists(path) else "OPEN")
 elif args[:2] == ["pr", "create"]:
@@ -949,6 +983,48 @@ else:
     print("Added feature.txt.")
 """
 
+# A stand-in claude for the budget's watch, streaming as claude -p --output-format stream-json does, each
+# line flushed. The build writes feature.txt and partial.txt, and the tester tests/test_partial.txt, unless
+# idle-<step> is there. Then each step prints events-<step> assistant events (none by default) of 100 tokens
+# each, all one message's when same-<step> is there, as claude repeats a message's usage on each of its blocks,
+# and sleeps linger-<step> seconds (none by default), writes LATE-<step> in the state folder, and prints its
+# result: 100 tokens an event, or 10 with none. The review passes, or asks for a fix when fix-review is there.
+BUDGET_AGENT = """#!/usr/bin/env python3
+import json, os, sys, time
+prompt = sys.stdin.read()
+state = os.environ["LOOP_TEST_STATE"]
+step = ("plan" if "You are planning" in prompt else "test" if "You are writing the tests" in prompt
+        else "review" if "You are the reviewer" in prompt else "build")
+def setting(name):
+    path = os.path.join(state, name + "-" + step)
+    return float(open(path).read()) if os.path.exists(path) else 0
+def say(event):
+    sys.stdout.write(json.dumps(event) + "\\n")
+    sys.stdout.flush()
+if os.path.exists(os.path.join(state, "idle-" + step)):
+    pass
+elif step == "build":
+    open("feature.txt", "a").write("done")
+    open("partial.txt", "a").write("x")
+elif step == "test":
+    os.makedirs("tests", exist_ok=True)
+    open(os.path.join("tests", "test_partial.txt"), "a").write("x")
+events = int(setting("events"))
+same = os.path.exists(os.path.join(state, "same-" + step))
+for i in range(events):
+    say({"type": "assistant", "message": {"id": "msg_one" if same else "msg_%d" % i,
+                                          "content": [{"type": "text", "text": "Working."}], "usage": {
+        "input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}})
+time.sleep(setting("linger"))
+open(os.path.join(state, "LATE-" + step), "w").write("")
+verdict = "feature.txt is wrong.\\nVERDICT: FIX" if os.path.exists(os.path.join(state, "fix-review")) else \\
+    "Looks right.\\nVERDICT: PASS"
+reply = {"plan": "Plan: add feature.txt.", "review": verdict, "test": "Wrote the tests.",
+         "build": "Added feature.txt."}[step]
+say({"type": "result", "subtype": "success", "result": reply + "\\n", "total_cost_usd": 0.01,
+     "usage": {"input_tokens": 100 * events or 10, "output_tokens": 0}})
+"""
+
 
 def git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd)] + list(args), capture_output=True, text=True, check=True)
@@ -1025,6 +1101,60 @@ class TestSandboxSettings(unittest.TestCase):
     def test_it_is_a_machine_key_and_off_by_default(self):
         self.assertIsNone(loop.DEFAULTS["network_allow"])
         self.assertIn("network_allow", loop.MACHINE_KEYS)
+
+
+class TestChangelogRedated(unittest.TestCase):
+    TODAY = "2026-11-15"
+    BASE = ("# What's new\n\n"
+            "## 2026-11-10: Base newest\n\nThe base's newest.\n\n**Do:** nothing.\n\n"
+            "## 2026-11-01: Base older\n\nOlder than every added entry.\n\n**Do:** nothing.\n")
+
+    def entry(self, date, name):
+        return "## {}: {}\n\nWhat {} adds.\n\n**Do:** nothing.\n\n".format(date, name, name)
+
+    def redated(self, *added):
+        return loop.changelog_redated(self.BASE, list(added), self.TODAY)
+
+    def test_two_entries_older_than_the_bases_newest_both_take_today_in_their_order(self):
+        added = [self.entry("2026-11-05", "Second"), self.entry("2026-11-03", "First")]
+        sections, changes = self.redated(*added)
+        self.assertEqual(sections, [self.entry(self.TODAY, "Second"), self.entry(self.TODAY, "First")])
+        self.assertEqual(changes, [("Second", "2026-11-05", self.TODAY), ("First", "2026-11-03", self.TODAY)])
+        self.assertEqual(problems(loop.changelog_with(self.BASE, sections)), [])
+
+    def test_an_entry_dated_the_bases_newest_day_keeps_its_date(self):
+        added = [self.entry("2026-11-10", "Same day")]
+        self.assertEqual(self.redated(*added), (added, []))
+
+    def test_only_the_date_changes_never_the_name_or_the_body(self):
+        added = ["## 2026-11-05: A `name`, with @someone\n\nA body.\n\n**Needs:** 2026-11-01: Base older\n\n"
+                 "**Do:** nothing.\n\n", self.entry("2026-11-04", "Below")]
+        sections, _ = self.redated(*added)
+        self.assertEqual([s[:13] for s in sections], ["## " + self.TODAY] * 2)
+        self.assertEqual([s[13:] for s in sections], [s[13:] for s in added])
+
+    def test_the_bases_own_entries_keep_their_dates(self):
+        sections, _ = self.redated(self.entry("2026-11-05", "Added"))
+        merged = loop.changelog_with(self.BASE, sections)
+        self.assertTrue(merged.endswith("".join(loop.changelog_sections(self.BASE)[1])))
+        self.assertIn("## 2026-11-01: Base older\n", merged)
+
+    def test_a_base_entry_dated_after_today_lends_its_date_so_the_log_stays_newest_first(self):
+        base = "# What's new\n\n" + self.entry("2026-11-16", "Written where it was already tomorrow")
+        sections, changes = loop.changelog_redated(base, [self.entry("2026-11-14", "Added")], self.TODAY)
+        self.assertEqual(changes, [("Added", "2026-11-14", "2026-11-16")])
+        self.assertEqual(problems(loop.changelog_with(base, sections)), [])
+
+    def test_an_entry_above_a_re_dated_one_takes_today_too_when_it_would_be_older(self):
+        sections, changes = self.redated(self.entry("2026-11-12", "Top"), self.entry("2026-11-05", "Bottom"))
+        self.assertEqual([s[3:13] for s in sections], [self.TODAY, self.TODAY])
+        self.assertEqual([name for name, _, _ in changes], ["Top", "Bottom"])
+
+    def test_changes_lists_only_the_entries_it_re_dated(self):
+        newer = self.entry("2026-11-20", "Newer")
+        sections, changes = self.redated(newer, self.entry("2026-11-05", "Older"))
+        self.assertEqual(sections, [newer, self.entry(self.TODAY, "Older")])
+        self.assertEqual(changes, [("Older", "2026-11-05", self.TODAY)])
 
 
 class TestAPass(unittest.TestCase):
@@ -1939,7 +2069,7 @@ class TestAPass(unittest.TestCase):
     # -- the history of runs ----------------------------------------------
 
     HISTORY_KEYS = {"v", "run", "issue", "project", "started", "ended", "outcome", "rounds", "tests",
-                    "verdicts", "tokens", "cost_usd", "agent", "reviewer"}
+                    "verdicts", "fix_reasons", "tests_changed", "tokens", "cost_usd", "agent", "reviewer"}
 
     def history(self):
         path = self.work / ".loop" / "history.jsonl"
@@ -1989,6 +2119,91 @@ class TestAPass(unittest.TestCase):
         self.assertEqual((lines[0]["outcome"], lines[0]["rounds"]), ("blocked", 2))
         self.assertEqual((lines[0]["tests"], lines[0]["verdicts"]), (["passed", "passed"], ["FIX", "FIX"]))
         self.assertEqual(lines[0]["rounds"], len(lines[0]["tests"]))
+
+    def test_a_fix_on_failing_tests_records_its_reasons_each_round(self):
+        self.cfg["test_command"] = "false"
+        (self.state / "verdict").write_text("FIX")
+        (self.state / "review-says").write_text("REASONS: tests-failed")
+        self.go()
+        line = self.history()[0]
+        self.assertEqual((line["tests"], line["verdicts"]), (["failed", "failed"], ["FIX", "FIX"]))
+        self.assertEqual(line["fix_reasons"], [["tests-failed"], ["tests-failed"]])
+        self.assertEqual(line["tests_changed"], [False, False])
+
+    def test_a_fix_on_passing_tests_records_its_reasons_in_the_prompts_order(self):
+        (self.state / "verdict").write_text("FIX")
+        (self.state / "review-says").write_text("REASONS: real-cost, untested-requirement")
+        self.go()
+        line = self.history()[0]
+        self.assertEqual((line["tests"], line["verdicts"]), (["passed", "passed"], ["FIX", "FIX"]))
+        self.assertEqual(line["fix_reasons"], [["untested-requirement", "real-cost"]] * 2)
+
+    def test_a_fix_that_names_no_reason_is_unstated_and_stays_a_fix(self):
+        for says in (None, "REASONS: none"):
+            with self.subTest(says=says):
+                self.tearDown()
+                self.setUp()
+                (self.state / "verdict").write_text("FIX")
+                if says:
+                    (self.state / "review-says").write_text(says)
+                self.go()
+                line = self.history()[0]
+                self.assertEqual(line["verdicts"], ["FIX", "FIX"])
+                self.assertEqual(line["fix_reasons"], [["unstated"], ["unstated"]])
+                self.assertEqual(self.status()["issues"][0]["state"], "blocked")
+
+    def test_a_pass_that_changes_or_deletes_an_existing_test_file_says_so(self):
+        for change in ("tests/test_old.txt", "-tests/test_old.txt"):
+            with self.subTest(change=change):
+                self.tearDown()
+                self.setUp()
+                self.commit_old_test()
+                self.build_writes(change)
+                self.go()
+                line = self.history()[0]
+                self.assertEqual((line["verdicts"], line["fix_reasons"], line["tests_changed"]),
+                                 (["PASS"], [[]], [True]))
+
+    def test_new_test_files_and_files_outside_test_paths_dont_count_as_changed_tests(self):
+        for name, prepare in (
+                ("a new test file", lambda: self.build_writes("tests/test_new.txt")),
+                ("README.md, not a test path", lambda: self.build_writes("README.md")),
+                ("the tests-first commit's new files", lambda: self.tests_go_first("tests/test_feature.txt"))):
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.commit_old_test()
+                prepare()
+                self.go()
+                line = self.history()[0]
+                self.assertEqual((line["verdicts"], line["tests_changed"]), (["PASS"], [False]))
+
+    def test_test_paths_that_arent_a_list_of_strings_record_null_for_changed_tests(self):
+        self.cfg["test_paths"] = "tests/**"
+        self.go()
+        self.assertEqual(self.history()[0]["tests_changed"], [None])
+
+    def test_a_git_that_cannot_list_changed_files_records_null_and_the_run_goes_on(self):
+        real = loop.Loop.git
+
+        def failing_diff(this, *args, **kw):
+            if "--diff-filter=MD" in args:
+                return 128, ""
+            return real(this, *args, **kw)
+
+        self.commit_old_test()
+        self.build_writes("tests/test_old.txt")
+        with mock.patch.object(loop.Loop, "git", failing_diff):
+            self.go()
+        line = self.history()[0]
+        self.assertEqual((line["outcome"], line["verdicts"], line["tests_changed"]), ("pr", ["PASS"], [None]))
+
+    def test_the_review_prompt_asks_for_a_reasons_line(self):
+        self.go()
+        prompt = (self.state / "review-prompt").read_text()
+        for words in ("REASONS:", "REASONS: none") + loop.FIX_REASONS:
+            self.assertIn(words, prompt)
+        self.assertLess(prompt.index("REASONS:"), prompt.index("Your last line must be exactly VERDICT"))
 
     def test_a_stop_before_round_one_adds_a_stopped_line(self):
         runner = loop.Loop(self.work, self.cfg)
@@ -3301,6 +3516,82 @@ class TestAPass(unittest.TestCase):
         self.assertIn("could not read the pull request's state: HTTP 502", "\n".join(self.lines()))
         self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
 
+    # -- a blocked issue that's closed later ---------------------------------
+
+    def blocked_runner(self):
+        """A runner whose #12 is blocked, with nothing ready on GitHub."""
+        runner = loop.Loop(self.work, self.cfg)
+        runner.mark(12, state="blocked", note="five rounds")
+        (self.state / "issues.json").write_text("[]")
+        return runner
+
+    def poll(self, runner):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return runner.run(once=True)
+
+    def row(self, number):
+        return next(r for r in self.status()["issues"] if r["number"] == number)
+
+    @staticmethod
+    def issue_views(gh):
+        return [c for c in gh.call_args_list if c.args[:2] == ("issue", "view")]
+
+    def test_a_blocked_issue_closed_later_is_marked_skipped(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("CLOSED")
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "skipped")
+        self.assertEqual(self.row(12)["note"], "issue closed while blocked")
+        cleanup = [l for l in self.lines() if l.split()[2] == "CLEANUP"]
+        self.assertEqual(len(cleanup), 1)
+        self.assertIn("#12", cleanup[0])
+
+    def test_a_blocked_issue_still_open_stays_blocked(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("OPEN")
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "blocked")
+        self.assertEqual(self.row(12)["note"], "five rounds")
+        self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
+
+    def test_a_failed_issue_read_leaves_the_row_blocked_and_logs_once(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-view-fails").write_text("")
+        self.poll(runner)
+        self.poll(runner)
+        self.assertEqual(self.row(12)["state"], "blocked")
+        errors = [l for l in self.lines() if l.split()[2] == "ERROR"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("could not read whether the blocked issue is closed: HTTP 502", errors[0])
+
+    def test_an_open_blocked_issue_is_looked_up_again_only_after_an_hour(self):
+        runner = self.blocked_runner()
+        (self.state / "issue-state").write_text("OPEN")
+        with mock.patch.object(runner, "gh", wraps=runner.gh) as gh:
+            self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 1)
+            self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 1)
+            (self.state / "issue-state").write_text("CLOSED")
+            later = runner.open_checked[12] + loop.BLOCKED_RECHECK_SECONDS + 1
+            with mock.patch.object(loop.time, "monotonic", return_value=later):
+                self.poll(runner)
+            self.assertEqual(len(self.issue_views(gh)), 2)
+        self.assertEqual(self.row(12)["state"], "skipped")
+
+    def test_a_closed_issue_with_a_pull_request_or_stopped_keeps_its_row(self):
+        runner = loop.Loop(self.work, self.cfg)
+        runner.mark(12, state="pr", note="opened")
+        runner.mark(13, state="stopped", note="interrupted")
+        (self.state / "issues.json").write_text("[]")
+        (self.state / "issue-state").write_text("CLOSED")
+        with mock.patch.object(runner, "gh", wraps=runner.gh) as gh:
+            self.poll(runner)
+        self.assertEqual(self.issue_views(gh), [])
+        self.assertEqual((self.row(12)["state"], self.row(12)["note"]), ("pr", "opened"))
+        self.assertEqual((self.row(13)["state"], self.row(13)["note"]), ("stopped", "interrupted"))
+        self.assertNotIn("CLEANUP", [l.split()[2] for l in self.lines()])
+
     # -- a pull request that conflicts with its base in CHANGELOG.md ---------
 
     CHANGELOG_HEAD = "# What's new\n\n"
@@ -3322,18 +3613,18 @@ class TestAPass(unittest.TestCase):
         loop.Loop(self.work, self.cfg).mark(12, pushed=sha)
         (self.state / "pr-head").write_text(sha)
 
-    def changelog_conflict(self, branch_text=None):
+    def changelog_conflict(self, branch_text=None, base_text=None, old_entry=None):
         """An open pull request for #12 and nothing ready, conflicting with main in CHANGELOG.md alone.
 
         Both sides insert directly above the one old entry, which is what makes it conflict.
         Returns (the worktree, the pushed commit)."""
-        self.commit_and_push(self.work, "main", "CHANGELOG.md", self.CHANGELOG_HEAD + self.OLD_ENTRY)
+        old = old_entry or self.OLD_ENTRY
+        self.commit_and_push(self.work, "main", "CHANGELOG.md", self.CHANGELOG_HEAD + old)
         tree = self.open_then_idle()
         sha = self.commit_and_push(tree, "loop/issue-12", "CHANGELOG.md",
-                                   branch_text or self.CHANGELOG_HEAD + self.BRANCH_ENTRY + self.OLD_ENTRY)
+                                   branch_text or self.CHANGELOG_HEAD + self.BRANCH_ENTRY + old)
         self.loop_pushed(sha)
-        self.commit_and_push(self.work, "main", "CHANGELOG.md",
-                             self.CHANGELOG_HEAD + self.BASE_ENTRY + self.OLD_ENTRY)
+        self.commit_and_push(self.work, "main", "CHANGELOG.md", base_text or self.CHANGELOG_HEAD + self.BASE_ENTRY + old)
         return tree, sha
 
     def update_lines(self):
@@ -3378,6 +3669,24 @@ class TestAPass(unittest.TestCase):
         self.assertEqual(len(comments), 1)
         self.assertIn("keep both `CHANGELOG.md` entries", comments[0])
         self.assertIn("The tests passed", comments[0])
+        self.assertNotIn("re-dated", comments[0])  # the branch's entry is the newer, so it keeps its date
+
+    def test_a_branch_entry_older_than_the_bases_newest_takes_the_day_of_the_merge(self):
+        do = "**Do:** nothing.\n\n"
+        old = self.OLD_ENTRY + "**Do:** run the setup check.\n\n"
+        base_entry = self.BASE_ENTRY + do
+        branch_entry = "## 2026-01-01: From the branch\n\nThe branch's entry.\n\n" + do
+        self.changelog_conflict(self.CHANGELOG_HEAD + branch_entry + old, self.CHANGELOG_HEAD + base_entry + old, old)
+        self.assertEqual(self.go(), 0)
+        today = datetime.now().strftime("%Y-%m-%d")
+        log = git(self.origin, "show", "loop/issue-12:CHANGELOG.md").stdout
+        self.assertEqual(problems(log), [])
+        self.assertEqual(log.split("\n## ", 1)[1].splitlines()[0], "{}: From the branch".format(today))
+        self.assertEqual(log, self.CHANGELOG_HEAD + branch_entry.replace("2026-01-01", today) + base_entry + old)
+        self.assertEqual(self.update_lines(), ["merged main, kept both CHANGELOG.md entries"])
+        comments = self.pr_comments()
+        self.assertEqual(len(comments), 1)
+        self.assertIn("It re-dated `From the branch` from 2026-01-01 to {}".format(today), comments[0])
 
     def test_failing_tests_push_nothing_and_a_second_poll_neither_tests_nor_comments_again(self):
         tree, before = self.changelog_conflict()
@@ -4112,9 +4421,10 @@ class TestAPass(unittest.TestCase):
 
     # -- the sandbox ---------------------------------------------------------
 
-    def sandboxed_run(self, available=True):
-        """go() with sandbox_available() saying available. Returns (exit code, each sh call as (cmd, kwargs),
-        each Popen's argv). A sandbox-exec call runs its command in the shell, so the run is the same on any OS."""
+    def sandboxed_run(self, available=True, probe=None):
+        """go() with sandbox_available() saying available and sandbox_probe() answering probe, kept as
+        self.probe to count its calls. Returns (exit code, each sh call as (cmd, kwargs), each Popen's argv).
+        A sandbox-exec call runs its command in the shell, so the run is the same on any OS."""
         calls, popens = [], []
         sh, popen = loop.Loop.sh, subprocess.Popen
 
@@ -4129,13 +4439,15 @@ class TestAPass(unittest.TestCase):
             return popen(*args, **kwargs)
 
         with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop, "sandbox_probe", return_value=probe) as self.probe, \
                 mock.patch.object(loop.Loop, "sh", spy), mock.patch.object(loop.subprocess, "Popen", side_effect=seen):
             code = self.go()
         return code, calls, popens
 
     def own_commands(self, calls):
         """The sh calls that ran test_command, generate_command or setup_command, as (how, command, partial),
-        how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way."""
+        how being sandbox or shell. Each one's argv, folder, timeout and environment are checked on the way:
+        the test environment, and in the sandbox that with sandbox_env's git settings."""
         found = []
         for cmd, kwargs in calls:
             if isinstance(cmd, list) and cmd[:1] == [loop.SANDBOX_EXEC]:
@@ -4149,7 +4461,11 @@ class TestAPass(unittest.TestCase):
                 continue
             self.assertEqual(Path(kwargs["cwd"]).resolve(), self.tree().resolve())
             self.assertEqual(kwargs["timeout"], self.cfg["test_timeout"])
-            self.assertEqual(kwargs["env"], loop.env_for_tests(os.environ))
+            env = loop.env_for_tests(os.environ)
+            if how == "sandbox":
+                env = loop.sandbox_env(env)
+                self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
+            self.assertEqual(kwargs["env"], env)
             found.append((how, command, kwargs.get("partial", False)))
         return found
 
@@ -4189,6 +4505,25 @@ class TestAPass(unittest.TestCase):
                     continue
                 self.assertEqual(code, 0)
                 self.assertEqual(self.own_commands(calls), [("shell", c, p) for c, p in expected])
+                self.probe.assert_not_called()
+
+    def test_the_probe_runs_once_a_loop_however_many_commands_run(self):
+        expected = self.every_own_command()
+        self.cfg["sandbox_commands"] = True
+        code, calls, _ = self.sandboxed_run()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.own_commands(calls)), len(expected))
+        self.assertEqual(self.probe.call_count, 1)
+
+    def test_where_the_probe_fails_each_command_runs_in_the_shell(self):
+        expected = self.every_own_command()
+        self.cfg["sandbox_commands"] = True
+        code, calls, _ = self.sandboxed_run(probe="sandbox_apply: Operation not permitted")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.own_commands(calls), [("shell", c, p) for c, p in expected])
+        self.assertEqual(self.probe.call_count, 1)
+        self.assertIn("WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted)",
+                      "\n".join(self.lines()))
 
     def test_the_tests_after_a_changelog_merge_go_through_the_sandbox_too(self):
         for on, available, how in ((True, True, "sandbox"), (False, True, "shell"), (True, False, "shell")):
@@ -4589,8 +4924,10 @@ class TestSandbox(unittest.TestCase):
     """sandbox_commands: on a Mac, test_command, generate_command and setup_command run inside sandbox-exec,
     which keeps them from reading credential files and the factory's own data. The runs are in TestAPass."""
 
-    SUBPATH = re.compile(r'\(deny file-read\* \(subpath "((?:[^"\\]|\\.)*)"\)\)')
-    FILES = (".netrc", ".npmrc", ".pypirc", ".claude/.credentials.json", ".claude/settings.local.json")
+    SUBPATH = re.compile(r'\(deny file-read\* file-write\* \(subpath "((?:[^"\\]|\\.)*)"\)\)')
+    LITERAL = re.compile(r'\(deny file-write-unlink \(literal "((?:[^"\\]|\\.)*)"\)\)')
+    FILES = (".netrc", ".npmrc", ".pypirc", ".git-credentials", ".gitconfig", ".m2/settings.xml",
+             ".claude/.credentials.json", ".claude/settings.local.json")
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -4609,47 +4946,151 @@ class TestSandbox(unittest.TestCase):
             else:
                 path.mkdir(parents=True, exist_ok=True)
 
-    def denied(self, profile):
-        """The paths a profile denies reading, unquoted."""
-        return [re.sub(r"\\(.)", r"\1", quoted) for quoted in self.SUBPATH.findall(profile)]
+    def unquoted(self, pattern, profile):
+        return [re.sub(r"\\(.)", r"\1", quoted) for quoted in pattern.findall(profile)]
 
-    def test_the_profile_denies_each_listed_path_that_exists_quoted_and_nothing_beside_it(self):
+    def denied(self, profile):
+        """The paths a profile denies reading and writing, unquoted."""
+        return self.unquoted(self.SUBPATH, profile)
+
+    def guarded(self, profile):
+        """The folders a profile denies unlinking, which renaming them needs, unquoted."""
+        return self.unquoted(self.LITERAL, profile)
+
+    def test_the_profile_denies_each_listed_path_there_or_not_quoted_and_nothing_beside_it(self):
         base = self.root / 'a "quoted" \\ name'
         home, root = base / "home dir", base / 'the "factory"'
         missing_home, missing_root = ".kube", ".inbox"
-        self.make(home, [n for n in loop.SANDBOX_HOME_DENIED if n != missing_home] + [".sshx", ".config/ghx"])
+        beside = [".sshx", ".config/ghx", ".gitconfigx", ".config/gitx", ".m2/repository"]
+        self.make(home, [n for n in loop.SANDBOX_HOME_DENIED if n != missing_home] + beside)
         self.make(root, [n for n in loop.SANDBOX_ROOT_DENIED if n != missing_root] + ["companyx"])
-        profile = loop.sandbox_profile(home, root)
+        profile = loop.sandbox_profile(home, root, {})
         self.assertTrue(profile.startswith("(version 1)(allow default)"), profile)
-        expected = [str((home / n).resolve()) for n in loop.SANDBOX_HOME_DENIED if n != missing_home]
-        expected += [str((root / n).resolve()) for n in loop.SANDBOX_ROOT_DENIED if n != missing_root]
+        # A path that isn't there is denied too, so one made after the profile is built is covered.
+        expected = [str((home / n).resolve()) for n in loop.SANDBOX_HOME_DENIED]
+        expected += [str((root / n).resolve()) for n in loop.SANDBOX_ROOT_DENIED]
         self.assertEqual(self.denied(profile), expected)
-        # One rule a line, and every " or \ in a path escaped: unescaped, the pattern above couldn't match them.
-        self.assertEqual(len(profile.splitlines()), 1 + len(expected))
+        # One rule a line, and every " or \ in a path escaped: unescaped, the patterns above couldn't match them.
+        self.assertEqual(len(profile.splitlines()), 1 + len(expected) + len(self.guarded(profile)))
         self.assertIn('\\"quoted\\" \\\\ name', profile)
-        for name in (".sshx", ".config/ghx", "companyx", missing_home, missing_root):
-            self.assertFalse([p for p in self.denied(profile) if p.endswith("/" + name)], name)
+        for path in [home / n for n in beside] + [root / "companyx"]:
+            self.assertNotIn(str(path.resolve()), self.denied(profile) + self.guarded(profile), path)
 
-    def test_a_path_that_cant_be_looked_at_is_left_out_not_an_error(self):
+    def test_no_folder_from_home_down_to_a_denied_path_can_be_renamed_and_nothing_above_home_is(self):
+        home = self.root / "home"
+        root = home / "Documents" / "factory"
+        profile = loop.sandbox_profile(home, root, {})
+        guarded, real, factory = self.guarded(profile), home.resolve(), root.resolve()
+        # From home down to each denied path's parent, once each, the folders that hold the factory included,
+        # so moving Documents aside doesn't uncover company/; and nothing above home.
+        self.assertEqual(guarded, [str(f) for f in (real, real / ".config", real / ".m2", real / ".claude",
+                                                    real / "Library", real / "Documents", factory,
+                                                    factory / ".claude")])
+        denied = self.denied(profile)
+        self.assertFalse(set(guarded) & set(denied))
+        for folder in guarded:
+            self.assertTrue(any(p.startswith(folder + "/") for p in denied), folder)
+        # A factory outside home is guarded from its own folder down, not from the folder that holds it.
+        outside = self.root / "elsewhere" / "factory"
+        guarded = self.guarded(loop.sandbox_profile(home, outside, {}))
+        self.assertIn(str(outside.resolve()), guarded)
+        self.assertNotIn(str(outside.resolve().parent), guarded)
+
+    def test_where_a_link_takes_a_denied_path_outside_home_only_its_parent_is_guarded(self):
+        home, elsewhere = self.root / "home", self.root / "dotfiles" / "config"
+        elsewhere.mkdir(parents=True)
+        home.mkdir()
+        (home / ".config").symlink_to(elsewhere)
+        profile = loop.sandbox_profile(home, self.root / "factory", {})
+        real = elsewhere.resolve()
+        self.assertIn(str(real / "gh"), self.denied(profile))
+        self.assertIn(str(real), self.guarded(profile))
+        self.assertNotIn(str(real.parent), self.guarded(profile))
+
+    def test_sandbox_env_points_git_away_from_the_home_folder_after_any_config_already_set(self):
+        plain = loop.sandbox_env({"PATH": "/bin"})
+        self.assertEqual(plain, {"PATH": "/bin", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "2",
+                                 "GIT_CONFIG_KEY_0": "core.excludesFile", "GIT_CONFIG_VALUE_0": "/dev/null",
+                                 "GIT_CONFIG_KEY_1": "core.attributesFile", "GIT_CONFIG_VALUE_1": "/dev/null"})
+        given = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Tester"}
+        added = loop.sandbox_env(given)
+        self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
+        self.assertEqual((added["GIT_CONFIG_KEY_0"], added["GIT_CONFIG_VALUE_0"]), ("user.name", "Tester"))
+        self.assertEqual((added["GIT_CONFIG_COUNT"], added["GIT_CONFIG_KEY_1"], added["GIT_CONFIG_KEY_2"]),
+                         ("3", "core.excludesFile", "core.attributesFile"))
+        self.assertEqual(loop.sandbox_env({"GIT_CONFIG_COUNT": "x"})["GIT_CONFIG_COUNT"], "2")
+
+    def test_a_path_that_cant_be_looked_at_is_denied_not_an_error(self):
         # As inside the sandbox itself, where the suite runs under the loop: stat on a denied path is refused.
         self.make(self.root, [".ssh", ".aws"])
-        stat_of = os.stat
+        ssh, aws = str((self.root / ".ssh").resolve()), str((self.root / ".aws").resolve())
+        stat_of, lstat_of = os.stat, os.lstat
 
-        def refuse(path, *args, **kwargs):
-            if str(path).endswith("/.ssh"):
-                raise PermissionError(1, "Operation not permitted", str(path))
-            return stat_of(path, *args, **kwargs)
+        def refusing(real):
+            def refuse(path, *args, **kwargs):
+                if str(path).endswith("/.ssh"):
+                    raise PermissionError(1, "Operation not permitted", str(path))
+                return real(path, *args, **kwargs)
+            return refuse
 
-        with mock.patch.object(loop.os, "stat", side_effect=refuse):
-            profile = loop.sandbox_profile(self.root, self.root / "factory")
-        self.assertEqual(self.denied(profile), [str((self.root / ".aws").resolve())])
+        with mock.patch.object(loop.os, "stat", side_effect=refusing(stat_of)), \
+                mock.patch.object(loop.os, "lstat", side_effect=refusing(lstat_of)):
+            profile = loop.sandbox_profile(self.root, self.root / "factory", {})
+        self.assertIn(ssh, self.denied(profile))
+        self.assertIn(aws, self.denied(profile))
+
+    def test_xdg_config_home_and_gh_config_dir_add_the_folders_they_move_credentials_to(self):
+        home, root = self.root / "home", self.root / "factory"
+        plain = loop.sandbox_profile(home, root, {})
+
+        def added(environ):
+            return [p for p in self.denied(loop.sandbox_profile(home, root, environ)) if p not in self.denied(plain)]
+
+        # The credential folders under it, not the folder itself, where every tool keeps its config.
+        self.assertEqual(sorted(added({"XDG_CONFIG_HOME": "/x/cfg"})),
+                         ["/x/cfg/gcloud", "/x/cfg/gh", "/x/cfg/git", "/x/cfg/op"])
+        self.assertEqual(added({"GH_CONFIG_DIR": "/y/gh"}), ["/y/gh"])
+        # Renaming the folder that holds them is guarded: XDG_CONFIG_HOME itself, and GH_CONFIG_DIR's parent.
+        for environ, folder in (({"XDG_CONFIG_HOME": "/x/cfg"}, "/x/cfg"), ({"GH_CONFIG_DIR": "/y/gh"}, "/y")):
+            guarded = self.guarded(loop.sandbox_profile(home, root, environ))
+            self.assertEqual([f for f in guarded if f not in self.guarded(plain)], [folder], environ)
+        with mock.patch.dict(os.environ, {"GH_CONFIG_DIR": "/y/gh"}):  # os.environ unless one is given
+            self.assertIn("/y/gh", self.denied(loop.sandbox_profile(home, root)))
+        for environ in ({"XDG_CONFIG_HOME": "", "GH_CONFIG_DIR": ""}, {"XDG_CONFIG_HOME": "cfg", "GH_CONFIG_DIR": "gh"},
+                        {"XDG_CONFIG_HOME": "./cfg", "GH_CONFIG_DIR": "~/gh"}):
+            with self.subTest(environ=environ):
+                self.assertEqual(loop.sandbox_profile(home, root, environ), plain)
+        under_root = str(root.resolve()) + "/"
+        both = loop.sandbox_profile(home, root, {"XDG_CONFIG_HOME": "/x/cfg", "GH_CONFIG_DIR": "/y/gh"})
+        self.assertEqual([p for p in self.denied(both) if p.startswith(under_root)],
+                         [p for p in self.denied(plain) if p.startswith(under_root)])
 
     def test_the_profile_lists_the_planned_paths(self):
         self.assertEqual(set(loop.SANDBOX_HOME_DENIED), {
-            ".ssh", ".aws", ".config/gh", ".config/gcloud", ".azure", ".kube", ".docker", ".gnupg", ".netrc",
-            ".npmrc", ".pypirc", ".claude/.credentials.json", "Library/Keychains"})
+            ".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/git", ".config/op", ".azure", ".kube",
+            ".docker", ".gnupg", ".netrc", ".npmrc", ".pypirc", ".git-credentials", ".gitconfig",
+            ".m2/settings.xml", ".terraform.d", ".claude/.credentials.json", "Library/Keychains"})
         self.assertEqual(set(loop.SANDBOX_ROOT_DENIED), {"company", "local-data", ".inbox",
                                                          ".claude/settings.local.json"})
+
+    def test_the_probe_says_nothing_where_a_profile_applies_and_otherwise_why(self):
+        def ran(code, err=b"", out=b""):
+            return subprocess.CompletedProcess([], code, out, err)
+
+        for done, why in ((ran(0), None),
+                          (ran(71, b"sandbox-exec: sandbox_apply: Operation not permitted\nmore\n"),
+                           "sandbox-exec: sandbox_apply: Operation not permitted"),
+                          (ran(1, b"x" * 300), "x" * 200), (ran(1, out=b"said on stdout\n"), "said on stdout"),
+                          (ran(71), "exit 71")):
+            with self.subTest(why=why), mock.patch.object(loop.subprocess, "run", return_value=done) as run:
+                self.assertEqual(loop.sandbox_probe(), why)
+                self.assertEqual(run.call_args[0][0],
+                                 [loop.SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"])
+                self.assertEqual(run.call_args[1]["timeout"], 10)
+        for err, why in ((subprocess.TimeoutExpired("sandbox-exec", 10), "no answer in 10 seconds"),
+                         (FileNotFoundError(2, "No such file or directory"), "[Errno 2] No such file or directory")):
+            with self.subTest(why=why), mock.patch.object(loop.subprocess, "run", side_effect=err):
+                self.assertEqual(loop.sandbox_probe(), why)
 
     def test_the_sandbox_is_on_by_default_and_only_on_a_mac_with_sandbox_exec(self):
         self.assertIs(loop.DEFAULTS["sandbox_commands"], True)
@@ -4658,11 +5099,13 @@ class TestSandbox(unittest.TestCase):
                     mock.patch.object(loop.os.path, "exists", return_value=exists):
                 self.assertIs(loop.sandbox_available(), available)
 
-    def logged(self, available, **cfg):
-        """The log of a run inside tmux with nothing to work, sandbox_available() saying available."""
+    def logged(self, available, probe=None, **cfg):
+        """The log of a run inside tmux with nothing to work, sandbox_available() saying available and
+        sandbox_probe() answering probe, kept as self.probe to count its calls."""
         root = Path(tempfile.mkdtemp(dir=self.tmp.name))
         lp = loop.Loop(root, dict(loop.DEFAULTS, **cfg))
         with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop, "sandbox_probe", return_value=probe) as self.probe, \
                 mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
                 mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
             self.assertEqual(lp.locked(lambda: None), 0)
@@ -4672,23 +5115,82 @@ class TestSandbox(unittest.TestCase):
         lines = self.logged(False)
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN test_command, generate_command and setup_command run without a sandbox here", lines[1])
+        self.probe.assert_not_called()
 
     def test_with_the_sandbox_there_is_no_warn_and_off_a_mac_turning_it_off_adds_none(self):
         self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
+        self.assertEqual(self.probe.call_count, 1)
         self.assertEqual([l.split()[2] for l in self.logged(False, sandbox_commands=False)], ["START"])
+        self.probe.assert_not_called()
 
     def test_turning_the_sandbox_off_on_a_mac_is_one_warn_after_start(self):
         lines = self.logged(True, sandbox_commands=False)
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN sandbox_commands is false in the factory's loop.json", lines[1])
+        self.probe.assert_not_called()
 
-    def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
+    def test_where_sandbox_exec_cant_apply_a_profile_one_warn_follows_start_saying_why(self):
+        lines = self.logged(True, probe="sandbox_apply: Operation not permitted")
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again", lines[1])
+        self.assertEqual(self.probe.call_count, 1)
+
+    def real_sandbox(self):
+        """Skips the test unless sandbox-exec can apply a profile here: a Mac, and not inside another sandbox."""
         if not loop.sandbox_available():
             self.skipTest("needs macOS's sandbox-exec")
-        probe = subprocess.run([loop.SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
-                               capture_output=True)
-        if probe.returncode != 0:
+        if loop.sandbox_probe() is not None:
             self.skipTest("sandbox-exec can't start a sandbox here, as inside another sandbox")
+
+    def real_home(self):
+        """(home, tree, a Loop) for a real-Mac test, home holding a key, gh's folder, and git's global config,
+        which it stops on where reading it is refused, and its default ignore and attributes files. The caller
+        patches HOME to home, not just Path.home: git finds its global config through it."""
+        home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
+        for folder in (home / ".ssh", home / ".config" / "gh", home / ".config" / "git", tree, factory):
+            folder.mkdir(parents=True)
+        (home / ".ssh" / "key").write_text("x")
+        (home / ".gitconfig").write_text("[user]\n\tname = Home\n")
+        (home / ".config" / "git" / "config").write_text("[user]\n\tname = Xdg\n")
+        (home / ".config" / "git" / "ignore").write_text("*.ignored\n")
+        (home / ".config" / "git" / "attributes").write_text("*.txt text\n")
+        return home, tree, loop.Loop(factory, dict(loop.DEFAULTS))
+
+    def at_home(self, home):
+        """os.environ with HOME at home, and no XDG_CONFIG_HOME or GH_CONFIG_DIR to move what's denied."""
+        environ = {k: v for k, v in os.environ.items() if k not in ("XDG_CONFIG_HOME", "GH_CONFIG_DIR")}
+        return mock.patch.dict(os.environ, dict(environ, HOME=str(home)), clear=True)
+
+    def test_on_a_real_mac_git_runs_without_its_global_config_and_says_nothing_about_it(self):
+        self.real_sandbox()
+        home, tree, lp = self.real_home()
+        with self.at_home(home):
+            code, out = lp.own_command("git init -q && git status", tree)
+        self.assertEqual(code, 0, out)
+        # Git reads ~/.config/git/ignore and attributes whatever GIT_CONFIG_GLOBAL says, and warns where
+        # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
+        self.assertNotIn("unable to access", out)
+
+    def test_on_a_real_mac_a_denied_path_cant_be_renamed_or_made_and_the_rest_can(self):
+        self.real_sandbox()
+        home, tree, lp = self.real_home()
+        at_home = "cd {} && ".format(shlex.quote(str(home)))
+        with self.at_home(home):
+            for command in ("mv .ssh .ssh2", "mv .config .c2"):
+                code, out = lp.own_command(at_home + command, tree)
+                self.assertNotEqual(code, 0, command)
+                self.assertIn("Operation not permitted", out, command)
+            self.assertTrue((home / ".ssh" / "key").exists() and (home / ".config" / "gh").is_dir())
+            # .netrc isn't there: what's written where it would be can't be written or read back.
+            code, out = lp.own_command(at_home + "printf MADE-HERE > .netrc; cat .netrc", tree)
+            self.assertNotEqual(code, 0)
+            self.assertNotIn("MADE-HERE", out)
+            self.assertFalse(os.path.exists(home / ".netrc"))
+            self.assertEqual(lp.own_command(at_home + "mkdir -p .config/other .m2/repository/x && printf made", tree),
+                             (0, "made"))
+
+    def test_on_a_real_mac_a_command_cant_read_a_denied_file_and_reads_the_rest(self):
+        self.real_sandbox()
         home, tree, factory = self.root / "home", self.root / "tree", self.root / "factory"
         for folder in (home / ".ssh", home / ".cache", tree, factory):
             folder.mkdir(parents=True)
@@ -4797,6 +5299,29 @@ class TestRoundOnOpenPullRequest(unittest.TestCase):
         self.go()
         self.assertTrue(any("dropped 1 local commit that was never pushed" in l for l in self.lines()), self.lines())
         self.assertFalse((tree / "unpushed.txt").exists())
+
+    def test_a_build_stopped_over_the_budget_is_never_reset_away_and_blocks_the_round(self):
+        self.go()
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        (tree / "partial.txt").write_text("x")
+        git(tree, "add", "partial.txt")
+        git(tree, "commit", "-q", "-m", loop.stop_message(12, 2))
+        stop = git(tree, "rev-parse", "HEAD").stdout
+        before = self.origin_head()
+        started = (self.state / "agents-started").read_text()
+        self.open_pr()
+        self.go()
+        self.assertEqual(git(tree, "rev-parse", "HEAD").stdout, stop)
+        self.assertTrue((tree / "partial.txt").exists())
+        self.assertEqual(self.origin_head(), before)
+        self.assertEqual((self.state / "agents-started").read_text(), started, "an agent ran on the round")
+        self.assertFalse(any("dropped" in l for l in self.lines()), self.lines())
+        row = [r for r in self.status()["issues"] if r["number"] == 12][0]
+        self.assertEqual(row["state"], "blocked")
+        self.assertEqual(row["note"], "loop/issue-12 has a build that was stopped over max_issue_tokens, committed "
+                                      "here and never pushed, so the round reset nothing. Push it to the pull "
+                                      "request's branch to keep it, or reset the branch to origin/loop/issue-12 to "
+                                      "drop it, then put the issue back")
 
     def test_a_fresh_worktree_on_a_newer_main_drops_nothing_it_has_to_say(self):
         # The branch was pushed, then main moved on: a new worktree starts at main, whose commits are pushed.
@@ -5912,6 +6437,273 @@ class TestProject(unittest.TestCase):
         path.write_text("#!/usr/bin/env python3\nimport os, sys\nsys.stdin.read()\n"
                         "sys.stdout.write(open(os.path.join(os.environ['LOOP_TEST_STATE'], 'stream')).read())\n")
 
+    def budget_run(self, fail_stop_commit=False, unrecorded=None, **changes):
+        """One pass with BUDGET_AGENT as claude, and the project's config with changes, where None drops a key.
+        Every command the loop runs goes in self.ran. fail_stop_commit fails the stop commit as git would, and
+        unrecorded names a step whose usage can't be written. Returns how many seconds it took."""
+        (Path(self.tmp.name) / "bin" / "claude").write_text(BUDGET_AGENT)
+        cfg = loop.load_project_config(self.harness, self.project)
+        for key, value in changes.items():
+            if value is None:
+                cfg.pop(key, None)
+            else:
+                cfg[key] = value
+        self.ran = []
+        sh, record = loop.Loop.sh, loop.Loop.record_usage
+
+        def spy(me, cmd, *args, **kwargs):
+            self.ran.append(cmd)
+            if fail_stop_commit and isinstance(cmd, list) and "commit" in cmd and \
+                    any(loop.STOPPED_OVER_BUDGET in part for part in cmd):
+                return 1, ""
+            return sh(me, cmd, *args, **kwargs)
+
+        def recording(me, number, step, *args, **kwargs):
+            if step == unrecorded:
+                raise OSError(28, "No space left on device")
+            return record(me, number, step, *args, **kwargs)
+
+        began = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                mock.patch.object(loop.Loop, "sh", spy), mock.patch.object(loop.Loop, "record_usage", recording):
+            loop.Loop(self.harness, cfg, project=self.project).run(once=True)
+        return time.monotonic() - began
+
+    def pushes(self):
+        """Each git push the last budget_run ran."""
+        return [cmd for cmd in self.ran if isinstance(cmd, list) and cmd[:1] == ["git"] and "push" in cmd]
+
+    def stop_comment(self):
+        """The text of the last comment on the issue."""
+        calls = (self.state / "gh-calls").read_text()
+        return calls.split("issue comment ")[-1] if "issue comment " in calls else ""
+
+    def budget_lines(self):
+        """What follows the step word on each BUDGET line of the project's loop.log."""
+        log = (self.harness / ".loop" / "projects" / "app" / "loop.log").read_text()
+        return [l.split(" ", 3)[3] for l in log.splitlines() if l.split()[2] == "BUDGET"]
+
+    def budget_comment(self):
+        calls = (self.state / "gh-calls").read_text()
+        return calls.split("issue comment ", 1)[1] if "issue comment " in calls else ""
+
+    def budget_usage(self):
+        return json.loads((self.harness / ".loop" / "projects" / "app" / "issue-12" / "usage.json").read_text())
+
+    def budget_row(self):
+        return json.loads((self.harness / ".loop" / "projects" / "app" / "status.json").read_text())["issues"][0]
+
+    def test_one_message_split_into_events_counts_once_so_the_build_isnt_stopped_early(self):
+        # Three events of one message, 100 tokens each as claude repeats it: the plan's 10 and the message's
+        # 100 stay under 150, where counting each event would reach 310 and stop the build at its second.
+        (self.state / "events-build").write_text("3")
+        (self.state / "same-build").write_text("")
+        self.budget_run(max_issue_tokens=150)
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_lines(), [])
+
+    def test_assistant_usage_names_the_message_so_its_blocks_count_once(self):
+        line = json.dumps({"type": "assistant", "message": {"id": "msg_1", "content": [], "usage": {
+            "input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 3}}})
+        self.assertEqual(loop.assistant_usage(line), ("msg_1", {"input_tokens": 2, "output_tokens": 4,
+                                                                "cache_write_tokens": 3, "cache_read_tokens": 10}))
+        no_id = json.dumps({"type": "assistant", "message": {"content": [], "usage": {"input_tokens": 5}}})
+        self.assertEqual(loop.assistant_usage(no_id)[0], None)
+        self.assertIsNone(loop.assistant_usage(json.dumps({"type": "user", "message": {"usage": {"input_tokens": 5}}})))
+
+    def test_a_build_over_the_budget_is_stopped_at_once_and_what_it_made_is_committed_not_pushed(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        # The plan's 10, then the build's first event takes the run to 110 and its second to 210.
+        took = self.budget_run(max_issue_tokens=150)
+        self.assertLess(took, 20)
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.budget_comment()
+        self.assertIn("used 210 tokens this run, over max_issue_tokens 150", comment)
+        self.assertIn("the build was stopped part way", comment)
+        self.assertIn("committed on loop/issue-12, not pushed", comment)
+        shown = git(self.project, "show", "--name-only", "--format=%s", "loop/issue-12").stdout.splitlines()
+        self.assertEqual(shown[0], "Loop: issue #12, round 1, stopped over max_issue_tokens.")
+        self.assertIn("partial.txt", shown)
+        calls = (self.state / "gh-calls").read_text()
+        self.assertNotIn("pr create", calls)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(git(self.project, "ls-remote", "origin", "loop/issue-12").stdout, "")
+        self.assertEqual(git(self.origin, "rev-parse", "develop").stdout, base)
+        entries = self.budget_usage()
+        self.assertEqual([(e["step"], e["round"], e["input_tokens"], e["cost_usd"]) for e in entries],
+                         [("plan", 0, 10, 0.01), ("build", 1, 200, None)])
+        self.assertEqual(loop.usage_totals(entries)[0], 210)  # what the comment says
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+        self.assertFalse((self.state / "LATE-review").exists())
+
+    def test_a_tester_over_the_budget_is_stopped_the_same_way_and_its_files_are_committed(self):
+        (self.state / "events-test").write_text("3")
+        (self.state / "linger-test").write_text("30")
+        took = self.budget_run(max_issue_tokens=150, test_first=True)
+        self.assertLess(took, 20)
+        self.assertFalse((self.state / "LATE-test").exists())
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.budget_comment()
+        self.assertIn("used 210 tokens this run, over max_issue_tokens 150", comment)
+        self.assertIn("the tester was stopped part way", comment)
+        shown = git(self.project, "show", "--name-only", "--format=%s", "loop/issue-12").stdout.splitlines()
+        self.assertEqual(shown[0], "Loop: issue #12, round 0, stopped over max_issue_tokens.")
+        self.assertIn("tests/test_partial.txt", shown)
+        # Never taken for the tester's finished commit when the issue is put back.
+        self.assertNotIn("round 0 (tests).", git(self.project, "log", "--format=%B", "loop/issue-12").stdout)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(git(self.project, "ls-remote", "origin", "loop/issue-12").stdout, "")
+        self.assertEqual(self.budget_lines(), ["test round 0 stopped at 210 tokens"])
+
+    def test_a_relabel_after_a_stopped_tester_runs_no_tester_over_its_unfinished_tests(self):
+        (self.state / "events-test").write_text("3")
+        (self.state / "linger-test").write_text("30")
+        self.budget_run(max_issue_tokens=150, test_first=True)
+        stop = git(self.project, "rev-parse", "loop/issue-12").stdout
+        for name in ("events-test", "linger-test", "LATE-plan"):
+            (self.state / name).unlink()
+        self.budget_run(max_issue_tokens=150, test_first=True)  # put back: a fresh budget
+        self.assertTrue((self.state / "LATE-plan").exists())
+        self.assertFalse((self.state / "LATE-test").exists(), "a tester ran over the unfinished tests")
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, stop)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        comment = self.stop_comment()
+        self.assertIn("the tester was stopped over max_issue_tokens in an earlier run", comment)
+        self.assertIn('reword it to "Loop: issue #12, round 0 (tests)."', comment)
+        self.assertIn("reset the branch to origin/develop to drop it", comment)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["test round 0 stopped at 210 tokens"])  # the first run's alone
+
+    def test_a_build_stopped_before_it_changed_anything_commits_nothing_and_says_so(self):
+        (self.state / "idle-build").write_text("")
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        self.assertLess(self.budget_run(max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("used 210 tokens this run, over max_issue_tokens 150; the build was stopped part way, "
+               "before it had changed anything")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, base)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+
+    def test_a_stop_commit_git_refuses_leaves_the_work_uncommitted_and_says_so(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        base = git(self.origin, "rev-parse", "develop").stdout
+        self.assertLess(self.budget_run(fail_stop_commit=True, max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("used 210 tokens this run, over max_issue_tokens 150; the build was stopped part way, and what it "
+               "had made could not be committed (git exit 1), so it is uncommitted in the worktree")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual(git(self.project, "rev-parse", "loop/issue-12").stdout, base)
+        tree = self.trees / "app" / "issue-12"
+        self.assertIn("partial.txt", git(tree, "status", "--porcelain").stdout)
+        self.assertEqual(self.pushes(), [])
+        self.assertEqual(self.budget_lines(), ["build round 1 stopped at 210 tokens"])
+
+    def test_a_stop_whose_usage_could_not_be_written_still_names_the_budget(self):
+        (self.state / "events-build").write_text("3")
+        (self.state / "linger-build").write_text("30")
+        self.assertLess(self.budget_run(unrecorded="build", max_issue_tokens=150), 20)
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        why = ("went over max_issue_tokens 150; the build was stopped part way, and what it had made is committed "
+               "on loop/issue-12, not pushed")
+        self.assertEqual(self.budget_row()["note"], why)
+        self.assertIn(why, self.stop_comment())
+        self.assertEqual([e["step"] for e in self.budget_usage()], ["plan"])
+        self.assertEqual(len(self.budget_lines()), 1)
+        self.assertTrue(self.budget_lines()[0].startswith("build round 1 stopped at "), self.budget_lines())
+        self.assertEqual(self.pushes(), [])
+
+    def assert_not_stopped(self):
+        """No BUDGET line, no stop commit and no stop in the comment: the build ran to its end."""
+        self.assertEqual(self.budget_lines(), [])
+        self.assertNotIn("stopped part way", self.budget_comment())
+        self.assertNotIn("stopped over max_issue_tokens",
+                         git(self.project, "log", "--format=%B", "--all").stdout)
+
+    def test_a_build_under_the_budget_finishes_and_opens_its_pull_request(self):
+        (self.state / "events-build").write_text("3")
+        self.budget_run(max_issue_tokens=1000)
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "pr")
+        self.assertIn("pr create", (self.state / "gh-calls").read_text())
+
+    def test_with_no_budget_a_build_is_never_stopped(self):
+        for value in (0, None):
+            with self.subTest(value=value):
+                self.tearDown()
+                self.setUp()
+                (self.state / "events-build").write_text("3")
+                self.budget_run(max_issue_tokens=value)
+                self.assertTrue((self.state / "LATE-build").exists())
+                self.assert_not_stopped()
+                self.assertEqual(self.budget_row()["state"], "pr")
+
+    def test_a_planner_over_the_budget_finishes_and_the_block_before_the_build_still_applies(self):
+        (self.state / "events-plan").write_text("3")
+        (self.state / "linger-plan").write_text("0.5")
+        self.budget_run(max_issue_tokens=150)
+        self.assertTrue((self.state / "LATE-plan").exists())
+        self.assertFalse((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "blocked")
+        self.assertIn("used 300 tokens this run, over max_issue_tokens 150", self.budget_comment())
+
+    def test_a_reviewer_over_the_budget_finishes_and_the_block_before_the_next_build_still_applies(self):
+        for verdict in ("PASS", "FIX"):
+            with self.subTest(verdict=verdict):
+                self.tearDown()
+                self.setUp()
+                if verdict == "FIX":
+                    (self.state / "fix-review").write_text("")
+                (self.state / "events-review").write_text("3")
+                (self.state / "linger-review").write_text("0.5")
+                self.budget_run(max_issue_tokens=150)  # the plan's 10 and the build's 10, then the review's 300
+                self.assertTrue((self.state / "LATE-review").exists())
+                self.assert_not_stopped()
+                # No second build: the block before round 2 stops a FIX, and a PASS needs none.
+                self.assertEqual([e["input_tokens"] for e in self.budget_usage()], [10, 10, 300])
+                if verdict == "PASS":
+                    self.assertEqual(self.budget_row()["state"], "pr")
+                else:
+                    self.assertEqual(self.budget_row()["state"], "blocked")
+                    self.assertEqual(self.budget_row()["note"], "used 320 tokens this run, over max_issue_tokens 150")
+                    self.assertNotIn("pr create", (self.state / "gh-calls").read_text())
+
+    def test_an_agent_other_than_claude_is_never_stopped(self):
+        builder = Path(self.tmp.name) / "bin" / "builder"
+        builder.write_text(BUDGET_AGENT)
+        builder.chmod(builder.stat().st_mode | stat.S_IEXEC)
+        (self.state / "events-build").write_text("3")
+        self.budget_run(max_issue_tokens=150, agent="builder")
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+
+    def test_tokens_from_an_earlier_run_do_not_count_toward_a_stop(self):
+        folder = self.harness / ".loop" / "projects" / "app" / "issue-12"
+        folder.mkdir(parents=True)
+        old = {"step": "build", "round": 1, "run_started": "2020-01-01T00:00:00", "reported": True,
+               "input_tokens": 9_000_000, "output_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0,
+               "cost_usd": 1.0}
+        (folder / "usage.json").write_text(json.dumps([old]))
+        (self.state / "events-build").write_text("2")
+        self.budget_run(max_issue_tokens=250)  # this run: the plan's 10, the build's 200, the review's 10
+        self.assertTrue((self.state / "LATE-build").exists())
+        self.assert_not_stopped()
+        self.assertEqual(self.budget_row()["state"], "pr")
+        self.assertEqual(self.budget_usage()[0], old)
+
     def test_the_log_shows_each_tool_call_by_name_and_target_and_the_reply_is_the_result(self):
         command = "cd scripts &&\npython3 -m unittest " + "tests.test_loop " * 10
         reply = "Plan: add feature.txt.\nThen test it.\n"
@@ -6270,9 +7062,15 @@ elif args[:1] == ["api"] and args[1].endswith("/check-runs"):
     if os.path.exists(os.path.join(state, "checks-fail")):
         print("HTTP 502", file=sys.stderr)
         sys.exit(1)
-    runs = os.path.join(state, "checks.tsv")
+    # checks-<sha>.tsv for that commit alone, else checks.tsv for any. A run's name, its third column, is
+    # printed only when the --jq asks for .name, as GitHub's would be.
+    runs = os.path.join(state, "checks-%s.tsv" % args[1].split("/")[-2])
+    if not os.path.exists(runs):
+        runs = os.path.join(state, "checks.tsv")
+    named = ".name" in (args[args.index("--jq") + 1] if "--jq" in args else "")
     if os.path.exists(runs):
-        print(open(runs).read())
+        for line in open(runs).read().splitlines():
+            print(line if named else "\\t".join(line.split("\\t")[:2]))
 elif args[:1] == ["api"] and args[1].endswith("/status"):
     # A commit's statuses, one state per line: statuses.txt, none by default. gh api prints its error on stdout.
     if os.path.exists(os.path.join(state, "statuses-fail")):
@@ -8240,6 +9038,243 @@ class TestReviewGrading(ReviewFixture, unittest.TestCase):
         self.assertIn("Grade 10/10: ready, checks passing.", after[0]["body"])
         self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
         self.assertEqual(self.agents_started(), 1)
+
+
+# A ladder rubric: each grade, highest first, with the verdicts and the check runs it needs.
+LADDER = {"levels": {
+    "10": {"verdict": ["ready"], "checks": ["security-scan", "e2e"]},
+    "8": {"verdict": ["ready", "ready with nits"], "checks": ["tests"]},
+    "3": {"verdict": ["changes needed"]},
+    "1": {},
+    "0": {},
+}}
+ALL_PASS = (("completed", "success", "security-scan"), ("completed", "success", "e2e"),
+            ("completed", "success", "tests"))
+
+
+class TestLadder(unittest.TestCase):
+    """A rubric whose grades are rungs, each met by the verdicts and the named check runs it lists."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "my-rubric.json"
+
+    def grade(self, verdict, runs, ladder=LADDER):
+        return loop.review_grade_for(verdict, loop.checks_state(runs), ladder, None, runs=runs)
+
+    def test_a_ladder_loads_and_the_five_keys_still_do(self):
+        self.path.write_text(json.dumps(LADDER))
+        self.assertEqual(loop.load_rubric(self.path), (LADDER, None))
+        self.path.write_text(json.dumps(RUBRIC))
+        self.assertEqual(loop.load_rubric(self.path), (RUBRIC, None))
+        # runs reach only a ladder: the five keys grade as they always have
+        self.assertEqual(loop.review_grade_for("ready", "passing", RUBRIC, None, runs=[("completed", "failure", "x")]),
+                         (10, "ready, checks passing"))
+
+    def test_the_top_rung_met_gives_its_grade(self):
+        self.assertEqual(self.grade("ready", list(ALL_PASS)), (10, "ready, checks (security-scan, e2e) passed"))
+
+    def test_a_failed_named_check_drops_to_the_next_rung_without_waiting_on_the_other(self):
+        runs = [("completed", "failure", "security-scan"), ("in_progress", "", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs), (8, "ready, checks (tests) passed; 10 needs security-scan to pass"))
+
+    def test_a_named_check_that_never_ran_misses_its_rung_and_the_reason_names_it(self):
+        runs = [("completed", "success", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs),
+                         (8, "ready, checks (tests) passed; 10 needs a check named security-scan, and none ran"))
+
+    def test_a_running_check_a_higher_rung_names_keeps_the_grade_pending(self):
+        runs = [("completed", "success", "security-scan"), ("queued", "", "e2e"), ("completed", "success", "tests")]
+        self.assertEqual(self.grade("ready", runs), (None, loop.PENDING))
+        self.assertEqual(self.grade("ready", None), (None, loop.PENDING))  # runs that couldn't be read
+        # Nothing above is unsettled: a running check no rung names doesn't wait, and doesn't fail anything.
+        self.assertEqual(self.grade("ready", list(ALL_PASS) + [("in_progress", "", "lint")])[0], 10)
+
+    def test_a_verdict_no_rung_above_takes_falls_to_a_rung_with_no_verdict(self):
+        for verdict in ("unreadable", None, "looks good"):
+            with self.subTest(verdict=verdict):
+                self.assertEqual(self.grade(verdict, list(ALL_PASS)),
+                                 (1, "unreadable, no checks needed; 3 needs a verdict of changes needed"))
+        self.assertEqual(self.grade("changes needed", None),
+                         (3, "changes needed, no checks needed; 8 needs a verdict of ready or ready with nits"))
+
+    def test_with_no_rung_met_the_grade_is_0(self):
+        ladder = {"levels": {"6": {"checks": ["tests"]}, "0": {"verdict": ["ready"]}}}
+        self.assertEqual(self.grade("changes needed", [("completed", "failure", "tests")], ladder),
+                         (0, "changes needed, no rung was met; 0 needs a verdict of ready"))
+
+    def test_every_check_and_a_name_several_runs_share(self):
+        ladder = {"levels": {"10": {"checks": ["*"]}, "5": {"checks": ["tests"]}, "0": {}}}
+        self.assertEqual(self.grade("ready", [], ladder), (10, "ready, checks (*) passed"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "skipped", "x")], ladder),
+                         (10, "ready, checks (*) passed"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "failure", "tests")],
+                                    ladder), (0, "ready, no checks needed; 5 needs tests to pass"))
+        self.assertEqual(self.grade("ready", [("completed", "success", "tests"), ("completed", "failure", "lint")],
+                                    ladder), (5, "ready, checks (tests) passed; 10 needs every check to pass"))
+
+    def test_each_invalid_ladder_grades_0_and_names_the_file(self):
+        cases = {
+            'has a key other than "levels"': dict(LADDER, ready=10),
+            'gives "levels" something other than a JSON object': {"levels": [LADDER["levels"]]},
+            'has no "0" rung': {"levels": {"10": {}}},
+            "has a rung \"07\" that isn't a grade": {"levels": {"0": {}, "07": {}}},
+            "has a rung \"11\" that isn't a grade": {"levels": {"0": {}, "11": {}}},
+            'gives rung "0" something other than a JSON object': {"levels": {"0": []}},
+            'gives rung "0" a key other than "verdict" or "checks"': {"levels": {"0": {"why": ["x"]}}},
+            "gives rung \"8\" a verdict that isn't one of": {"levels": {"0": {}, "8": {"verdict": ["unreadable"]}}},
+            "gives rung \"8\" a \"verdict\" that isn't a list": {"levels": {"0": {}, "8": {"verdict": "ready"}}},
+            "gives rung \"8\" a \"checks\" that isn't a list": {"levels": {"0": {}, "8": {"checks": []}}},
+            "gives rung \"8\" a check name that isn't": {"levels": {"0": {}, "8": {"checks": ["tests", " "]}}},
+            "gives rung \"9\" a check name that isn't": {"levels": {"0": {}, "9": {"checks": [7]}}},
+        }
+        for said, rubric in cases.items():
+            with self.subTest(said=said):
+                self.path.write_text(json.dumps(rubric))
+                rubric, why = loop.load_rubric(self.path)
+                self.assertIsNone(rubric)
+                self.assertIn("my-rubric.json " + said, why)
+                self.assertEqual(loop.review_grade_for("ready", "passing", rubric, why, runs=list(ALL_PASS)), (0, why))
+
+
+class TestLadderReview(ReviewFixture, unittest.TestCase):
+    """A ladder rubric in the loop: the grade on a posted review, its regrade, loop.py grade and auto_merge."""
+
+    def setUp(self):
+        super().setUp()
+        (self.work / "review-rubric.json").write_text(json.dumps(LADDER))
+
+    def checks(self, *runs, sha=None):
+        name = "checks.tsv" if sha is None else "checks-{}.tsv".format(sha)
+        (self.state / name).write_text("\n".join("\t".join(run) for run in runs))
+
+    def posted(self, number=7, verdict="ready"):
+        sha = self.push(number, "thing.txt")
+        (self.state / "review-tail").write_text("VERDICT: " + verdict)
+        self.list_prs(self.pr(number, sha))
+        self.go()
+        return sha
+
+    def graded_by_hand(self, number, verdict, loop_=None):
+        """loop.py grade number --verdict verdict: (exit code, stdout, stderr)."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = (loop_ or loop.Loop(self.work, self.cfg)).grade_pr(number, verdict)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_posted_review_takes_the_ladder_s_grade(self):
+        self.checks(*ALL_PASS)
+        self.posted()
+        self.assertIn("Verdict: ready. Grade 10/10: ready, checks (security-scan, e2e) passed.",
+                      self.comments()[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+
+    def test_a_pending_ladder_grade_is_filled_in_by_a_later_pass(self):
+        self.checks(("completed", "success", "security-scan"), ("in_progress", "", "e2e"),
+                    ("completed", "success", "tests"))
+        sha = self.posted()
+        first = self.comments()
+        self.assertIn("Grade pending: checks still running.", first[0]["body"])
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], "pending")
+        self.go()  # still running: nothing changes
+        self.assertEqual(self.comments(), first)
+        self.checks(*ALL_PASS)
+        self.go()
+        after = self.comments()
+        self.assertEqual([c["id"] for c in after], [first[0]["id"]])
+        self.assertEqual(after[0]["body"], first[0]["body"].replace(
+            "Grade pending: checks still running.", "Grade 10/10: ready, checks (security-scan, e2e) passed."))
+        self.assertEqual(self.status()["reviews"]["7"]["grade"], 10)
+        self.assertTrue(any(l.endswith("REVIEW #7 {} graded 10/10".format(sha[:7])) for l in self.lines()), self.lines())
+        self.assertEqual(self.agents_started(), 1)
+
+    def test_a_running_check_that_only_a_rung_above_the_verdict_names_doesn_t_hold_a_regrade(self):
+        # changes needed can't reach 10 or 8, so their running checks don't matter: graded on the first pass
+        self.checks(("in_progress", "", "security-scan"), ("in_progress", "", "tests"))
+        self.posted(verdict="changes needed")
+        self.assertIn("Grade 3/10: changes needed, no checks needed; 8 needs a verdict of ready or ready with nits.",
+                      self.comments()[0]["body"])
+
+    def test_grade_prints_the_line_and_takes_no_lock_and_writes_nothing_to_github(self):
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        self.checks(*ALL_PASS)
+        real = loop.Loop
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(loop, "Loop", side_effect=lambda *a, **k: real(self.work, self.cfg)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = loop.main(["grade", "7", "--verdict", "ready"])
+        self.assertEqual((code, out.getvalue()), (0, "Grade 10/10: ready, checks (security-scan, e2e) passed.\n"),
+                         err.getvalue())
+        self.assertFalse((self.work / ".loop" / "lock").exists())
+        self.assertEqual(self.comments(), [])
+        self.assertFalse(any(c.startswith(("pr comment", "pr merge", "api --method")) for c in self.calls()),
+                         self.calls())
+        self.assertTrue(any(c.startswith("pr view 7 --json headRefOid") and c.endswith("-R o/r") for c in self.calls()),
+                        self.calls())
+        self.checks(("in_progress", "", "e2e"), ("completed", "success", "security-scan"))
+        self.assertEqual(self.graded_by_hand(7, "ready")[:2], (0, "Grade pending: checks still running.\n"))
+
+    def test_grade_exits_1_when_it_can_t_read_the_head(self):
+        code, out, err = self.graded_by_hand(9, "ready")  # no such pull request
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("Could not read pull request #9's head commit", err)
+
+    def test_runs_on_another_commit_don_t_count(self):
+        old = self.push(7, "seven.txt")
+        self.checks(*ALL_PASS, sha=old)  # the old head passed everything; the new one has run nothing yet
+        new = self.push(7, "seven.txt", "again")
+        self.view_pr(7, new)
+        self.assertEqual(self.graded_by_hand(7, "ready")[:2],
+                         (0, "Grade 1/10: ready, no checks needed; 3 needs a verdict of changes needed.\n"))
+        self.assertTrue(any("commits/{}/check-runs".format(new) in c for c in self.calls()), self.calls())
+        self.assertFalse(any("commits/{}/check-runs".format(old) in c for c in self.calls()), self.calls())
+
+    def test_grade_reads_the_rubric_at_the_factory_s_root_never_the_project_s_clone(self):
+        clone = Path(self.tmp.name) / "projects" / "app"
+        clone.mkdir(parents=True)
+        (clone / "review-rubric.json").write_text(json.dumps({"levels": {"10": {}, "0": {}}}))  # would give 10
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        project = loop.Loop(self.work, self.cfg, project=clone)
+        self.assertEqual(self.graded_by_hand(7, "ready", project)[:2],
+                         (0, "Grade 1/10: ready, no checks needed; 3 needs a verdict of changes needed.\n"))
+
+    # auto_merge reads the grade the ladder gave, and every check on the commit, named or not.
+
+    def merge_on(self, sha, **settings):
+        self.cfg["auto_merge"] = dict({"enabled": True, "bases": ["main"]}, **settings)
+        (self.state / "pr-7.json").write_text(json.dumps(dict(
+            self.pr(7, sha), state="OPEN", isCrossRepository=False, author={"login": "pat"})))
+
+    def merges(self):
+        return [c for c in self.calls() if c.startswith("pr merge")]
+
+    def test_a_failing_check_no_rung_names_leaves_the_grade_but_auto_merge_still_holds_it(self):
+        self.checks(*ALL_PASS + (("completed", "failure", "lint"),))
+        sha = self.push(7, "thing.txt")
+        self.merge_on(sha)
+        (self.state / "review-tail").write_text("VERDICT: ready")
+        self.list_prs(self.pr(7, sha))
+        self.go()
+        self.assertIn("Grade 10/10: ready, checks (security-scan, e2e) passed.", self.comments()[0]["body"])
+        self.assertEqual(self.merges(), [])
+        self.assertIn("MERGE #7 {} not merged: a check failed".format(sha[:7]), "\n".join(self.lines()))
+
+    def test_a_ladder_grade_at_min_grade_merges_once_every_check_passes(self):
+        self.checks(("completed", "success", "tests"), ("in_progress", "", "lint"))
+        sha = self.push(7, "thing.txt")
+        self.merge_on(sha, min_grade=8)
+        (self.state / "review-tail").write_text("VERDICT: ready with nits")
+        self.list_prs(self.pr(7, sha))
+        self.go()
+        self.assertIn("Grade 8/10: ready with nits, checks (tests) passed; 10 needs a verdict of ready.",
+                      self.comments()[0]["body"])
+        self.assertEqual(self.merges(), [])  # lint is still running
+        self.checks(("completed", "success", "tests"), ("completed", "success", "lint"))
+        self.go()
+        self.assertEqual(self.merges(), ["pr merge 7 --squash --match-head-commit " + sha])
 
 
 class TestAutoMerge(ReviewFixture, unittest.TestCase):

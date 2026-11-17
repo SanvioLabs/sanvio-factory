@@ -99,7 +99,7 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
   - Acceptance: AC-005
   - Depends on: None
   - Verification: `python3 -m unittest tests.test_agent_hooks`
-  - Done 2026-11-13: [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py), job 5. `confined_folders()` reads `SANVIO_CONFINE`; `confined_outside()` refuses a Read, Edit, Write, MultiEdit, NotebookEdit, Grep or Glob whose path, resolved from cwd with links followed, is outside the folders (a Glob by its fixed parts, and any `..` after a wildcard), except a Read of its own session folder under `~/.claude/projects/`, where Claude Code keeps a tool output too long to show. `shell_outside()` refuses a command naming an absolute, `~` or `$HOME` path outside the folders and `SYSTEM_PATHS`, the tool homes and the guard's own Python prefix, any path in the factory's root outside them even under temp, and any `..` that climbs out. An absolute path is checked only when its first folder exists, so `grep '/api/users'` and `awk '/^x/'` pass. A backstop: a path a command builds at run time isn't seen. Unset or empty, nothing changes; `Confined`
+  - Done 2026-11-13: [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py), job 6. `confined_folders()` reads `SANVIO_CONFINE`; `confined_outside()` refuses a Read, Edit, Write, MultiEdit, NotebookEdit, Grep or Glob whose path, resolved from cwd with links followed, is outside the folders (a Glob by its fixed parts, and any `..` after a wildcard), except a Read of its own session folder under `~/.claude/projects/`, where Claude Code keeps a tool output too long to show. `shell_outside()` refuses a command naming an absolute, `~` or `$HOME` path outside the folders and `SYSTEM_PATHS`, the tool homes and the guard's own Python prefix, any path in the factory's root outside them even under temp, and any `..` that climbs out. An absolute path is checked only when its first folder exists, so `grep '/api/users'` and `awk '/^x/'` pass. A backstop: a path a command builds at run time isn't seen. Unset or empty, nothing changes; `Confined`
 - [x] T013 Live check on this machine's Claude Code, with T011's settings in a scratch layout of two projects: the shell's `cat` and the Read tool on the sibling's file are both refused, and the agent's own worktree works. Record the Claude Code version and the result here
   - Requirements: REQ-008
   - Acceptance: AC-005
@@ -121,6 +121,7 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
     | Control: `caller: false`, as `argv()` builds them | Read and `cat` on `b` | both refused by Claude Code itself: the Read asks for permission, which `-p` can't give, and `cat` outside the working folders is blocked whatever is allowed |
 
     So each layer refuses the sibling on its own, and the control shows that without them an allowed tool reads it. The control also shows `-p` already refuses an unallowed Read and any `cat` outside the working folders, which is why the per-layer runs allow the tools first. The sandbox started with `denyRead` paths that didn't exist, and with the sandbox on, `cat` on the worktree's own file ran with no `--allowedTools`. With the settings as built, haiku once answered the Grep probe with `ToolSearch` instead of calling Grep; the runs with Grep allowed cover it
+  - REQ-008 stays open after T011 to T013: a caller's own `test_command`, `setup_command` and `generate_command` still run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](../../../.claude/settings.json) still loads into its sessions (#597). `caller_denied()` also doesn't yet name other projects' Claude Code transcripts under `~/.claude/projects/`, Claude Code's per-session temp, the factory's own loop worktrees or `.sanvio/`, and a failed read of `loop.json` or [`projects/`](../../../projects/) denies less rather than refusing to start
 
 ## Phase 4: What comes back
 
@@ -176,7 +177,7 @@ python3 -m unittest tests.test_loop tests.test_agent_hooks
 | REQ-005 | T008 | AC-002 | done |
 | REQ-006 | T009 | AC-003 | done |
 | REQ-007 | T010 | AC-004 | done |
-| REQ-008 | T011, T012, T013 | AC-005 | done |
+| REQ-008 | T011, T012, T013 | AC-005 | open: #596, #597 |
 | REQ-009 | T007 | AC-006 | done |
 | REQ-010 | T014 | AC-007 | open |
 | REQ-011 | T015 | AC-008 | open |

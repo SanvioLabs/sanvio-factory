@@ -4,12 +4,14 @@
 Usage:
     python3 scripts/eval_factory.py run SUITE --start "COMMAND" --owner ORG [--factory PATH] [--clone-into DIR]
                                         [--merge-in-run-repo] [--usage-command "COMMAND"]
-                                        [--timeout MINUTES] [--yes]
+                                        [--timeout MINUTES] [--repeat N] [--yes]
     python3 scripts/eval_factory.py resume RUN [--end]
     python3 scripts/eval_factory.py stop RUN "WHY"
     python3 scripts/eval_factory.py compare A B
+    python3 scripts/eval_factory.py report RUN [RUN ...] [--compare OTHER [OTHER ...]] [--out DIR]
     python3 scripts/eval_factory.py list
     python3 scripts/eval_factory.py validate SUITE
+    python3 scripts/eval_factory.py new-suite FOLDER
 
 A suite is a folder:
 
@@ -19,7 +21,9 @@ A suite is a folder:
     key/
       score         executable: reads RUN_DIR, BASE_SHA, PR_NUMBERS, RUN_REPO and PR_DATA (a JSON file of
                     each pull request's number, state, headRefName, baseRefOid, headRefOid, body and
-                    comments), and prints {"tests": [{"name", "passed"}], "traps": [{"name", "avoided"}]}
+                    comments), and prints {"tests": [{"name", "passed"}], "traps": [{"name", "avoided"}]}.
+                    A test or trap may carry "issue": its issue's position in the suite, from 1, so a report
+                    groups what was missed by issue
       reference/    files that overlay the seed to make the right answer
       wrong/<name>/ files that overlay the seed to make a known wrong answer
 
@@ -39,6 +43,16 @@ Cost comes from --usage-command, a command that prints one number. Failing that,
 usage when --start runs its scripts/loop.py. Failing that it reads "not reported", never zero. Rounds and
 tokens come only from that loop usage, so another factory's read "not reported". Exits 0 when every test
 and trap is clean with no leak, 1 otherwise. compare takes two run names or result files.
+
+--repeat N runs the suite N times, one new repo each, and needs --merge-in-run-repo. Wherever compare and
+report take a run, they also take a group of runs of one suite, as their names joined by commas
+(run-1,run-2,run-3): a group shows the middle result and how many runs each check passed in.
+
+report writes the run's report.html and report.md into its folder, or --out, and report.pdf when a Chrome,
+Chromium or Edge is installed to print it (scripts/eval_report.py has how it finds one). It takes one run
+or group per suite, several suites to a report, and --compare lines up the same number of runs or groups
+beside them. A report on anything but one run goes to .sanvio/factory-evals/reports/ unless --out says. new-suite makes a suite's folders and files to fill in, in a new folder outside the
+factory, and refuses one inside it.
 
 validate spends no model tokens and creates no repo. It passes only when the seed fails, every wrong
 answer fails, and the reference passes every test and trap. Exits 0 when sound, 1 when not, 2 when the
@@ -75,6 +89,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import names  # noqa: E402  beside this file: the state and home folders
 import loop  # noqa: E402  beside this file: the loop's own usage arithmetic and secret-stripped environment
+import eval_report  # noqa: E402  beside this file: the run report as HTML, Markdown and PDF
 
 REQUIRED_FIELDS = ("name", "seed", "key", "issues", "required_checks")
 SCORE_TIMEOUT = 900
@@ -196,11 +211,19 @@ def score_checkout(key, run_dir, base_sha, pulls=(), repo=""):
         return {"not_scored": "key/score exited {}".format(done.returncode)}
     try:
         found = json.loads(done.stdout)
-        tests = [{"name": str(t["name"]), "passed": bool(t["passed"])} for t in found["tests"]]
-        traps = [{"name": str(t["name"]), "avoided": bool(t["avoided"])} for t in found["traps"]]
+        tests = [tagged({"name": str(t["name"]), "passed": bool(t["passed"])}, t) for t in found["tests"]]
+        traps = [tagged({"name": str(t["name"]), "avoided": bool(t["avoided"])}, t) for t in found["traps"]]
     except (ValueError, KeyError, TypeError):
         return {"not_scored": "key/score printed something other than its JSON"}
     return {"tests": tests, "traps": traps}
+
+
+def tagged(item, found):
+    """item, with the issue position key/score gave it when that's a whole number from 1."""
+    issue = found.get("issue")
+    if type(issue) is int and issue >= 1:
+        item["issue"] = issue
+    return item
 
 
 def all_clean(score):
@@ -350,12 +373,15 @@ def create_run(suite, options):
     The key is never copied: only the seed goes into the clone. Once the repo exists a failure leaves it
     for a person to look at, and the error names it."""
     factory = Path(options["factory"])
-    run_id = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
+    stamp = "{}-{}".format(suite["name"], datetime.now().strftime("%Y%m%d-%H%M%S"))
+    # Two runs can start in the same second, as --repeat's can when one stops early: the second gets -2.
+    run_id, taken = stamp, 1
+    while (runs_dir() / run_id).exists() or (Path(options["clone_into"]) / "eval-{}".format(run_id)).exists():
+        taken += 1
+        run_id = "{}-{}".format(stamp, taken)
     name = "eval-{}".format(run_id)
     repo = "{}/{}".format(options["owner"], name)
     clone = Path(options["clone_into"]) / name
-    if clone.exists():
-        raise RunError("{} already exists".format(clone))
     gh_ok("couldn't create {}".format(repo), "repo", "create", repo, "--private")
     # Saved at once, so list names this repo however setup ends.
     record = {"id": run_id, "suite": suite["name"], "suite_path": str(suite["folder"]), "repo": repo,
@@ -390,8 +416,8 @@ def create_run(suite, options):
                 body_file.flush()
                 url = gh_ok("couldn't file {}".format(Path(path).name), "issue", "create", "-R", repo,
                             "--title", title, "--body-file", body_file.name)
-            record["issues"].append({"number": int(url.rstrip("/").rsplit("/", 1)[-1]), "state": "pending",
-                                     "pr": None, "seconds": 0})
+            record["issues"].append({"number": int(url.rstrip("/").rsplit("/", 1)[-1]), "title": title,
+                                     "state": "pending", "pr": None, "seconds": 0})
     except (RunError, subprocess.CalledProcessError, OSError, ValueError, KeyError) as err:
         raise RunError("{} was created, and is kept, but setup stopped: {}".format(repo, err))
     record["state"] = "working"
@@ -534,7 +560,9 @@ def work(record, suite):
             add_stop(record, str(err), "run")
             return "ended"
         finally:
-            record["seconds"] += time.monotonic() - began
+            spent = time.monotonic() - began
+            record["seconds"] += spent
+            issue["seconds"] = issue.get("seconds", 0) + spent
             save_run(record)
     return "ended"
 
@@ -694,7 +722,9 @@ def finish(record):
     """Score the run, write its one result file, and print the scorecard. Returns the exit code."""
     result = {"run": record["id"], "suite": record["suite"], "repo": record["repo"],
               "factory_commit": record["factory_commit"], "factory_dirty": record["factory_dirty"],
-              "seconds": record["seconds"], "stops": record["stops"]}
+              "seconds": record["seconds"], "stops": record["stops"],
+              "issues": [{field: issue.get(field) for field in ("number", "title", "pr", "state", "seconds")}
+                         for issue in record["issues"]]}
     result.update(score_run(record))
     result["cost"], result["tokens"], result["rounds"] = read_usage(record)
     record["state"] = "ended"
@@ -760,6 +790,43 @@ def cmd_run(args):
     return drive(record, suite)
 
 
+def cmd_run_repeated(args):
+    """--repeat: the same run, N times over. Exits 0 only when every run did."""
+    if args.repeat < 1:
+        print("Refused: --repeat needs a whole number from 1.", file=sys.stderr)
+        return 2
+    if args.repeat > 1 and not args.merge_in_run_repo:
+        print("Refused: --repeat needs --merge-in-run-repo, or every run would stop at its first merge.",
+              file=sys.stderr)
+        return 2
+    if args.repeat > 1 and not args.yes and interactive():
+        try:
+            answer = input("That's {} runs, a new private repo and a set of model tokens each. "
+                           "Type yes: ".format(args.repeat)).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer != "yes":
+            print("Nothing was created.", file=sys.stderr)
+            return 2
+        args.yes = True
+    before = set(path.parent.name for path in runs_dir().glob("*/run.json")) if runs_dir().is_dir() else set()
+    codes = []
+    for count in range(args.repeat):
+        if args.repeat > 1:
+            print("\nRun {} of {}".format(count + 1, args.repeat))
+        code = cmd_run(args)
+        codes.append(code)
+        if code == 2:
+            break
+    made = sorted(path.parent.name for path in runs_dir().glob("*/run.json")
+                  if path.parent.name not in before) if runs_dir().is_dir() else []
+    if args.repeat > 1 and made:
+        print("\nRuns: {}".format(" ".join(made)))
+        print("Report on them together with:")
+        print("    python3 scripts/eval_factory.py report {}".format(",".join(made)))
+    return 0 if codes and all(code == 0 for code in codes) else max(codes or [2])
+
+
 def cmd_resume(args):
     try:
         record = load_run(args.run)
@@ -795,6 +862,18 @@ def cmd_stop(args):
     return 0
 
 
+def load_group(spec):
+    """The results a run's name, a result file's path, or several joined by commas name. RunError when any is
+    missing, or they're not all the same suite."""
+    results = [load_result(name) for name in str(spec).split(",") if name.strip()]
+    if not results:
+        raise RunError("no run named in {!r}".format(spec))
+    suites = {result.get("suite") for result in results}
+    if len(suites) > 1:
+        raise RunError("a group has to be one suite, and {} has {}".format(spec, ", ".join(sorted(map(str, suites)))))
+    return results
+
+
 def load_result(name):
     """A run's name or a result file's path. RunError when there's neither."""
     path = Path(name) if Path(name).is_file() else runs_dir() / name / "result.json"
@@ -822,6 +901,8 @@ def changes(kind, field, before, after):
 
 
 def cmd_compare(args):
+    if "," in args.a or "," in args.b:
+        return compare_groups(args.a, args.b)
     try:
         a, b = load_result(args.a), load_result(args.b)
     except RunError as err:
@@ -844,6 +925,139 @@ def cmd_compare(args):
         if result.get("not_scored"):
             print("{} wasn't scored: {}".format(result["run"], result["not_scored"]))
     lines = changes("test", "passed", a["tests"], b["tests"]) + changes("trap", "avoided", a["traps"], b["traps"])
+    print("\n" + ("\n".join(lines) if lines else "Nothing changed in tests or traps."))
+    return 0
+
+
+def cmd_report(args):
+    if args.compare and len(args.compare) != len(args.runs):
+        print("Refused: --compare needs one run or group for each of the {} given".format(len(args.runs)),
+              file=sys.stderr)
+        return 2
+    try:
+        groups = [load_group(spec) for spec in args.runs]
+        others = [load_group(spec) for spec in args.compare] if args.compare else None
+    except RunError as err:
+        print(err, file=sys.stderr)
+        return 2
+    one = len(args.runs) == 1 and "," not in args.runs[0]
+    if args.out:
+        folder = Path(args.out)
+    elif one and Path(args.runs[0]).is_file():
+        folder = Path(args.runs[0]).resolve().parent
+    elif one:
+        folder = runs_dir() / args.runs[0]
+    else:
+        folder = runs_dir() / "reports" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    written, why = eval_report.write(groups, folder, others)
+    for path in written:
+        print(path)
+    if why:
+        print("No PDF: {}".format(why))
+    return 0
+
+
+SUITE_FILES = {
+    "suite.json": json.dumps({"name": "{name}", "seed": "seed", "key": "key",
+                              "issues": ["issues/01-first-issue.md"], "required_checks": ["checks"]}, indent=2) + "\n",
+    "seed/README.md": "# The repo a run starts from\n\nPut the code as it was before the work here, with its tests "
+                      "and its CI workflow. Use made-up names and data only.\n",
+    "seed/.github/workflows/ci.yml": "name: CI\non:\n  pull_request:\npermissions:\n  contents: read\njobs:\n"
+                                     "  checks:\n    runs-on: ubuntu-latest\n    steps:\n"
+                                     "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0\n"
+                                     "      - run: python3 -m unittest\n",
+    "issues/01-first-issue.md": "The first line is the issue's title\n\nThe rest is its body: what a person would "
+                                "write, describing the problem a user sees rather than the fix. Add one file per "
+                                "issue, and list them in order in suite.json.\n",
+    "key/reference/README-reference.txt": "Files here overlay the seed to make the right answer, at the same paths "
+                                          "as in seed/. Replace this file with them.\n",
+    "key/wrong/first-mistake/README-wrong.txt": "Files here overlay the seed to make one known wrong answer. Give "
+                                                "each mistake its own folder under wrong/, named for the mistake, "
+                                                "and replace this file with its files.\n",
+    "key/score": """#!/usr/bin/env python3
+\"\"\"Score a finished run: prints which hidden tests passed and which traps were avoided.
+
+RUN_DIR is the checkout to score. Check behaviour, not wording, and treat a crash in the code under test as a
+failed test. "issue" is the position of the issue a check belongs to, from 1, so a report groups misses by issue.
+\"\"\"
+import json
+import os
+import sys
+
+run = os.environ["RUN_DIR"]
+sys.path.insert(0, run)
+sys.dont_write_bytecode = True
+
+
+def check(test):
+    \"\"\"True when test() returns True. A crash in the code under test is a failed test.\"\"\"
+    try:
+        return bool(test())
+    except Exception:
+        return False
+
+
+def first_issue_done():
+    \"\"\"Replace with a check of what the first issue asks for. Until then nothing passes.\"\"\"
+    return False
+
+
+def seed_tests_kept():
+    \"\"\"Replace with a check that the seed's own tests are still there as written.\"\"\"
+    return True
+
+
+print(json.dumps({
+    "tests": [{"name": "the first issue is done", "issue": 1, "passed": check(first_issue_done)}],
+    "traps": [{"name": "seed tests left alone", "avoided": check(seed_tests_kept)}],
+}))
+""",
+}
+
+
+def cmd_new_suite(args):
+    folder = Path(args.folder)
+    if folder.exists():
+        print("Refused: {} already exists".format(folder), file=sys.stderr)
+        return 2
+    if is_under(folder, Path.cwd()):
+        print("Refused: {} is inside this factory, where its agents could read the key. Make the suite "
+              "somewhere else, such as a private repo of its own".format(folder), file=sys.stderr)
+        return 2
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", folder.resolve().name).strip("-.") or "my-suite"
+    for relative, text in SUITE_FILES.items():
+        path = folder / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text.replace("{name}", name) if relative == "suite.json" else text)
+    os.chmod(str(folder / "key" / "score"), 0o700)
+    print("Made suite {} in {}.".format(name, folder))
+    print("Fill in seed/, issues/, key/reference/, key/wrong/ and key/score, then check it with:")
+    print("    python3 scripts/eval_factory.py validate {}".format(shlex.quote(str(folder))))
+    return 0
+
+
+def compare_groups(spec_a, spec_b):
+    """compare for groups of runs: the middle result each side, and each check whose pass rate moved."""
+    try:
+        a, b = (eval_report.summarize(load_group(spec)) for spec in (spec_a, spec_b))
+    except RunError as err:
+        print(err, file=sys.stderr)
+        return 2
+    label = {id(a): "A: {} run{}".format(a["n"], "" if a["n"] == 1 else "s"),
+             id(b): "B: {} run{}".format(b["n"], "" if b["n"] == 1 else "s")}
+    rows = [("", label[id(a)], label[id(b)])]
+    rows += [(h[0], h[1], g[1]) for h, g in zip(eval_report.headline(a), eval_report.headline(b))]
+    widths = [max(len(str(row[column])) for row in rows) for column in range(3)]
+    for row in rows:
+        print("  ".join(str(cell).ljust(width) for cell, width in zip(row, widths)).rstrip())
+    if a["suite"] != b["suite"]:
+        print("A is suite {} and B is {}: the difference may be the suite.".format(a["suite"], b["suite"]))
+    worse, better = eval_report.moved(a, b)
+    lines = ["Worse: " + eval_report.change_text(c, False) for c in worse]
+    lines += ["Better: " + eval_report.change_text(c, False) for c in better]
+    for side, subject in (("A", a), ("B", b)):
+        lines += ["Flaky in {}: {} {} passed in {} of {}".format(side, c["kind"], c["name"], c["passed"], c["of"])
+                  for c in subject["checks"] if 0 < c["passed"] < c["of"]]
     print("\n" + ("\n".join(lines) if lines else "Nothing changed in tests or traps."))
     return 0
 
@@ -886,8 +1100,10 @@ def main(argv=None):
     run.add_argument("--usage-command", help="prints the run's total cost, for a factory that isn't this one")
     run.add_argument("--timeout", type=float, default=60, metavar="MINUTES",
                      help="for each issue's start command, and for its CI: 60 by default")
+    run.add_argument("--repeat", type=int, default=1, metavar="N",
+                     help="run the suite N times, a new repo each: needs --merge-in-run-repo")
     run.add_argument("--yes", action="store_true", help="don't ask before spending model tokens")
-    run.set_defaults(handler=cmd_run)
+    run.set_defaults(handler=cmd_run_repeated)
     resume = sub.add_parser("resume", help="carry on a run that stopped for a merge")
     resume.add_argument("run")
     resume.add_argument("--end", action="store_true", help="stop waiting, and score what exists")
@@ -896,10 +1112,20 @@ def main(argv=None):
     stop.add_argument("run")
     stop.add_argument("why")
     stop.set_defaults(handler=cmd_stop)
-    compare = sub.add_parser("compare", help="two results side by side, naming each test or trap that changed")
+    compare = sub.add_parser("compare", help="two results, or two groups of runs joined by commas, side by side")
     compare.add_argument("a")
     compare.add_argument("b")
     compare.set_defaults(handler=cmd_compare)
+    report = sub.add_parser("report", help="a run's report as HTML, Markdown and, where a browser can print it, PDF")
+    report.add_argument("runs", nargs="+", metavar="RUN",
+                        help="a run's name or result file, or runs of one suite joined by commas; one per suite")
+    report.add_argument("--compare", nargs="+", metavar="OTHER",
+                        help="the same number of runs or groups, each shown beside the one in its place")
+    report.add_argument("--out", help="the folder to write into: the run's own folder by default")
+    report.set_defaults(handler=cmd_report)
+    new_suite = sub.add_parser("new-suite", help="make a suite's folders and files to fill in, outside the factory")
+    new_suite.add_argument("folder")
+    new_suite.set_defaults(handler=cmd_new_suite)
     listing = sub.add_parser("list", help="the runs here and their repos, which only a person deletes")
     listing.set_defaults(handler=cmd_list)
     validate = sub.add_parser("validate", help="check a suite is a fair test, with no repo and no tokens")

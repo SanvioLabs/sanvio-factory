@@ -7,8 +7,9 @@ export type Tone = 'pass' | 'fail' | 'now' | 'quiet' | 'plain'
 export type Line = { tone: Tone; text: string }
 // A table: a header row, then rows, every row as long as the header. The first column is a name,
 // the rest are numbers, drawn right-aligned.
-// tones, when given, colours each row: a failing check red, say.
-export type Table = { key: string; head: string[]; rows: string[][]; tones?: Tone[] }
+// tones, when given, colours each row: a failing check red, say. title, when given, is drawn above
+// the header, for a table whose first column names its rows rather than the table.
+export type Table = { key: string; head: string[]; rows: string[][]; tones?: Tone[]; title?: string }
 export type Section = { key: string; title: string; lines: Line[]; tables?: Table[]; chart?: Chart }
 
 export const SCRIPT = 'scripts/dashboard_data.py'
@@ -169,11 +170,12 @@ const total = (v: unknown): { tokens: number | null; cost: number | null } => {
 
 // The loop's spend as tables: today, the last 7 days, since the document's date and per pull
 // request; the costliest issues; each model; and, when the script gives it, what merged by type and
-// what the loop spent on it. Then when its records start, if after that date, and the day-by-day chart.
+// what the loop spent on it. Then when its records start, if after that date, what a merged pull request
+// cost all in, and the day-by-day chart.
 export function spend(doc: Doc): Section {
   const why = missing(doc.loop_spend)
   const s = obj(doc.loop_spend)
-  if (why || !s) return { key: 'spend', title: 'Loop spend', lines: [line('quiet', why ?? 'not in this script')] }
+  if (why || !s) return { key: 'spend', title: 'Loop spend', lines: [line('quiet', why ?? 'not in this script'), ...allIn(doc)] }
   const cells = (v: unknown): string[] => {
     const t = total(v)
     return [money(t.cost), tokens(t.tokens)]
@@ -185,7 +187,8 @@ export function spend(doc: Doc): Section {
     [`Since ${day(str(doc.since))}`, ...cells(s.since)],
     ['Per pull request', perPr === null ? 'none yet' : `~${money(perPr)}`, ''],
   ] }
-  const tables = [periods]
+  const billed = bill(doc)
+  const tables = [periods, ...billed.tables]
   const issues = Object.entries(obj(s.by_issue) ?? {})
     .map(([name, v]) => ({ name, ...total(v) }))
     .sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1))
@@ -211,6 +214,8 @@ export function spend(doc: Doc): Section {
   const points = series(s.by_day, 'cost_usd')?.filter(p => !first || p.date >= first) ?? null
   if (!points?.length) out.push(NO_DAILY)
   out.push(...types.lines)
+  out.push(...billed.lines)
+  out.push(...allIn(doc))
   out.push(line('quiet', "Claude Code's estimate at API prices, not a bill"))
   if (!points?.length) return { key: 'spend', title: 'Loop spend', lines: out, tables }
   const alt = `The loop's estimated spend each day, ${day(points[0]?.date ?? null)} to ${day(points[points.length - 1]?.date ?? null)}`
@@ -238,6 +243,56 @@ export function workByType(doc: Doc): { tables: Table[]; lines: Line[] } {
     rows: rows.map(r => [name(r.type), String(num(r.merged) ?? '?'), String(num(r.loop_built) ?? '?'), money(num(r.cost_usd))]) }
   const lines = w.truncated === true ? [line('now', 'Work by type: the search hit its limit, so counts are low')] : []
   return { tables: [table], lines }
+}
+
+// Oct 2026, from a YYYY-MM month, or the text as it came when it isn't one.
+function month(text: string | null): string {
+  const m = text ? /^(\d{4})-(\d{2})$/.exec(text) : null
+  return m && MONTHS[Number(m[2]) - 1] ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : (text ?? '?')
+}
+
+// Each month's bill from .sanvio/bills.json beside the estimate for it, newest first. An estimate or
+// gap the script couldn't price shows ?, and a gap is a percentage of the bill too when the bill isn't 0.
+// A bill the script couldn't read says why in a line. A script that doesn't give it draws nothing.
+export function bill(doc: Doc): { tables: Table[]; lines: Line[] } {
+  if (doc.bill === undefined) return { tables: [], lines: [] }
+  const why = missing(doc.bill)
+  const b = obj(doc.bill)
+  if (why || !b) return { tables: [], lines: [line('quiet', `Bill: ${why ?? "couldn't read it"}`)] }
+  const rows = list(b.months).map(obj).filter((r): r is Obj => !!r)
+  const skipped = num(b.skipped) ?? 0
+  const out = skipped ? [line('now', `Bill: ${skipped} ${skipped === 1 ? 'entry' : 'entries'} in bills.json left out: each needs a YYYY-MM month and a number`)] : []
+  if (!rows.length) return { tables: [], lines: [...out, line('quiet', 'Bill: no month before this one in bills.json')] }
+  const gap = (r: Obj): string => {
+    const dollars = num(r.gap_usd)
+    const pct = num(r.gap_pct)
+    if (num(r.estimate_usd) === null || dollars === null) return '?'
+    return pct === null ? money(dollars) : `${money(dollars)} (${pct.toFixed(1)}%)`
+  }
+  const table: Table = { key: 'spend-bill', title: 'Bill and estimate', head: ['Month', 'Bill', 'Estimate', 'Gap'],
+    rows: rows.map(r => [month(str(r.month)), money(num(r.billed_usd)), money(num(r.estimate_usd)), gap(r)]) }
+  return { tables: [table], lines: [...out, line('quiet', "This machine's estimate; the bill covers every seat on the account")] }
+}
+
+// What a merged pull request cost all in, the loop's spend and this machine's conversations over how many
+// merged, in one line. Without a figure the line says why: the section's own, nothing merged, a model
+// with no price, or a part the script couldn't count. A script that doesn't give the section draws nothing.
+export function allIn(doc: Doc): Line[] {
+  if (doc.all_in === undefined) return []
+  const label = 'All in per merged PR'
+  const why = missing(doc.all_in)
+  const a = obj(doc.all_in)
+  if (why || !a) return [line('quiet', `${label}: ${why ?? "couldn't read it"}`)]
+  const per = num(a.per_merged_usd)
+  const merged = num(a.merged)
+  if (per !== null && merged !== null) {
+    return [line('quiet', `${label}: ${money(per)} (${merged} merged, an estimate)`)]
+  }
+  const reason = merged === 0 ? 'nothing merged'
+    : num(a.conversation_cost_usd) === null
+      ? (missing(doc.conversations) ? "the conversations' cost isn't known" : 'a model has no price')
+      : num(a.loop_cost_usd) === null ? "the loop's cost isn't known" : "couldn't read it"
+  return [line('quiet', `${label}: ${reason}`)]
 }
 
 // How the loop's recent issues ended, then how many of its merged pull requests needed a commit from
@@ -410,15 +465,29 @@ function stamp(text: string | null): string {
 }
 
 // What the estimate rests on. Several lines, each within the 66 columns the terminal's pane has,
-// because a line wider than the pane is clipped. The last says what to do when no model has a price
-// only because there's no price file. A model missing from a file that exists is the README's to explain.
+// because a line wider than the pane is clipped. Three openings, so none claims what isn't so:
+// - no price file, when every unpriced model says so: no cost was worked out, so no date or time,
+//   and a last line saying to fill the file
+// - a price file with no checked date: says it has none, then the time the split was worked out
+// - a price file with a date: the date it was checked and the time the split was worked out
+// A model missing from a file that exists is the README's to explain.
 function estimate(a: Obj): Line[] {
   const whys = Object.values(obj(a.unpriced) ?? {})
+  if (whys.length && whys.every(w => w === 'no prices.json')) {
+    return [
+      line('quiet', "Est. cost: can't be worked out without .sanvio/prices.json."),
+      line('quiet', "Skills' and commands' tokens are attributed from where each"),
+      line('quiet', 'started to the next prompt.'),
+      line('quiet', 'Fill .sanvio/prices.json to see dollars'),
+    ]
+  }
+  const checked = str(a.prices_checked)
   return [
-    line('quiet', `Est. cost: an estimate from .sanvio/prices.json, checked ${day(str(a.prices_checked))},`),
+    line('quiet', checked === null
+      ? 'Est. cost: an estimate from .sanvio/prices.json, no checked date,'
+      : `Est. cost: an estimate from .sanvio/prices.json, checked ${day(checked)},`),
     line('quiet', `worked out ${stamp(str(a.spend_at))}. Skills' and commands' tokens are`),
     line('quiet', 'attributed from where each started to the next prompt.'),
-    ...(whys.length && whys.every(w => w === 'no prices.json') ? [line('quiet', 'Fill .sanvio/prices.json to see dollars')] : []),
   ]
 }
 
@@ -460,7 +529,8 @@ export function activity(doc: Doc): Section {
       }) : rows,
       tones: field === 'guard_refusals' ? rows.map(() => 'now') : undefined })
   }
-  const out = [...(estimated ? estimate(a) : []), line('quiet', `Guard asked ${num(a.asks) ?? 0} times, since ${day(str(doc.since))}`)]
+  const n = num(a.asks) ?? 0
+  const out = [...(estimated ? estimate(a) : []), line('quiet', `Guard asked ${n} ${n === 1 ? 'time' : 'times'}, since ${day(str(doc.since))}`)]
   if (!tables.length) out.unshift(line('quiet', 'Nothing used yet'))
   return { key: 'activity', title: 'Activity', lines: [...out, ...lastReview(doc)], tables }
 }

@@ -249,6 +249,74 @@ group('work by type', () => {
   })
 })
 
+group('bill and estimate', () => {
+  const row = (month: string, billed_usd: number, estimate_usd: number | null, gap_usd: number | null, gap_pct: number | null) =>
+    ({ month, billed_usd, estimate_usd, gap_usd, gap_pct, unpriced: {} })
+  const billed = (bill: unknown) => spend({ ...DOC, bill })
+  const LINE = "This machine's estimate; the bill covers every seat on the account"
+  test('a table after the periods, each month newest first with its bill, estimate and gap, and the line', () => {
+    const section = billed({ months: [row('2026-10', 6.5, 5, 1.5, 23.1), row('2026-09', 0, 2, -2, null)], skipped: 0 })
+    expect(section.tables?.map(t => t.key).slice(0, 2)).toEqual(['spend-periods', 'spend-bill'])
+    const table = section.tables?.find(t => t.key === 'spend-bill')
+    expect(table?.title).toBe('Bill and estimate')
+    expect(table?.head).toEqual(['Month', 'Bill', 'Estimate', 'Gap'])
+    expect(table?.rows).toEqual([['Oct 2026', '$6.50', '$5.00', '$1.50 (23.1%)'], ['Sep 2026', '$0.00', '$2.00', '$-2.00']])
+    expect(section.lines.filter(l => l.text === LINE)).toEqual([{ tone: 'quiet', text: LINE }])
+  })
+  test('an estimate with a model that has no price shows ? for the estimate and the gap', () => {
+    const table = billed({ months: [row('2026-10', 6.5, null, null, null)], skipped: 0 }).tables?.find(t => t.key === 'spend-bill')
+    expect(table?.rows).toEqual([['Oct 2026', '$6.50', '?', '?']])
+  })
+  test('a missing bill says why in a quiet line, and a document without one draws no table and no line', () => {
+    const gone = billed(GONE('no bills.json'))
+    expect(gone.tables?.find(t => t.key === 'spend-bill')).toBeUndefined()
+    expect(gone.lines.filter(l => l.text.startsWith('Bill'))).toEqual([{ tone: 'quiet', text: 'Bill: no bills.json' }])
+    expect(text(gone.lines)).not.toContain(LINE)
+    const without = spend(DOC)
+    expect(without.tables?.find(t => t.key === 'spend-bill')).toBeUndefined()
+    expect(text(without.lines)).not.toContain('Bill')
+    expect(text(without.lines)).not.toContain(LINE)
+  })
+  test('entries the script left out are counted in a line', () => {
+    expect(text(billed({ months: [row('2026-10', 6.5, 5, 1.5, 23.1)], skipped: 2 }).lines))
+      .toContain('Bill: 2 entries in bills.json left out')
+  })
+})
+
+group('all in per merged pull request', () => {
+  const ALL_IN = { merged: 4, loop_cost_usd: 11, conversation_cost_usd: 3, cost_usd: 14, per_merged_usd: 3.5, unpriced: {} }
+  const allIn = (all_in: unknown, over: Doc = {}) =>
+    spend({ ...DOC, ...over, all_in }).lines.filter(l => l.text.startsWith('All in'))
+  test('one quiet line with the figure and how many merged, before the line saying it is not a bill', () => {
+    const found = allIn(ALL_IN)
+    expect(found).toEqual([{ tone: 'quiet',
+      text: 'All in per merged PR: $3.50 (4 merged, an estimate)' }])
+    const lines = spend({ ...DOC, all_in: ALL_IN }).lines.map(l => l.text)
+    expect(lines.indexOf(found[0]!.text)).toBe(lines.length - 2)
+  })
+  test("a section the script couldn't fill says its why", () => {
+    expect(allIn(GONE('gh unavailable'))).toEqual([{ tone: 'quiet', text: 'All in per merged PR: gh unavailable' }])
+  })
+  test('nothing merged says so, not $0.00', () => {
+    expect(text(allIn({ ...ALL_IN, merged: 0, per_merged_usd: null }))).toBe('All in per merged PR: nothing merged')
+  })
+  test('a null part says which: a model with no price, or a part the script could not count', () => {
+    const unpriced = { ...ALL_IN, conversation_cost_usd: null, cost_usd: null, per_merged_usd: null, unpriced: { 'm-b': 'not in prices.json' } }
+    expect(text(allIn(unpriced))).toBe('All in per merged PR: a model has no price')
+    expect(text(allIn(unpriced, { conversations: GONE('no transcripts') })))
+      .toBe("All in per merged PR: the conversations' cost isn't known")
+    const quiet = { ...ALL_IN, loop_cost_usd: null, cost_usd: null, per_merged_usd: null }
+    expect(text(allIn(quiet))).toBe("All in per merged PR: the loop's cost isn't known")
+  })
+  test('with no loop spend it still draws, under the why', () => {
+    const lines = spend({ ...DOC, loop_spend: GONE('no loop records'), all_in: { ...ALL_IN, loop_cost_usd: null, cost_usd: null, per_merged_usd: null } }).lines
+    expect(text(lines)).toBe("no loop records\nAll in per merged PR: the loop's cost isn't known")
+  })
+  test('a document without the section draws no line for it', () => {
+    expect(spend(DOC).lines.filter(l => l.text.startsWith('All in'))).toEqual([])
+  })
+})
+
 group('throughput and rework', () => {
   test('a table of how recent issues ended and the repeats, then one of rework split into fixes and merges', () => {
     const [issues, rework] = throughput(DOC).tables ?? []
@@ -421,14 +489,59 @@ group('activity', () => {
     ])
     expect(text(activity(spending({ spend_at: '2026-10-27T23:30:00-07:00' })).lines)).toContain('worked out Oct 27 23:30.')
   })
-  test("a price file with no date, or no time for the split, says ?", () => {
+  const NO_FILE = { unpriced: { a: 'no prices.json', b: 'no prices.json' } }
+  test("with no price file it says the cost can't be worked out, with no date or time, and says to fill it", () => {
+    const lines = activity(spending(NO_FILE)).lines
+    expect(lines).toEqual([
+      { tone: 'quiet', text: "Est. cost: can't be worked out without .sanvio/prices.json." },
+      { tone: 'quiet', text: "Skills' and commands' tokens are attributed from where each" },
+      { tone: 'quiet', text: 'started to the next prompt.' },
+      { tone: 'quiet', text: 'Fill .sanvio/prices.json to see dollars' },
+      { tone: 'quiet', text: 'Guard asked 2 times, since Oct 13' },
+    ])
+    expect(text(lines)).not.toContain('checked')
+    expect(text(lines)).not.toContain('an estimate from')
+  })
+  test("a price file with no date says it has none, and no time for the split says ?", () => {
     const lines = text(activity(spending({ prices_checked: null, spend_at: null })).lines)
-    expect(lines).toContain('checked ?,')
+    expect(lines.split('\n')[0]).toBe('Est. cost: an estimate from .sanvio/prices.json, no checked date,')
+    expect(lines).not.toContain('checked ?')
     expect(lines).toContain('worked out ?.')
   })
-  test('each line fits the 66 columns of the pane, even with the longest dates', () => {
-    const doc = spending({ prices_checked: '2026-09-30', spend_at: '2026-09-30T23:59:00-07:00', unpriced: { a: 'no prices.json' } })
-    for (const l of activity(doc).lines) expect(l.text.length <= 66).toBe(true)
+  const fits = (lines: { text: string }[]) => lines.every(l => l.text.length <= 66)
+  test('the width check fails a line one column too wide', () => {
+    expect(fits([{ text: 'x'.repeat(66) }])).toBe(true)
+    expect(fits([{ text: 'x'.repeat(67) }])).toBe(false)
+  })
+  test('each line fits the 66 columns of the pane: no file, no date, and the longest dates', () => {
+    const longest = spending({ prices_checked: '2026-09-30', spend_at: '2026-09-30T23:59:00-07:00' })
+    for (const doc of [spending(NO_FILE), spending({ prices_checked: null }), longest]) expect(fits(activity(doc).lines)).toBe(true)
+  })
+  test('says how many times the guard asked, one as 1 time', () => {
+    const asked = (asks: number) => text(activity(spending({ asks })).lines).split('\n').find(l => l.startsWith('Guard asked'))
+    expect(asked(0)).toBe('Guard asked 0 times, since Oct 13')
+    expect(asked(1)).toBe('Guard asked 1 time, since Oct 13')
+    expect(asked(2)).toBe('Guard asked 2 times, since Oct 13')
+  })
+  test("with no price file the tables' cells and the skills' rows stay as they were", () => {
+    const without = activity(spending({ ...NO_FILE, skill_spend: { 'review-pr': { tokens: 410_000, cost_usd: null } } })).tables?.[0]
+    expect(without?.rows).toEqual([['review-pr', '5', '410k', '?'], ['learn', '1', '?', '?']])
+    expect(activity(spending(NO_FILE)).tables).toEqual(activity(spending()).tables)
+  })
+  test('the last log review line is the same whichever opening the estimate has', () => {
+    const review = { last_review: { date: '2026-10-20', days_since: 7 } }
+    const tail = (over: object) => activity({ ...spending(over), ...review }).lines.slice(-1)[0]
+    const dated = tail({})
+    expect(dated).toEqual({ tone: 'quiet', text: 'Last log review: Oct 20, 7 days ago' })
+    expect(tail(NO_FILE)).toEqual(dated)
+    expect(tail({ prices_checked: null })).toEqual(dated)
+  })
+  test('a model missing from a file that exists, or a file it could not read, keeps the file-based opening', () => {
+    for (const unpriced of [{ a: 'not in prices.json' }, { a: 'unreadable' }, { a: 'no prices.json', b: 'not in prices.json' }]) {
+      const lines = text(activity(spending({ unpriced })).lines)
+      expect(lines.split('\n')[0]).toBe('Est. cost: an estimate from .sanvio/prices.json, checked Oct 1,')
+      expect(lines).not.toContain('Fill')
+    }
   })
   test('says to fill the price file only when that is why every unpriced model has no price', () => {
     const lines = (unpriced: object) => text(activity(spending({ unpriced })).lines)

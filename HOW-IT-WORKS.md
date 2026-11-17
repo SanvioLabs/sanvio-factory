@@ -111,7 +111,9 @@ the next. Nothing runs until you start it, and `run` never merges.
 | Scale | On PASS, and if the issue is still open, it opens a pull request that says `Closes #N`, the files changed, the last test lines, the review in full and the plan (collapsed), and comments the link on the issue. A blocked issue gets a comment saying why. It writes what went wrong into `.loop/lessons.md`, in the shape [`skills/learn/`](skills/learn/) reads, then takes the next issue | the pull request |
 
 Build and Validate repeat up to five rounds. After that the issue is labelled
-`loop:blocked` and the loop moves on without it. A round after the first that
+`loop:blocked` and the loop moves on without it.
+If the issue is closed later, for example when a person merges the loop's commit by hand, the loop marks its row `skipped` with the note `issue closed while blocked` while it's idle, within an hour, so the dashboard stops listing it. The `loop:blocked` label stays on the issue.
+A round after the first that
 adds nothing new ends the run there, blocked, with the agent's reply quoted on
 the issue: the tests and the review would only repeat. A pass needs the tests to exit 0
 **and** the review to say PASS: the script runs the tests, so the agent never
@@ -186,8 +188,15 @@ column. Entries written before this read as `unknown`.
 numbers and labels only: `v` (1), `run` (the issue and when the run started),
 `issue`, `project` (`null` for this repo), `started`, `ended`, `outcome`,
 `rounds`, `tests` and `verdicts` (one per round that reached its review), the
-run's `tokens` and `cost_usd` (`null` when not reported), and the `agent` and
-`reviewer` command names, never a path. No title, note, link or review text
+same rounds' `fix_reasons` and `tests_changed`, the run's `tokens` and
+`cost_usd` (`null` when not reported), and the `agent` and
+`reviewer` command names, never a path. A round's `fix_reasons` is what the
+review's `REASONS:` line gave for a FIX, from `tests-failed`,
+`untested-requirement`, `worked-around-tests` and `real-cost` in that order,
+`[]` for a PASS and `["unstated"]` for a FIX that named none of them. Its
+`tests_changed` says whether the branch changed or deleted a file under
+`test_paths` that its base already had, a file it added doesn't count, and is
+`null` when git or `test_paths` can't say. No title, note, link or review text
 goes in it. Lines are only ever added, never changed, so a relabelled issue's
 second run is a second line. A worker that fails is recorded as `blocked`. A
 run cut short by a Ctrl-C, or by the loop itself being killed, leaves none.
@@ -198,9 +207,23 @@ written, `loop.log` gets an `ERROR` line and the run ends as it would have.
 the loop counts the tokens one run of an issue has used, over its plan, builds
 and reviews. Before each build and before each review it checks: over the
 number, it starts no more agents and blocks the issue, and the block comment
-says `used N tokens this run, over max_issue_tokens M`. A run already started
-always finishes, so one run can overshoot by up to a run's worth. Relabelling
-the issue starts a fresh budget, though `usage.json` keeps the earlier runs.
+says `used N tokens this run, over max_issue_tokens M`. A `claude` build or
+tester that streams its events, as it does unless its command sets another
+`--output-format`, is also watched while it works, and it is stopped as soon as the run
+passes the number. What it had changed is committed on the local
+`loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, the
+issue is blocked, and its comment adds that the build or tester was stopped
+part way. To carry on, a person finishes that branch and pushes it, or
+relabels the issue to start a fresh budget. A relabel builds on the stopped
+build's commit only while the issue has no open pull request. With one open,
+the round starts from the pull request's branch, so it blocks rather than drop
+that commit: push it to the pull request's branch, or reset the branch to drop
+it, then relabel. A stopped tester's commit also blocks a relabel, because a
+new tester can't add to unfinished tests: finish them in that commit and
+reword its message to `Loop: issue #N, round 0 (tests).`, or drop it. Planning
+and review agents, and agents other than `claude`, still finish their run, so
+they can overshoot by up to a run's worth. Relabelling the issue starts a
+fresh budget, though `usage.json` keeps the earlier runs.
 Only a run that reports its tokens counts, so `codex`, `ollama` and a timed-out
 run add nothing, and the loop logs a `WARN` at start-up naming each such
 agent. `0` or empty means no budget; anything else that isn't a whole number
@@ -216,7 +239,7 @@ on an issue still being worked waits for it. So does one held by a path: when a
 ticket's Scope **In** names, in backticks, a file or folder that a running
 issue's ticket also named, it waits until that issue's worker ends, and any
 ready issue that doesn't overlap can start meanwhile. [`CHANGELOG.md`](CHANGELOG.md) never holds anything: nearly every ticket names it, and a
-hold wouldn't stop two entries conflicting. The loop merges a conflict in [`CHANGELOG.md`](CHANGELOG.md) alone itself instead, once it's idle: it merges the base into the pull request, keeps both sets of entries with the branch's on top, runs the tests, and pushes if they pass. The log says
+hold wouldn't stop two entries conflicting. The loop merges a conflict in [`CHANGELOG.md`](CHANGELOG.md) alone itself instead, once it's idle: it merges the base into the pull request, keeps both sets of entries with the branch's on top, runs the tests, and pushes if they pass. An added entry dated before the base's newest takes the day of the merge, so the log stays newest first, and the loop's comment on the pull request says so. The log says
 `#13 HELD waits on #12 for src/app/main.py` once, its queue row in `status.json`
 has `waiting_on` and `held_path` while it's held, and with more than one worker
 a `--dry-run` prints a `HELD` line for each issue that overlaps its pick. The
@@ -244,7 +267,7 @@ keeps its default:
 | `test_command` | `python3 -m unittest discover -s tests` | Run by the script, in the worktree |
 | `generate_command` | For this repo, `UPDATE_SAMPLE=1 python3 -m unittest tests.test_dashboard_data.Sample; python3 scripts/draw_dashboard.py`. For a project, empty | Run by the script after each build, before the commit, in the worktree, with the same environment and timeout as `test_command`. What it writes goes in that round's commit, for files the build agent can't make itself. Empty runs nothing. One that fails logs a `GENERATE` line with its exit code, and the round goes on |
 | `setup_command` | empty | Run by the script once per worktree, before the planner, with the same environment and timeout as `test_command`, such as `npm ci`. Empty runs nothing. It logs `SETUP done` when it passes. One that fails or times out blocks the issue, with its output kept in `.loop/issue-N/setup-output.txt` and off the public comment. On a branch that already has the loop's commits and no record of setup, it doesn't run and the issue blocks, since it would run what an agent wrote; remove the worktree and the branch to start over. One that passes but leaves anything git would commit blocks too, naming the paths, so it may write only what git ignores. A blocked setup runs again when the issue is put back; a passed one doesn't, even if the command changes, until the worktree is removed |
-| `sandbox_commands` | `true` | On a Mac, the script runs `test_command`, `generate_command` and `setup_command` inside macOS's `sandbox-exec`, which keeps them from reading `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.claude/.credentials.json` and `~/Library/Keychains`, and the factory's own `company/`, `local-data/`, `.inbox/` and `.claude/settings.local.json`. A command that tries gets `Operation not permitted`. It covers reading files only: the network, and the keychain's API (`security`, or `gh auth token` when `gh` keeps its login there), are still in reach. Only `true` turns it on. `false` turns it off, for tests that need one of those paths, and only the factory's `loop.json` sets it: at its top level for every project, or under `"projects"` for one. A project's own `loop.json` that sets it is refused, because anyone who can push to the project could otherwise switch the sandbox off for its own commands. Turned off on a Mac, the loop logs one `WARN` line when it starts. Off a Mac there's no sandbox: the commands run as before and the loop logs one `WARN` line when it starts. Any value other than `true` or `false` is refused with an `ERROR` line before any issue is taken. The agents' own tool calls aren't in it, including the tests a build runs with `builder_runs_tests` |
+| `sandbox_commands` | `true` | On a Mac, the script runs `test_command`, `generate_command` and `setup_command` inside macOS's `sandbox-exec`, which keeps them from reading or writing `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.config/git`, `~/.config/op`, `~/.azure`, `~/.kube`, `~/.docker`, `~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.gitconfig`, `~/.m2/settings.xml`, `~/.terraform.d`, `~/.claude/.credentials.json` and `~/Library/Keychains`, and the factory's own `company/`, `local-data/`, `.inbox/` and `.claude/settings.local.json`. Where `XDG_CONFIG_HOME` is an absolute path, its `gh`, `gcloud`, `git` and `op` folders are denied too, and where `GH_CONFIG_DIR` is, that folder. Each path is denied whether or not it's there, so one made during the run is covered, and no folder from your home folder down to one can be renamed, the folders holding the factory included (for a factory outside your home folder, from the factory's folder down; for `XDG_CONFIG_HOME`, that folder itself, and for `GH_CONFIG_DIR`, the folder holding it), so moving `~/.config` aside doesn't uncover it. A command that tries gets `Operation not permitted`. A `GH_CONFIG_DIR` set to a wide folder, such as your home folder, denies all of it. With `~/.gitconfig` out of reach, the commands run with `GIT_CONFIG_GLOBAL=/dev/null`, and git's `core.excludesFile` and `core.attributesFile` point at `/dev/null` too, so git reads no global config and doesn't warn about the files under `~/.config/git`. Those two settings outrank a repository's own, so a test that sets either in a repository's config gets `/dev/null` instead. Tests that commit set `user.name` and `user.email` themselves, or `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`. When the loop starts, it checks that `sandbox-exec` can apply a profile; where it can't, as inside another sandbox, the commands run without it and the loop logs one `WARN` line saying why. It checks once a run, so after a one-off failure, such as a timeout, restart the loop to check again, as the line says. It covers files only: the network, the keychain's API (`security`, or `gh auth token` when `gh` keeps its login there), a hard link made earlier to a denied file, and a gcloud config moved with `CLOUDSDK_CONFIG` are still in reach. Only `true` turns it on. `false` turns it off, for tests that need one of those paths, and only the factory's `loop.json` sets it: at its top level for every project, or under `"projects"` for one. A project's own `loop.json` that sets it is refused, because anyone who can push to the project could otherwise switch the sandbox off for its own commands. Turned off on a Mac, the loop logs one `WARN` line when it starts. Off a Mac there's no sandbox: the commands run as before and the loop logs one `WARN` line when it starts. Any value other than `true` or `false` is refused with an `ERROR` line before any issue is taken. The agents' own tool calls aren't in it, including the tests a build runs with `builder_runs_tests` |
 | `test_first` | `false` | Only `true` turns it on. A separate agent writes failing tests, in new files only, after the planner and before round 1, and the build has to make them pass without changing them. The issue blocks if the tester changes nothing, changes or deletes a file that already existed, changes a path outside `test_paths` or a lockfile, or its tests already pass. A build that changes or deletes one of its files blocks too. A branch with a `round 0 (tests)` commit skips the tester and keeps that commit's files fixed |
 | `tester_agent` | empty | The command that writes the tests, named the same way as `agent`. Empty means `agent` |
 | `test_paths` | `["tests/**"]` | Globs for the files the tester may write. `*` stays within a folder and `**` crosses folders. For a project, set it in the factory's `projects` entry |
@@ -263,7 +286,7 @@ keeps its default:
 | `agent_env` | empty | Variables every agent keeps although their names look like a secret's, for a provider that signs in through them, such as `["AWS_PROFILE", "AWS_REGION"]` for Bedrock. Each is kept only where it's set. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `network_allow` | `null` | A list of domains, an empty one included, runs a `claude` build and tester agent's shell commands in Claude Code's sandbox: network only to those domains, writes only to the worktree and temp, and the home folder's credential folders (`~/.ssh`, `~/.aws`, `~/.config/gh` and others) unreadable. It fails closed and never auto-approves a command. `null` leaves it off. On Windows, on Linux without `bwrap` and `socat`, or with another build agent, the loop logs an `ERROR` and takes no issue. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `fork` | `null` | `OWNER/NAME` of a fork of `origin`'s repo, owned by the login the loop runs as. Set, `run` pushes every `loop/issue-N` to it through a remote named `fork`, never to `origin`, and opens each pull request into `origin`'s base from `<owner>:loop/issue-N`. A round fetches the fork's branch and takes only that fork's pull request, and the merge that keeps both [`CHANGELOG.md`](CHANGELOG.md) entries pushes there too. Before an issue is worked, once a run, the loop checks that GitHub has the fork under that name, that its parent is `origin`'s repo and that its own login owns it; one that fails blocks the issue saying why, and nothing is pushed. An issue whose `loop/issue-N` is still on `origin` from before `fork` was set blocks too, and the merge leaves its pull request alone. Every `gh` call then names `origin`'s repo, and `auto_merge`, which never merges a pull request from a fork, never merges these. `null` pushes to `origin`. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own. A fork is a fork of one repo, so set a project's in its `projects` entry: a top-level one reaches every project too, and blocks each one whose `origin` it isn't a fork of |
-| `caller` | `false` | Whether this project is an outside caller's repo, which someone else's setup labels issues in for this factory to build. Only `true` turns it on, and `run` refuses any value but `true` or `false` with an `ERROR` line. On, an issue waits in the queue until a person here accepts it: no agent reads it, nothing is said or changed on it, its queue row in `status.json` has a `note` saying why, and the log says `HELD` once. Once accepted, it's blocked, saying why, if its body or title changed after the acceptance or its body holds an HTML comment, whoever wrote it, or if it lacks any of the `## Objective`, `## Acceptance Criteria`, `## Scope` and `## Verification` sections with text under each, which an `ORDER` line names. All of that comes before any agent or worktree. `ready_label` and `blocked_label` then come from the factory's `loop.json`, its top level or the project's entry, never from the caller's own `loop.json`, which the caller can push to; the entry may set them. `run` refuses to start a caller project with `network_allow` unset, `max_issue_tokens` of `0`, or no `account_tier`. Its claude build and tester agents read nothing of the factory's private folders, its `loop.json`, or another project's clone, state or worktrees: Claude Code's sandbox and deny rules name each one, and the guard refuses any path outside the issue's worktree and the clone's `.git`. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
+| `caller` | `false` | Whether this project is an outside caller's repo, which someone else's setup labels issues in for this factory to build. Only `true` turns it on, and `run` refuses any value but `true` or `false` with an `ERROR` line. On, an issue waits in the queue until a person here accepts it: no agent reads it, nothing is said or changed on it, its queue row in `status.json` has a `note` saying why, and the log says `HELD` once. Once accepted, it's blocked, saying why, if its body or title changed after the acceptance or its body holds an HTML comment, whoever wrote it, or if it lacks any of the `## Objective`, `## Acceptance Criteria`, `## Scope` and `## Verification` sections with text under each, which an `ORDER` line names. All of that comes before any agent or worktree. `ready_label` and `blocked_label` then come from the factory's `loop.json`, its top level or the project's entry, never from the caller's own `loop.json`, which the caller can push to; the entry may set them. `run` refuses to start a caller project with `network_allow` unset, `max_issue_tokens` of `0`, or no `account_tier`. Its claude build and tester agents' own tool calls are held away from the factory's private folders, its `loop.json`, and another project's clone, state and worktrees: Claude Code's sandbox and deny rules name each one, and the guard refuses any path outside the issue's worktree and the clone's `.git`. That isn't the whole of it yet: the caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into those sessions (#597). Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `accept_label` | `factory:accepted` | The label a person here adds to a caller's issue to accept it. It counts only when the newest event adding it, as GitHub records it, was by a login in `acceptors`, and the log names who in an `ACCEPT` line. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `acceptors` | empty | The GitHub logins whose `accept_label` accepts a caller's issue, in any case. Empty accepts nothing, and `run` logs a `WARN` saying so. One added by anyone else holds the issue, and the `HELD` line names who added it. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
 | `account_tier` | `null` | The plan the agents run on, such as `Claude Team`, as a caller's pull request names it. A caller project needs it to start. Only the factory's `loop.json` or its `projects` entry sets it, never a project's own |
@@ -524,7 +547,7 @@ names. Each agent's session also gets `SANVIO_UNATTENDED=1`, so a tool call
 [`.claude/hooks/guard.py`](.claude/hooks/guard.py) can't check is refused rather than let through with a
 warning nobody reads. The tests still run code the agent
 wrote, as you. On a Mac, `sandbox_commands` keeps them, and the generate and
-setup commands, from reading the credential files and factory folders its row
+setup commands, from reading or writing the credential files and factory folders its row
 in the table above lists. Anything else your user can reach is still in reach:
 the rest of the disk, the network, and the keychain through its API, where `gh`
 often keeps its login. Off a Mac there's no sandbox at all. Run the loop as a
@@ -620,26 +643,30 @@ logged once with `(will retry)` and tried again on the next poll.
 with nits, checks passing.` The reviewer picks the verdict by sorting each
 finding into *blocks* or *nit*, as step 5 of [`skills/review-pr/`](skills/review-pr/SKILL.md) says. The
 grade isn't the reviewer's: it comes from the verdict and the checks, scored by
-[`review-rubric.json`](review-rubric.json) at the factory's root, which gives
-each of five keys a whole number from 0 to 10: `ready`, `ready with nits` and
-`changes needed` for the verdicts, `failing` for a reviewed commit with a check
-run that finished and didn't pass (success, neutral and skipped pass), and
-`unreadable` for a verdict that isn't one of the three. When a person runs
-`review-pr` by hand on a pull request, the skill grades from the same rubric in
-the same order, and ends with the grade line and then a `Verdict:` line; the
+[`review-rubric.json`](review-rubric.json) at the factory's root. The shipped
+rubric gives each verdict a number, with one for a failed check (success,
+neutral and skipped pass) and one for a verdict it can't read. A ladder rubric
+instead defines each grade by the verdicts and the named check runs it needs,
+such as a 10 that needs `security-scan` to have passed.
+[`docs/review-rubric.md`](docs/review-rubric.md) has both shapes, worked examples, and how each reads
+against `auto_merge`'s `min_grade`. `python3 scripts/loop.py grade <n> --verdict
+"<verdict>"` prints the grade a verdict would get on a pull request's head and
+changes nothing, so you can try a rubric first. When a person runs
+`review-pr` by hand on a pull request, the skill grades with that command, and
+ends with the grade line and then a `Verdict:` line; the
 loop and CI grade their own runs. The checks are the
 reviewed commit's check runs, not the pull request's newer head. A commit with
 no check runs counts as passing, and the grade says `no checks ran`. While a
-check is still running, or GitHub can't say, the trailer reads `Grade pending:
+check the grade needs is still running, or GitHub can't say, the trailer reads `Grade pending:
 checks still running.` and the status row's `grade` is `pending`; the next poll
 reads the checks again, with no agent, and once they've finished edits the
 grade into your own comment's trailer and nothing else, logging `REVIEW #31
 4f2a9c1 graded 10/10`. A comment someone else posted, or a send-back with
 another header, is never edited, and a newer send-back under your login doesn't
 hide the comment that's waiting. If that comment is gone, the row stops waiting
-and no later poll asks again. A rubric that's missing, isn't valid JSON, or
-lacks a key, has another key or a value outside 0 to 10 grades every review 0,
-with the file named in the trailer. Edit the file to change the grades. A
+and no later poll asks again. A rubric that's missing, isn't valid JSON or
+breaks its shape's rules grades every review 0, with the file named in the
+trailer. Edit the file to change the grades. A
 project under [`projects/`](projects/) gets its own with `review_rubric` in the
 factory's `projects` entry, a path from the factory's root. The project's own
 `loop.json` can't set it, since anyone who can push to the project could
@@ -784,6 +811,63 @@ It's never written into a file, the workflow, `loop.json` or an issue.
 secret it names, and read its opening comment: it lists the repository setting
 that has to be on for a workflow to open a pull request at all.
 
+### Keeping the loop to its own work
+
+An agent the loop starts can do what the login it runs as can do. The factory
+narrows that in places: [`.claude/hooks/guard.py`](.claude/hooks/guard.py) refuses credential files by name
+and a few commands that print secrets, and the loop drops anything named like a
+secret from its agents' and tests' environment. The guard is a backstop rather
+than a sandbox. It refuses the paths and commands it knows, and anything it
+doesn't know goes through. What keeps the loop to its own work is the boundary
+it runs inside, and there are three: your own machine, the dev container, and a
+machine that isn't yours. None of the three stops an agent from reading what's
+inside its own boundary. Put nothing inside it that you'd mind an agent reading.
+
+#### On your own machine
+
+On your laptop the loop and every agent it starts run as you, so they can reach
+whatever your login can: every repo `gh` can push to, your cloud command-line
+sign-ins, your other projects. Before the loop takes real work, set these:
+
+- **Claude Code's sandbox, for your own sessions.** Turn on [Claude Code's
+  sandbox](https://code.claude.com/docs/en/sandboxing) in your own settings, so
+  the shell commands in the sessions you run here reach only the folders and
+  network it allows. The factory's shared [`.claude/settings.json`](.claude/settings.json) doesn't turn
+  it on.
+- **The loop's limits, for its agents.** In the factory's `loop.json`, set
+  `network_allow` to the domains your builds need, so a `claude` build or
+  tester agent's shell runs in that same sandbox, and set `max_issue_tokens`,
+  so one issue can't spend without limit. Keep `sandbox_commands` on: it keeps
+  the loop's test, generate and setup commands away from your credential files,
+  and it works on a Mac only. Their rows in the table under [The loop](#the-loop)
+  say what each covers.
+- **A GitHub token for the one repo.** Agents can still reach the login `gh`
+  holds, so sign `gh` in, for the login the loop runs as, with a fine-grained
+  personal access token for the one repo the loop works on rather than your
+  full login. Give it these repository permissions: Contents read and write,
+  Pull requests read and write, Issues read and write, Commit statuses read,
+  Checks read, and Metadata read. Contents write is needed only where the loop
+  pushes branches or `auto_merge` is on.
+- **Nothing you'd mind it reading.** Keep production cloud credentials and
+  customer data out of the login the loop runs as: run it as a separate user,
+  or on a machine that has neither.
+
+#### In the dev container
+
+[`.devcontainer/README.md`](.devcontainer/README.md) sets up a Linux container that takes nothing from your
+machine but this repo's folder. The container is the boundary around Claude
+Code and the loop, and it's the same on Mac, Linux and Windows. Inside it,
+`sandbox_commands` doesn't run, and the container has no `bwrap` or `socat`, so
+`network_allow` stops the loop with an `ERROR`. Its README's *What the container
+doesn't stop* says what's still in reach: the two sign-ins, the workspace and
+the network.
+
+#### Off your machine
+
+A VM or GitHub Actions moves the boundary off your machine altogether. The VM
+and GitHub Actions rows in the table under *Off your laptop* above say what each
+needs and costs.
+
 ## Handing work to another factory
 
 A factory is any system that takes work in and puts checked work out. This
@@ -797,15 +881,16 @@ sequenceDiagram
     participant You
     participant Factory as This factory
     participant GitHub
-    participant Factory
+    participant Other as The other factory
     You->>Factory: dispatch #12, then yes
     Factory->>GitHub: add the factory's submit label to #12
-    Factory->>GitHub: open a pull request that closes #12
+    Other->>GitHub: open a pull request that closes #12, take the label off
     Factory->>GitHub: status: read #12 and its pull request
     Factory->>GitHub: review: loop.py review --pr N posts one comment
     alt changes needed
         You->>Factory: resend, then yes
         Factory->>GitHub: put the submit label back on #12
+        Other->>GitHub: push to the same branch, or the stopped label
     else ready
         Factory->>GitHub: read the required checks
         Factory-->>You: ready for a person, or why not
@@ -898,6 +983,23 @@ doesn't allow it. A run dispatched with `--repo` to another repo isn't checked
 against that one.
 `--match-head-commit` needs gh 2.13.0 or later. `list` gives no merge: it says to
 run `status` on the run right before merging. [`skills/dispatch/`](skills/dispatch/) is the conversation around it.
+
+## Measuring it
+
+A change to the factory, a new rule, a different model, a reworded skill, can
+make it better or worse in ways one pull request won't show.
+[`scripts/eval_factory.py`](scripts/eval_factory.py) measures it: it runs the
+factory through a suite of issues in a fresh private repo, merges each pull
+request once its CI passes, and scores the result with a key the factory never
+sees. Run it before and after a change and compare the two.
+
+![A suite in a private repo holds seed/, a repo and its CI; issues/, 01, 02 and 03 in order; and key/, holding score, reference/ and wrong/, which the factory never sees. eval_factory.py run makes a new repo from the seed, and issues 1, 2 and 3 are merged one at a time, each after its CI passes. A scorecard follows, with made-up figures: tests 28/30, traps 5/5, stops 0, time 41.2 minutes, cost $5.80 via --usage-command. With --repeat 3 there are three runs, and the scorecard shows the middle of them. eval_factory.py compare a-1,a-2,a-3 b-1,b-2,b-3 compares two groups and names what moved: Better, test refunds round to the cent, from 1/3 to 3/3; Worse, test an empty cart is refused, from 3/3 to 2/3, flaky in B. eval_factory.py report writes report.pdf, .html and .md, with each issue, misses by issue and every check.](docs/factory-evals.gif)
+
+[`docs/eval-walkthrough.md`](docs/eval-walkthrough.md) takes a first run step by
+step, [`docs/factory-evals.md`](docs/factory-evals.md) has the format and every
+command, and [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) is how
+to build a suite of your own. None of it runs in CI or the gate: a person starts
+each run.
 
 ## Context: who remembers what
 

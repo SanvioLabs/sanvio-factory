@@ -242,5 +242,169 @@ class Incidents(unittest.TestCase):
             self.assertNotIn("incidents.md", bullet, bullet.splitlines()[0])
 
 
+def front_matter(text):
+    """The lines between a file's opening --- and the next ---."""
+    match = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    return match.group(1).splitlines() if match else []
+
+
+def paragraph(text, start):
+    """The blank-line-separated paragraph that begins with start."""
+    return next((p for p in re.split(r"\n\s*\n", text) if p.startswith(start)), "")
+
+
+class Concern(unittest.TestCase):
+    TEMPLATES = ROOT / ".github" / "ISSUE_TEMPLATE"
+    TEMPLATE = TEMPLATES / "concern.md"
+    INCIDENTS = ROOT / "steering" / "incidents.md"
+    TICKETS = ROOT / "steering" / "tickets.md"
+    COMPANY = ROOT / "skills" / "orientation" / "COMPANY.example.md"
+    TYPES = ("bug", "enhancement", "documentation", "chore")
+
+    def labels(self, path):
+        lines = [line for line in front_matter(path.read_text()) if line.startswith("labels:")]
+        self.assertEqual(len(lines), 1, "{} has no single labels: line".format(path.name))
+        return lines[0][len("labels:"):].strip()
+
+    def test_the_template_is_named_and_labelled_concern(self):
+        self.assertTrue(self.TEMPLATE.is_file(), "no .github/ISSUE_TEMPLATE/concern.md")
+        lines = front_matter(self.TEMPLATE.read_text())
+        self.assertIn("name: Raise a concern", lines)
+        self.assertIn("labels: concern", lines)
+
+    def test_the_template_has_its_three_sections_in_order(self):
+        headings = [line for line in self.TEMPLATE.read_text().splitlines() if line.startswith("## ")]
+        self.assertEqual(headings, ["## What happened", "## Where", "## What harm you think it does"])
+
+    def test_the_template_sends_vulnerabilities_elsewhere_and_keeps_secrets_and_data_out(self):
+        text = self.TEMPLATE.read_text()
+        for phrase in (".github/SECURITY.md", "credential", "personal data", "documents"):
+            self.assertIn(phrase, text)
+
+    def test_the_template_carries_no_type_or_loop_label(self):
+        labels = {label.strip() for label in self.labels(self.TEMPLATE).split(",")}
+        for name in ("loop-ready",) + self.TYPES:
+            self.assertNotIn(name, labels)
+
+    def test_the_task_template_still_has_no_label(self):
+        self.assertEqual(self.labels(self.TEMPLATES / "loop-task.md"), '""')
+
+    def test_incidents_routes_a_concern_to_the_ai_risk_owner(self):
+        text = section(self.INCIDENTS.read_text(), "## Who to tell, and how soon", "## ")
+        for phrase in ("concern", "AI risk owner", "Who decides", "incident"):
+            self.assertIn(phrase, text)
+
+    def test_the_incident_contact_still_comes_from_the_incidents_section(self):
+        text = section(self.INCIDENTS.read_text(), "## Who to tell, and how soon", "## ")
+        self.assertIn("from the `## Incidents`", text)
+
+    def test_tickets_gives_a_concern_no_type_label(self):
+        self.assertIn("concern", paragraph(self.TICKETS.read_text(), "**One type label.**"))
+
+    def test_every_other_issue_still_takes_exactly_one_type(self):
+        text = paragraph(self.TICKETS.read_text(), "**One type label.**")
+        self.assertIn("exactly one of", text)
+        for name in self.TYPES:
+            self.assertIn("`{}`".format(name), text)
+
+    def test_the_company_template_asks_who_owns_ai_risk(self):
+        text = section(self.COMPANY.read_text(), "## Who decides", "## ")
+        self.assertIn("AI risk", text)
+        self.assertIn("concern", text)
+
+
+class Decisions(unittest.TestCase):
+    """steering/decisions.md points at the rule for each step a person decides; it never restates one."""
+    PATH = ROOT / "steering" / "decisions.md"
+    HEADER = "| Decision | Who decides | Where the rule lives |"
+    LINK = re.compile(r"\]\(([^)]+)\)")
+    # (Decision, Who decides, the files its third cell links to, from the repo root)
+    ROWS = [
+        ("Sending, emailing or publishing anything", "A person, who sends it themselves",
+         {"AGENTS.md"}),
+        ("A connector call that sends, edits, deletes or shares", "The person in the session, a yes to that one call",
+         {"AGENTS.md"}),
+        ("Merging a pull request", "A person, unless the factory's owner has turned on `auto_merge`",
+         {"AGENTS.md", "HOW-IT-WORKS.md"}),
+        ("Turning on `auto_merge`", "The factory's owner, never the agent",
+         {"AGENTS.md"}),
+        ("A price, a contract, a send to a customer",
+         "The person named under `## Who decides` in the company record",
+         {"skills/orientation/COMPANY.example.md"}),
+        ("Using a data source marked `unconfirmed`", "A person, in this session",
+         {"skills/orientation/SKILL.md"}),
+        ("Editing a gate to make work pass",
+         "Nobody: it isn't done. Changing a gate is a person's deliberate change",
+         {"AGENTS.md", "steering/gates.md"}),
+        ("Writing a new rule from a lesson", "The person, a yes to the rule as shown",
+         {"skills/learn/SKILL.md"}),
+        ("Turning off the usage log",
+         "The person running the session, unless an administrator's managed setting keeps it on",
+         {"steering/data-and-tools.md"}),
+        ("Turning off the loop's command sandbox", "The factory's owner, in the factory's `loop.json`",
+         {"HOW-IT-WORKS.md"}),
+        ("Adding an AI tool or MCP server",
+         "Whoever agrees it with the customer, before any customer information reaches it",
+         {"steering/data-and-tools.md"}),
+        ("Deploying to production", "A person, a yes to that one deploy",
+         {"steering/deploying.md"}),
+        ("Deleting or overwriting data, test data included", "A person, asked first",
+         {"steering/deploying.md"}),
+    ]
+
+    def rows(self):
+        return [line for line in self.PATH.read_text().splitlines() if line.startswith("|")]
+
+    def cells(self):
+        """Each body row's cells, keyed by its Decision cell."""
+        body = [line for line in self.rows()[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
+        found = {}
+        for line in body:
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            found[cells[0]] = cells
+        return found
+
+    def target(self, link):
+        return (ROOT / "steering" / link).resolve().relative_to(ROOT.resolve()).as_posix()
+
+    def test_header_row(self):
+        self.assertTrue(self.PATH.is_file(), "no steering/decisions.md")
+        self.assertEqual(self.rows()[:1], [self.HEADER])
+
+    def test_each_decision_has_its_row(self):
+        found = self.cells()
+        for decision, who, files in self.ROWS:
+            self.assertIn(decision, found, "no row for: " + decision)
+            cells = found[decision]
+            self.assertEqual(len(cells), 3, decision)
+            self.assertEqual(cells[1], who, decision)
+            self.assertEqual({self.target(link) for link in self.LINK.findall(cells[2])}, files, decision)
+
+    def test_every_link_resolves(self):
+        links = self.LINK.findall(self.PATH.read_text())
+        self.assertTrue(links)
+        for link in links:
+            path = link.split("#", 1)[0]
+            self.assertTrue((ROOT / "steering" / path).is_file(), link)
+
+    def test_linked_file_wins(self):
+        self.assertIn("the linked file wins", self.PATH.read_text())
+
+    def test_decisions_is_read_when_not_imported(self):
+        """An @ import would load it in every session, and Kiro's check would then want it linked."""
+        imported = {Path(target).name for target in IMPORT.findall(AGENTS)}
+        self.assertNotIn("decisions.md", imported)
+
+    def test_existing_rules_unchanged(self):
+        text = " ".join(AGENTS.split())
+        self.assertIn("Never send, email or publish anything.", text)
+        self.assertIn("never edit a gate to make work pass", text)
+
+    def test_rules_line_points_at_it(self):
+        rules = section(AGENTS, "## Rules", "## ")
+        self.assertIn("steering/decisions.md", rules)
+        self.assertIn("who decides", rules)
+
+
 if __name__ == "__main__":
     unittest.main()

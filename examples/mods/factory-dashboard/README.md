@@ -43,6 +43,11 @@ Today                                                 $4.55   3.0M
 Since Oct 15                                         $34.60  23.3M
 Per pull request                                     ~$5.77
 
+Bill and estimate
+Month                                   Bill Estimate          Gap
+Sep 2026                              $54.20   $51.80 $2.40 (4.4%)
+Aug 2026                              $28.10   $26.94 $1.16 (4.1%)
+
 Costliest issues                                       Cost Tokens
 #34                                                   $9.15   6.2M
 #33                                                   $6.30   4.2M
@@ -62,6 +67,8 @@ Chore                                          0           0 $0.00
 Untyped                                        1           0 $0.00
 
 The loop's records start Oct 16
+This machine's estimate; the bill covers every seat on the account
+All in per merged PR: $78.83 (5 merged, an estimate)
 Claude Code's estimate at API prices, not a bill
 
 ──────────────────────────────────────────────────────────────────
@@ -139,6 +146,17 @@ worked out Oct 27 12:00. Skills' and commands' tokens are
 attributed from where each started to the next prompt.
 Guard asked 2 times, since Oct 15
 Last log review: Oct 20, 7 days ago
+```
+
+With no `.sanvio/prices.json`, no cost is worked out, so the footer gives no
+date or time for one and says what to fill:
+
+```
+Est. cost: can't be worked out without .sanvio/prices.json.
+Skills' and commands' tokens are attributed from where each
+started to the next prompt.
+Fill .sanvio/prices.json to see dollars
+Guard asked 1 time, since Oct 15
 ```
 
 </details>

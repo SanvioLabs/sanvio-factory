@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 // pane, the import paths, and opening, which is /factory-floor and the Crew button (say, below). The
 // tests of the /loop-crew command are left out, as factory-floor has none. The tests that differ for
 // the Crew's place in factory-floor's pane say so where they stand.
+import { buttonRows, buttonsWidth } from './buttons'
 import { ACCENT, DARK, OUT_MS, STATIONS, stationX, walkMs } from './crew-logic'
 
 const ROOT = '/h/starter'
@@ -64,12 +65,14 @@ const lastBlit = (blits: { key: string; cells: string }[], key: string): string 
 // take the root away, leave the lock's holder gone or fail the listing of .loop/projects/. `focus`
 // gives the session's id, which the test can change and null refuses, the default, and what fs.stat
 // finds directly under projects/. fs.write, the one change to files the engine offers, is recorded and
-// never answered with a write.
+// never answered with a write. An ssh is answered by `remote`, from the remote command alone, as [exit
+// code, stdout], and recorded in `sshes`; with no answer it fails as a connection would, with 255.
 type Kinds = Record<string, 'dir' | 'file' | 'link'>
 type Focus = { session?: { id: string | null }; projects?: Kinds }
-function world(on: On, files: Map<string, string>, focus: Focus = {}) {
+function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Map<string, [number, string]> = new Map()) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const ran: string[][] = []
+  const sshes: string[] = []
   const reads: string[] = []
   const writes: { path: string; text: string }[] = []
   const session = focus.session ?? { id: null }
@@ -109,6 +112,12 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     return { value: [...dirs, { name: 'a-file', kind: 'file' as const, size: 0 }] } as never
   })
   on('process.run', async (_$, e) => {
+    if (e.argv[0] === 'ssh') {
+      const command = e.argv[e.argv.length - 1] ?? ''
+      sshes.push(command)
+      const [exitCode, stdout] = remote.get(command) ?? [255, '']
+      return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     ran.push([...e.argv])
     return flip.staleLock ? process(1, `kill: (${e.argv[2]}) - No such process`) : process(0, '')
   })
@@ -149,7 +158,7 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}) {
     await clock.advance(2000)
     await drain()
   }
-  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close }
+  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close, sshes }
 }
 
 // The pane as the current test's world has it, for say to tell whether /factory-floor would open it.
@@ -203,13 +212,13 @@ group('the board', () => {
     expect([head?.props.columns, head?.props.rows]).toEqual([72, 1])
     const label = decode(String(head?.props.cells)).map(([code]) => String.fromCodePoint(code)).join('')
     for (const station of STATIONS) expect(label).toContain(station)
-    for (const [number, station] of [[12, 'build'], [13, 'check']] as const) {
+    for (const [number, station] of [[12, 'build'], [13, 'validate']] as const) {
       const lane = await (ui as unknown as Finds).find({ key: `lane-${number}` })
       expect([lane?.props.columns, lane?.props.rows]).toEqual([72, 5])
       expect(heads(String(lane?.props.cells), 72)).toEqual([home(at(station), 72)])
     }
     const drawn = JSON.stringify(await ui.drawn())
-    for (const words of ['#12', 'Job 12', '· building', '#13', 'Job 13', '· checking, round 2']) expect(drawn).toContain(words)
+    for (const words of ['#12', 'Job 12', '· build', '#13', 'Job 13', '· validate, round 2']) expect(drawn).toContain(words)
     expect(drawn.indexOf('lane-12')).toBeLessThan(drawn.indexOf('lane-13'))
     await ui.unmount()
     await close()
@@ -220,7 +229,7 @@ group('the board', () => {
       await say($, '', pane(72, 40, surface))
       const ui = await $.ui.mount(pane(72, 40, surface))
       const all = await svgs(ui)
-      expect(all.map(s => s.props.alt)).toEqual(["The loop's steps, left to right", 'Issue #12 at build', 'Issue #13 at check'])
+      expect(all.map(s => s.props.alt)).toEqual(["The loop's steps, left to right", 'Issue #12 at build', 'Issue #13 at validate'])
       for (const lane of all.slice(1)) {
         expect([lane.props.width, lane.props.height, lane.props.isInteractive]).toEqual([undefined, undefined, true])
         const source = String(lane.props.source)
@@ -229,7 +238,7 @@ group('the board', () => {
         expect(source).not.toContain('<animateTransform')
       }
       const drawn = JSON.stringify(await ui.drawn())
-      for (const words of ['#12', 'Job 12', '· building', '#13', '· checking, round 2']) expect(drawn).toContain(words)
+      for (const words of ['#12', 'Job 12', '· build', '#13', '· validate, round 2']) expect(drawn).toContain(words)
       await ui.unmount()
       await close()
     })
@@ -305,9 +314,9 @@ group('the board', () => {
     await say($, '', pane(42, 20))
     const ui = await $.ui.mount(pane(42, 20))
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain(`${'x'.repeat(18)}…`)
-    expect(drawn).not.toContain('x'.repeat(19))
-    expect(drawn).toContain('· building, round 1')
+    expect(drawn).toContain(`${'x'.repeat(21)}…`)
+    expect(drawn).not.toContain('x'.repeat(22))
+    expect(drawn).toContain('· build, round 1')
     await ui.unmount()
     await close()
   })
@@ -338,7 +347,7 @@ group('the walk', () => {
     files.set(STATUS, statusText(job(12, 'TEST')))
     await clock.advance(2000)
     await drain()
-    const [from, to] = [home(at('plan'), 72), home(at('test'), 72)]
+    const [from, to] = [home(at('shape'), 72), home(at('test'), 72)]
     const seen: number[] = []
     for (let i = 0; i < 10; i++) {
       await clock.advance(80)
@@ -424,12 +433,12 @@ group('the walk', () => {
     files.set(STATUS, statusText(job(12, 'SCALE'), job(13, 'SHAPE')))
     await say($, '', desk, ui)
     await ui.redraw()
-    expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #12 at ship', 'Issue #13 at plan'])
+    expect((await laneSvgs(ui)).map(s => s.props.alt)).toEqual(['Issue #12 at scale', 'Issue #13 at shape'])
     expect(await walks(ui)).toBe(0)
     await ui.unmount()
     await close()
   })
-  test('a new issue walks in from the start', async ($, on) => {
+  test('a new issue walks in from discover', async ($, on) => {
     const files = working(job(12, 'SHAPE'))
     const { clock, close } = world(on, files)
     await say($)
@@ -441,9 +450,9 @@ group('the walk', () => {
     await drain()
     await ui.redraw()
     const midway = heads(await cellsOf(ui, 'lane-14'), 72)[0]!
-    expect(midway).toBeGreaterThan(home(at('start'), 72))
+    expect(midway).toBeGreaterThan(home(at('discover'), 72))
     expect(midway).toBeLessThan(home(at('test'), 72))
-    expect(heads(await cellsOf(ui, 'lane-12'), 72)).toEqual([home(at('plan'), 72)])
+    expect(heads(await cellsOf(ui, 'lane-12'), 72)).toEqual([home(at('shape'), 72)])
     await clock.advance(walkMs(0, 2))
     await drain()
     await ui.redraw()
@@ -468,7 +477,7 @@ group('walking out', () => {
     expect(invalidated.length).toBe(first + 1)
     expect(await (ui as unknown as Finds).find({ key: 'lane-12' })).toBeDefined()
     let drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('· opening the pull request, round 1')
+    expect(drawn).toContain('· scale, round 1')
     expect(drawn).not.toContain('Nothing being built right now.')
 
     await clock.advance(OUT_MS / 2)
@@ -533,7 +542,7 @@ group('walking out', () => {
     await clock.advance(2000)
     await drain()
     const lanes = await laneSvgs(ui)
-    expect(lanes.map(s => s.props.alt)).toEqual(['Issue #12 at ship'])
+    expect(lanes.map(s => s.props.alt)).toEqual(['Issue #12 at scale'])
     expect(String(lanes[0]!.props.source)).toContain('<animateTransform')
     await clock.advance(OUT_MS)
     await drain()
@@ -672,7 +681,7 @@ group('the poll', () => {
     await clock.advance(2000)
     await drain()
     expect(invalidated.length).toBe(first + 1)
-    expect(JSON.stringify(await ui.drawn())).toContain('· opening the pull request')
+    expect(JSON.stringify(await ui.drawn())).toContain('· scale')
     await ui.unmount()
     await close()
   })
@@ -826,8 +835,8 @@ group('the loop picker', () => {
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
     const options = (await picker(ui))?.props.options as { value: string; label: string }[]
-    expect(options.map(o => o.label)).toEqual(['● alpha 2', 'starter', 'beta'])
-    expect(options.map(o => o.value)).toEqual(['alpha', '', 'beta'])
+    expect(options.map(o => o.label)).toEqual(['All loops', '● alpha (2)', 'starter', 'beta'])
+    expect(options.map(o => o.value)).toEqual(['*', 'alpha', '', 'beta'])
     expect((await picker(ui))?.props.value).toBe('')
     await ui.unmount()
     await close()
@@ -838,7 +847,7 @@ group('the loop picker', () => {
     const { close } = world(on, files)
     await open($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Picks
-    expect(((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)).toEqual(['', 'alpha'])
+    expect(((await picker(ui))?.props.options as { value: string }[]).map(o => o.value)).toEqual(['*', '', 'alpha'])
     expect(await ui.find({ key: 'lane-12' })).toBeDefined()
     expect(await ui.find({ key: 'lane-13' })).toBeDefined()
     await ui.unmount()
@@ -915,7 +924,7 @@ group('the loop picker', () => {
       const { close } = world(on, files)
       await open($)
       const ui = (await $.ui.mount(WIDE())) as unknown as Picks
-      expect(await values(ui)).toEqual(['alpha', 'beta'])
+      expect(await values(ui)).toEqual(['*', 'alpha', 'beta'])
       await ui.unmount()
       await close()
     })
@@ -1691,6 +1700,158 @@ group('the List and Crew buttons', () => {
     const from = blits.length
     await wait(clock, 1200, 80)
     expect(blits.length).toBe(from)
+    await ui.unmount()
+    await close()
+  })
+})
+
+group("the Crew's watch and pull request buttons", () => {
+  // A live run in tmux with a watch file, and an issue with its own window and a pull request.
+  const live = () => {
+    const files = new Map([
+      [STATUS, JSON.stringify({ running: true, tmux: 'loop-starter', queue: [], issues: [job(12, 'BUILD', { window: 'issue-12', pr: 'https://github.com/o/r/pull/9' })] })],
+      [`${HARNESS}/lock`, '4242'],
+      [`${HARNESS}/watch.command`, ''],
+    ])
+    return files
+  }
+  type Views = Finds & { press: (target: { key: string }) => Promise<unknown>; unmount: () => Promise<void> }
+
+  test('Watch it, Watch and Open pull request open what they do in the Crew', async ($, on) => {
+    const { ran, close } = world(on, live())
+    await say($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Views
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(await ui.find({ key: 'tmux' })).toBeDefined()
+    await ui.press({ key: 'watch' })
+    await ui.press({ key: 'watch-12' })
+    await ui.press({ key: 'pr-12' })
+    await drain()
+    const opened = ran.filter(argv => argv[0] === 'open')
+    expect(opened).toEqual([
+      ['open', `${HARNESS}/watch.command`],
+      ['open', `${HARNESS}/issue-12/watch.command`],
+      ['open', 'https://github.com/o/r/pull/9'],
+    ])
+    await ui.unmount()
+    await close()
+  })
+  test('with no tmux and no pull request the Crew draws none of them', async ($, on) => {
+    const { close } = world(on, working(job(12, 'BUILD')))
+    await say($)
+    const ui = (await $.ui.mount(WIDE())) as unknown as Views
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    for (const key of ['watch', 'tmux', 'watch-12', 'pr-12']) expect(await ui.find({ key })).toBeUndefined()
+    await ui.unmount()
+    await close()
+  })
+  test('on a narrow terminal the buttons still draw beside a lane', async ($, on) => {
+    const { close } = world(on, live())
+    await say($, undefined, pane(42, 30))
+    const ui = (await $.ui.mount(pane(42, 30))) as unknown as Views
+    expect(await ui.find({ key: 'lane-12' })).toBeDefined()
+    expect(await ui.find({ key: 'watch-12' })).toBeDefined()
+    expect(await ui.find({ key: 'pr-12' })).toBeDefined()
+    await ui.unmount()
+    await close()
+  })
+  test('a row of buttons is as wide as the terminal draws it, and wraps where it runs out', () => {
+    expect(buttonsWidth([])).toBe(0)
+    expect(buttonsWidth(['Watch'])).toBe(9)
+    expect(buttonsWidth(['Watch', 'Open pull request'])).toBe(9 + 1 + 21)
+    expect(buttonRows([], 40)).toBe(1)
+    expect(buttonRows(['List', 'Crew', 'Watch it', 'Copy attach command'], 72)).toBe(1)
+    // [ List ] [ Crew ] [ Watch it ] is 30; Copy attach command's 23 more doesn't fit in 42.
+    expect(buttonRows(['List', 'Crew', 'Watch it', 'Copy attach command'], 42)).toBe(2)
+  })
+})
+
+group('another machine', () => {
+  const MACHINES = `${ROOT}/.sanvio/factory-floor/machines.json`
+  const SPARE = '/r/factory'
+  test("its loop shows in the Crew with its spend from cat over ssh, while this machine's comes from fs.read", async ($, on) => {
+    const seed = fresh()
+    const files = withSpend(seed)
+    files.set(MACHINES, JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] }))
+    // spare-mac's factory loop, running in tmux and building #21 in its own window, with the same
+    // usage.json as this machine's #12.
+    const spareStatus = JSON.stringify({ running: true, tmux: 'loop-spare', queue: [], issues: [spending(seed, 21, { window: 'issue-21' })] })
+    const remote = new Map<string, [number, string]>([
+      [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nlock\n']],
+      [`cat '${SPARE}/.loop/status.json'`, [0, spareStatus]],
+      [`cat '${SPARE}/.loop/lock'`, [0, '77\n']],
+      ['kill -0 77', [0, '']],
+      [`cat '${SPARE}/.loop/issue-21/usage.json'`, [0, SPENT]],
+    ])
+    const { clock, reads, sshes, titles, close } = world(on, files, {}, remote)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    // The Crew's first poll starts the read in the background, and its next shows what it found.
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    const options = (await ui.find({ key: 'loop-pick' }))?.props.options as { value: string; label: string }[]
+    expect(options.map(o => [o.value, o.label])).toEqual([['*', 'All loops'], ['', '● starter (1)'], ['ssh:0/', '● spare-mac (1)']])
+    await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
+    await drain()
+    expect(titles[titles.length - 1]).toBe('Loop crew: spare-mac')
+    const build = textOf(rowFive(await cellsOf(ui, 'lane-21'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()
+    expect(build).toBe('$1.72 6.2M')
+    expect(sshes).toContain(`cat '${SPARE}/.loop/issue-21/usage.json'`)
+    // This machine's usage.json was read from the disk, and nothing of spare-mac's was.
+    expect(readsOf(reads, usagePath(HARNESS, 12))).toBeGreaterThan(0)
+    expect(reads.filter(path => path.startsWith(SPARE))).toEqual([])
+    // The tmux session is on spare-mac, so the lane's Watch is the one that copies an attach over ssh.
+    expect(await ui.find({ key: 'watch-21' })).toBeDefined()
+    await ui.unmount()
+    await close()
+  })
+  test("under All loops both machines' #12 get a lane each, told apart by their tags, each with its own Watch", async ($, on) => {
+    const HERE_PR = 'https://github.com/o/r/pull/1'
+    const THERE_PR = 'https://github.com/o/r/pull/2'
+    // This machine's factory and spare-mac's both working #12, each in tmux with #12 in its own window.
+    const files = new Map([
+      [STATUS, JSON.stringify({ running: true, tmux: 'loop-starter', queue: [], issues: [job(12, 'BUILD', { window: 'issue-12', pr: HERE_PR })] })],
+      [`${HARNESS}/lock`, '4242'],
+      [MACHINES, JSON.stringify({ machines: [{ label: 'spare-mac', ssh: 'builder@spare-mac.local', path: SPARE }] })],
+    ])
+    const spareStatus = JSON.stringify({ running: true, tmux: 'loop-spare', queue: [], issues: [job(12, 'TEST', { window: 'issue-12', pr: THERE_PR })] })
+    const remote = new Map<string, [number, string]>([
+      [`ls -1A '${SPARE}/.loop'`, [0, 'status.json\nlock\n']],
+      [`cat '${SPARE}/.loop/status.json'`, [0, spareStatus]],
+      [`cat '${SPARE}/.loop/lock'`, [0, '77\n']],
+      ['kill -0 77', [0, '']],
+      [`cat '${SPARE}/.loop/issue-12/usage.json'`, [1, '']],
+    ])
+    const { clock, ran, titles, writes, close } = world(on, files, {}, remote)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    await ui.select({ key: 'loop-pick', value: '*' })
+    await drain()
+    await ui.redraw()
+    expect(titles[titles.length - 1]).toBe('Loop crew: All loops')
+    expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('*')
+    // Two lanes for #12, each keyed by its loop and each with its loop's tag in its words.
+    expect(await ui.find({ key: 'lane-#12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-ssh:0/#12' })).toBeDefined()
+    expect(await ui.find({ key: 'lane-12' })).toBeUndefined()
+    expect(JSON.stringify(await ui.find({ key: 'line-#12' }))).toContain('starter #12')
+    expect(JSON.stringify(await ui.find({ key: 'line-ssh:0/#12' }))).toContain('spare-mac #12')
+    // No loop's own buttons, and a Watch on each lane: this machine's opens its window, spare-mac's copies.
+    for (const key of ['watch', 'tmux']) expect(await ui.find({ key })).toBeUndefined()
+    expect(await ui.find({ key: 'watch-#12' })).toBeDefined()
+    expect(await ui.find({ key: 'watch-ssh:0/#12' })).toBeDefined()
+    await ui.press({ key: 'pr-#12' })
+    await ui.press({ key: 'pr-ssh:0/#12' })
+    await drain()
+    expect(ran.filter(argv => argv[0] === 'open')).toEqual([['open', HERE_PR], ['open', THERE_PR]])
+    // The pick holds across polls, and nothing was written.
+    await wait(clock, 4000, 2000)
+    await ui.redraw()
+    expect((await ui.find({ key: 'loop-pick' }))?.props.value).toBe('*')
+    expect(await ui.find({ key: 'lane-ssh:0/#12' })).toBeDefined()
+    expect(writes).toEqual([])
     await ui.unmount()
     await close()
   })

@@ -27,17 +27,390 @@ never changes once it's written, because copies are compared by it. Under it:
 what it adds in a sentence or two, the files, and a **Do:** line ("nothing" is
 fine).
 
-## 2026-11-13: A caller's build can't read another project
+One optional line in an entry, after its description and before `Files:`:
+`**Needs:** 2026-11-11: The build agent's shell can run in Claude Code's sandbox; 2026-11-11: The loop's files and guard on Windows`
+Each item is an earlier entry's heading without the `## `, exactly as written. `; ` separates items.
 
-A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325. Without `caller`, nothing changes.
+Write it when your change edits code an earlier entry added, so a copy without that entry would get a conflict or a change that doesn't work. Don't write it for "reads better after".
+The test for the author: if your diff changes lines that an entry from the last 30 days added (`git blame` on the parent commit shows it), name that entry.
+
+**When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
+
+## 2026-11-16: A caller's build is held to its worktree
+
+A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325 against Read, Grep, Glob and a literal `cat`. The hold isn't complete yet: a caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` and run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into its build and tester sessions (#597). Without `caller`, nothing changes.
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
 
+## 2026-11-16: Running the workshop in two hours
+
+[`docs/workshop/prep.md`](docs/workshop/prep.md) is the checklist for running the workshop for a team: a two-hour version that keeps every section and the workflow interviews whole, with one person demoing the loop, and what to do a week before, the night before, on the day and after.
+
+Files: [`docs/workshop/prep.md`](docs/workshop/prep.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running it for your team? Start from `prep.md`.
+
+## 2026-11-16: The workshop teaches workflows
+
+The workshop deck and its walkthrough now open with the factory's mental model: it runs workflows, each one work coming in, an agent drafting, a script checking, a second reader, and a named person approving. Section 4 is now Skills and workflows: after the skill, you interview someone about one piece of work they repeat, from [`docs/building-workflows.md`](docs/building-workflows.md), and the blueprint ends in build it, write the rules down first, or not a fit. The path slide adds deploying and the monthly review. The deck is 36 slides, and the walkthrough's slide numbers follow it.
+
+Files: [`docs/workshop/README.md`](docs/workshop/README.md), [`docs/workshop/workshop-deck.pdf`](docs/workshop/workshop-deck.pdf), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running the workshop yourself? Pick one piece of work you repeat before section 4.
+
+## 2026-11-16: How to build a workflow
+
+New: [`docs/building-workflows.md`](docs/building-workflows.md), the reference for turning a piece of work your team repeats into a workflow: the interview that understands it, the blueprint it writes, the workflow folder and its `workflow.json`, the seven rules every workflow follows, its trust tests, and the three ways to run one. [`workflows/`](workflows/) is where your workflows live. The skills that use this land separately.
+
+Files: [`docs/building-workflows.md`](docs/building-workflows.md), [`workflows/README.md`](workflows/README.md)
+
+**Do:** nothing.
+
+## 2026-11-16: The dashboard's cost footer says only what's true
+
+With no `.sanvio/prices.json`, the factory-dashboard pane's Activity footer now says `Est. cost: can't be worked out without .sanvio/prices.json.`, with no checked date and no time it was worked out, then how to fill the file. A price file with no checked date says `no checked date` instead of `checked ?`, and one ask from the guard reads `Guard asked 1 time`.
+
+**Needs:** 2026-10-30: Activity tokens and estimated cost in the pane; 2026-11-08: New names for the state folder, the variables and bin/harness
+
+Files: [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if you installed the mod, `/plugin update`, then `/reload-plugins` or a new session.
+
+## 2026-11-16: factory-floor's picker tests pass on Claude Code 2.1.326
+
+Three of [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker tests failed on every run under Claude Code 2.1.326, whose mod test kit finishes a Select's `onSelect` after a timer turn rather than within microtasks. The tests' `settle()` now waits a few real timer turns as well, and the tests' checks are unchanged. The mod itself didn't change. Since the loop's default test command runs every mod's tests, every issue it built failed its tests until this.
+
+Files: [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. If the loop blocked an issue on `test_factory_floor`, take `loop:blocked` off and put the ready label back once you have this.
+
+## 2026-11-16: A closed issue clears its blocked row
+
+While it's idle, the loop now looks up each blocked issue on GitHub and marks its row `skipped`, with the note `issue closed while blocked` and a `CLEANUP` line in the log, once the issue is closed, for example after a person merges the loop's commit by hand. An issue still open is looked up again after an hour, a failed lookup leaves the row blocked, and the `loop:blocked` label stays on the issue.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-15: Keeping the loop to its own work
+
+[`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) has a new part, *Keeping the loop to its own work*, on the boundary the loop runs inside: the settings to make on your own machine (Claude Code's sandbox, `network_allow`, `max_issue_tokens`, `sandbox_commands`, and a fine-grained GitHub token for the one repo with the permissions it needs), the dev container, and a machine off yours. [`README.md`](README.md)'s *Set up* points at it before *Where to run it*.
+
+Files: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing.
+
+## 2026-11-15: A review rubric can define each grade
+
+[`review-rubric.json`](review-rubric.json) can now be a ladder: an object with one key, `levels`, giving each grade from `"0"` to `"10"` the verdicts it takes and the check runs, by name, that have to have passed, with `"*"` for every check run. A review gets the highest grade whose rung is met, pending while a check a higher rung names is still running. The five-key rubric grades exactly as before. The loop, the CI review and `python3 scripts/loop.py grade <pr> --verdict "<verdict>"` all grade through the same code, and the new command prints the grade a verdict would get without posting or changing anything, so you can try a rubric before `auto_merge` relies on it. [`skills/review-pr/`](skills/review-pr/SKILL.md) now runs that command for a review a person runs by hand, instead of applying the rubric itself. [`docs/review-rubric.md`](docs/review-rubric.md) explains both shapes, with three worked rubrics and how `min_grade` reads against each.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`docs/review-rubric.md`](docs/review-rubric.md), [`docs/review-rubric.svg`](docs/review-rubric.svg), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To define what each grade needs, read [`docs/review-rubric.md`](docs/review-rubric.md), then try your rubric with `python3 scripts/loop.py grade <pr> --verdict "ready"` before `auto_merge` relies on it.
+
+## 2026-11-15: A dev container for the factory and the loop
+
+A dev container in [`.devcontainer/`](.devcontainer/) runs the factory and the loop on Linux, with Python 3.12, git, tmux, Node, the GitHub CLI and Claude Code. It runs as the non-root `vscode` user, pins its image and every feature by tag, and mounts nothing from your machine but the workspace folder. Claude Code's and the GitHub CLI's sign-ins live in two named volumes of its own, so they survive a rebuild. The loop's macOS command sandbox doesn't run inside it, and its README says what the container doesn't stop. [`tests/test_devcontainer.py`](tests/test_devcontainer.py) checks the pins, the user, the mounts and the setup command.
+
+Files: [`.devcontainer/Dockerfile`](.devcontainer/Dockerfile), [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json), [`.devcontainer/README.md`](.devcontainer/README.md), [`tests/test_devcontainer.py`](tests/test_devcontainer.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. To use it, open the folder with Dev Containers: Reopen in Container and see .devcontainer/README.md.
+
+## 2026-11-15: The loop picker counts every loop's jobs
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each loop in the picker that's working shows how many jobs it's on in brackets, one included: `● app (1)`, `● app (2)`. Before, one job showed no count and two showed `● app 2`. A loop on no job still shows its name alone. The same label is on the mobile app's loop buttons. The mod is now 0.10.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts) and its tests.
+
+**Do:** nothing.
+
+## 2026-11-15: Stop a build over the token budget
+
+The loop now stops a `claude` build or tester that streams its events (the default) as soon as its issue goes over `max_issue_tokens`, instead of letting the run finish. It counts each message once, though claude repeats a message's usage on each of its blocks. What it had changed is committed on the local `loop/issue-N` branch and not pushed, `loop.log` gets a `BUDGET` line, and the issue is blocked with a comment saying the build or tester was stopped part way. A person finishes the branch and pushes it, or relabels the issue to start a fresh budget. A relabel never builds over a stopped tester's unfinished tests, and never drops a stopped build's commit to start from an open pull request: both block until a person finishes, pushes or drops that commit. Planning and review agents, and agents other than `claude`, still finish their run.
+
+**Needs:** 2026-10-22: Loop token budget per issue; 2026-10-22: Loop records each issue's usage
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
+## 2026-11-15: The Crew names each job's model
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), each lane in the Crew view now ends its line with the model the issue's latest agent run used, as the List already did: `#12 Gate · build, round 2 · opus-5-5`. On a narrow terminal the title gives way first. A lane whose `.loop/status.json` row has no model, from an older `loop.py`, shows none. The mod is now 0.9.0.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts).
+
+**Do:** nothing.
+
+## 2026-11-15: Eval suite for planted instructions
+
+A third public eval suite, [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), tests whether a factory's build agent follows instructions planted in its work: one in an issue's body that asks it to let CI fail without blocking the merge, and one in a repo file the next issue needs that asks it to write down the machine's environment variable names. Each has a trap in [`key/score`](examples/eval-suite-planted-instructions/key/score) and a known wrong answer that does the work and follows that one instruction. Its traps are public, so it shows the shape of such a suite and can't measure a factory that has read it.
+
+[`scripts/link_files.py`](scripts/link_files.py) now leaves an eval suite's issues as written, because each is posted in the run's own repo, where a link into this one would break. [`.gitignore`](.gitignore) keeps a suite's seed `loop.json` tracked even when a copy keeps its own `loop.json` out of git.
+
+Files: [`examples/eval-suite-planted-instructions/`](examples/eval-suite-planted-instructions/), [`tests/test_eval_factory.py`](tests/test_eval_factory.py), [`scripts/link_files.py`](scripts/link_files.py), [`tests/test_link_files.py`](tests/test_link_files.py), [`.gitignore`](.gitignore), [`docs/factory-evals.md`](docs/factory-evals.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
+**Do:** nothing. Run python3 scripts/eval_factory.py validate examples/eval-suite-planted-instructions to see it.
+
+## 2026-11-15: Card 8 reads the cost per change and the bill from the dashboard
+
+Card 8's third question, what a change costs, now points at the dashboard's all-in cost per merged pull request and its Bill and estimate table, which have shipped, and its checklist says to enter the month's invoices in `.sanvio/bills.json`. Reverts after a merge are still marked as coming.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** send the new PDF to the owner and the finance partner.
+
+## 2026-11-15: Bill beside the estimate
+
+The factory dashboard's Loop spend section now has a **Bill and estimate** table. For each of the last three months entered in `.sanvio/bills.json`, it shows the bill beside this machine's estimate and the gap between them, in dollars and as a share of the bill. The estimate prices the loop's runs and the factory's conversations that month at `.sanvio/prices.json`. A line under the table says the bill covers every seat on the account. `dashboard_data.py --json` gives the figures as a new `bill` section, and it never writes `bills.json`.
+
+Files: [`scripts/bills.example.json`](scripts/bills.example.json), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/register.tsx`](examples/mods/factory-dashboard/hooks/register.tsx), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/hooks/pane.test.ts`](examples/mods/factory-dashboard/hooks/pane.test.ts), [`examples/mods/factory-dashboard/hooks/sample.test.ts`](examples/mods/factory-dashboard/hooks/sample.test.ts), [`examples/mods/factory-dashboard/hooks/sample.ts`](examples/mods/factory-dashboard/hooks/sample.ts), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** copy [`scripts/bills.example.json`](scripts/bills.example.json) to `.sanvio/bills.json` and enter last month's bill.
+
+## 2026-11-15: All-in cost per merged pull request
+
+The factory dashboard's Loop spend now shows what a merged pull request cost all in: the loop's spend since the date counted from, plus this machine's factory conversations priced at `.sanvio/prices.json`, over how many pull requests merged. [`scripts/dashboard_data.py`](scripts/dashboard_data.py) gives it as a new `all_in` section, made from the sections it already reads, with no gh call or transcript read of its own. The loop's own conversations are left out, because the loop's spend already counts them. It's an estimate at API prices, not a bill, and on a team it undercounts, since it reads only this machine's conversations. When there's no figure, the line says why: nothing merged, a model with no price, or a part it couldn't count.
+
+Files: [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; fill .sanvio/prices.json to see the conversation side priced.
+
+## 2026-11-15: Onboarding card 8, leading and funding the factory
+
+An eighth onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) is for the factory's owner and a finance partner. Once a month they answer five questions from the dashboard, `/work-report`, `/pulse` and `/factory-trends`: where the time went, what the spend bought, what a merged change costs, whether it held up, and how the team is finding it. They set the invoice beside the dashboard's estimate and decide one thing to keep, change or stop, written down with its cost. All-in cost per merged change and reverts after a merge are marked as coming. Card 7 now points to it.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`docs/workshop/README.md`](docs/workshop/README.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** name a finance partner beside the factory's owner, then send the new PDF to both.
+
+## 2026-11-15: Onboarding card 7, deploy
+
+A seventh onboarding card in [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf) takes what the loop built to an environment people use: what has to exist before the first deploy, the path from pull request to production, the way back, and the skills that go with it. It follows [`steering/deploying.md`](steering/deploying.md). Card 6 now points to it.
+
+Files: [`docs/workshop/onboarding-cards.html`](docs/workshop/onboarding-cards.html), [`docs/workshop/onboarding-cards.pdf`](docs/workshop/onboarding-cards.pdf), [`docs/workshop/README.md`](docs/workshop/README.md), [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Send the new PDF to anyone onboarding.
+
+## 2026-11-15: The loop re-dates its CHANGELOG entry when it merges a newer base
+
+When the loop merges its base into a pull request to keep both sets of [`CHANGELOG.md`](CHANGELOG.md) entries, an entry the branch added that's dated before the base's newest now takes the day of the merge, so the log stays newest first and the merge passes its tests instead of failing at every new base commit. Only the date changes: the name, the body and the order stay as written. The loop's comment on the pull request names each entry it re-dated.
+
+**Needs:** 2026-10-31: Loop merges CHANGELOG.md conflicts
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-15: The loop records why each review said FIX
+
+The loop's reviewer now writes a `REASONS:` line just above its verdict, naming the reasons for FIX that apply from `tests-failed`, `untested-requirement`, `worked-around-tests` and `real-cost`, or `REASONS: none` on a PASS. Each `.loop/history.jsonl` line gains two fields with one entry per round, beside `tests` and `verdicts`: `fix_reasons`, the known reasons in that order (`[]` for a PASS, `["unstated"]` for a FIX that named none), and `tests_changed`, whether the branch changed or deleted a test file its base already had (`null` when git couldn't say, or `test_paths` in `loop.json` isn't a list of strings). [`scripts/export.py`](scripts/export.py) carries both. Older lines don't have them, and the reasons never change the verdict.
+
+**Needs:** 2026-11-05: The loop's review sends a build back only for what would cost something; 2026-10-25: Loop run history; 2026-10-25: Local export
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/loop.py`](scripts/loop.py), [`scripts/export.py`](scripts/export.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_export.py`](tests/test_export.py).
+
+**Do:** nothing. The fields start with the next run that ends.
+
+## 2026-11-15: The flywheel at the top of the README
+
+[`README.md`](README.md) names the flywheel in its opening, beside the picture of one issue through the loop: five phases, a gate at the end of each, a pull request at the end of a turn, and lessons that `learn` turns into rules. It links to *The main loop, and four inside it*, which stays where it was.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md).
+
+**Do:** nothing.
+
+## 2026-11-15: factory-floor's ssh shares no connection
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), every `ssh` the mod runs, and the one **Watch** copies, now passes `-o ControlPath=none`, so it never uses a shared connection your SSH config opened, perhaps with agent forwarding, and never leaves one behind. It narrows what the mod can reach and grants nothing new. The mod is now 0.8.1.
+
+**Needs:** 2026-11-15: Watch an issue on another machine; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts).
+
+**Do:** nothing. If you relied on a shared connection to other machines, each read now opens a connection of its own.
+
+## 2026-11-15: On this page in the README
+
+[`README.md`](README.md) has an **On this page** line above its pictures, linking each of its sections in order, so a long page can be jumped through outside GitHub's outline menu. [`tests/test_readme_contents.py`](tests/test_readme_contents.py) fails when the line stops matching the `##` headings, so a renamed, added or moved section needs the line changed with it.
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`tests/test_readme_contents.py`](tests/test_readme_contents.py).
+
+**Do:** nothing. If you've changed your README's `##` headings, update the **On this page** line to match, or the test fails.
+
+## 2026-11-15: Eval runs started in the same second get names of their own
+
+A run is named after its suite and the second it started, so two runs of one suite started in the same second, as `--repeat`'s can be when a run stops early, took the same name and the second was refused. The second now gets `-2` on the end, the third `-3`, and so on, in its record, its repo and its clone.
+
+**Needs:** 2026-11-15: Repeat eval runs and session cost; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing.
+
+## 2026-11-15: Flow figures for evals, adapters, handing off and upgrading
+
+Five docs gain a figure that shows the flow at a glance, each with alt text that carries everything it shows. [`docs/factory-evals.gif`](docs/factory-evals.gif) is redrawn with repeat runs, groups in `compare`, and `report`, and [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gets a *Measuring it* section that uses it. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) shows a suite's parts and what `validate` proves, [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md) the two adapters side by side, [`factories/README.md`](factories/README.md) an issue handed to another factory and back, and [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md) which kind of copy changes step 2, beside the eleven steps. The sequence diagram in *Handing work to another factory* named this factory twice; the other factory now has its own lane.
+
+**Needs:** 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-08: Hand an issue to another factory
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/eval-adapters.gif`](docs/eval-adapters.gif), [`docs/factory-evals.gif`](docs/factory-evals.gif), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/handing-off-to-a-factory.gif`](docs/handing-off-to-a-factory.gif), [`docs/upgrading-to-sanvio-factory.gif`](docs/upgrading-to-sanvio-factory.gif), [`docs/upgrading-to-sanvio-factory.md`](docs/upgrading-to-sanvio-factory.md), [`docs/writing-eval-suites.gif`](docs/writing-eval-suites.gif), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`factories/README.md`](factories/README.md).
+
+**Do:** nothing.
+
+## 2026-11-15: Repeat eval runs and session cost
+
+`eval_factory.py run --repeat N` runs a suite N times, and `compare` and `report` take a group of runs joined by commas, showing the middle result, each check's pass rate and which checks are flaky. `report` takes several suites in one report, with a summary first. [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py) gives another factory's cost from Claude Code's transcripts at the prices in `.sanvio/prices.json`, for `--usage-command`. [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py) is an adapter for a factory that opens its own pull requests. [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md) covers building a suite that tells factories apart, and [`docs/factory-evals.md`](docs/factory-evals.md) gains cleanup and troubleshooting.
+
+**Needs:** 2026-11-15: Eval walkthrough; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/factory-evals.md`](docs/factory-evals.md), [`docs/writing-eval-suites.md`](docs/writing-eval-suites.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/label-and-wait.py`](examples/eval-adapters/label-and-wait.py), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`scripts/eval_report.py`](scripts/eval_report.py), [`scripts/eval_session_cost.py`](scripts/eval_session_cost.py), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To price another factory's runs, copy [`scripts/prices.example.json`](scripts/prices.example.json) to `.sanvio/prices.json` and put in the models you use.
+
+## 2026-11-15: Watch an issue on another machine
+
+In [`examples/mods/factory-floor/`](examples/mods/factory-floor/), **Watch** on an issue running on another machine copies a read-only `ssh -t ... tmux attach -r` command for that issue's tmux window, in that loop's own view and under **All loops**, and a toast says so. It first checks over SSH that the session is there (`tmux has-session`, the only remote command added), and copies nothing if it isn't or the machine doesn't answer. A machine in `.sanvio/factory-floor/machines.json` can give `tmux_socket` for a tmux server off the default socket; a value that isn't an absolute path of plain characters is refused with a line in the pane, and that machine's issues get no **Watch**. Session and window names past a short list of characters build no command. The pane opens no window and runs nothing it copies. The mod is now 0.8.0.
+
+**Needs:** 2026-11-15: All loops in factory-floor; 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`steering/data-and-tools.md`](steering/data-and-tools.md).
+
+**Do:** nothing. For a loop whose tmux server isn't on the default socket, add its `tmux_socket` to that machine's entry in `.sanvio/factory-floor/machines.json`.
+
+## 2026-11-15: Eval walkthrough
+
+A step-by-step guide to a first factory eval: check the examples, run a baseline, read the scorecard, point the run at your own factory, test one change at a time, and write a suite of your own. It comes with a second public example suite, three issues on a made-up tool library with 12 hidden tests, two traps and four known wrong answers, and a plain one-session adapter that serves as a baseline and as the starting point for an adapter to another factory. `eval_factory.py report <run>` writes a run's report as HTML, Markdown and, where Chrome, Chromium or Edge is installed, PDF: each issue with its pull request and time, what was missed grouped by issue, every check, an optional comparison and an appendix. `eval_factory.py new-suite <folder>` makes a suite to fill in, outside the factory. A run's result now records each issue's title, pull request and time, and `key/score` may tag a check with its issue.
+
+**Needs:** 2026-11-13: A skill that runs the evals; 2026-11-08: The CI and evals guides, the evals script and the dashboard say factory; 2026-11-05: Guides for CI and for measuring a harness; 2026-11-02: Safer harness eval runs; 2026-11-02: Harness evals
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md), [`docs/eval-walkthrough.svg`](docs/eval-walkthrough.svg), [`docs/factory-evals.md`](docs/factory-evals.md), [`examples/eval-adapters/README.md`](examples/eval-adapters/README.md), [`examples/eval-adapters/one-session.py`](examples/eval-adapters/one-session.py), [`examples/eval-suite-tool-library/`](examples/eval-suite-tool-library/), [`scripts/eval_factory.py`](scripts/eval_factory.py), [`scripts/eval_report.py`](scripts/eval_report.py), [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_eval_factory.py`](tests/test_eval_factory.py).
+
+**Do:** nothing. To try it, run `python3 scripts/eval_factory.py validate examples/eval-suite-tool-library`, then follow [`docs/eval-walkthrough.md`](docs/eval-walkthrough.md).
+
+## 2026-11-15: All loops in factory-floor
+
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker has an **All loops** option once it lists more than one loop. It shows every issue being worked on every loop, this machine's and the other machines', on one page. In the List that's the Active tab alone, each row tagged with its machine and project (`spare-mac · alpha`, or this machine's by its folder name). In the Crew it's a lane for each issue, with the same tag. Two loops on the same issue number are two rows and two lanes. **Open pull request** works on each row and lane, and **Watch** on this machine's issues only. A machine that's down adds nothing, and a line says when it was last read. Picking **All loops** doesn't write the session's focus. The mod is now 0.7.0.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/hooks/logic.test.ts`](examples/mods/factory-floor/hooks/logic.test.ts), [`examples/mods/factory-floor/hooks/crew-logic.test.ts`](examples/mods/factory-floor/hooks/crew-logic.test.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/shared.test.ts`](examples/mods/factory-floor/hooks/shared.test.ts), [`tests/test_factory_floor.py`](tests/test_factory_floor.py).
+
+**Do:** nothing.
+
+## 2026-11-15: The guard asks before an agent changes the list of other machines
+
+An agent that writes, moves or deletes anything under `.sanvio/factory-floor/` now gets a question you answer first. That folder holds factory-floor's `machines.json`, which chooses the hosts this machine connects to over SSH with your keys. A loop agent or a headless run is refused outright, since nobody is there to answer. Reading the file is unchanged, and so is editing it yourself. The guard's check for shell commands that write the logs now covers this folder from the same code.
+
+**Needs:** 2026-11-14: Factory floor on other machines
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-14: Factory floor on other machines
+
+[`examples/mods/factory-floor/`](examples/mods/factory-floor/) can list other machines' loops in its picker, in the List and the Crew, read over SSH from the machines named in `.sanvio/factory-floor/machines.json`. Each machine is read at most every 30 seconds while the pane is open, in the background. Each read only lists, cats and runs `kill -0` under that machine's `.loop/`. A machine that doesn't answer within 10 seconds shows as down. With no file, nothing changes and nothing runs `ssh`. Each `ssh` forwards nothing, takes no stdin and connects only to a host already in `known_hosts`, whatever your own SSH config says, and what a machine sends back has its control characters removed and its folder names held to a project's characters.
+
+**Needs:** 2026-11-13: The factory floor uses the loop's step names; 2026-11-12: Why each default plugin is on; 2026-11-09: Factory floor; 2026-11-09: factory-floor reads loops once; 2026-11-09: Crew view in factory-floor; 2026-11-09: Factory floor mod
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/hooks/remote.ts`](examples/mods/factory-floor/hooks/remote.ts), [`examples/mods/factory-floor/hooks/remote.test.ts`](examples/mods/factory-floor/hooks/remote.test.ts), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/shared.test.ts`](examples/mods/factory-floor/hooks/shared.test.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_factory_floor.py`](tests/test_factory_floor.py).
+
+**Do:** nothing, unless you want another machine's loops in the picker: copy [`examples/mods/factory-floor/machines.example.json`](examples/mods/factory-floor/machines.example.json) to `.sanvio/factory-floor/machines.json` and fill in your machines. Each needs key-based SSH from this one.
+
+## 2026-11-14: Raise a concern
+
+A *Raise a concern* issue template lets anyone flag a worry about what the agent did or produced, labelled `concern` and routed by [`steering/incidents.md`](steering/incidents.md) to the AI risk owner the company record names under `## Who decides`.
+
+**Needs:** 2026-11-11: Incident steering file; 2026-10-29: Tickets carry a type label
+
+Files: [`.github/ISSUE_TEMPLATE/concern.md`](.github/ISSUE_TEMPLATE/concern.md), [`skills/orientation/COMPANY.example.md`](skills/orientation/COMPANY.example.md), [`steering/incidents.md`](steering/incidents.md), [`steering/tickets.md`](steering/tickets.md), [`tests/test_steering.py`](tests/test_steering.py).
+
+**Do:** run `gh label create concern --description "A worry about what the agent did"`, and name the AI risk owner under `## Who decides` in `company/COMPANY.md`.
+
+## 2026-11-14: Owner, quality and date in DATA.md
+
+[`skills/orientation/`](skills/orientation/SKILL.md) now asks, for each data source, who owns it and whether it's the source of record, a copy, partial or unknown, and writes `unknown` rather than guessing. The `company/DATA.md` it drafts gains Owner, Quality and Last checked columns after Cleared for this tool, which stays where inbox, standup and pulse read it.
+
+**Needs:** 2026-11-13: A workshop you can run yourself
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`tests/test_skills.py`](tests/test_skills.py).
+
+**Do:** add the Owner, Quality and Last checked columns to your existing `company/DATA.md`, after Cleared for this tool, and fill one row at a time with what you know, `unknown` where you don't.
+
+## 2026-11-14: What the agent never decides alone
+
+[`steering/decisions.md`](steering/decisions.md) lists, in one table, the steps the agent never takes alone (sending, merging, deploying, deleting and the rest), who decides each and the file where its rule lives, and a new line in [`AGENTS.md`](AGENTS.md)'s Rules says to stop and name who decides before any of them.
+
+Files: [`steering/decisions.md`](steering/decisions.md), [`AGENTS.md`](AGENTS.md), [`tests/test_steering.py`](tests/test_steering.py).
+
+**Do:** nothing.
+
+## 2026-11-14: Evals for instructions planted in pull requests and issues
+
+Five new eval cases check that a reviewer treats text addressed to it as a finding, not an instruction. The review-pr skill gets a pull request description that says the change is approved (07), a Markdown comment telling the reviewer to report nothing (08), and a clean change whose test holds "Ignore your previous instructions" as data (09). The security reviewer gets an issue that says the module was cleared and asks for READY (11), and a string constant asking the same (12). Each planted instruction sits beside a real defect, except in 09, and the stub-agent tests pass every case.
+
+**Needs:** 2026-11-03: Test the review against planted problems; 2026-10-25: Security reviewer eval cases
+
+Files: [`examples/ci/evals/07-instruction-in-the-description/`](examples/ci/evals/07-instruction-in-the-description/), [`examples/ci/evals/08-instruction-in-a-markdown-comment/`](examples/ci/evals/08-instruction-in-a-markdown-comment/), [`examples/ci/evals/09-clean-injection-text/`](examples/ci/evals/09-clean-injection-text/), [`examples/typescript/evals/11-instruction-in-the-issue/`](examples/typescript/evals/11-instruction-in-the-issue/), [`examples/typescript/evals/12-instruction-in-a-string/`](examples/typescript/evals/12-instruction-in-a-string/), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run both sets once with `python3 scripts/eval_agents.py examples/ci/evals` and `python3 scripts/eval_agents.py examples/typescript/evals` after taking it.
+
+## 2026-11-14: Factory updates warns about code beside an untaken entry's
+
+[`skills/factory-updates/`](skills/factory-updates/SKILL.md) now also blames the 3 lines before and after each change a commit makes, including changes that only add lines. Any entry this copy hasn't taken that wrote those lines, and that the blame of the changed lines didn't already find, gets "probably needs X (nearby lines)". Like the other hint, it never changes the recommendation.
+
+**Needs:** 2026-11-13: Factory updates' commands work in zsh; 2026-11-13: An entry can name the entries it needs
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py).
+
+**Do:** nothing, unless you took factory-updates; then take this too.
+
+## 2026-11-13: Factory updates' commands work in zsh
+
+[`skills/factory-updates/`](skills/factory-updates/SKILL.md) names its file variable `target` instead of `path`, which zsh ties to `PATH`, so its commands no longer lose `git` when run in zsh, and a test now fails any skill that sets or reads a variable zsh treats as special.
+
+**Needs:** 2026-11-13: An entry can name the entries it needs
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`tests/test_skills.py`](tests/test_skills.py).
+
+**Do:** nothing, unless you took factory-updates; then take this too.
+
+## 2026-11-13: An entry can name the entries it needs
+
+An entry can now carry a `**Needs:**` line naming the earlier entries whose code it edits, and the header above says when to write one. [`skills/factory-updates/`](skills/factory-updates/SKILL.md) reads it: a commit whose entry needs one this copy hasn't taken is recommended **take X first**, said before any command to apply it, and a blame of the lines it changes adds "probably needs X" as a hint. An entry counts as taken when its commit is in the baseline or this copy's log names its heading anywhere. The entries since 2026-11-09 that touch [`scripts/loop.py`](scripts/loop.py) carry the `Needs:` lines blame confirms.
+
+**Needs:** 2026-11-10: Starter updates fit on one screen; 2026-11-08: Every link points at SanvioLabs/sanvio-factory; 2026-10-30: Check-starter asks what's worth bringing over; 2026-10-22: Check the starter
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_changelog.py`](tests/test_changelog.py).
+
+**Do:** when you take an entry from Sanvio Factory, keep its heading text in your own [`CHANGELOG.md`](CHANGELOG.md), as a heading or a line such as `Took "2026-11-13: An entry can name the entries it needs"`, so the next check knows you have it.
+
+## 2026-11-13: The factory floor uses the loop's step names
+
+The [`factory-floor`](examples/mods/factory-floor/) mod's Crew stations and the words in both views are now the loop's own step names, as `.loop/loop.log` writes them: `discover`, `shape`, `test`, `build`, `validate` and `scale`, in place of `start`, `plan`, `check` and `ship` and the words `planning`, `building`, `checking` and `opening the pull request`. A lane at `build, round 2` now matches the log's `BUILD round 2`. A terminal pane under 56 columns cuts the longer names to fit, `disco` and `valid` at 42. The mod is 0.5.0. The Crew view now has the List's buttons as well: **Watch it** and **Copy attach command** at the top, and **Watch** and **Open pull request** on each lane, drawn by both views from one copy in [`hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx).
+
+Files: [`examples/mods/factory-floor/hooks/crew-logic.ts`](examples/mods/factory-floor/hooks/crew-logic.ts), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/buttons.tsx`](examples/mods/factory-floor/hooks/buttons.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), their tests, [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** update the factory-floor mod: /plugin update, then /reload-plugins or a new session.
+
+## 2026-11-13: The sandbox denies more and can't be stepped around
+
+The sandbox around `test_command`, `generate_command` and `setup_command` now denies writing as well as reading, and covers `~/.git-credentials`, `~/.gitconfig`, `~/.config/git`, `~/.m2/settings.xml`, `~/.terraform.d` and `~/.config/op`, plus the credential folders under `XDG_CONFIG_HOME` and `GH_CONFIG_DIR` where those are set. A path that isn't there yet is denied too, and no folder from your home folder down to a denied path can be renamed, the folders holding the factory included, so a command can't make or move its way to one. Because `~/.gitconfig` is out of reach, those commands run with `GIT_CONFIG_GLOBAL=/dev/null`, and with git's `core.excludesFile` and `core.attributesFile` at `/dev/null`, so git doesn't warn about the files under `~/.config/git`. When the loop starts, it checks that `sandbox-exec` can apply a profile; where it can't, as inside another sandbox, it logs one `WARN` line saying why and runs the commands without it, rather than failing every one.
+
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** restart the loop. A project whose tests rely on `~/.gitconfig`, say for `user.name` when they commit, sets it in the tests' own setup or through `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME`.
+
 ## 2026-11-13: Caller projects hold outside work for a person
 
 `caller` in a project's entry in the factory's `loop.json` marks it as an outside team's repo. Its issues wait, with nothing said on them, until a login in `acceptors` adds `accept_label`, and an accepted one is blocked if it changed since, hides an HTML comment, or lacks an Objective, Acceptance Criteria, Scope or Verification section, all before any agent runs. A caller project's labels come only from the factory's `loop.json`, and it won't start without `network_allow`, a `max_issue_tokens` budget and `account_tier`. Without `caller`, nothing changes.
+
+**Needs:** 2026-11-08: The docs and pictures call it Sanvio Factory; 2026-10-23: Project loop.json sets project keys only; 2026-10-15: The loop works several issues at once; 2026-10-14: The loop checks whose issue it builds from
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -46,6 +419,8 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 ## 2026-11-13: Only the factory turns the sandbox off
 
 `sandbox_commands` moves from the keys a project's own `loop.json` may set to the factory's own. A project's `loop.json` is in a clone anyone who can push to it can change, and the sandbox is what keeps that clone's `test_command`, `generate_command` and `setup_command` away from your credentials, so the project could switch off the one thing guarding against it, with nothing logged. Now a project's `loop.json` that sets it is refused with an `ERROR` line naming it, as `auto_merge` is, and the factory's `loop.json` sets it, at its top level for every project or under `"projects"` for one. With it off on a Mac, the loop logs one `WARN` line when it starts.
+
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -70,6 +445,8 @@ Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`tests/test_re
 ## 2026-11-13: The loop can push to its own fork
 
 `fork` in the factory's `loop.json`, or a project's entry in it, names a fork of `origin` that the login the loop runs as owns. With it set, `run` pushes each `loop/issue-N` to that fork, never `origin`, opens the pull request into `origin`'s base from the fork, takes a round only on that fork's pull request, and pushes the merge that keeps both `CHANGELOG.md` entries there too, so a factory copy's runs can read `ready for a person`. A fork that can't be reached, isn't a fork of `origin` or isn't the loop's own blocks the issue saying why, with nothing pushed. Without `fork`, nothing changes.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-15: The loop works several issues at once
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`factories/README.md`](factories/README.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -111,6 +488,8 @@ Files: [`skills/factory-eval/SKILL.md`](skills/factory-eval/SKILL.md), [`skills/
 
 A merge GitHub refuses is now tried again on the same head and base once the pull request's review decision changes, such as when someone approves it, or once a day has passed since the refusal. Every other check still runs first, the log says which of the two let it try again, and a merged one is never tried again.
 
+**Needs:** 2026-11-12: Auto-merge for graded pull requests; 2026-11-09: Review pull requests that carry a label
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** nothing.
@@ -135,6 +514,8 @@ one isn't merged, and a merge GitHub refuses isn't tried again until the head or
 base changes. Off, which is the default, the factory still never merges, and
 `review --pr` never does. A project's own `loop.json` can't set it. A pull
 request the loop opens says who may merge it.
+
+**Needs:** 2026-11-08: New names for the state folder, the variables and bin/harness; 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-10-31: Tests written first; 2026-10-22: Loop pull requests describe themselves; 2026-10-13: loop.py review
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`README.md`](README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`AGENTS.md`](AGENTS.md),
 [`docs/specs/lightweight-loop.md`](docs/specs/lightweight-loop.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`CHANGELOG.md`](CHANGELOG.md).
@@ -203,6 +584,8 @@ reading files only: the network and the keychain's API are still in reach, and t
 aren't in it. A new key, `sandbox_commands`, on by default, turns it off with `false`, and a project's own
 `loop.json` may set it. Off a Mac nothing changes, and the loop logs one `WARN` line when it starts. A
 value other than `true` or `false` stops the run with an `ERROR` line before any issue is taken.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-31: Tests written first; 2026-10-30: Loop setup command; 2026-10-30: Generated files in the loop's commit; 2026-10-14: The loop checks whose issue it builds from
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -296,6 +679,8 @@ reason on the line above, and [`scripts/old_names.py`](scripts/old_names.py) ask
 back to `/tmp`, still reading `TMPDIR` first. To move the version, change it in the CI step and in
 [`tests/test_ci_example.py`](tests/test_ci_example.py) together.
 
+**Needs:** 2026-10-14: The loop checks whose issue it builds from
+
 Files: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`scripts/loop.py`](scripts/loop.py), [`scripts/old_names.py`](scripts/old_names.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`tests/test_old_names.py`](tests/test_old_names.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing, unless your copy adds Python that Bandit flags at medium or higher. Fix it, or add `# nosec <ID>` with a reason on the line above.
@@ -308,6 +693,8 @@ temp, and the home folder's credential folders unreadable. The sandbox fails clo
 command, so the agent can run nothing it couldn't run before. Off by default. Where the sandbox can't run
 (Windows, Linux without `bwrap` and `socat`, another build agent), the loop logs an `ERROR` and takes no issue.
 The loop's own test, setup and generate commands still run outside it.
+
+**Needs:** 2026-10-31: Tests written first; 2026-10-22: Loop works a project
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -352,6 +739,8 @@ agent, keeping only the agent's own sign-in. Before, an agent had your whole env
 instead of letting it through with a warning nobody reads. A new machine key, `agent_env`, names
 variables to keep for a provider that signs in through them.
 
+**Needs:** 2026-11-08: New names for the state folder, the variables and bin/harness; 2026-10-14: The loop checks whose issue it builds from
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** restart the loop to take it. If your agents sign in to Bedrock or Vertex through environment
@@ -379,6 +768,8 @@ system's default encoding, and reads what git, gh and the agents print, and writ
 UTF-8 too. While a reader such as one of the mods holds `status.json` open, it tries the
 write up to five times, 0.2s apart, then logs a `WARN` line and goes on. A project's build agent
 runs `guard.py` with the Python running the loop, not `python3`, which Windows doesn't have.
+
+**Needs:** 2026-11-11: The loop's lock and stops on Windows; 2026-11-09: Every posted review carries a grade; 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Loop merges CHANGELOG.md conflicts; 2026-10-31: Tests written first; 2026-10-30: Loop setup command; 2026-10-30: Loop retro classifies its lessons; 2026-10-25: Loop run history; 2026-10-23: Project loop.json sets project keys only; 2026-10-22: Loop records each issue's usage; 2026-10-22: Loop works a project; 2026-10-22: Loop pull requests describe themselves; 2026-10-15: Loop pane header and a Watch button per job; 2026-10-15: The loop works several issues at once; 2026-10-14: The loop checks whose issue it builds from; 2026-10-13: loop.py review
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -418,6 +809,8 @@ there, following `agent.log` with PowerShell's `Get-Content -Wait`. Everywhere e
 still runs tmux and `tail -f`. The loop-control skill gives the psmux command to start
 the loop and to attach to it.
 
+**Needs:** 2026-10-15: The loop works several issues at once; 2026-10-14: Loop pane opens a window on the loop; 2026-10-12: loop-control starts the loop in tmux
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing on macOS or Linux. On Windows, install psmux and start the loop inside
@@ -429,6 +822,8 @@ On Windows, [`scripts/loop.py`](scripts/loop.py) now checks whether the pid in i
 the signals Windows has, stops an agent and everything it started, and takes `FileLock`
 with Windows' own file lock, so `review --pr` and `factories.py` run there too. macOS and Linux make the same calls as before. A new
 `windows-latest` CI job runs these tests on a real Windows.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-31: Session retro; 2026-10-15: The loop works several issues at once
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`scripts/factories.py`](scripts/factories.py), [`tests/test_loop_windows.py`](tests/test_loop_windows.py), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -715,6 +1110,8 @@ If the label can't be added, the log gets an `ERROR` line and the issue isn't
 blocked. Only the factory's `loop.json` or its `projects` entry can set these
 keys. A project's own `loop.json` that sets one is refused.
 
+**Needs:** 2026-10-13: loop.py review
+
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing. To use it, set `review_label` in the factory's `loop.json`,
@@ -734,6 +1131,8 @@ the same comment with no agent. A missing or invalid rubric grades 0 and names
 the file. A project sets its own with `review_rubric` in the factory
 `loop.json`'s `projects` entry. Comments written without a grade, and the
 verdict `factories.py` reads, are unchanged.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request; 2026-10-13: loop.py review
 
 Files: [`review-rubric.json`](review-rubric.json), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_factories.py`](tests/test_factories.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 

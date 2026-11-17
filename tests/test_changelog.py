@@ -1,10 +1,26 @@
 """Run with: python3 -m unittest discover -s tests"""
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+NEEDS = re.compile(r"^\*\*Needs:\*\* (.+)$", re.M)
+
+# zsh ties these lowercase names to special variables: `path=x` empties PATH, so the next git isn't found.
+ZSH_TIED = ("path", "cdpath", "fignore", "fpath", "mailpath", "manpath", "module_path", "psvar")
+_TIED = "|".join(ZSH_TIED)
+ZSH_TIED_USE = re.compile(
+    r"(?<![\w$-])(?:{0})="          # an assignment, as in `path=<file>;`, but not `--path=` or `$path=`
+    r"|\$\{{?(?:{0})(?!\w)"          # a read, as in "$path" or ${path}, but not $module_paths
+    r"|`(?:{0})`\s+to\b".format(_TIED))  # an instruction, as in "set `path` to it"
+
+
+def zsh_tied_names(text):
+    """Each use of a name zsh ties to a special variable, as a shell variable a skill's commands set or read."""
+    return [match.group(0) for match in ZSH_TIED_USE.finditer(text)]
 
 
 def entries(text):
@@ -32,6 +48,13 @@ def problems(text):
     for _, name, body in items:
         if "**Do:**" not in body:
             found.append("'{}' has no **Do:** line".format(name))
+    # A Needs item that isn't an older entry's heading would read as "not taken" in every copy.
+    headings = ["{}: {}".format(date, name) for date, name, _ in items]
+    for i, (_, name, body) in enumerate(items):
+        for line in NEEDS.findall(body):
+            for need in line.split("; "):
+                if need not in headings[i + 1:]:
+                    found.append("'{}' needs '{}', and no entry below it has that heading".format(name, need))
     return found
 
 
@@ -67,6 +90,14 @@ class Changelog(unittest.TestCase):
 
     def test_a_log_with_no_entries_fails(self):
         self.assertTrue(problems("# What's new\n\nNothing yet.\n"))
+
+    def test_each_needs_item_is_the_heading_of_an_entry_below_it(self):
+        good = GOOD.replace("Adds a thing.\n", "Adds a thing.\n\n**Needs:** 2026-10-08: First\n")
+        self.assertEqual(problems(good), [])
+        typo = good.replace("**Needs:** 2026-10-08: First", "**Needs:** 2026-10-08: Frist")
+        self.assertEqual(problems(typo), ["'Second' needs '2026-10-08: Frist', and no entry below it has that heading"])
+        above = GOOD.replace("**Do:** run the setup check.", "**Needs:** 2026-10-08: Second\n\n**Do:** run the setup check.")
+        self.assertEqual(problems(above), ["'First' needs '2026-10-08: Second', and no entry below it has that heading"])
 
 
 class WhatsNewCommands(unittest.TestCase):
@@ -177,12 +208,16 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.git(tmp, "init", "-q", "-b", "main", str(starter))
         (starter / "one.md").write_text("one\n")
         (starter / "two.md").write_text("two\n")
-        self.git(starter, "add", "one.md", "two.md")
+        (starter / "lines.md").write_text("from A\n")
+        self.git(starter, "add", "one.md", "two.md", "lines.md")
         self.commit(starter, self.LOG)
         self.sha = {"A": self.head(starter)}
-        for name in ("B", "C"):
-            self.add_heading(starter, "## 2026-10-0{}: {}".format(" ABC".index(name), name))
-            self.sha[name] = self.head(starter)
+        (starter / "lines.md").write_text("from A\nfrom B\n")
+        self.git(starter, "add", "lines.md")
+        self.add_heading(starter, "## 2026-10-02: B")
+        self.sha["B"] = self.head(starter)
+        self.add_heading(starter, "## 2026-10-03: C\n\nx\n\n**Needs:** 2026-10-02: B")
+        self.sha["C"] = self.head(starter)
         self.git(tmp, "clone", "-q", str(starter), self.env["clone"])
         self.git(tmp, "init", "-q", "-b", "main", str(self.copy))
         (self.copy / "one.md").write_text("one, adapted\n")
@@ -214,9 +249,29 @@ class StarterUpdatesCommands(unittest.TestCase):
         self.assertEqual(found, [self.sha["B"] + " log", self.sha["C"] + " log"])
 
     def test_an_edited_file_is_adapted_and_an_untouched_one_isnt(self):
-        cmd = self.command('git -C "$clone" show "$base:$path" |') + " && echo same || echo adapted"
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), ["adapted"])
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), ["same"])
+        cmd = self.command('git -C "$clone" show "$base:$target" |') + " && echo same || echo adapted"
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="one.md"), ["adapted"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="two.md"), ["same"])
+
+    @unittest.skipUnless(shutil.which("zsh"), "zsh isn't installed here")
+    def test_the_adapted_check_works_in_zsh_as_in_bash(self):
+        cmd = self.command('git -C "$clone" show "$base:$target" |') + " && echo same || echo adapted"
+        line = "base={} target=one.md; {}".format(self.sha["A"], cmd)
+        # ZDOTDIR keeps this machine's own zsh startup files out of the run.
+        env = dict(self.env, ZDOTDIR=self.tmp.name)
+
+        def run(shell, text):
+            done = subprocess.run([shell, "-c", text], cwd=self.copy, env=env, capture_output=True, text=True)
+            return [out for out in done.stdout.splitlines() if out], done.stderr
+
+        for shell in ("zsh", "bash"):
+            out, err = run(shell, line)
+            self.assertEqual(out, ["adapted"], shell + ": " + err)
+            self.assertNotIn("command not found", err, shell)
+        # The sharpness check: with the old name, zsh's tied path empties PATH, so git and cmp aren't found.
+        # The builtin echo still prints "adapted", so it's the stderr check above that catches the bug.
+        out, err = run("zsh", line.replace("target", "path"))
+        self.assertIn("command not found", err)
 
     def test_one_files_commits_leave_out_another_files(self):
         found = {}
@@ -227,8 +282,8 @@ class StarterUpdatesCommands(unittest.TestCase):
             found[name] = self.head(self.starter)
         self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
         cmd = self.command("git -C \"$clone\" log --format='%H %s' \"$base\"..origin/main --")
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="two.md"), [found["two.md"] + " touch two.md"])
-        self.assertEqual(self.run_with(cmd, base=self.sha["A"], path="one.md"), [found["one.md"] + " touch one.md"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="two.md"), [found["two.md"] + " touch two.md"])
+        self.assertEqual(self.run_with(cmd, base=self.sha["A"], target="one.md"), [found["one.md"] + " touch one.md"])
 
     CAPABILITIES = 'git -C "$clone" show origin/main:skills/factory-updates/capabilities.md'
 
@@ -244,6 +299,125 @@ class StarterUpdatesCommands(unittest.TestCase):
     def test_an_upstream_without_the_capabilities_table_fails_the_command(self):
         cmd = self.command(self.CAPABILITIES) + " && echo found || echo missing"
         self.assertEqual(self.run_with(cmd), ["missing"])
+
+    def test_an_entrys_needs_are_listed_and_one_without_lists_nothing(self):
+        cmd = self.command('git -C "$clone" show "$sha" -- CHANGELOG.md | sed')
+        self.assertEqual(self.run_with(cmd, sha=self.sha["C"]), ["2026-10-02: B"])
+        self.assertEqual(self.run_with(cmd, sha=self.sha["B"]), [])
+
+    def test_a_needed_entry_in_the_baseline_is_taken(self):
+        need_sha = self.run_with(self.command('git -C "$clone" log --reverse --format=%H -S'),
+                                 heading="## 2026-10-02: B")
+        self.assertEqual(need_sha, [self.sha["B"]])
+        cmd = self.command('git -C "$clone" merge-base --is-ancestor') + " && echo taken || echo not"
+        self.assertEqual(self.run_with(cmd, need_sha=need_sha[0], base=self.sha["B"]), ["taken"])
+        self.assertEqual(self.run_with(cmd, need_sha=need_sha[0], base=self.sha["A"]), ["not"])
+
+    def test_a_needed_entry_the_copys_log_names_is_taken(self):
+        cmd = self.command('grep -qF -- "$need" CHANGELOG.md') + " && echo taken || echo not"
+        log = self.copy / "CHANGELOG.md"
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["taken"])
+        log.write_text("# What's new\n\n## 2026-10-04: Copy-only\n\n- Took \"2026-10-02: B\" from Sanvio Factory.\n")
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["taken"])
+        log.write_text("# What's new\n\n## 2026-10-04: Copy-only\n\nx\n")
+        self.assertEqual(self.run_with(cmd, need="2026-10-02: B"), ["not"])
+
+    HUNKS = 'git -C "$clone" show -U0'
+    BLAME = 'git -C "$clone" blame -s -L "$start'
+    RANGES = 'git -C "$clone" cat-file -e "$sha^'
+    NEARBY_BLAME = 'git -C "$clone" blame -s -L "$first'
+
+    def upstream_commit(self, name, text, message):
+        (self.starter / name).write_text(text)
+        self.git(self.starter, "add", name)
+        self.git(self.starter, "commit", "-q", "-m", message)
+        self.git(Path(self.env["clone"]), "fetch", "-q", "origin", "main")
+        return self.head(self.starter)
+
+    def blamed(self, cmd, sha, target, **values):
+        return {line.split()[0].lstrip("^") for line in self.run_with(cmd, sha=sha, target=target, **values)}
+
+    def blame_changed(self, sha, target):
+        found = set()
+        for hunk in self.run_with(self.command(self.HUNKS), sha=sha, target=target):
+            start, count = hunk.split()
+            if count != "0":
+                found |= self.blamed(self.command(self.BLAME), sha, target, start=start, count=count)
+        return found
+
+    def blame_nearby(self, sha, target):
+        found = set()
+        for line in self.run_with(self.command(self.RANGES), sha=sha, target=target):
+            first, last = line.split()
+            found |= self.blamed(self.command(self.NEARBY_BLAME), sha, target, first=first, last=last)
+        return found
+
+    def names(self, blamed):
+        return {name for name, full in self.sha.items() for short in blamed if full.startswith(short)}
+
+    def test_the_blame_backstop_names_the_commit_whose_lines_a_commit_changes(self):
+        sha = self.upstream_commit("lines.md", "new first line\nfrom A\nfrom B, edited\n", "edit lines")
+        hunks = self.run_with(self.command(self.HUNKS), sha=sha, target="lines.md")
+        self.assertEqual(hunks, ["0 0", "2 1"])  # an added line, then "from B" changed
+        blamed = self.blame_changed(sha, "lines.md")
+        self.assertEqual(len(blamed), 1, blamed)
+        self.assertFalse(self.sha["A"].startswith(next(iter(blamed))))
+        self.assertTrue(self.sha["B"].startswith(next(iter(blamed))))
+
+    def test_lines_added_below_an_entrys_lines_name_it_as_nearby(self):
+        sha = self.upstream_commit("lines.md", "from A\nfrom B\nbelow B\n", "add below B")
+        self.assertEqual(self.run_with(self.command(self.HUNKS), sha=sha, target="lines.md"), ["2 0"])
+        # 3 lines either side of the insertion after line 2, kept inside the parent's 2 lines.
+        self.assertEqual(self.run_with(self.command(self.RANGES), sha=sha, target="lines.md"), ["1 2"])
+        changed = self.blame_changed(sha, "lines.md")
+        self.assertEqual(changed, set())
+        nearby = self.blame_nearby(sha, "lines.md") - changed
+        self.assertEqual(self.names(nearby), {"A", "B"})
+        taken = self.command('git -C "$clone" merge-base --is-ancestor') + " && echo taken || echo not"
+
+        def reported(base):
+            return {name for name in self.names(nearby)
+                    if self.run_with(taken, need_sha=self.sha[name], base=self.sha[base]) == ["not"]}
+
+        self.assertEqual(reported("A"), {"B"})
+        self.assertEqual(reported("B"), set())
+
+    def test_lines_added_at_the_top_of_a_file_blame_from_line_1(self):
+        sha = self.upstream_commit("lines.md", "new first line\nfrom A\nfrom B, edited\n", "edit lines")
+        ranges = self.run_with(self.command(self.RANGES), sha=sha, target="lines.md")
+        self.assertEqual(ranges, ["1 2", "1 2"])  # the "0 0" hunk, then the "2 1" hunk
+        first, last = ranges[0].split()
+        lines = self.run_with(self.command(self.NEARBY_BLAME), sha=sha, target="lines.md", first=first, last=last)
+        self.assertEqual(len(lines), 2, lines)
+
+    def test_a_file_the_commit_creates_gets_no_range(self):
+        sha = self.upstream_commit("new.md", "brand new\n", "add new.md")
+        cmd = self.command(self.RANGES) + "; echo next"
+        self.assertEqual(self.run_with(cmd, sha=sha, target="new.md"), ["next"])
+        self.assertEqual(self.blame_nearby(sha, "new.md"), set())
+
+
+class ZshTiedVariables(unittest.TestCase):
+    """No skill's commands use a shell variable zsh gives a special meaning, so they run the same in zsh and bash."""
+
+    def test_no_skill_uses_a_zsh_tied_name(self):
+        skills = sorted((ROOT / "skills").glob("*/SKILL.md"))
+        self.assertTrue(skills)
+        for skill in skills:
+            hits = zsh_tied_names(skill.read_text())
+            self.assertEqual(hits, [], "{} uses {}".format(skill.relative_to(ROOT), hits))
+
+    def test_each_name_is_caught_in_each_form(self):
+        for name in ZSH_TIED:
+            for text in (name + "=/a cmd", name + "=<file>;", '"$' + name + '"', "set `" + name + "` to it"):
+                with self.subTest(text=text):
+                    self.assertTrue(zsh_tied_names(text), text)
+
+    def test_ordinary_text_isnt_flagged(self):
+        for text in ("PATH=/usr/bin", "$PATH", "git log --path=x", "a table path", "target=<file>",
+                     "$module_paths"):
+            with self.subTest(text=text):
+                self.assertEqual(zsh_tied_names(text), [])
 
 
 if __name__ == "__main__":

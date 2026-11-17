@@ -1,0 +1,6 @@
+{
+  "machines": [
+    { "label": "spare-mac", "ssh": "builder@spare-mac.local", "path": "/Users/builder/factory" },
+    { "label": "shelf-board", "ssh": "pi@shelf-board.local", "path": "/home/pi/factory", "tmux_socket": "/run/loop/tmux-1000/default" }
+  ]
+}

@@ -9,7 +9,10 @@ the file's own folder first and then the repo root. Code blocks, headings,
 frontmatter, existing links and symlinked files are left alone, and so is a
 generic mention like "a project's own `AGENTS.md`", which means some other
 project's file. A gitignored file, such as `company/COMPANY.md`, stays plain
-because the link would be broken for everyone else. Safe to run twice.
+because the link would be broken for everyone else. So does an eval suite's
+issue, a Markdown file in an `issues/` folder beside a `suite.json`: it's posted
+as an issue in the run's own repo, where a link into this one would break. Safe
+to run twice.
 """
 import argparse
 import os
@@ -94,6 +97,12 @@ def tracked(root):
     return files, dirs
 
 
+def suite_issue(md, files):
+    """True for an eval suite's issue: its body is posted in another repo, so it stays as written."""
+    folder = os.path.dirname(md)
+    return os.path.basename(folder) == "issues" and os.path.join(os.path.dirname(folder), "suite.json") in files
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="change nothing, exit 1 if anything would change")
@@ -101,7 +110,7 @@ def main(argv):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     files, dirs = tracked(root)
     total = 0
-    for md in sorted(f for f in files if f.endswith(".md")):
+    for md in sorted(f for f in files if f.endswith(".md") and not suite_issue(f, files)):
         path = os.path.join(root, md)
         if os.path.islink(path):
             continue

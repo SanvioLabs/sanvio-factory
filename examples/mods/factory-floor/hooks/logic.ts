@@ -20,9 +20,9 @@ export async function projectNames(entries: { name: string; kind: string }[], ha
 }
 
 // The loop to open on: the project in focus when it's listed, else the first one running, factory
-// first, else the factory.
+// first, else the factory. The focus names a folder on this machine, so only this machine's loops match it.
 export function openingLoop(loops: Seen[], focus?: string | null): Seen | undefined {
-  const focused = focus ? loops.find(l => l.project === focus) : undefined
+  const focused = focus ? loops.find(l => l.machineIndex === undefined && l.project === focus) : undefined
   return focused ?? loops.find(l => l.isLocked) ?? loops[0]
 }
 
@@ -52,9 +52,29 @@ export function focusName(text: string): string | null {
   return 'name' in picked ? picked.name : null
 }
 
-// What a loop is called: the project's name, or the root's folder for the factory.
+// What a loop is called: the project's name, or the root's folder for the factory. Another machine's
+// loop is its label, then the project's name: `spare-mac · app`, or `spare-mac` for its factory's.
 export function loopLabel(seen: Seen): string {
+  if (seen.machine !== undefined) return seen.project ? `${seen.machine} · ${seen.project}` : seen.machine
   return seen.project ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
+}
+
+// A loop's value in the picker, and what the pane remembers as the pick: a project's name, '' for the
+// factory, and for another machine's ssh:<i>/<project>, ssh:<i>/ for its factory's, where i is the
+// machine's place in machines.json. A folder's name can't hold a /, so the two never meet.
+export function loopValue(seen: Pick<Seen, 'project' | 'machineIndex'>): string {
+  if (seen.machineIndex !== undefined) return `ssh:${seen.machineIndex}/${seen.project ?? ''}`
+  return seen.project ?? ''
+}
+
+// Another machine that didn't answer its last read: its place in machines.json, its label, and when it
+// last answered, or null when it never has.
+export type Down = { index: number; label: string; lastReadAt: number | null }
+
+// A machine that's down, as the picker lists it. Its value names no loop, so picking it does nothing.
+export function downOption(down: Down, now: number): { value: string; label: string } {
+  const when = down.lastReadAt === null ? 'never read' : `last read ${duration(now - down.lastReadAt)} ago`
+  return { value: `ssh:${down.index}`, label: `${down.label} · down, ${when}` }
 }
 
 // How many jobs a live loop is on. The lock is the truth about running, so with no live lock it's
@@ -64,19 +84,48 @@ export function workingCount(seen: Seen): number {
   return seen.status?.issues.filter(r => r.state === 'working').length ?? 0
 }
 
-// What a loop's button says: its name, with a marker while it's on a job and a count past one.
+// What a loop's button says: its name, then while it's on a job a marker before it and how many jobs it's
+// on after it, one included: ● app (1).
 export function loopButtonLabel(seen: Seen): string {
   const working = workingCount(seen)
   if (!working) return loopLabel(seen)
-  return `● ${loopLabel(seen)}${working > 1 ? ` ${working}` : ''}`
+  return `● ${loopLabel(seen)} (${working})`
 }
 
-// The loop picker's options: the loops on a job first, each group in its own order. A project's
-// value is its name, the factory's ''.
-export function loopOptions(loops: Seen[]): { value: string; label: string }[] {
-  const working = loops.filter(l => workingCount(l) > 0)
-  const rest = loops.filter(l => workingCount(l) === 0)
-  return [...working, ...rest].map(loop => ({ value: loop.project ?? '', label: loopButtonLabel(loop) }))
+// The picker's value for every loop at once. projectName refuses it and it doesn't start with ssh:, so
+// no loop's value can be it.
+export const ALL = '*'
+
+// The loops in the picker's order: those on a job first, each group in its own order.
+export function pickerOrder(loops: Seen[]): Seen[] {
+  return [...loops.filter(l => workingCount(l) > 0), ...loops.filter(l => workingCount(l) === 0)]
+}
+
+// The loop picker's options: All loops once there's more than one loop, then the loops in pickerOrder,
+// then each other machine that's down. A machine that's down is no loop, so it never adds All. Each
+// loop's value is loopValue's.
+export function loopOptions(loops: Seen[], down: Down[] = [], now = 0): { value: string; label: string }[] {
+  return [
+    ...(loops.length > 1 ? [{ value: ALL, label: 'All loops' }] : []),
+    ...pickerOrder(loops).map(loop => ({ value: loopValue(loop), label: loopButtonLabel(loop) })),
+    ...down.map(d => downOption(d, now)),
+  ]
+}
+
+// What tells one loop's issue from another's under All loops: the machine, this one by its folder as the
+// picker names its factory, then ` · <project>` for a project's loop. `starter`, `spare-mac · alpha`.
+export function loopTag(seen: Seen): string {
+  const machine = seen.machine ?? seen.root.split('/').filter(Boolean).pop() ?? seen.root
+  return seen.project ? `${machine} · ${seen.project}` : machine
+}
+
+// One issue under All loops, with the loop it belongs to and that loop's tag.
+export type Tagged = { seen: Seen; row: Row; tag: string }
+
+// Every loop's Active tab, as one list in the picker's order: the same rows each loop's own Active tab
+// holds, each with its loop. Two loops on the same issue number are two entries.
+export function allActive(loops: Seen[]): Tagged[] {
+  return pickerOrder(loops).flatMap(seen => activeRows(seen.status).map(row => ({ seen, row, tag: loopTag(seen) })))
 }
 
 // What sits beside the dropdown, whose closed face shows only the loop on screen: how many loops are on
@@ -91,11 +140,13 @@ export function loopCounts(loops: Seen[]): string | null {
   return null
 }
 
+// The loop's own step names, as .loop/loop.log writes them, in lower case.
 const STEPS: Record<string, string> = {
-  SHAPE: 'planning',
-  BUILD: 'building',
-  VALIDATE: 'checking',
-  SCALE: 'opening the pull request',
+  SHAPE: 'shape',
+  TEST: 'test',
+  BUILD: 'build',
+  VALIDATE: 'validate',
+  SCALE: 'scale',
 }
 
 const ENDED: Record<string, { tone: Tone; text: string }> = {
@@ -202,9 +253,19 @@ export type Header = { left: string; right: Line; isPulsing: boolean; wraps: boo
 // nothing below moves as the state changes. The state's dot pulses while the loop is on a job, like
 // that job's own dot.
 export function header(seen: Seen, now: number, width: number): Header {
-  const left = loopLabel(seen)
-  const right = loopState(seen, now)
   const isPulsing = seen.isLocked && !seen.isStopping && !!seen.status?.issues.some(r => r.state === 'working')
+  return layout(loopLabel(seen), loopState(seen, now), isPulsing, width)
+}
+
+// The top under All loops: its name on the left, and on the right what loopCounts says of every loop, or
+// that nothing runs. Its dot pulses while any loop is on a job.
+export function allHeader(loops: Seen[], width: number): Header {
+  const counts = loopCounts(loops)
+  const right: Line = counts ? { tone: counts.startsWith('●') ? 'now' : 'quiet', text: counts } : { tone: 'quiet', text: '○ Nothing running' }
+  return layout('All loops', right, loops.some(l => !l.isStopping && workingCount(l) > 0), width)
+}
+
+function layout(left: string, right: Line, isPulsing: boolean, width: number): Header {
   const wraps = left.length + 1 + right.text.length > width
   if (wraps) {
     const state = { tone: right.tone, text: clip(right.text, width) }
@@ -229,10 +290,11 @@ function loopState(seen: Seen, now: number): Line {
 }
 
 // The command that opens the tmux session a running loop is in, or null. A session named by a run
-// that's no longer alive is gone, so it isn't offered.
+// that's no longer alive is gone, so it isn't offered. Nor is another machine's: its session isn't here,
+// so neither it nor any Watch button built on it is offered.
 export function attach(seen: Seen): string | null {
   const name = seen.status?.tmux
-  if (!seen.isLocked || !name) return null
+  if (seen.machineIndex !== undefined || !seen.isLocked || !name) return null
   return /^[\w.@%+=:,-]+$/.test(name) ? `tmux attach -t ${name}` : `tmux attach -t '${name.replace(/'/g, `'\\''`)}'`
 }
 
@@ -289,13 +351,17 @@ export type Lists = { queue: QueueItem[]; active: Row[]; finished: Row[] }
 // The three tabs' lists. A finished job counts from its last update, which loop.py writes in local
 // time; one with no time, or older than a day, is left out.
 export function lists(status: Status | null, now: number): Lists {
-  const rows = status?.issues ?? []
-  const finished = rows.filter(r => {
+  const finished = (status?.issues ?? []).filter(r => {
     if (!ENDED[r.state]) return false
     const at = r.updated ? Date.parse(r.updated) : Number.NaN
     return Number.isFinite(at) && now - at <= FINISHED_MS
   })
-  return { queue: waiting(status), active: rows.filter(r => !ENDED[r.state]), finished }
+  return { queue: waiting(status), active: activeRows(status), finished }
+}
+
+// The Active tab's rows: every issue that hasn't reached an end.
+function activeRows(status: Status | null): Row[] {
+  return (status?.issues ?? []).filter(r => !ENDED[r.state])
 }
 
 // The tab to open on: what's being worked, else what's waiting, else what finished.
@@ -328,7 +394,7 @@ export function describe(row: Row, isRunning: boolean): { head: Line; detail: st
   } else if (row.state === 'working' && !isRunning) {
     head = { tone: 'fail', text: `left at ${STEPS[row.step] ?? 'an unknown step'}` }
   } else {
-    const step = STEPS[row.step] ?? (row.step.toLowerCase() || 'starting')
+    const step = STEPS[row.step] ?? (row.step.toLowerCase() || 'discover')
     const round = row.round > 0 ? `, round ${row.round}${row.max_rounds ? ` of ${row.max_rounds}` : ''}` : ''
     head = { tone: 'now', text: step + round }
   }
@@ -399,11 +465,12 @@ export function clock(row: Row, isRunning: boolean, now: number): string | null 
 
 // A short line for each issue that has just reached an end: a pull request, a block or a stop.
 // The first look has nothing to compare with, so it says nothing: opening the pane isn't news. A
-// project's line starts with its name, since its loop may not be the one on screen.
-export function changes(before: Status | null, after: Status | null, project?: string): string[] {
+// project's line starts with its name, since its loop may not be the one on screen. Another machine's
+// starts with its label too: `spare-mac · app:`, or `spare-mac:` for its factory's.
+export function changes(before: Status | null, after: Status | null, project?: string, machine?: string): string[] {
   if (!before || !after) return []
   const was = new Map((before?.issues ?? []).map(r => [r.number, r.state]))
-  const from = project ? `${project}:` : 'Loop:'
+  const from = machine !== undefined ? `${project ? `${machine} · ${project}` : machine}:` : project ? `${project}:` : 'Loop:'
   const out: string[] = []
   for (const row of after.issues) {
     if (was.get(row.number) === row.state) continue
