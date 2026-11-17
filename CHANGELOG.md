@@ -44,6 +44,32 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/
 
 **Do:** nothing.
 
+## 2026-11-16: Interview the person who does a workflow
+
+New: the [`skills/blueprint-workflow/`](skills/blueprint-workflow/) skill is step 1 of building a workflow. It interviews the person who does the work, one question at a time in the order [`docs/building-workflows.md`](docs/building-workflows.md) gives, starting from the last real time it happened, and asks what data it touches before the detail. It writes the answers to `blueprints/<name>.md` with all 22 keys, names every key nobody could answer in `gaps` instead of guessing it, and ends in `build`, `write-standard` or `no-fit`. `python3 scripts/check_blueprint.py blueprints/<name>.md` checks a blueprint's keys and values, prints `PASS` or one problem per line, and never writes anything. [`examples/blueprints/supplier-terms.md`](examples/blueprints/supplier-terms.md) is an invented one to copy.
+
+**Needs:** 2026-11-16: How to build a workflow; 2026-11-16: Check a workflow folder with one command
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`scripts/check_blueprint.py`](scripts/check_blueprint.py), [`examples/blueprints/supplier-terms.md`](examples/blueprints/supplier-terms.md), [`tests/test_check_blueprint.py`](tests/test_check_blueprint.py), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-16: The handout shows how to bring a project in
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) has a new section, *Bring your own project in, by asking*: open Claude Code in the factory, ask it to check out your app's repo into [`projects/`](projects/), ask about the app, make a first small change, then hand the next one to the loop.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-16: A handout and a PowerPoint for the workshop
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) is the page to send the people coming to the two-hour session: about 20 minutes of setup before, what they'll leave with, the path after, and the rules of the road. [`docs/workshop/prep.md`](docs/workshop/prep.md) now sends it a week before. The deck is also there as [`docs/workshop/workshop-deck.pptx`](docs/workshop/workshop-deck.pptx), the same 36 slides as the PDF, to present from or edit.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`docs/workshop/workshop-deck.pptx`](docs/workshop/workshop-deck.pptx), [`docs/workshop/prep.md`](docs/workshop/prep.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running the workshop? Send `handout.md` a week before.
+
 ## 2026-11-16: Check a workflow folder with one command
 
 New: `python3 scripts/check_workflow.py workflows/<name>` checks one workflow folder against [`docs/building-workflows.md`](docs/building-workflows.md). It checks every file and folder *The workflow folder* lists; the keys and values in its `workflow.json`, and that each path it names exists; that the gate refuses every gate case and prints its `says` text, passes every review case and sample output, and refuses the template; that every sample input says `invented: true`; that no sample output or eval names `standard/` where it means `sample/standard/`; that there are at least six gate cases and two review cases; and that the workflow's own tests run and pass. It prints `PASS`, or one problem per line and exits 1, and never edits the folder. The [`skills/check-workflow/`](skills/check-workflow/) skill runs it and says how to read each line.
