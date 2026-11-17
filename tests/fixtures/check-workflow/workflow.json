@@ -1,0 +1,20 @@
+{
+  "name": "check-workflow",
+  "description": "Checks a supplier quote against the quote rules (a test fixture for scripts/check_workflow.py)",
+  "owner": "Operations lead",
+  "status": "draft",
+  "runs": ["chat", "loop"],
+  "trigger": "A supplier quote arrives",
+  "inputs": "inbox/",
+  "output": "out/",
+  "standard": "standard/quote-rules.md",
+  "skill": "skills/check-quote/SKILL.md",
+  "gate": "gates/check_workflow_gate.py",
+  "reviewer": "agents/reviewer.md",
+  "template": "templates/quote-review.md",
+  "approves": "Finance lead",
+  "receives": "Purchasing",
+  "never": ["sends anything", "changes an input"],
+  "restricted_data": "none",
+  "blueprint": "../../blueprints/check-workflow.md"
+}

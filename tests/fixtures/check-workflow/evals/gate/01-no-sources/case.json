@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "no sources: line in the frontmatter", "why": "A review that doesn't name its inputs can't be traced."}
