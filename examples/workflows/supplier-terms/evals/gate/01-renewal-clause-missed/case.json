@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "clause 6.3 of sample/inputs/brightwater-agreement.md mentions renewal, and the review doesn't cite it", "why": "The automatic renewal sits under General, and the review only read the term clause. This is the renewal nobody spotted."}

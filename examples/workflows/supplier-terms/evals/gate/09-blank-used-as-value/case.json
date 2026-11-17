@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "clause 2.1 of sample/inputs/brightwater-agreement.md has a blank, and the review doesn't quote it under Could not confirm", "why": "The start date in clause 2.1 is a blank line, and the review fills it with a start date the agreement never gives."}

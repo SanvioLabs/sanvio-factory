@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "S2 has no line in the review", "why": "Tom Reyes reads one line for every rule. A rule with no line could be met, not met or forgotten."}
