@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: Check a workflow folder with one command
+
+New: `python3 scripts/check_workflow.py workflows/<name>` checks one workflow folder against [`docs/building-workflows.md`](docs/building-workflows.md). It checks every file and folder *The workflow folder* lists; the keys and values in its `workflow.json`, and that each path it names exists; that the gate refuses every gate case and prints its `says` text, passes every review case and sample output, and refuses the template; that every sample input says `invented: true`; that no sample output or eval names `standard/` where it means `sample/standard/`; that there are at least six gate cases and two review cases; and that the workflow's own tests run and pass. It prints `PASS`, or one problem per line and exits 1, and never edits the folder. The [`skills/check-workflow/`](skills/check-workflow/) skill runs it and says how to read each line.
+
+**Needs:** 2026-11-16: How to build a workflow
+
+Files: [`scripts/check_workflow.py`](scripts/check_workflow.py), [`skills/check-workflow/SKILL.md`](skills/check-workflow/SKILL.md), [`tests/test_check_workflow.py`](tests/test_check_workflow.py), [`tests/fixtures/check-workflow/`](tests/fixtures/check-workflow/), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: How to build a workflow
 
 New: [`docs/building-workflows.md`](docs/building-workflows.md), the reference for turning a piece of work your team repeats into a workflow: the interview that understands it, the blueprint it writes, the workflow folder and its `workflow.json`, the seven rules every workflow follows, its trust tests, and the three ways to run one. [`workflows/`](workflows/) is where your workflows live. The skills that use this land separately.
