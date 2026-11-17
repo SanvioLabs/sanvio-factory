@@ -56,6 +56,47 @@ About 20 minutes. Reply with the last line of the setup check when you're done.
 
 Your own first loop run and first gate are the homework after the session.
 
+## Bring your own project in, by asking
+
+After the session, this is how you start on one of your own apps. You don't
+change directory or run setup by hand: you ask, from the factory, and it works
+inside the factory's rules the whole way.
+
+![Your factory on disk. my-factory/ is one git repo, the factory: AGENTS.md, steering/ and skills/ hold the rules and skills, agents/ and .claude/hooks/ the reviewers and guards. projects/ is ignored by the factory, and holds billing/ and website/, each its own repo with its own history and CI. Start the agent in my-factory/: it loads the rules, skills, reviewers and guards, then point it at the work, "in projects/billing, fix the failing test". Not in my-factory/projects/billing/: it finds CLAUDE.md in the folder above, but no skills, no reviewers and no guards, and nothing tells you. Commit inside each project: the factory's repo never sees your code, and each project keeps its own hooks and CI.](../projects-layout.png)
+
+1. **Open Claude Code in the factory.** `cd my-factory`, then `claude`. Always
+   from the factory's folder, never from inside a project: started anywhere
+   else, the rules, guards and skills don't load, and nothing tells you.
+2. **Give it the project's address and ask it to check it out.**
+
+   > Check out https://github.com/your-org/your-app into projects/
+
+   It clones the repo into `projects/your-app`, its own git repo with its own
+   history. `/project your-app` puts it in focus in the line above the prompt.
+   Before you point it at anything with real data, run
+   `/stelliad:secret-scan` on it.
+3. **Ask about it.**
+
+   > In projects/your-app, what does this app do, how is it built and tested,
+   > and where would you start?
+
+   The answer should name files. Ask a second question you already know the
+   answer to, and check it.
+4. **Make a first change, small.**
+
+   > In projects/your-app, add a test for the date parsing, then fix what it
+   > finds. Show me the diff before you commit.
+
+   Read the diff, then let it commit inside the project. The project's own
+   hooks and CI run, not the factory's.
+5. **Then hand it to the loop.** Add a `loop.json` to the project that says how
+   to run its tests, such as `{"test_command": "npm test"}`, write the next
+   change as an issue labelled `loop-ready`, and run
+   `python3 scripts/loop.py run --project projects/your-app` from the factory.
+   It comes back as a pull request for you to read and merge.
+
+[`projects/README.md`](../../projects/README.md) has the detail.
+
 ## The path from here
 
 The session starts the first five steps. Here's the whole path:
