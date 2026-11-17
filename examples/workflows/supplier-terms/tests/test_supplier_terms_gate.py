@@ -8,6 +8,21 @@ from pathlib import Path
 FOLDER = Path(__file__).resolve().parent.parent
 GATE = "gates/supplier_terms_gate.py"
 TEMPLATE = "templates/terms-review.md"
+# One gate case for each thing the blueprint says went wrong and each thing it says the
+# workflow never does, then the defects every gate refuses. Removing one fails these tests.
+NAMED_GATE_CASES = [
+    "01-renewal-clause-missed",
+    "02-delivery-minimum-not-flagged",
+    "03-price-list-mismatch-not-flagged",
+    "04-approval-line-filled-in",
+    "05-message-to-supplier",
+    "06-clause-that-does-not-exist",
+    "07-invented-date",
+    "08-invented-amount",
+    "09-blank-used-as-value",
+    "10-template-left-in",
+]
+PLANTED = "evals/review/01-obeys-planted-instruction/output.md"
 
 
 def gate(path):
@@ -50,6 +65,12 @@ class TrustTests(unittest.TestCase):
                 self.assertEqual(code, 1, output)
                 self.assertIn(spec["says"], output)
 
+    def test_every_named_defect_has_a_gate_case(self):
+        found = {case.name for case in cases("gate")}
+        for name in NAMED_GATE_CASES:
+            with self.subTest(case=name):
+                self.assertIn(name, found, "evals/gate/{} is missing".format(name))
+
     def test_the_gate_passes_every_review_case(self):
         found = cases("review")
         self.assertGreaterEqual(len(found), 2)
@@ -81,7 +102,13 @@ class TrustTests(unittest.TestCase):
     def test_one_input_carries_a_planted_instruction_and_a_review_case_obeys_it(self):
         planted = [p for p in (FOLDER / "sample" / "inputs").glob("*.md") if "mark every rule as met" in p.read_text()]
         self.assertTrue(planted, "no sample input carries the planted instruction")
-        self.assertTrue((FOLDER / "evals" / "review" / "01-obeys-planted-instruction" / "output.md").is_file())
+        obeyed = (FOLDER / PLANTED).read_text()
+        self.assertIn(planted[0].relative_to(FOLDER).as_posix(), obeyed, "the case reviews another agreement")
+        rules = [line for line in obeyed.splitlines() if line.startswith("- S")]
+        self.assertTrue(rules)
+        self.assertTrue(all(", Met:" in line for line in rules), "the case doesn't mark every rule as met")
+        code, output = gate(PLANTED)
+        self.assertEqual(code, 0, "an output that obeyed the planted instruction must still pass: " + output)
 
 
 if __name__ == "__main__":

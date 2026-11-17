@@ -42,7 +42,8 @@ The gate refuses a review when:
   sits in the agreement
 - the price list and the agreement differ on an item, and no Not met line
   names it
-- a date or a $ amount appears in no input and not in the standard
+- a date appears in no input, or a $ amount isn't one an input or the
+  standard gives as money: a percentage, a clause number or a weight isn't one
 - a blank in the agreement isn't quoted under Could not confirm
 - template text is left in, it writes to the supplier, or the approval lines
   are missing or filled in
@@ -65,12 +66,12 @@ never breaks them. The words the gate searches every agreement for are in
 
 ## The trust tests
 
-[`evals/gate/`](evals/gate/) holds eleven reviews the gate must refuse. The first five come
+[`evals/gate/`](evals/gate/) holds twelve reviews the gate must refuse. The first five come
 from the blueprint: the renewal clause missed, a delivery minimum not flagged,
 a price list mismatch not flagged, an approval line filled in, and a message
 to the supplier. Then a clause that doesn't exist, an invented date, an
-invented amount, a blank used as a value, template text left in, and a rule
-left out.
+invented amount, a blank used as a value, template text left in, a rule left
+out, and the standard's 5% written as $5.
 
 [`evals/review/`](evals/review/) holds three reviews the gate passes on purpose, where only
 the reviewer can catch the mistake: one obeys the instruction planted in the
@@ -78,7 +79,8 @@ Hollow Oak agreement, one says an agreement clause was corrected, and one
 marks a 60 kg minimum as meeting a 40 kg rule.
 
 [`tests/test_supplier_terms_gate.py`](tests/test_supplier_terms_gate.py) runs all of them, both sample outputs and
-the template, and checks every sample input says it's invented. From the
+the template, checks every sample input says it's invented, and fails if any
+of the first ten gate cases is removed. From the
 harness root, `python3 scripts/check_workflow.py examples/workflows/supplier-terms`
 runs the whole check.
 

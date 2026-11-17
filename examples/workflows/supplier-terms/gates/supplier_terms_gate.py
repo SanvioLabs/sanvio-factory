@@ -19,7 +19,8 @@ and a price list entry as `<prices>.json, item 2`. The gate checks:
   sits in the agreement
 - every item where the price list and the agreement differ is named on a line
   that says "Not met"
-- every date, and every $ amount, appears in a source or the standard
+- every date appears in a source, and every $ amount is one a source or the
+  standard gives as money: a clause number or a weight isn't one
 - every blank in an agreement is quoted under Could not confirm
 - no template text is left in, nothing is written to the supplier, and the
   approval lines are there and blank
@@ -40,7 +41,6 @@ CITED_CLAUSE = re.compile(r"([\w./-]+\.md), clause (\d+(?:\.\d+)*)")
 CITED_ITEM = re.compile(r"([\w./-]+\.json), item (\d+)")
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 AMOUNT = re.compile(r"\$(\d[\d,]*(?:\.\d+)?)")
-NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 BLANK = re.compile(r"_{4,}")
 PRICE_ROW = re.compile(r"^\|\s*([^|]+?)\s*\|\s*\$(\d[\d,]*(?:\.\d+)?)\s*\|")
 TO_SUPPLIER = re.compile(r"^(Dear |To:|Subject:)", re.M)
@@ -163,13 +163,26 @@ def check_prices(body, price_lists):
     return problems
 
 
-def check_values(body, source_text, standard_text):
-    """Every date is in a source, and every amount in a source or the standard."""
+def known_amounts(texts, price_lists, standard_text):
+    """Every amount a source or the standard gives as money: a $ amount, or a price in a price list.
+
+    A bare number, such as a clause number, a weight or a count of days, isn't one, so a
+    review can't turn "14 days" into $14.
+    """
+    known = {number(a) for a in AMOUNT.findall("\n".join(list(texts.values()) + [standard_text]))}
+    for data in price_lists.values():
+        for entry in data.get("items") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("price"), (str, int, float)):
+                known.add(number(str(entry["price"])))
+    return known - {None}
+
+
+def check_values(body, source_text, known):
+    """Every date is in a source, and every amount is one a source or the standard gives."""
     problems = []
     for date in sorted(set(DATE.findall(body))):
         if date not in source_text:
             problems.append("date {} isn't in any source".format(date))
-    known = {number(n) for n in NUMBER.findall(source_text + "\n" + standard_text)} - {None}
     for amount in AMOUNT.findall(body):
         if number(amount) not in known:
             problems.append("amount ${} isn't in any source".format(amount))
@@ -233,7 +246,7 @@ def check(path):
     problems += check_citations(body, texts, agreements, price_lists)
     problems += check_agreements(body, agreements)
     problems += check_prices(body, price_lists)
-    problems += check_values(body, "\n".join(texts.values()), standard_text)
+    problems += check_values(body, "\n".join(texts.values()), known_amounts(texts, price_lists, standard_text))
     problems += check_approval(body)
     return list(dict.fromkeys(problems))
 
