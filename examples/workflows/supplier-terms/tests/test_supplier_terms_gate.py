@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,6 +22,7 @@ NAMED_GATE_CASES = [
     "08-invented-amount",
     "09-blank-used-as-value",
     "10-template-left-in",
+    "13-rule-line-cites-nothing",
 ]
 PLANTED = "evals/review/01-obeys-planted-instruction/output.md"
 
@@ -86,6 +88,17 @@ class TrustTests(unittest.TestCase):
             with self.subTest(output=path.name):
                 code, output = gate(path.relative_to(FOLDER))
                 self.assertEqual(code, 0, output)
+
+    def test_a_review_may_name_the_approval_threshold(self):
+        """The skill tells the agent who approves above $5,000 a year, so saying so isn't an invented amount."""
+        review = (FOLDER / "sample" / "outputs" / "hollow-oak-review.md").read_text()
+        review = review.replace("## Approval\n", "## Approval\n\nTom Reyes approves any agreement above $5,000 a year.\n", 1)
+        self.assertIn("$5,000", review)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "review.md"
+            path.write_text(review)
+            code, output = gate(path)
+        self.assertEqual(code, 0, output)
 
     def test_the_template_fails_until_it_is_filled_in(self):
         code, output = gate(TEMPLATE)

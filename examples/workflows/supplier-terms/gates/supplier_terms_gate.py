@@ -12,15 +12,17 @@ A review is Markdown with `sources:` (the agreement and its price list) and
 `standard:` in its frontmatter. It cites a clause as `<agreement>.md, clause 6.3`
 and a price list entry as `<prices>.json, item 2`. The gate checks:
 
-- the sources and the standard exist, every cited rule is in the standard, and
-  every rule in the standard has a line
+- the sources and the standard exist, every cited rule is in the standard,
+  every rule in the standard has a line, and every rule line cites a clause or
+  an item
 - every cited clause or item exists, in a file the review names as a source
 - every clause that mentions renewal or a minimum order is cited, wherever it
   sits in the agreement
 - every item where the price list and the agreement differ is named on a line
   that says "Not met"
-- every date appears in a source, and every $ amount is one a source or the
-  standard gives as money: a clause number or a weight isn't one
+- every date appears in a source, and every $ amount is one a source, the
+  standard or the manifest's approves line gives as money: a clause number or a
+  weight isn't one
 - every blank in an agreement is quoted under Could not confirm
 - no template text is left in, nothing is written to the supplier, and the
   approval lines are there and blank
@@ -35,6 +37,7 @@ from pathlib import Path
 
 FOLDER = Path(__file__).resolve().parent.parent
 RULE = re.compile(r"^S(\d+)\.", re.M)
+RULE_LINE = re.compile(r"^- S(\d+)\b.*$", re.M)
 CITED_RULE = re.compile(r"\bS(\d+)\b")
 CLAUSE = re.compile(r"^(?:#{1,6}\s+)?(\d+(?:\.\d+)*)\.?\s")
 CITED_CLAUSE = re.compile(r"([\w./-]+\.md), clause (\d+(?:\.\d+)*)")
@@ -102,6 +105,9 @@ def check_rules(body, standard_text):
     cited = set(CITED_RULE.findall(body))
     problems = ["cites S{}, which isn't in the standard".format(n) for n in sorted(cited - set(rules), key=int)]
     problems += ["S{} has no line in the review".format(n) for n in rules if n not in cited]
+    for match in RULE_LINE.finditer(section(body, "Rules")):
+        if not CITED_CLAUSE.search(match.group(0)) and not CITED_ITEM.search(match.group(0)):
+            problems.append("the line for S{} cites no clause or item".format(match.group(1)))
     return problems
 
 
@@ -163,13 +169,22 @@ def check_prices(body, price_lists):
     return problems
 
 
-def known_amounts(texts, price_lists, standard_text):
-    """Every amount a source or the standard gives as money: a $ amount, or a price in a price list.
+def approves():
+    """The manifest's approves line, which names the amount above which a person approves."""
+    try:
+        value = json.loads((FOLDER / "workflow.json").read_text()).get("approves")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return value if isinstance(value, str) else ""
 
-    A bare number, such as a clause number, a weight or a count of days, isn't one, so a
-    review can't turn "14 days" into $14.
+
+def known_amounts(texts, price_lists, standard_text):
+    """Every amount a source, the standard or the approves line gives as money.
+
+    That's a $ amount, or a price in a price list. A bare number, such as a clause number, a
+    weight or a count of days, isn't one, so a review can't turn "14 days" into $14.
     """
-    known = {number(a) for a in AMOUNT.findall("\n".join(list(texts.values()) + [standard_text]))}
+    known = {number(a) for a in AMOUNT.findall("\n".join(list(texts.values()) + [standard_text, approves()]))}
     for data in price_lists.values():
         for entry in data.get("items") or []:
             if isinstance(entry, dict) and isinstance(entry.get("price"), (str, int, float)):
