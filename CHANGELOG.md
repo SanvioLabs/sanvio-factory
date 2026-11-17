@@ -41,6 +41,13 @@ The test for the author: if your diff changes lines that an entry from the last 
 A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325 against Read, Grep, Glob and a literal `cat`. The hold isn't complete yet: a caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` and run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into its build and tester sessions (#597). Without `caller`, nothing changes.
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+## 2026-11-16: Check a workflow folder with one command
+
+New: `python3 scripts/check_workflow.py workflows/<name>` checks one workflow folder against [`docs/building-workflows.md`](docs/building-workflows.md). It checks every file and folder *The workflow folder* lists; the keys and values in its `workflow.json`, and that each path it names exists; that the gate refuses every gate case and prints its `says` text, passes every review case and sample output, and refuses the template; that every sample input says `invented: true`; that no sample output or eval names `standard/` where it means `sample/standard/`; that there are at least six gate cases and two review cases; and that the workflow's own tests run and pass. It prints `PASS`, or one problem per line and exits 1, and never edits the folder. The [`skills/check-workflow/`](skills/check-workflow/) skill runs it and says how to read each line.
+
+**Needs:** 2026-11-16: How to build a workflow
+
+Files: [`scripts/check_workflow.py`](scripts/check_workflow.py), [`skills/check-workflow/SKILL.md`](skills/check-workflow/SKILL.md), [`tests/test_check_workflow.py`](tests/test_check_workflow.py), [`tests/fixtures/check-workflow/`](tests/fixtures/check-workflow/), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.
 
