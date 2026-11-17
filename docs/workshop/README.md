@@ -12,6 +12,7 @@ workflow. A little over three hours, on your own or with one other person.
 | [`workshop-deck.pdf`](workshop-deck.pdf) | The deck, 36 slides. Page numbers below point into it. The animated slides show their first frame here; the animations are on this page |
 | [`onboarding-cards.pdf`](onboarding-cards.pdf) | Eight one-page cards, one per session, from the first commands to your own loop, a deploy to production, and the monthly review for the factory's owner and a finance partner. Each ends with what to do before the next |
 | [`../../EXERCISES.md`](../../EXERCISES.md) | The hands-on steps the sections below send you to |
+| [`handout.md`](handout.md) | What to send the people coming to the two-hour session: what to do before, what they'll leave with, and the path after |
 | [`prep.md`](prep.md) | Running it for your team: a two-hour version, and what to do a week before, the night before and on the day |
 
 Read a section here, flip through its slides, do what it asks, and only move on

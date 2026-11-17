@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: A handout for the two-hour workshop
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) is the page to send the people coming to the two-hour session: about 20 minutes of setup before, what they'll leave with, the path after, and the rules of the road. [`docs/workshop/prep.md`](docs/workshop/prep.md) now sends it a week before.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`docs/workshop/prep.md`](docs/workshop/prep.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running the workshop? Send `handout.md` a week before.
+
 ## 2026-11-16: Running the workshop in two hours
 
 [`docs/workshop/prep.md`](docs/workshop/prep.md) is the checklist for running the workshop for a team: a two-hour version that keeps every section and the workflow interviews whole, with one person demoing the loop, and what to do a week before, the night before, on the day and after.

@@ -23,8 +23,8 @@ section 4.
 
 ## A week before
 
-- [ ] Send everyone the workshop page's *Before you start* list, and ask each
-      person to reply with the last line of `python3 scripts/check_setup.py`
+- [ ] Send everyone [`handout.md`](handout.md), and ask each person to reply
+      with the last line of `python3 scripts/check_setup.py`
 - [ ] Ask each person to pick one piece of work they repeat: something that
       arrives, gets checked against rules, and goes to someone for sign-off.
       Section 4 interviews them about the last real time they did it
