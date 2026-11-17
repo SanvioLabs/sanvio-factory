@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: The handout shows how to bring a project in
+
+[`docs/workshop/handout.md`](docs/workshop/handout.md) has a new section, *Bring your own project in, by asking*: open Claude Code in the factory, ask it to check out your app's repo into [`projects/`](projects/), ask about the app, make a first small change, then hand the next one to the loop.
+
+Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: A handout and a PowerPoint for the workshop
 
 [`docs/workshop/handout.md`](docs/workshop/handout.md) is the page to send the people coming to the two-hour session: about 20 minutes of setup before, what they'll leave with, the path after, and the rules of the road. [`docs/workshop/prep.md`](docs/workshop/prep.md) now sends it a week before. The deck is also there as [`docs/workshop/workshop-deck.pptx`](docs/workshop/workshop-deck.pptx), the same 36 slides as the PDF, to present from or edit.
