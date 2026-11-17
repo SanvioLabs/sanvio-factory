@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: factory-floor's picker tests pass on Claude Code 2.1.326
+
+Three of [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker tests failed on every run under Claude Code 2.1.326, whose mod test kit finishes a Select's `onSelect` after a timer turn rather than within microtasks. The tests' `settle()` now waits a few real timer turns as well, and the tests' checks are unchanged. The mod itself didn't change. Since the loop's default test command runs every mod's tests, every issue it built failed its tests until this.
+
+Files: [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. If the loop blocked an issue on `test_factory_floor`, take `loop:blocked` off and put the ready label back once you have this.
+
 ## 2026-11-16: A closed issue clears its blocked row
 
 While it's idle, the loop now looks up each blocked issue on GitHub and marks its row `skipped`, with the note `issue closed while blocked` and a `CLEANUP` line in the log, once the issue is closed, for example after a person merges the loop's commit by hand. An issue still open is looked up again after an hour, a failed lookup leaves the row blocked, and the `loop:blocked` label stays on the issue.
