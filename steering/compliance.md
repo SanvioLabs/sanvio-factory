@@ -41,9 +41,9 @@ tracked one.
 | Adds or changes logging | AU, SI | Does it record who did what and when, with no secret or personal data in the record? |
 | Adds a dependency or outside service | SA-9, SR, CM | Is it pinned and from a source we trust, and what does the outside service see? |
 | Changes deployment or infrastructure | CM, SC, AC | Can it be traced to a reviewed commit and rolled back, with permissions no wider than the job? |
-| Widens what an agent does unattended: a new tool, command, permission, path, network reach or token budget | AC-6, CM-7; OWASP excessive agency and unbounded consumption; AI RMF MANAGE 2; ISO 42001 A.6 | What can it now do with nobody watching, and what stops it or switches it off? |
+| Widens what an agent does unattended: a new tool, command, permission, path, network reach or token budget | AC-6, CM-7; OWASP excessive agency and unbounded consumption; AI RMF MANAGE 2.4; ISO 42001 A.6 | What can it now do with nobody watching, and what stops it or switches it off? |
 | Lets text from outside reach a prompt: an issue, a pull request, a comment, a caller's repo, a web page or a file someone sends | SI-10, AC-4; OWASP prompt injection and improper output handling; AI RMF MEASURE 2; ISO 42001 A.6 | Who could have written that text, and what could it get the agent to do? |
-| Changes who merges, approves or decides: `auto_merge`, the review rubric, a gate, or a step a person decides | AC-5; OWASP excessive agency; AI RMF GOVERN 3; ISO 42001 A.9 | Does a person still decide, and what enforces it when the agent decides otherwise? |
+| Changes who merges, approves or decides: `auto_merge`, the review rubric, a gate, or a step a person decides | AC-5; OWASP excessive agency; AI RMF GOVERN 3.2; ISO 42001 A.9 | Does a person still decide, and what enforces it when the agent decides otherwise? |
 | Changes the model, the provider or an agent's instructions: a model id, an agent's file, steering, or a review brief | SA-9, CM-3; OWASP supply chain and misinformation; AI RMF GOVERN 6 and MEASURE 2; ISO 42001 A.10 | Is the provider on Approved tools, and did the evals that cover it run again? |
 
 A change can be more than one kind. Answer each kind's question. Where you can
