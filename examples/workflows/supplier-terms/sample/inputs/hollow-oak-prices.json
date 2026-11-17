@@ -1,0 +1,9 @@
+{
+  "invented": true,
+  "supplier": "Hollow Oak Mills",
+  "agreement": "sample/inputs/hollow-oak-agreement.md",
+  "items": [
+    {"item": "Bread flour, 25 kg sack", "price": "36.00"},
+    {"item": "Rye flour, 25 kg sack", "price": "41.50"}
+  ]
+}
