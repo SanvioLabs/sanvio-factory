@@ -46,6 +46,14 @@ Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.
 
 **Do:** nothing.
 
+## 2026-11-16: Running the workshop in two hours
+
+[`docs/workshop/prep.md`](docs/workshop/prep.md) is the checklist for running the workshop for a team: a two-hour version that keeps every section and the workflow interviews whole, with one person demoing the loop, and what to do a week before, the night before, on the day and after.
+
+Files: [`docs/workshop/prep.md`](docs/workshop/prep.md), [`docs/workshop/README.md`](docs/workshop/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running it for your team? Start from `prep.md`.
+
 ## 2026-11-16: The workshop teaches workflows
 
 The workshop deck and its walkthrough now open with the factory's mental model: it runs workflows, each one work coming in, an agent drafting, a script checking, a second reader, and a named person approving. Section 4 is now Skills and workflows: after the skill, you interview someone about one piece of work they repeat, from [`docs/building-workflows.md`](docs/building-workflows.md), and the blueprint ends in build it, write the rules down first, or not a fit. The path slide adds deploying and the monthly review. The deck is 36 slides, and the walkthrough's slide numbers follow it.
