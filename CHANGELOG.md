@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: The dashboard's cost footer says only what's true
+
+With no `.sanvio/prices.json`, the factory-dashboard pane's Activity footer now says `Est. cost: can't be worked out without .sanvio/prices.json.`, with no checked date and no time it was worked out, then how to fill the file. A price file with no checked date says `no checked date` instead of `checked ?`, and one ask from the guard reads `Guard asked 1 time`.
+
+**Needs:** 2026-10-30: Activity tokens and estimated cost in the pane; 2026-11-08: New names for the state folder, the variables and bin/harness
+
+Files: [`examples/mods/factory-dashboard/hooks/logic.ts`](examples/mods/factory-dashboard/hooks/logic.ts), [`examples/mods/factory-dashboard/hooks/logic.test.ts`](examples/mods/factory-dashboard/hooks/logic.test.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if you installed the mod, `/plugin update`, then `/reload-plugins` or a new session.
+
 ## 2026-11-16: factory-floor's picker tests pass on Claude Code 2.1.326
 
 Three of [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s picker tests failed on every run under Claude Code 2.1.326, whose mod test kit finishes a Select's `onSelect` after a timer turn rather than within microtasks. The tests' `settle()` now waits a few real timer turns as well, and the tests' checks are unchanged. The mod itself didn't change. Since the loop's default test command runs every mod's tests, every issue it built failed its tests until this.
