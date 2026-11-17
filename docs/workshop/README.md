@@ -3,18 +3,21 @@
 The Sanvio Factory workshop, written so you can run it yourself. It takes you
 from a fresh clone to one real piece of your own work turned into a pull request
 you read and merged, with a check that blocks the mistake the agent made on the
-way. About three hours, on your own or with one other person.
+way, and one piece of work you repeat understood well enough to build into a
+workflow. A little over three hours, on your own or with one other person.
 
 | File | What it is |
 |---|---|
 | This page | The walkthrough: the deck's sections in order, what each one is saying, and what to do before you move on |
-| [`workshop-deck.pdf`](workshop-deck.pdf) | The deck, 33 slides. Page numbers below point into it. The animated slides show their first frame here; the animations are on this page |
+| [`workshop-deck.pdf`](workshop-deck.pdf) | The deck, 36 slides. Page numbers below point into it. The animated slides show their first frame here; the animations are on this page |
 | [`onboarding-cards.pdf`](onboarding-cards.pdf) | Eight one-page cards, one per session, from the first commands to your own loop, a deploy to production, and the monthly review for the factory's owner and a finance partner. Each ends with what to do before the next |
 | [`../../EXERCISES.md`](../../EXERCISES.md) | The hands-on steps the sections below send you to |
+| [`prep.md`](prep.md) | Running it for your team: a two-hour version, and what to do a week before, the night before and on the day |
 
 Read a section here, flip through its slides, do what it asks, and only move on
 once you've reached its finish line. Presenting it to your team instead? Use the
-PDF as the slides and this page as your script.
+PDF as the slides, this page as your script, and [`prep.md`](prep.md) for the two-hour version and
+the checklist.
 
 ## Before you start
 
@@ -50,6 +53,8 @@ About 20 minutes.
    records.
 5. **Pick one small, real task**: a bug, a doc fix, a small feature. Small
    enough to finish in one loop run, and something a test can check.
+6. **Pick one piece of work you repeat**: something that arrives, gets checked
+   against your rules, and goes to someone for sign-off.
 
 ## The five finish lines
 
@@ -59,13 +64,13 @@ Slides 1 to 3. Each section below ends at one of these. Tick them off as you go.
 |---|---|
 | Your clone | The setup check passes, on your account, and you're its owner |
 | Your knowledge | It answers a question from your docs and names the page |
-| Your skill | One procedure you already run, written as a skill, plus one borrowed skill reviewed before it came in |
+| Your skill and blueprint | One procedure you already run, written as a skill, plus one borrowed skill reviewed before it came in. Then one piece of work you repeat, understood well enough to say: build it, write the rules down first, or not a fit |
 | Your first motion | Your task went from a ticket to a pull request, and you read and merged it |
 | Your first gate | One check that blocks a mistake your agent made during the workshop |
 
 ## 1. Why a factory
 
-Slides 4 to 8, about 10 minutes. Nothing to do yet but read.
+Slides 4 to 9, about 10 minutes. Nothing to do yet but read.
 
 The model is the engine. The factory is everything around it that holds it to
 your rules. Same request, same model, twice: on its own, the agent leaves a rate
@@ -90,13 +95,21 @@ person merges it. What went wrong goes into lessons the next run reads.
 
 ![One issue through the loop](../one-issue-through-the-loop.gif)
 
+What the factory runs are workflows. A workflow is one piece of your team's
+work, done the same way every time: work comes in, an agent drafts it following
+one skill, a script checks it against your written rules, a second reader
+checks what a script can't, and a named person approves. Nothing sends itself.
+Everything that goes with it lives in one folder, and the loop is one of three
+ways to run it. [`docs/building-workflows.md`](../building-workflows.md) is the reference, and every
+section below builds one of its parts.
+
 You hold the levers. Each step either waits for a person or runs on its own,
 and most teams start with every step waiting and let go of one once its check
 catches what the person would have. Today, every step waits.
 
 ## 2. Your own clone
 
-Slides 9 to 11, about 15 minutes. [Card 1](onboarding-cards.pdf) goes with it.
+Slides 10 to 12, about 15 minutes. [Card 1](onboarding-cards.pdf) goes with it.
 
 If you did *Before you start*, this is a check. Start Claude Code from the repo
 root and trust the folder: started anywhere else, the rules, guards and skills
@@ -111,7 +124,7 @@ leaves names a fix you've decided to make later.
 
 ## 3. Connect your knowledge
 
-Slides 12 to 15, about 30 minutes. [Card 2](onboarding-cards.pdf), first half.
+Slides 13 to 16, about 30 minutes. [Card 2](onboarding-cards.pdf), first half.
 
 Before it builds anything, it should know how you work. This is usually the
 moment it first says something only your company knows.
@@ -138,9 +151,9 @@ page named doesn't count, because it guessed. The second question matters
 more: you're checking it says "I can't find it" rather than inventing
 something.
 
-## 4. Skills
+## 4. Skills and workflows
 
-Slides 16 to 18, about 25 minutes. [Card 2](onboarding-cards.pdf), second half, and
+Slides 17 to 21, about 40 minutes. [Card 2](onboarding-cards.pdf), second half, and
 [EXERCISES.md](../../EXERCISES.md) step 2.
 
 A skill is one procedure you run the same way every time, written down so the
@@ -157,14 +170,26 @@ It reads every file without running any of it, and sorts what it finds into
 covered (you already have this), gap (adopt it, in your own conventions) and
 conflict (it fights a rule you have). Adopt the gaps, never the whole file.
 
-**Finish line:** your skill is committed, and one borrowed skill has been
-through `/review-skill`.
+A skill is one step. A workflow is the whole piece of work around it, and most
+of building one is understanding it. With someone else, take turns: one asks,
+one answers, about one piece of work the answerer repeats. The questions are in
+[`docs/building-workflows.md`](../building-workflows.md), under *Understanding the workflow*. Ask
+about the last real time it happened, never the general case: people describe
+the process they wish they ran. Ask about the time it went sideways, because
+that exception becomes the first test case. A question nobody can answer stays
+open as a gap, never a guess. Write the answers into `blueprints/<name>.md`,
+with the keys the reference lists.
 
-Slide 19 is a break. Take it, and settle on the task you'll run next.
+**Finish line:** your skill is committed, one borrowed skill has been through
+`/review-skill`, and your blueprint ends in one of three answers: build it,
+write the rules down first, or not a fit. A rule that lives in someone's head
+is a finding, not a failure, and not a fit is a good answer.
+
+Slide 22 is a break. Take it, and settle on the task you'll run next.
 
 ## 5. Your first motion
 
-Slides 20 to 23, about 45 minutes. [Card 3](onboarding-cards.pdf) goes with it.
+Slides 23 to 26, about 45 minutes. [Card 3](onboarding-cards.pdf) goes with it.
 
 One real ticket, end to end, on your sandbox repo:
 
@@ -176,7 +201,7 @@ One real ticket, end to end, on your sandbox repo:
 5. It opens a pull request.
 
 Start it with `python3 scripts/loop.py run`, and watch it with
-`tail -f .loop/loop.log` or `/factory-floor`. Slide 22 is a real run: plan,
+`tail -f .loop/loop.log` or `/factory-floor`. Slide 25 is a real run: plan,
 build, tests and review, and a pull request open in under two minutes.
 
 The loop merges nothing on its own. Auto-merge exists, but it's off until the
@@ -194,7 +219,7 @@ everything you had to fix by hand. It's the input to the next section.
 
 ## 6. Your first gate
 
-Slides 24 to 27, about 20 minutes. [Card 4](onboarding-cards.pdf), and
+Slides 27 to 30, about 20 minutes. [Card 4](onboarding-cards.pdf), and
 [EXERCISES.md](../../EXERCISES.md) steps 3 and 4.
 
 A correction said out loud lasts one conversation. A rule written into the file
@@ -205,7 +230,7 @@ reason.
 ![A mistake becomes a rule](../mistake-to-rule.gif)
 
 A rule is context: the agent reads it, and can still skip it. A gate is
-enforcement: a script that fails when the work isn't ready. Slide 26 is the
+enforcement: a script that fails when the work isn't ready. Slide 29 is the
 example gate in [`examples/proposal/gates/`](../../examples/proposal/gates/) refusing a commit whose rate
 isn't the rate card's.
 
@@ -218,7 +243,7 @@ check that doesn't block is decoration.
 
 ## 7. What comes next
 
-Slides 28 to 33.
+Slides 31 to 36.
 
 You've done the first five steps of eight:
 
