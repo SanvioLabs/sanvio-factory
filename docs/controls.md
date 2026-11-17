@@ -23,7 +23,7 @@ Each entry is one JSON object.
 | `status` | One of the six statuses below |
 | `summary` | What the factory does toward the control, in a sentence or two |
 | `setup` | What a customer does so the control is met. Required when `status` is `configured` |
-| `evidence` | A non-empty list of paths, relative to the register's own folder. A path ending in `/` names a folder |
+| `evidence` | A non-empty list of paths, relative to the register's own folder. A folder must end in `/`, a path ending in `/` must be a folder, and no path may resolve outside the register's folder |
 
 ## The statuses
 
@@ -49,9 +49,11 @@ python3 scripts/controls.py touched origin/main
 controls.json: 5 controls, all evidence present
 ```
 
-It exits 1 and prints one line per problem when an evidence path is missing,
-a field is missing, a `status` isn't one of the six, a `configured` entry has
-no `setup`, or an `id` repeats within one framework. Each line names the entry
+It exits 1 and prints one line per problem when a field is missing, a
+`status` isn't one of the six, a `configured` entry has no `setup`, or an
+`id` repeats within one framework. It does the same for an evidence path that
+is missing, names a folder without a trailing `/`, ends in `/` but isn't a
+folder, or resolves outside the register's folder. Each line names the entry
 by its framework and `id`, or by its place in the file, counted from 1, when
 either is missing.
 
@@ -67,8 +69,16 @@ The review-pr skill runs `touched` in its step 3 and reports what it printed
 on a `Controls touched:` line, so a reviewer sees which controls a pull request
 moves. See [`skills/review-pr/SKILL.md`](../skills/review-pr/SKILL.md).
 
-Both commands take `--file <path>` to read another register. Without it they
-read [`controls.json`](../controls.json) at the factory's root.
+Without `--file`, both commands read `controls.json` at the git root of the
+folder you run them from, or in that folder when it isn't in a git repo, so
+run from the factory they read [`controls.json`](../controls.json). Both take `--file <path>` to
+read another register, and `touched` runs `git diff` in that register's
+folder. For a project cloned under `projects/<name>/`, run from the harness
+root:
+
+```bash
+python3 scripts/controls.py touched origin/<base> --file projects/<name>/controls.json
+```
 
 ## Adding an entry
 

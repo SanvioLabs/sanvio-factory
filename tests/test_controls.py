@@ -108,8 +108,25 @@ class Check(unittest.TestCase):
         code, out = self.check([control("prompt-injection"), control("prompt-injection", framework=OWASP)])
         self.assertEqual((code, out), (0, ["fixture.json: 2 controls, all evidence present"]))
 
+    def test_a_folder_written_without_a_slash_fails(self):
+        code, out = self.check([control("AC-5", evidence=("docs",))])
+        self.assertEqual(code, 1)
+        self.assertTrue(any("AC-5" in line and "docs" in line and "trailing /" in line for line in out), out)
+
+    def test_a_file_written_with_a_slash_fails(self):
+        code, out = self.check([control("AC-5", evidence=("a.md/",))])
+        self.assertEqual(code, 1)
+        self.assertTrue(any("AC-5" in line and "a.md/" in line and "isn't a folder" in line for line in out), out)
+
+    def test_a_path_outside_the_register_folder_fails_even_when_it_exists(self):
+        (self.dir / "outside.md").write_text("x\n")
+        (self.dir / "inner").mkdir()
+        code, out = self.check([control("AC-5", evidence=("../outside.md",))], name="inner/fixture.json")
+        self.assertEqual(code, 1)
+        self.assertTrue(any("AC-5" in line and "../outside.md" in line and "outside" in line for line in out), out)
+
     def test_the_shipped_register_passes(self):
-        code, out = run("check")
+        code, out = run("check", cwd=ROOT)
         self.assertEqual((code, out), (0, ["controls.json: 5 controls, all evidence present"]))
 
 
@@ -182,6 +199,20 @@ class Touched(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             code, out = run("touched", "main", "--file", str(Path(empty) / "controls.json"), cwd=empty)
         self.assertEqual((code, out), (0, ["no controls.json"]))
+
+    def test_with_no_file_it_reads_the_register_of_the_repo_it_runs_in(self):
+        self.edit("scripts/loop.py")
+        self.assertEqual(run("touched", "main", cwd=self.repo / "scripts"), (0, [NIST + " folder"]))
+
+    def test_with_no_file_in_a_repo_without_a_register_it_never_reads_the_factorys(self):
+        (self.repo / "controls.json").unlink()
+        self.edit("AGENTS.md", "scripts/loop.py")
+        self.assertEqual(run("touched", "main", cwd=self.repo), (0, ["no controls.json"]))
+
+    def test_with_no_file_check_reads_the_register_at_the_git_root(self):
+        (self.repo / "controls.json").write_text(json.dumps([control("only", evidence=("AGENTS.md",))]))
+        self.assertEqual(run("check", cwd=self.repo / "scripts"),
+                         (0, ["controls.json: 1 control, all evidence present"]))
 
 
 class ReviewPrSkill(unittest.TestCase):

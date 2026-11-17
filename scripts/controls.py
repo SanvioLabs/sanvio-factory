@@ -4,9 +4,11 @@
     python3 scripts/controls.py check                  # exit 1 if an entry is malformed or its evidence is gone
     python3 scripts/controls.py touched origin/main    # the controls whose evidence this branch changes
 
-Both take --file <path>, default controls.json at the repo root. Evidence paths resolve against the
-register's own folder. A path ending in / names a folder and matches any file under it; any other
-path matches only that file. docs/controls.md says what each field and status means.
+Both take --file <path>, default controls.json at the git root of the current directory, or in the
+current directory when it isn't in a git repo. Evidence paths resolve against the register's own
+folder and may not lead out of it. A path ending in / names a folder and matches any file under it;
+any other path names a file and matches only that file. docs/controls.md says what each field and
+status means.
 """
 import argparse
 import json
@@ -14,7 +16,6 @@ import os
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATUSES = ("core", "configured", "gap-customer", "gap-limit", "enhancement", "na")
 TEXT_FIELDS = ("id", "framework", "name", "status", "summary")
 
@@ -76,9 +77,28 @@ def problems(entries, folder):
                 found.append("{}: id repeats within {}".format(name, key[0]))
             seen.add(key)
         for path in paths or []:
-            if not os.path.exists(os.path.join(folder, path)):
-                found.append("{}: evidence not found: {}".format(name, path))
+            problem = path_problem(folder, path)
+            if problem:
+                found.append("{}: {}: {}".format(name, problem, path))
     return found
+
+
+def path_problem(folder, path):
+    """Why an evidence path fails, or None when it names what it says inside the register's folder."""
+    root = os.path.realpath(folder)
+    full = os.path.join(folder, path)
+    if os.path.commonpath([os.path.realpath(full), root]) != root:
+        return "evidence leads outside the register's folder"
+    if path.endswith("/"):
+        if os.path.isdir(full):
+            return None
+        if os.path.exists(full.rstrip("/")):
+            return "evidence ends in / but isn't a folder"
+    elif os.path.isdir(full):
+        return "evidence is a folder, which needs a trailing /"
+    elif os.path.exists(full):
+        return None
+    return "evidence not found"
 
 
 def check(path):
@@ -132,6 +152,16 @@ def touched(path, base):
     return 0
 
 
+def default_register():
+    """controls.json at the git root of the current directory, or in it when it isn't in a git repo."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        top = done.stdout.strip() if done.returncode == 0 else ""
+    except OSError:
+        top = ""
+    return os.path.join(top or os.getcwd(), "controls.json")
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -140,9 +170,9 @@ def main(argv):
         sub = commands.add_parser(name, help=helptext)
         if name == "touched":
             sub.add_argument("base", help="the branch the change merges into, such as origin/main")
-        sub.add_argument("--file", help="the register, default controls.json at the repo root")
+        sub.add_argument("--file", help="the register, default controls.json at the git root of the current directory")
     args = parser.parse_args(argv)
-    path = os.path.abspath(args.file or os.path.join(ROOT, "controls.json"))
+    path = os.path.abspath(args.file or default_register())
     return check(path) if args.command == "check" else touched(path, args.base)
 
 

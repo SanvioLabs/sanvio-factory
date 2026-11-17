@@ -34,9 +34,12 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
 3. **Run what checks it.** The project's tests and any gate that covers the
    changed files. Paste the result. A review that didn't run the tests says so
    at the top. When the repo under review has its own `controls.json`, run
-   `python3 scripts/controls.py touched origin/<base>` from its root to list
-   the controls whose evidence the change moves. If it can't run, as in a
-   headless run, the `Controls touched:` line says it wasn't run.
+   `python3 scripts/controls.py touched origin/<base>` from the root of that
+   repo to list the controls whose evidence the change moves. For a project
+   under `projects/<name>/`, run it from the harness root as
+   `python3 scripts/controls.py touched origin/<base> --file projects/<name>/controls.json`,
+   so it reads and diffs the project, not the factory. If it can't run, as in
+   a headless run, the `Controls touched:` line says it wasn't run.
 4. **Read the diff for what a script can't catch**, most expensive first:
    - Does it do what the ticket or description says, and nothing else?
    - Security: authorization skipped or done in the client, input trusted,
@@ -112,7 +115,8 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
   costs, and the smallest fix
 - What you didn't review and why, if anything
 - When the repo has a control register, a `Controls touched:` line carrying
-  what step 3's command printed, or `not run` and why
+  exactly one of: `none`, the list step 3's command printed, or
+  `not run: <why>`. Nothing else goes on that line
 - When step 6 grades, the report ends with one of the two grade lines, then
   the verdict line last, with nothing after it:
 
