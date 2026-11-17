@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: The workshop teaches workflows
+
+The workshop deck and its walkthrough now open with the factory's mental model: it runs workflows, each one work coming in, an agent drafting, a script checking, a second reader, and a named person approving. Section 4 is now Skills and workflows: after the skill, you interview someone about one piece of work they repeat, from [`docs/building-workflows.md`](docs/building-workflows.md), and the blueprint ends in build it, write the rules down first, or not a fit. The path slide adds deploying and the monthly review. The deck is 36 slides, and the walkthrough's slide numbers follow it.
+
+Files: [`docs/workshop/README.md`](docs/workshop/README.md), [`docs/workshop/workshop-deck.pdf`](docs/workshop/workshop-deck.pdf), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. Running the workshop yourself? Pick one piece of work you repeat before section 4.
+
 ## 2026-11-16: How to build a workflow
 
 New: [`docs/building-workflows.md`](docs/building-workflows.md), the reference for turning a piece of work your team repeats into a workflow: the interview that understands it, the blueprint it writes, the workflow folder and its `workflow.json`, the seven rules every workflow follows, its trust tests, and the three ways to run one. [`workflows/`](workflows/) is where your workflows live. The skills that use this land separately.
