@@ -10,6 +10,7 @@ workflow. A little over three hours, on your own or with one other person.
 |---|---|
 | This page | The walkthrough: the deck's sections in order, what each one is saying, and what to do before you move on |
 | [`workshop-deck.pdf`](workshop-deck.pdf) | The deck, 36 slides. Page numbers below point into it. The animated slides show their first frame here; the animations are on this page |
+| [`workshop-deck.pptx`](workshop-deck.pptx) | The same 36 slides as an editable PowerPoint, to present from or make your own. The animated slides show their first frame; this page is the script |
 | [`onboarding-cards.pdf`](onboarding-cards.pdf) | Eight one-page cards, one per session, from the first commands to your own loop, a deploy to production, and the monthly review for the factory's owner and a finance partner. Each ends with what to do before the next |
 | [`../../EXERCISES.md`](../../EXERCISES.md) | The hands-on steps the sections below send you to |
 | [`handout.md`](handout.md) | What to send the people coming to the two-hour session: what to do before, what they'll leave with, and the path after |

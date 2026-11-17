@@ -77,7 +77,7 @@ what it bought (card 8).
 A workflow is one piece of your team's work done the same way every time: work
 comes in, an agent drafts it, a script checks it against your rules, a second
 reader checks what a script can't, and a named person approves. Nothing sends
-itself. `docs/building-workflows.md` in the factory is the reference.
+itself. [`docs/building-workflows.md`](../building-workflows.md) in the factory is the reference.
 
 ## Rules of the road
 
