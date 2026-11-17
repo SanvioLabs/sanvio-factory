@@ -44,6 +44,14 @@ Files: [`controls.json`](controls.json), [`scripts/controls.py`](scripts/control
 
 **Do:** nothing.
 
+## 2026-11-16: A caller's build is held to its worktree
+
+A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325 against Read, Grep, Glob and a literal `cat`. The hold isn't complete yet: a caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` and run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into its build and tester sessions (#597). Without `caller`, nothing changes.
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`docs/specs/003-factory-interface/TASKS.md`](docs/specs/003-factory-interface/TASKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: Build a workflow from a blueprint
 
 New: the [`skills/build-workflow/`](skills/build-workflow/) skill is step 2 of building a workflow. It reads `blueprints/<name>.md` and stops, writing nothing, unless `outcome` is `build` and `standard_status` is `written`, or if `workflows/<name>/` is there already. Otherwise it writes every part [`docs/building-workflows.md`](docs/building-workflows.md) lists, with a `draft` `workflow.json` filled from the blueprint, invented sample inputs (one for each thing that went wrong, and one with a planted instruction), gate cases starting from the blueprint's `went_wrong` and `never`, and review cases, one of them an output that obeyed the planted instruction. It's done only when `python3 scripts/check_workflow.py workflows/<name>` prints `PASS`. [`examples/workflows/supplier-terms/`](examples/workflows/supplier-terms/) was built that way from the example blueprint, and [`tests/test_example_workflows.py`](tests/test_example_workflows.py) checks every workflow in [`examples/workflows/`](examples/workflows/) passes.
