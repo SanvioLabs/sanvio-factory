@@ -52,20 +52,21 @@ class Compliance(unittest.TestCase):
         self.assertIn("NOT-READY means at least one Critical or High", text)
 
     STEERING = ROOT / "steering" / "compliance.md"
-    AI_WORDS = ("unattended", "prompt", "merge", "model")
+    # Phrases, not single words, so an unrelated "merge" or "model" elsewhere in the text can't stand in for a kind.
+    AI_PHRASES = ("what an agent does unattended", "outside text reach a prompt", "who merges or decides",
+                  "changes the model")
     HEADER = "| Kind of change | Families to keep in mind | The question to answer before calling it done |"
+    # Each kind's name, the part of its first cell before any colon, so rewording an example doesn't fail this.
     KINDS = [
         "Stores or moves personal data",
         "Adds or changes access",
         "Adds or changes logging",
         "Adds a dependency or outside service",
         "Changes deployment or infrastructure",
-        "Widens what an agent does unattended: a new tool, command, permission, path, network reach or token budget",
-        "Lets text from outside reach a prompt: an issue, a pull request, a comment, a caller's repo, a web page "
-        "or a file someone sends",
-        "Changes who merges, approves or decides: `auto_merge`, the review rubric, a gate, or a step a person decides",
-        "Changes the model, the provider or an agent's instructions: a model id, an agent's file, steering, "
-        "or a review brief",
+        "Widens what an agent does unattended",
+        "Lets text from outside reach a prompt",
+        "Changes who merges, approves or decides",
+        "Changes the model, the provider or an agent's instructions",
     ]
 
     @staticmethod
@@ -101,15 +102,16 @@ class Compliance(unittest.TestCase):
         }
         for name, text in texts.items():
             self.assertTrue(text, "{}: the text that lists the kinds wasn't found".format(name))
-            for word in self.AI_WORDS:
-                self.assertIn(word, text, "{} doesn't name the kind with '{}'".format(name, word))
+            flat = " ".join(text.split())
+            for phrase in self.AI_PHRASES:
+                self.assertIn(phrase, flat, "{} doesn't name the kind with '{}'".format(name, phrase))
 
     def test_the_table_keeps_the_old_kinds_then_adds_the_ai_ones(self):
         text = section(self.STEERING.read_text(), "## By kind of change", "## ")
         rows = [line for line in text.splitlines() if line.startswith("|")]
         self.assertEqual(rows[:1], [self.HEADER])
         body = [line for line in rows[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
-        self.assertEqual([row.split("|")[1].strip() for row in body], self.KINDS)
+        self.assertEqual([row.split("|")[1].split(":")[0].strip() for row in body], self.KINDS)
 
     def test_it_still_says_what_it_is_not(self):
         text = section(self.STEERING.read_text(), "## What this is not", "## ")
