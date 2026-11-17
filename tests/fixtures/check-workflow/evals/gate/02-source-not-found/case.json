@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "source not found: sample/inputs/quote-southwind.md", "why": "It cites an input that doesn't exist."}

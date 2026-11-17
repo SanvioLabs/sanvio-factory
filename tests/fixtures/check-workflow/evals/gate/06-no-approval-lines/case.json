@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "no approval lines", "why": "The finance lead approves; a review without the lines reads as already approved."}

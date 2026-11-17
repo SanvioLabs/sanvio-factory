@@ -44,6 +44,16 @@ Files: [`docs/workshop/handout.md`](docs/workshop/handout.md), [`docs/workshop/w
 
 **Do:** nothing. Running the workshop? Send `handout.md` a week before.
 
+## 2026-11-16: Check a workflow folder with one command
+
+New: `python3 scripts/check_workflow.py workflows/<name>` checks one workflow folder against [`docs/building-workflows.md`](docs/building-workflows.md). It checks every file and folder *The workflow folder* lists; the keys and values in its `workflow.json`, and that each path it names exists; that the gate refuses every gate case and prints its `says` text, passes every review case and sample output, and refuses the template; that every sample input says `invented: true`; that no sample output or eval names `standard/` where it means `sample/standard/`; that there are at least six gate cases and two review cases; and that the workflow's own tests run and pass. It prints `PASS`, or one problem per line and exits 1, and never edits the folder. The [`skills/check-workflow/`](skills/check-workflow/) skill runs it and says how to read each line.
+
+**Needs:** 2026-11-16: How to build a workflow
+
+Files: [`scripts/check_workflow.py`](scripts/check_workflow.py), [`skills/check-workflow/SKILL.md`](skills/check-workflow/SKILL.md), [`tests/test_check_workflow.py`](tests/test_check_workflow.py), [`tests/fixtures/check-workflow/`](tests/fixtures/check-workflow/), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: Running the workshop in two hours
 
 [`docs/workshop/prep.md`](docs/workshop/prep.md) is the checklist for running the workshop for a team: a two-hour version that keeps every section and the workflow interviews whole, with one person demoing the loop, and what to do a week before, the night before, on the day and after.
