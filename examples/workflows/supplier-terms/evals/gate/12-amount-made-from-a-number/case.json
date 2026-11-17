@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "amount $5 isn't in any source", "why": "The rule caps a rise at 5%, not $5. A number that isn't money in any input, such as a percentage, a clause number or a weight, never becomes an amount."}

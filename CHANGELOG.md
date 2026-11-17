@@ -44,6 +44,16 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/
 
 **Do:** nothing.
 
+## 2026-11-16: Build a workflow from a blueprint
+
+New: the [`skills/build-workflow/`](skills/build-workflow/) skill is step 2 of building a workflow. It reads `blueprints/<name>.md` and stops, writing nothing, unless `outcome` is `build` and `standard_status` is `written`, or if `workflows/<name>/` is there already. Otherwise it writes every part [`docs/building-workflows.md`](docs/building-workflows.md) lists, with a `draft` `workflow.json` filled from the blueprint, invented sample inputs (one for each thing that went wrong, and one with a planted instruction), gate cases starting from the blueprint's `went_wrong` and `never`, and review cases, one of them an output that obeyed the planted instruction. It's done only when `python3 scripts/check_workflow.py workflows/<name>` prints `PASS`. [`examples/workflows/supplier-terms/`](examples/workflows/supplier-terms/) was built that way from the example blueprint, and [`tests/test_example_workflows.py`](tests/test_example_workflows.py) checks every workflow in [`examples/workflows/`](examples/workflows/) passes.
+
+**Needs:** 2026-11-16: Interview the person who does a workflow; 2026-11-16: Check a workflow folder with one command
+
+Files: [`skills/build-workflow/SKILL.md`](skills/build-workflow/SKILL.md), [`examples/workflows/supplier-terms/`](examples/workflows/supplier-terms/), [`tests/test_example_workflows.py`](tests/test_example_workflows.py), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: Interview the person who does a workflow
 
 New: the [`skills/blueprint-workflow/`](skills/blueprint-workflow/) skill is step 1 of building a workflow. It interviews the person who does the work, one question at a time in the order [`docs/building-workflows.md`](docs/building-workflows.md) gives, starting from the last real time it happened, and asks what data it touches before the detail. It writes the answers to `blueprints/<name>.md` with all 22 keys, names every key nobody could answer in `gaps` instead of guessing it, and ends in `build`, `write-standard` or `no-fit`. `python3 scripts/check_blueprint.py blueprints/<name>.md` checks a blueprint's keys and values, prints `PASS` or one problem per line, and never writes anything. [`examples/blueprints/supplier-terms.md`](examples/blueprints/supplier-terms.md) is an invented one to copy.

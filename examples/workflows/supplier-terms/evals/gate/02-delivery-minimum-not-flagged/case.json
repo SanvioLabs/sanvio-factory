@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "clause 5.2 of sample/inputs/brightwater-agreement.md sets a minimum order, and the review doesn't cite it", "why": "A delivery minimum above what the weekend pre-orders use went unflagged once. The review never looks at the clause that sets it."}

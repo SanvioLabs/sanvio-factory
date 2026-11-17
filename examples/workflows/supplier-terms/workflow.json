@@ -1,0 +1,20 @@
+{
+  "name": "supplier-terms",
+  "description": "Checks a supplier's agreement and price list against Juniper Bakery's purchasing rules, and drafts a one-page terms review",
+  "owner": "Maya Okafor, operations lead",
+  "status": "draft",
+  "runs": ["chat", "loop"],
+  "trigger": "A new or renewed supplier agreement arrives by email",
+  "inputs": "inbox/",
+  "output": "out/",
+  "standard": "standard/purchasing-rules.md",
+  "skill": "skills/check-supplier-terms/SKILL.md",
+  "gate": "gates/supplier_terms_gate.py",
+  "reviewer": "agents/reviewer.md",
+  "template": "templates/terms-review.md",
+  "approves": "Tom Reyes, owner, for any agreement above $5,000 a year or longer than twelve months",
+  "receives": "Maya Okafor, who files the signed agreement and tells the supplier",
+  "never": ["signs or accepts anything", "sends anything to a supplier", "changes the agreement or the price list"],
+  "restricted_data": "none",
+  "blueprint": "../../blueprints/supplier-terms.md"
+}

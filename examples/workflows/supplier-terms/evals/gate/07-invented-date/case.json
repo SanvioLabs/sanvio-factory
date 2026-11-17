@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "date 2027-05-01 isn't in any source", "why": "No input gives a date for the first price change. A date no input writes down goes under Could not confirm."}
