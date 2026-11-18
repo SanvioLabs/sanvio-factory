@@ -5171,6 +5171,41 @@ class TestSandbox(unittest.TestCase):
         # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
         self.assertNotIn("unable to access", out)
 
+    def test_a_callers_command_never_runs_outside_the_sandbox_whoever_calls_it(self):
+        """work() refuses such a caller before any issue; own_command refuses too, so a later path can't skip it."""
+        factory, tree = self.root / "factory", self.root / "tree"
+        own = factory / "projects" / "app"
+        for folder in (own, tree):
+            folder.mkdir(parents=True)
+        for caller, ran in ((True, False), (False, True)):
+            with self.subTest(caller=caller):
+                made = tree / "made-{}".format(caller)
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=caller, sandbox_commands=False), project=own)
+                code, out = lp.own_command('touch "{}"'.format(made), tree)
+                self.assertEqual(made.exists(), ran, out)
+                if not ran:
+                    self.assertNotEqual(code, 0)
+                    self.assertIn("sandbox-exec", out)
+
+    def test_on_a_real_mac_a_callers_command_cant_read_a_sibling_project_and_another_projects_can(self):
+        self.real_sandbox()
+        factory = self.root / "factory"
+        own, sibling, tree = factory / "projects" / "app", factory / "projects" / "other", self.root / "tree"
+        for folder in (own, sibling, tree):
+            folder.mkdir(parents=True)
+        (sibling / "notes.txt").write_text("made-up text\n")
+        command = 'cat "{}"'.format(sibling / "notes.txt")
+        for caller in (True, False):
+            with self.subTest(caller=caller):
+                code, out = loop.Loop(factory, dict(loop.DEFAULTS, caller=caller), project=own).own_command(
+                    command, tree)
+                if caller:
+                    self.assertNotEqual(code, 0, out)
+                    self.assertNotIn("made-up text", out)
+                else:
+                    self.assertEqual(code, 0, out)
+                    self.assertIn("made-up text", out)
+
     def test_on_a_real_mac_a_denied_path_cant_be_renamed_or_made_and_the_rest_can(self):
         self.real_sandbox()
         home, tree, lp = self.real_home()
@@ -8299,6 +8334,28 @@ def as_github_has_it(body=WORK_ORDER, events=(), edited=None, association="OWNER
             "timelineItems": {"nodes": list(events)}}
 
 
+# sandbox-exec's stand-in: it records the profile it was given and the command, then runs the command as it is,
+# so a caller's run, which needs the sandbox, goes the same way on any OS. The real one has tests in TestSandbox.
+SANDBOX_STAND_IN = """#!/bin/sh
+printf '%s\\n' "$2" > "$LOOP_TEST_STATE/sandbox-profile"
+printf '%s\\n' "$5" >> "$LOOP_TEST_STATE/sandboxed-commands"
+shift 2
+exec "$@"
+"""
+
+
+def stand_in_sandbox(test, bin_dir):
+    """Puts SANDBOX_STAND_IN in for sandbox-exec, and has the loop find it and find that it works."""
+    path = Path(bin_dir) / "sandbox-exec"
+    path.write_text(SANDBOX_STAND_IN)
+    path.chmod(path.stat().st_mode | stat.S_IEXEC)
+    for name, kwargs in (("SANDBOX_EXEC", {"new": str(path)}), ("sandbox_available", {"return_value": True}),
+                         ("sandbox_probe", {"return_value": None})):
+        patcher = mock.patch.object(loop, name, **kwargs)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 CALLER_CFG = dict(loop.DEFAULTS, caller=True, acceptors=["Pat-Here"], account_tier="Claude Team",
                   network_allow=[], max_issue_tokens=4_000_000)
 
@@ -8423,6 +8480,9 @@ class TestCallerIntake(unittest.TestCase):
         sandbox = mock.patch.object(loop, "sandbox_problem", return_value=None)
         sandbox.start()
         self.addCleanup(sandbox.stop)
+        # A caller's own commands run only in sandbox-exec (#596), so its runs here have the stand-in.
+        stand_in_sandbox(self, Path(self.tmp.name) / "bin")
+        self.cfg["sandbox_commands"] = True
         self.submit(12)
 
     def submit(self, *numbers, accepted=()):
@@ -8574,6 +8634,32 @@ class TestCallerIntake(unittest.TestCase):
                 self.assertFalse(any(c.startswith("issue list") for c in self.calls()), self.calls())
                 self.assertEqual(self.agents(), [])
 
+    def test_a_caller_is_refused_where_its_commands_wouldnt_run_in_sandbox_exec(self):
+        self.submit(12, accepted=(12,))
+        self.github(events=[accept_event()])
+        for change, patched, why in (
+                (dict(sandbox_commands=False), {}, "sandbox_commands is false"),
+                ({}, {"sandbox_available": False}, "this machine has no sandbox-exec"),
+                ({}, {"sandbox_probe": "sandbox_apply: Operation not permitted"},
+                 "sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted)")):
+            with self.subTest(why=why):
+                (self.state / "gh-calls").unlink(missing_ok=True)
+                (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
+                self.cfg["sandbox_commands"] = True
+                self.cfg.update(change)
+                with contextlib.ExitStack() as stack:
+                    for name, value in patched.items():
+                        stack.enter_context(mock.patch.object(loop, name, return_value=value))
+                    self.assertEqual(self.go(), 1)
+                last = self.lines()[-1]
+                self.assertIn("ERROR sandbox_commands in loop.json: ", last)
+                self.assertIn(why, last)
+                self.assertIn("so no issue is taken", last)
+                # The one line says it: no WARN about the sandbox before it.
+                self.assertEqual([l for l in self.lines() if " WARN " in l and "sandbox" in l], [])
+                self.assertFalse(any(c.startswith("issue list") for c in self.calls()), self.calls())
+                self.assertEqual(self.agents(), [])
+
     def test_empty_acceptors_starts_with_a_warning_and_accepts_nothing(self):
         self.cfg["acceptors"] = []
         self.submit(12, accepted=(12,))
@@ -8640,8 +8726,59 @@ class TestCallerKeys(unittest.TestCase):
         self.assertEqual((self.cfg()["ready_label"], self.cfg()["blocked_label"]), ("go", "loop:blocked"))
         self.harness_config({"caller": True})
         self.assertEqual((self.cfg()["ready_label"], self.cfg()["blocked_label"]), ("loop-ready", "loop:blocked"))
-        # Its test_command is still its own.
-        self.assertEqual(self.cfg()["test_command"], PROJECT_TESTS)
+        # Its test_command is the factory's too, since #596, and this factory names none: run refuses it.
+        self.assertIsNone(self.cfg()["test_command"])
+
+    COMMANDS = ("test_command", "setup_command", "generate_command", "test_timeout", "base")
+    OWN = {"test_command": "own-tests", "setup_command": "own-setup", "generate_command": "own-generate",
+           "test_timeout": 5, "base": "own-base"}
+
+    def test_a_callers_commands_come_from_its_entry_then_the_factorys_top_level_never_its_own(self):
+        (self.project / "loop.json").write_text(json.dumps(self.OWN))
+        entry = {"test_command": "entry-tests", "setup_command": "entry-setup", "generate_command": "entry-generate",
+                 "test_timeout": 600, "base": "release"}
+        self.harness_config({"projects": {"app": dict(entry, caller=True)}})
+        self.assertEqual({k: self.cfg()[k] for k in self.COMMANDS}, entry)
+        self.harness_config({"caller": True, "test_command": "top-tests", "test_timeout": 60,
+                             "projects": {"app": {"setup_command": "entry-setup"}}})
+        self.assertEqual({k: self.cfg()[k] for k in self.COMMANDS},
+                         {"test_command": "top-tests", "setup_command": "entry-setup",
+                          "generate_command": loop.DEFAULTS["generate_command"], "test_timeout": 60,
+                          "base": loop.DEFAULTS["base"]})
+
+    def test_a_project_that_isnt_a_caller_still_takes_its_commands_from_its_own_loop_json(self):
+        (self.project / "loop.json").write_text(json.dumps(self.OWN))
+        for harness in ({"test_command": "top-tests"}, {"projects": {"app": {"caller": False}}},
+                        {"caller": True, "projects": {"app": {"caller": False}}}):
+            with self.subTest(harness=harness):
+                self.harness_config(harness)
+                self.assertEqual({k: self.cfg()[k] for k in self.COMMANDS}, self.OWN)
+
+    def test_a_callers_entry_may_name_its_commands_and_its_own_loop_json_needn_t(self):
+        site = self.on_github("site")
+        commands = {"test_command": "make test", "setup_command": "make deps", "generate_command": "make gen",
+                    "test_timeout": 60}
+        for own in ({}, None):
+            with self.subTest(own=own):
+                if own is None:
+                    (site / "loop.json").unlink(missing_ok=True)
+                else:
+                    (site / "loop.json").write_text(json.dumps(own))
+                self.harness_config({"projects": {"site": dict(commands, caller=True)}})
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    self.assertEqual(loop.project_root(site, root=self.harness), site.resolve())
+                self.assertEqual(err.getvalue(), "")
+        # Another project's entry still may not, and its own loop.json still has to.
+        (site / "loop.json").write_text(json.dumps({}))
+        self.harness_config({"projects": {"site": {}}})
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(loop.project_root(site, root=self.harness))
+        self.assertIn("doesn't set test_command", err.getvalue())
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS}))
+        self.harness_config({"projects": {"site": dict(commands)}})
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertIsNone(loop.project_root(site, root=self.harness))
+        self.assertIn("test_command", err.getvalue())
 
     def test_a_project_that_isnt_a_caller_still_takes_its_labels_from_its_own_loop_json(self):
         (self.project / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "ready_label": "mine"}))
@@ -8668,6 +8805,83 @@ class TestCallerKeys(unittest.TestCase):
                 with contextlib.redirect_stderr(io.StringIO()) as err:
                     self.assertIsNone(loop.project_root(site, root=self.harness))
                 self.assertIn("ready_label", err.getvalue())
+
+
+class TestCallerCommands(unittest.TestCase):
+    """A caller project's test_command, setup_command, generate_command and test_timeout come from the factory's
+    loop.json, and run in sandbox-exec denied every other project and the factory's private files (#596)."""
+
+    tearDown, commit, harness_config = TestProject.tearDown, TestProject.commit, TestProject.harness_config
+
+    OWN = {"test_command": 'touch "$LOOP_TEST_STATE/own-test"; exit 1',
+           "setup_command": 'touch "$LOOP_TEST_STATE/own-setup"',
+           "generate_command": 'touch "$LOOP_TEST_STATE/own-generate"', "test_timeout": 5}
+    FACTORY = {"test_command": 'touch "$LOOP_TEST_STATE/factory-test" && test -f feature.txt',
+               "setup_command": 'touch "$LOOP_TEST_STATE/factory-setup"',
+               "generate_command": 'touch "$LOOP_TEST_STATE/factory-generate"'}
+
+    def setUp(self):
+        TestProject.setUp(self)
+        stand_in_sandbox(self, Path(self.tmp.name) / "bin")
+        # The stand-in agent can't start Claude Code's sandbox: that check has tests of its own.
+        sandbox = mock.patch.object(loop, "sandbox_problem", return_value=None)
+        sandbox.start()
+        self.addCleanup(sandbox.stop)
+        self.sibling = self.harness / "projects" / "other"
+        self.sibling.mkdir()
+        (self.sibling / "notes.txt").write_text("made-up text\n")
+        (self.project / "loop.json").write_text(json.dumps(dict(self.OWN, base="develop")))
+        (self.state / "issues.json").write_text(json.dumps([
+            dict(issue(12, labels=("factory:submit", "factory:accepted")), body=WORK_ORDER)]))
+        (self.state / "graphql-12.json").write_text(json.dumps(as_github_has_it(events=[accept_event()])))
+
+    def caller(self, **entry):
+        self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
+                             "worktree_dir": str(self.trees), "projects": {"app": dict(
+                                 caller=True, acceptors=["Pat-Here"], account_tier="Claude Team", network_allow=[],
+                                 max_issue_tokens=4_000_000, ready_label="factory:submit",
+                                 blocked_label="factory:stopped", sandbox_commands=True, **entry)}})
+
+    def go(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return loop.Loop(self.harness, project=self.project).run(once=True)
+
+    def log(self):
+        return (loop.state_dir(self.harness, "app") / "loop.log").read_text().splitlines()
+
+    def ran(self, name):
+        return (self.state / name).exists()
+
+    def test_the_factorys_commands_run_in_the_sandbox_and_each_ignored_key_is_named_once(self):
+        self.caller(**self.FACTORY)
+        self.assertEqual(self.go(), 0, "\n".join(self.log()))
+        for kind in ("setup", "generate", "test"):
+            with self.subTest(kind=kind):
+                self.assertTrue(self.ran("factory-" + kind), "\n".join(self.log()))
+                self.assertFalse(self.ran("own-" + kind))
+        sandboxed = (self.state / "sandboxed-commands").read_text()
+        for key in ("setup_command", "generate_command", "test_command"):
+            self.assertIn(self.FACTORY[key], sandboxed)
+        warned = [l for l in self.log() if " WARN " in l and "ignored" in l]
+        self.assertEqual(len(warned), 1, self.log())
+        self.assertIn("base, generate_command, setup_command, test_command, test_timeout", warned[0])
+        # The profile denies the sibling project and the factory's loop.json, and never this project's clone.
+        profile = (self.state / "sandbox-profile").read_text()
+        for path in (self.sibling, self.harness / "loop.json"):
+            self.assertIn('(deny file-read* file-write* (subpath "{}"))'.format(os.path.realpath(str(path))),
+                          profile)
+        self.assertNotIn('(subpath "{}")'.format(os.path.realpath(str(self.project))), profile)
+
+    def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
+        self.caller()
+        self.assertEqual(self.go(), 1)
+        last = self.log()[-1]
+        self.assertIn("ERROR test_command in loop.json: ", last)
+        self.assertIn('"projects"', last)
+        self.assertIn("so no issue is taken", last)
+        for name in ("own-setup", "own-test", "factory-setup", "factory-test"):
+            self.assertFalse(self.ran(name), name)
+        self.assertFalse((self.state / "agents-started").exists())
 
 
 class TestCallerConfinement(unittest.TestCase):

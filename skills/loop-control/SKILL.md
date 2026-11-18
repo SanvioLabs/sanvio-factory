@@ -155,6 +155,10 @@ the harness root as above. Name the tmux session after the project,
    (`agent`, `max_workers`, `allow_lockfile_changes`, `sandbox_commands`, ...) is the machine's: it
    goes in the factory's `loop.json`, for one project under `"projects"`, such
    as `"projects": {"app": {"agent": "claude", "max_workers": 2}}`.
+   A caller project (`"caller": true` in its entry) is the exception: its
+   `test_command`, `test_timeout`, `setup_command`, `generate_command` and `base` come
+   from that entry or the factory's top level, never its own `loop.json`, which
+   needn't exist, and `run` refuses it where `sandbox_commands` doesn't hold.
 2. The loop refuses, with one `ERROR` line and before it takes anything, a
    folder that isn't directly under [`projects/`](../../projects/), one that isn't a git clone of
    its own, a clone whose `origin` isn't on github.com, a `loop.json` with
