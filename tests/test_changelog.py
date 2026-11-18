@@ -1,4 +1,5 @@
 """Run with: python3 -m unittest discover -s tests"""
+import json
 import re
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
 NEEDS = re.compile(r"^\*\*Needs:\*\* (.+)$", re.M)
+CONTROLS = re.compile(r"^\*\*Controls:\*\* (.+)$", re.M)
 
 # zsh ties these lowercase names to special variables: `path=x` empties PATH, so the next git isn't found.
 ZSH_TIED = ("path", "cdpath", "fignore", "fpath", "mailpath", "manpath", "module_path", "psvar")
@@ -33,8 +35,16 @@ def entries(text):
     return out
 
 
-def problems(text):
-    """Every reason skills/whats-new couldn't read this log. Empty means it can."""
+def register_ids():
+    """The id of each control in the shipped controls.json."""
+    return {entry["id"] for entry in json.loads((ROOT / "controls.json").read_text())}
+
+
+def problems(text, ids=None):
+    """Every reason skills/whats-new couldn't read this log. Empty means it can.
+    `ids` are the control ids a **Controls:** line may name, by default those in controls.json."""
+    if ids is None:
+        ids = register_ids()
     found = []
     items = entries(text)
     if not items:
@@ -55,6 +65,13 @@ def problems(text):
             for need in line.split("; "):
                 if need not in headings[i + 1:]:
                     found.append("'{}' needs '{}', and no entry below it has that heading".format(name, need))
+    # A Controls item that isn't in the register would send the monthly review's reader to nothing.
+    for _, name, body in items:
+        for line in CONTROLS.findall(body):
+            for ident in line.split(", "):
+                if ident not in ids:
+                    found.append("'{}' names control '{}', and controls.json has no control with that id"
+                                 .format(name, ident))
     return found
 
 
@@ -98,6 +115,45 @@ class Changelog(unittest.TestCase):
         self.assertEqual(problems(typo), ["'Second' needs '2026-10-08: Frist', and no entry below it has that heading"])
         above = GOOD.replace("**Do:** run the setup check.", "**Needs:** 2026-10-08: Second\n\n**Do:** run the setup check.")
         self.assertEqual(problems(above), ["'First' needs '2026-10-08: Second', and no entry below it has that heading"])
+
+    IDS = {"AU-9", "prompt-injection"}
+
+    def with_controls(self, line, entry="Second"):
+        """GOOD with a **Controls:** line in one entry, after its description."""
+        if entry == "Second":
+            return GOOD.replace("Adds a thing.\n", "Adds a thing.\n\n{}\n".format(line))
+        return GOOD.replace("**Do:** run the setup check.", "{}\n\n**Do:** run the setup check.".format(line))
+
+    def test_a_controls_line_naming_ids_in_the_register_passes(self):
+        self.assertEqual(problems(self.with_controls("**Controls:** AU-9, prompt-injection"), self.IDS), [])
+
+    def test_a_controls_id_not_in_the_register_fails_alone(self):
+        found = problems(self.with_controls("**Controls:** AU-9, AU-99"), self.IDS)
+        self.assertEqual(found, ["'Second' names control 'AU-99', and controls.json has no control with that id"])
+
+    def test_an_entry_without_a_controls_line_adds_no_control_problem(self):
+        self.assertEqual(problems(GOOD, set()), [])
+
+    def test_a_bad_id_names_its_own_entry_and_no_other(self):
+        found = problems(self.with_controls("**Controls:** AU-99"), self.IDS)
+        self.assertEqual(len(found), 1)
+        self.assertIn("'Second'", found[0])
+        self.assertNotIn("'First'", found[0])
+        found = problems(self.with_controls("**Controls:** AU-99", entry="First"), self.IDS)
+        self.assertEqual(found, ["'First' names control 'AU-99', and controls.json has no control with that id"])
+
+    def test_the_shipped_log_is_held_to_the_shipped_register(self):
+        bad = (ROOT / "CHANGELOG.md").read_text().replace("**Controls:** AU-9", "**Controls:** AU-9, XX-0", 1)
+        self.assertIn("XX-0", bad)
+        self.assertTrue(any("'XX-0'" in line for line in problems(bad)))
+
+    def test_review_pr_flags_an_entry_without_a_controls_line(self):
+        skill = (ROOT / "skills" / "review-pr" / "SKILL.md").read_text()
+        self.assertIn("Controls touched:", skill)
+        changelog_check = next(line for line in skill.splitlines() if "This factory itself" in line)
+        start = skill.index(changelog_check)
+        bullet = skill[start:skill.index("\n5. ", start)]
+        self.assertIn("**Controls:**", bullet)
 
 
 class WhatsNewCommands(unittest.TestCase):

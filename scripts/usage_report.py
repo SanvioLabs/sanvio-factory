@@ -18,11 +18,15 @@ your log's chain holds over the whole log (or that there's no log), how many
 guard refusals and asks it has in those days, each ERROR and CLEANUP line in the
 loop's .loop/loop.log as its date, issue and level only, and each day the loop
 spent more than 3 times the median day with spend. A missing log is a line that
-says so. It then writes today's date to .sanvio/usage/last-review, which the
+says so. Its last section, Controls, prints what scripts/controls.py check prints
+for controls.json, then each CHANGELOG.md entry in those days with a
+**Controls:** line, as its date, name and ids. It then writes today's date to .sanvio/usage/last-review, which the
 factory dashboard shows. It never changes the logs it reads.
 """
 import argparse
+import contextlib
 import datetime
+import io
 import json
 import re
 import statistics
@@ -36,6 +40,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from log_chain import verify  # noqa: E402 (needs scripts/ on the path first)
 from usage_log import log_path  # noqa: E402 (needs .claude/hooks/ on the path first)
 import names  # noqa: E402 (same reason as log_chain)
+import controls  # noqa: E402 (same reason as log_chain)
 
 REVIEW_DAYS = 30  # the days a log review covers, today included
 SPIKE = 3  # a day's loop spend over this many times the median day's is listed
@@ -195,7 +200,42 @@ def review(root, today, usage_path):
     out += ["## Days the loop spent over {} times the median day".format(SPIKE), ""]
     spikes = spend_spikes(root, since, until)
     out += ["{} ${:.2f}".format(day, cost) for day, cost in spikes] or ["None."]
+
+    out += ["", "## Controls", ""] + controls_section(Path(root), since, until)
     return "\n".join(out) + "\n"
+
+
+CHANGELOG_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+CHANGELOG_CONTROLS = re.compile(r"^\*\*Controls:\*\* (.+)$", re.M)
+
+
+def controls_lines(changelog, since, until):
+    """"<date>: <name>: <ids>" for each CHANGELOG.md entry dated since to until with a **Controls:** line."""
+    try:
+        text = changelog.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    found = list(CHANGELOG_HEADING.finditer(text))
+    out = []
+    for i, match in enumerate(found):
+        date, name = match.group(1), match.group(2)
+        if not since <= date <= until:
+            continue
+        end = found[i + 1].start() if i + 1 < len(found) else len(text)
+        for ids in CHANGELOG_CONTROLS.findall(text[match.end():end]):
+            out.append("{}: {}: {}".format(date, name, ids.strip()))
+    return out
+
+
+def controls_section(root, since, until):
+    """What controls.py check prints for the register, then the period's **Controls:** lines."""
+    register = root / "controls.json"
+    if not register.is_file():
+        return ["No controls.json, so no controls to list."]
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        controls.check(str(register))
+    return printed.getvalue().splitlines() + [""] + (controls_lines(root / "CHANGELOG.md", since, until) or ["None."])
 
 
 def mark_reviewed(root, today):

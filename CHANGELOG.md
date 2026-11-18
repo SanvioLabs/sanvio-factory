@@ -34,7 +34,23 @@ Each item is an earlier entry's heading without the `## `, exactly as written. `
 Write it when your change edits code an earlier entry added, so a copy without that entry would get a conflict or a change that doesn't work. Don't write it for "reads better after".
 The test for the author: if your diff changes lines that an entry from the last 30 days added (`git blame` on the parent commit shows it), name that entry.
 
+A second optional line, also after the description and before `Files:`:
+`**Controls:** AC-5, prompt-injection`
+Each item is the `id` of a control in [`controls.json`](controls.json) whose evidence the change edits, adds or removes, or whose status it changes. `, ` separates items.
+
+Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. The changelog test fails an id `controls.json` doesn't have, and `python3 scripts/usage_report.py --review` lists each month's lines, so the register's changes can be read back without a diff.
+
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
+
+## 2026-11-17: Name the controls a change moves in its CHANGELOG entry
+
+An entry can now carry a `**Controls:**` line naming the `id` of each control in [`controls.json`](controls.json) the change moves, between its description and `Files:`. The changelog test fails an id the register doesn't have, the review-pr skill reports an entry without the line when `Controls touched:` isn't `none`, and `python3 scripts/usage_report.py --review` ends with a `## Controls` section: what `controls.py check` prints, then each entry in the 30 days with a `**Controls:**` line, as its date, name and ids. [`docs/controls.md`](docs/controls.md) says what the line holds.
+
+**Controls:** AU-9
+
+Files: [`CHANGELOG.md`](CHANGELOG.md), [`tests/test_changelog.py`](tests/test_changelog.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`scripts/usage_report.py`](scripts/usage_report.py), [`tests/test_usage.py`](tests/test_usage.py), [`docs/controls.md`](docs/controls.md).
+
+**Do:** nothing.
 
 ## 2026-11-16: A control register that fails CI when its evidence moves
 
