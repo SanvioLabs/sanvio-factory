@@ -1,0 +1,1 @@
+{"expect": "fail", "says": "the price list and the agreement differ on \"Unsalted butter, 10 kg block\", and the review doesn't flag it as not met", "why": "The price list gives $88.00 for the butter and the agreement $84.00, and the review says they match."}

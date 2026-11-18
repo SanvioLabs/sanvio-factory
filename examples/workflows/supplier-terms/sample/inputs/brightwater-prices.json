@@ -1,0 +1,9 @@
+{
+  "invented": true,
+  "supplier": "Brightwater Dairy",
+  "agreement": "sample/inputs/brightwater-agreement.md",
+  "items": [
+    {"item": "Unsalted butter, 10 kg block", "price": "88.00"},
+    {"item": "Double cream, 5 litre tub", "price": "21.50"}
+  ]
+}

@@ -94,6 +94,7 @@ steps in order.
 | [`skills/pulse/SKILL.md`](skills/pulse/SKILL.md) | Someone runs `/pulse`, says "pulse", or asks to see or answer the team's daily question, or how the team answered yesterday, or to summarise a period's answers for leadership |
 | [`skills/check-workflow/SKILL.md`](skills/check-workflow/SKILL.md) | Asked to check a workflow, or whether one in [`workflows/`](workflows/) meets the contract, or after building one |
 | [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md) | Asked to understand, map or blueprint a piece of work before building a workflow for it, or to interview the person who does it. It writes `blueprints/<name>.md` and ends in build, write the standard first, or not a fit |
+| [`skills/build-workflow/SKILL.md`](skills/build-workflow/SKILL.md) | A blueprint ends in `build` and its standard is written, or asked to build a workflow from one. It writes `workflows/<name>/` and is done only when [`scripts/check_workflow.py`](scripts/check_workflow.py) prints `PASS` |
 
 These come from the Stelliad plugin, which [`.claude/settings.json`](.claude/settings.json) switches on.
 Installing it is the one install that doesn't go through `review-skill`; the
