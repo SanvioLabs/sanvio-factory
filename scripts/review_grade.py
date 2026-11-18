@@ -5,9 +5,10 @@ checks, through the factory's review-rubric.json.
 Usage, from the Actions workspace, as .github/workflows/review-pr.yml runs it:
     python3 harness/scripts/review_grade.py
 
-The verdict is the last line of $RUNNER_TEMP/report.md. The rubric is the review-rubric.json at the root of
-the factory checkout this file sits in, never one under base/ or head/, which the pull request's repo
-controls. The checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the review's own job
+The verdict is the one in $RUNNER_TEMP/report.json, read by review_report.load() against the schema at
+skills/review-pr/report.schema.json in the factory checkout this file sits in. A report that isn't JSON, or
+doesn't match the schema, grades as unreadable. The rubric is the review-rubric.json at the root of that same
+checkout. Neither is ever read from base/ or head/, which the pull request's repo controls. The checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the review's own job
 ($OWN_CHECK_RUN_ID, from job.check_run_id), so a sibling job in the same run still counts. Without that id, as
 on GitHub Enterprise Server, it leaves out every check run from this workflow run ($GITHUB_RUN_ID) instead.
 While one is still running it reads them again every 30 seconds ($GRADE_POLL_SECONDS), for up to
@@ -18,8 +19,9 @@ It writes "Verdict: <verdict>. Grade <n>/10: <why>." to $RUNNER_TEMP/grade.txt a
 grade is advisory: it sets no status, approves nothing and merges nothing. It always exits 0, so the review
 is posted whatever happens here.
 
-The grade itself is loop.py's, imported from beside this file, so there is one copy of how a verdict and the
-checks become a number. Standard library only.
+The grade itself is loop.py's, and the report's reading review_report.py's, both imported from beside this
+file, so there is one copy of how a report is read and one of how a verdict and the checks become a number.
+Standard library only.
 """
 import os
 import subprocess
@@ -92,12 +94,14 @@ def grade(environ):
     """(the line for grade.txt, whether the grade is pending, notes for the step summary)."""
     sys.path.insert(0, str(HERE))
     import loop  # here, inside main's try, so a broken loop.py still lets the review post
+    import review_report
 
     try:
-        report = (Path(environ.get("RUNNER_TEMP", ".")) / "report.md").read_text()
-    except OSError:
-        report = ""
-    verdict = loop.report_verdict(report)
+        text = (Path(environ.get("RUNNER_TEMP", ".")) / "report.json").read_text()
+        report = review_report.load(text, review_report.schema())
+    except (OSError, ValueError):  # no report, or no readable schema: nothing to take a verdict from
+        report = None
+    verdict = report["verdict"] if report is not None else "unreadable"
     rubric, why = loop.load_rubric(loop.ROOT / loop.DEFAULTS["review_rubric"])
     poll = number(environ, "GRADE_POLL_SECONDS", 30)
     deadline = time.monotonic() + wait_minutes(environ) * 60

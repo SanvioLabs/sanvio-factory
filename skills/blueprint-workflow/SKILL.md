@@ -24,9 +24,15 @@ run, so every question starts from that, never from the general case.
 1. **Name it.** Ask for a short name for the work. The blueprint's `name` is
    that, in kebab-case, and the file is `blueprints/<name>.md`. If that file
    exists already, show it and ask whether this interview updates it.
-2. **Ask one question at a time**, in the order *Understanding the workflow*
-   gives, and wait for each answer before the next. Don't stack questions or
-   offer a guess for them to confirm.
+2. **Ask one question at a time** through `AskUserQuestion`, one question per
+   call, in the order *Understanding the workflow* gives, and wait for each
+   answer before the next. Each question is about the last real time. Give it
+   two to four options drawn from what the session already knows about the
+   work, the likeliest first with ` (Recommended)` after its label. Allow more
+   than one pick where more than one can be true, and leave Other open for
+   their own answer. Don't stack questions. In a tool without
+   `AskUserQuestion`, ask the same question in plain text with numbered
+   options, one per turn.
    1. What starts it: what arrives, from whom, where, and how often.
    2. What data it touches. Ask this before the detail (step 3 below).
    3. The last real time: walk through it step by step.
@@ -43,7 +49,10 @@ run, so every question starts from that, never from the general case.
        for that claims to do it.
 
    When they answer in general terms ("usually", "we always"), ask about the
-   last time instead. Write down their words, not a summary of them.
+   last time instead. Write down their words, not a summary of them. The
+   blueprint records the option they picked, or their Other text and notes,
+   in their words. A recommended option they didn't pick is never written as
+   their answer. A question they skip stays empty and is named in `gaps`.
 3. **Check the data before the detail.** After question 2, compare the answer
    with *Data that needs an agreement first*. If the work touches any of health information, children's data, payment card data, financial customer information, tax return information, government IDs, biometric data, precise location, and employees' personal data,
    say so now: the workflow is built and tested on invented data only until
@@ -100,7 +109,8 @@ Each line starts with the key it's about.
 
 ## Rules
 
-- One question at a time, about the last real time, in the person's words.
+- One question at a time, about the last real time, in the person's words. A
+  recommended option is never their answer unless they picked it.
 - Never guess an answer. An unanswered key is empty and named in `gaps`.
 - Never ask for, read or paste a real record that touches restricted data.
 - Say the blueprint is done only after the check printed `PASS`.

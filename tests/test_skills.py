@@ -119,6 +119,17 @@ class Skills(unittest.TestCase):
             self.assertIn(words, walk)
         self.assertNotIn("one at a time", text)
 
+    def test_blueprint_asks_each_question_as_multiple_choice_with_a_recommendation(self):
+        text = " ".join((ROOT / "skills" / "blueprint-workflow" / "SKILL.md").read_text().split())
+        ask = text[text.index("2. **Ask one question at a time**"):text.index("3. **Check the data")]
+        for words in ("`AskUserQuestion`", "(Recommended)", "in plain text", "one question per call", "Understanding the workflow"):
+            self.assertIn(words, ask)
+        self.assertNotIn("offer a guess", text)
+        self.assertIn("never written as their answer", text)
+        self.assertIn("named in `gaps`", text)
+        standup = (ROOT / "skills" / "standup" / "SKILL.md").read_text()
+        self.assertIn("(Recommended)", standup)
+
     def test_standup_reads_an_optional_source_only_when_data_md_clears_it(self):
         text = (ROOT / "skills" / "standup" / "SKILL.md").read_text()
         self.assertIn("No `company/DATA.md` means none is", text)
