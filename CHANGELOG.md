@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-17: A caller's commands are the factory's
+
+A caller project's `test_command`, `setup_command`, `generate_command` and `test_timeout` now come from the factory's `loop.json`, its `projects` entry for that folder and then its top level, never from the caller's own `loop.json`, which anyone who can push to the caller's repo can change. `run` logs one `WARN` naming each of those its own file sets, and refuses to start a caller whose `test_command` the factory doesn't set. The commands run in `sandbox-exec` denied what the caller's build and tester agents are: the factory's private folders and `loop.json`, and every other project's clone, state and worktrees. Where they wouldn't run in `sandbox-exec` (`sandbox_commands` false, no `sandbox-exec`, or one that can't apply a profile), `run` refuses a caller with an `ERROR` line; outside caller mode that's still a `WARN`. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-16: A caller's build is held to its worktree; 2026-11-13: Caller projects hold outside work for a person; 2026-11-12: The loop's own commands run in a sandbox on a Mac
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if a project under `"projects"` in your `loop.json` has `"caller": true`, copy its `test_command`, and any `setup_command`, `generate_command` and `test_timeout` it needs, from its own `loop.json` into that entry, and check `sandbox_commands` isn't `false` for it. Until you do, `run` refuses it.
+
 ## 2026-11-16: A caller's build is held to its worktree
 
 A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325 against Read, Grep, Glob and a literal `cat`. The hold isn't complete yet: a caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` and run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into its build and tester sessions (#597). Without `caller`, nothing changes.
