@@ -458,7 +458,8 @@ class BedrockReview(unittest.TestCase):
 
     def test_the_template_allows_only_invoking_anthropic_models(self):
         text = self.template()
-        self.assertNotIn("bedrock:*", text)
+        # The resource ARNs hold "bedrock:*" as their region, so only the actions are checked for it.
+        self.assertIsNone(re.search(r"Action:\s*\"?bedrock:\*", text))
         self.assertEqual(re.findall(r"^\s*- (bedrock:\S+)$", text, re.M),
                          ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"])
         self.assertEqual(re.findall(r"arn:aws:bedrock:[^\"\s]+", text),
