@@ -107,6 +107,22 @@ So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
 
+To run more review agents than the review-pr skill, add
+`agents: review-pr,security-reviewer`, say, under `with:`. Each name is a skill
+in the factory's [`skills/`](../../skills/) or an agent in its [`agents/`](../../agents/), and a name that's
+neither fails the run and lists the valid names. Each agent runs as its own
+job beside the others, with Read, Grep and Glob, and posts its own comment
+under its name, which the next push edits. The default, `review-pr` alone,
+reviews as before, in the comment it already edits. An agent gets a shell only
+when its file's front matter has a `ci-shell:` line, such as
+`ci-shell: npm audit, pip-audit`, and then only for the commands it names. No
+agent in the factory has one yet, so `security-reviewer` lists the audits it
+couldn't run under Not checked. Once every agent's job has finished, one grade,
+from the worst verdict among them, goes on every agent's comment. An agent
+whose job failed counts as unreadable. Each agent is one more unattended model
+run on your Claude credential, with the pull request's text in its prompt, so
+name only the agents whose reports someone will read.
+
 `skip-paths` is optional: leave it out and every pull request is reviewed. It
 takes shell glob patterns, one a line, matched against each changed file's path
 from the repo's root, and `*` crosses `/`, so `docs/*` matches `docs/api/a.md`
@@ -255,10 +271,10 @@ it on an open pull request first with `python3 scripts/loop.py grade <n>
 new rubric.
 
 The grade waits up to 10 minutes for the pull request's other checks to
-finish. It leaves out only the review's own job, so a test job beside it in
-the caller's workflow counts. To wait a different time, add
+finish. It leaves out only its own grade job, so a test job beside it in
+the caller's workflow counts, and so does a review agent's job that failed. To wait a different time, add
 `grade-wait-minutes: 5`, say, under `with:` in the caller. It waits at most 15
-minutes, so the review still posts inside the job's 30. A check still running
+minutes, so the grade still lands inside its job's 30. A check still running
 when the wait ends leaves the grade pending, and nothing grades it later: the
 next push or a re-run grades it again. If GitHub refuses to list the checks
 (HTTP 403, a token without `checks: read`, as on a private repo), the grade is

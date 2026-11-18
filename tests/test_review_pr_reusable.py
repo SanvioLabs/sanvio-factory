@@ -28,7 +28,15 @@ SCHEMA = "Check the report against its schema"
 GRADE = "Grade the review"
 POST = "Post the report as one comment"
 RULES = "Remove the pull request's own rules"
+AGENTS_HEAD = "Check out the pull request's head to list its files"
+SKIP = "Skip when only skip-paths files changed"
 DRAFT = "Skip a draft pull request"
+AGENTS_HARNESS = "Check out the harness's skills and agents"
+RESOLVE = "Resolve the agents"
+GRADE_HARNESS = "Check out the harness's grading files"
+FETCH = "Fetch each agent's report"
+REGRADE = "Put the grade on each agent's comment"
+CHECKOUTS = (AGENTS_HARNESS, HARNESS, GRADE_HARNESS)
 DRAFT_NOTICE = "::notice::This pull request is a draft, so the review skips until it's marked ready for review."
 SCHEMA_TEXT = (ROOT / "skills" / "review-pr" / "report.schema.json").read_text()
 UNREADABLE = "The review's report couldn't be read, so no findings are posted."
@@ -61,8 +69,17 @@ def fenced(text, language):
     return re.findall(r"^```{}\n(.*?)^```".format(re.escape(language)), text, re.M | re.S)
 
 
+def sparse(step):
+    """The paths a checkout step's sparse-checkout list names."""
+    paths = []
+    for line in step.split("sparse-checkout: |\n", 1)[1].splitlines():
+        if not line.startswith(" " * 12):
+            break
+        paths.append(line.strip())
+    return paths
+
+
 class ReusableReviewWorkflow(unittest.TestCase):
-    steps = single.ReviewPrWorkflow.steps
     step = single.ReviewPrWorkflow.step
     run_step = single.ReviewPrWorkflow.run_step
 
@@ -70,6 +87,15 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertTrue(WORKFLOW.is_file(), ".github/workflows/review-pr.yml doesn't exist")
         self.text = WORKFLOW.read_text()
         self.code = single.code(self.text)
+
+    def steps(self, job=None):
+        """Each step as (name, text), job by job, or only `job`'s."""
+        return [step for key, text in single.jobs(self.code).items() if job in (None, key)
+                for step in single.job_steps(text)]
+
+    def job_head(self, job):
+        """A job's keys, above its steps."""
+        return single.jobs(self.code)[job].split("\n    steps:\n", 1)[0]
 
     def names(self):
         return [name for name, _ in self.steps()]
@@ -102,19 +128,28 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(len(re.findall(r"^\s*permissions:", self.code, re.M)), 1)
         self.assertNotIn("write-all", self.text)
 
-    def test_claude_runs_restricted_with_read_tools_only(self):
+    def test_claude_runs_restricted_with_the_agents_job_s_tools(self):
+        # The tools are the resolved entry's: Read,Grep,Glob for every agent without a ci-shell: line, which
+        # test_review_pr_workflow.ResolveTheAgents runs.
         call = re.search(r"claude -p[^<]*", self.step(CLAUDE))
         self.assertIsNotNone(call, "no claude -p call")
         self.assertEqual(call.group(0).split(),
                          ["claude", "-p", "--max-turns", "30", "--restricted", "--strict-mcp-config",
-                          "--tools", "Read,Grep,Glob", "\\"])
+                          "--tools", '"$AGENT_TOOLS"', "\\"])
+        self.assertIn("AGENT_TOOLS: ${{ matrix.agent.tools }}", self.step(CLAUDE))
+        self.assertIn('tools = ["Read", "Grep", "Glob"] + ', self.step(RESOLVE))
         self.assertIn("npm install -g @anthropic-ai/claude-code@2.1.296", self.code)
         self.assertIn('cd "$GITHUB_WORKSPACE"', self.step(CLAUDE))
         self.assertIn('grep -qF -e "$ANTHROPIC_API_KEY"', self.step(CLAUDE))
 
-    def test_claude_is_the_only_reviewer_and_gets_no_shell(self):
+    def test_claude_is_the_only_reviewer_and_gets_no_shell_but_a_ci_shell_line_s(self):
         self.assertIsNone(re.search(r"codex|ollama", self.text, re.I))
-        self.assertNotRegex(self.text, r"\bBash\b")
+        self.assertNotRegex(self.text.split("\nname:", 1)[0], r"\bBash\b")
+        for name, text in self.steps():
+            if name != RESOLVE:
+                self.assertNotRegex(text, r"\bBash\b", name)
+        self.assertEqual(re.findall(r"Bash\([^)]*\)", self.step(RESOLVE)), ["Bash({}:*)"])
+        self.assertNotIn("headless-tools", self.text)
         self.assertNotIn("--allowedTools", self.text)
         self.assertNotIn("--dangerously-skip-permissions", self.text)
 
@@ -190,17 +225,33 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertNotIn("harness", scope)
 
     def test_the_steps_run_in_the_planned_order(self):
-        names = self.names()
-        order = ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL, HARNESS,
-                 HARNESS_SHA, BASE, HEAD, "Remove the pull request's own rules", PROMPT, CLAUDE, SCHEMA, GRADE,
-                 POST]
-        self.assertEqual([name for name in names if name in order], order)
+        self.assertEqual(list(single.jobs(self.code)), ["agents", "review", "grade"])
+        orders = {
+            "agents": ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL,
+                       AGENTS_HARNESS, AGENTS_HEAD, SKIP, RESOLVE],
+            "review": [HARNESS, HARNESS_SHA, BASE, HEAD, RULES, "Install the Claude Code CLI", PROMPT, CLAUDE,
+                       SCHEMA, POST],
+            "grade": [GRADE_HARNESS, FETCH, GRADE, REGRADE],
+        }
+        for job, order in orders.items():
+            self.assertEqual([name for name, _ in self.steps(job)], order, job)
 
     def test_a_skipped_review_runs_nothing_after_the_key_check(self):
-        names = self.names()
-        for name, text in self.steps()[names.index("Skip when Claude has no key") + 1:]:
+        steps = self.steps("agents")
+        names = [name for name, _ in steps]
+        for name, text in steps[names.index("Skip when Claude has no key") + 1:]:
             self.assertIn("steps.scope.outputs.review == 'true'", text, name)
             self.assertIn("env.REVIEW_SKIPPED != 'true'", text, name)
+        # Only the resolve step says run=true, so a skipped or failed agents job runs neither job after it.
+        self.assertIn("run: ${{ steps.resolve.outputs.run }}", self.job_head("agents"))
+        self.assertIn('out.write("run=true\\n")', self.step(RESOLVE))
+        review, grade = self.job_head("review"), self.job_head("grade")
+        self.assertIn("\n    needs: agents\n", review)
+        self.assertIn("\n    if: needs.agents.outputs.run == 'true'\n", review)
+        self.assertIn("\n    needs: [agents, review]\n", grade)
+        self.assertIn("\n    if: ${{ !cancelled() && needs.agents.outputs.run == 'true' }}\n", grade)
+        self.assertIn("agent: ${{ fromJSON(needs.agents.outputs.matrix) }}", review)
+        self.assertIn("fail-fast: false", review)
         self.assertNotIn("always()", self.code)
 
     def test_a_draft_skips_with_a_notice(self):
@@ -220,8 +271,9 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertNotIn("REVIEW_SKIPPED", added)
 
     def test_a_draft_runs_nothing_after_it(self):
-        names = self.names()
-        after = self.steps()[names.index(DRAFT) + 1:]
+        # In the agents job; the jobs after it run only on its run output, as the test above checks.
+        steps = self.steps("agents")
+        after = steps[[name for name, _ in steps].index(DRAFT) + 1:]
         self.assertTrue(after, "no steps after the draft check")
         for name, text in after:
             if_line = next((line for line in text.splitlines() if line.strip().startswith("if:")), "")
@@ -235,12 +287,13 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(if_lines, ["if: steps.scope.outputs.review == 'true'"])
 
     def test_the_harness_comes_from_its_default_branch_with_the_deploy_key(self):
-        harness = self.step(HARNESS)
-        self.assertIn("repository: ${{ inputs.factory-repo }}", harness)
-        self.assertIn("ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}", harness)
-        self.assertIn("path: harness", harness)
-        self.assertIn("persist-credentials: false", harness)
-        self.assertNotRegex(harness, r"(?m)^\s+ref:")
+        for name in CHECKOUTS:
+            harness = self.step(name)
+            self.assertIn("repository: ${{ inputs.factory-repo }}", harness, name)
+            self.assertIn("ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}", harness, name)
+            self.assertIn("path: harness", harness, name)
+            self.assertIn("persist-credentials: false", harness, name)
+            self.assertNotRegex(harness, r"(?m)^\s+ref:", name)
         sha = self.step(HARNESS_SHA)
         self.assertIn('echo "Harness commit: $(git -C harness rev-parse HEAD)"', sha)
         self.assertIn("harness/skills/review-pr/SKILL.md", sha)
@@ -261,7 +314,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
         head = self.step(HEAD)
         self.assertIn("path: head", head)
         self.assertIn("fetch-depth: 0", head)
-        for name in (BASE, HEAD):
+        for name in (BASE, HEAD, AGENTS_HEAD):
             self.assertIn("persist-credentials: false", self.step(name), name)
             self.assertNotIn("ssh-key", self.step(name), name)
         self.assertIn("find head", self.step(RULES))
@@ -300,7 +353,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
                 '<picture><source srcset="https://attacker.example/d"></picture>\n'
                 "`Vec<String>` is fine.\n")
             result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
-                                 REPO="o/r", PR="1", GH_TOKEN="")
+                                 REPO="o/r", PR="1", GH_TOKEN="", AGENT_NAME="review-pr", HEAD_SHA="abc123")
             self.assertEqual(result.returncode, 0, result.stderr)
             comment = (Path(tmp) / "comment.md").read_text()
             self.assertNotIn("![", comment)
@@ -310,9 +363,10 @@ class ReusableReviewWorkflow(unittest.TestCase):
 
     def test_the_prompt_points_at_the_three_folders(self):
         prompt = self.step(PROMPT)
-        for text in ("harness/skills/review-pr/SKILL.md", "harness/AGENTS.md", "base/AGENTS.md",
-                     "base/CLAUDE.md", "under head/"):
+        for text in ('"$AGENT_FILE"', "harness/AGENTS.md", "base/AGENTS.md", "base/CLAUDE.md", "under head/"):
             self.assertIn(text, prompt)
+        self.assertIn("AGENT_FILE: ${{ matrix.agent.file }}", prompt)
+        self.assertIn("printf 'Follow %s for the change between %s\\n' \"$AGENT_FILE\" \"$BASE_SHA\"", prompt)
         self.assertRegex(prompt, r"under base/\s+only, never under head/")
         self.assertIn("<<'EOF'", prompt)
         self.assertIn('git -C head diff "$BASE_SHA...HEAD" > "$RUNNER_TEMP/diff.patch"', prompt)
@@ -330,17 +384,16 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertLess(at, prompt.index("- base/ is the project"))
 
     def test_the_harness_checkout_is_sparse(self):
-        harness = self.step(HARNESS)
-        lines = harness.split("sparse-checkout: |\n", 1)[1].splitlines()
-        paths = []
-        for line in lines:
-            if not line.startswith(" " * 12):
-                break
-            paths.append(line.strip())
-        self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/",
-                                 "/.github/workflows/review-pr.yml", "/review-rubric.json", "/scripts/loop.py",
-                                 "/scripts/names.py", "/scripts/review_grade.py", "/scripts/review_report.py"])
-        self.assertIn("sparse-checkout-cone-mode: false", harness)
+        self.assertEqual(sparse(self.step(HARNESS)), [
+            "/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/", "/.github/workflows/review-pr.yml",
+            "/review-rubric.json", "/scripts/loop.py", "/scripts/names.py", "/scripts/review_grade.py",
+            "/scripts/review_report.py"])
+        self.assertEqual(sparse(self.step(AGENTS_HARNESS)), ["/skills/", "/agents/"])
+        self.assertEqual(sparse(self.step(GRADE_HARNESS)), [
+            "/review-rubric.json", "/skills/review-pr/report.schema.json", "/scripts/loop.py", "/scripts/names.py",
+            "/scripts/review_grade.py", "/scripts/review_report.py"])
+        for name in CHECKOUTS:
+            self.assertIn("sparse-checkout-cone-mode: false", self.step(name), name)
         for name in (BASE, HEAD):
             self.assertNotIn("sparse-checkout", self.step(name), name)
 
@@ -386,9 +439,14 @@ class ReusableReviewWorkflow(unittest.TestCase):
                 (head / "big.txt").write_text(("x" * 99 + "\n") * 700)
             self.git(head, "add", ".")
             self.git(head, "commit", "-q", "-m", "change")
-            result = self.run_in(PROMPT, tmp, BASE_SHA=base, RUNNER_TEMP=tmp, GITHUB_ENV=str(env))
+            result = self.run_in(PROMPT, tmp, BASE_SHA=base, RUNNER_TEMP=tmp, GITHUB_ENV=str(env),
+                                 AGENT_FILE="harness/skills/review-pr/SKILL.md")
             self.assertEqual(result.returncode, 0, result.stderr)
-            return (Path(tmp) / "prompt.md").read_text(), env.read_text()
+            prompt = (Path(tmp) / "prompt.md").read_text()
+            self.assertEqual(prompt.splitlines()[:2], [
+                "Follow harness/skills/review-pr/SKILL.md for the change between " + base,
+                "and the pull request's head. This directory holds three folders:"])
+            return prompt, env.read_text()
 
     CUT = ("The diff was cut at 60000 bytes. Every changed file is listed under CHANGED FILES; "
            "read any the cut dropped under head/.")
@@ -429,14 +487,17 @@ class ReusableReviewWorkflow(unittest.TestCase):
                 (bin_dir / "gh").chmod(0o755)
                 (Path(tmp) / "report.md").write_text("Changes needed.\n")
                 result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
-                                     REPO="o/r", PR="1", GH_TOKEN="", STANDARDS_LOADED=loaded)
+                                     REPO="o/r", PR="1", GH_TOKEN="", STANDARDS_LOADED=loaded,
+                                     AGENT_NAME="review-pr", HEAD_SHA="abc123")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = (Path(tmp) / "comment.md").read_text().splitlines()
+                self.assertEqual(lines[:4], ["<!-- review-pr-report -->", "<!-- head: abc123 -->",
+                                             "**Agent:** review-pr", ""])
                 if loaded == "false":
-                    self.assertEqual(lines[2:5], [self.NOT_LOADED, "", "Changes needed."])
+                    self.assertEqual(lines[4:7], [self.NOT_LOADED, "", "Changes needed."])
                 else:
                     self.assertNotIn(self.NOT_LOADED, lines)
-                    self.assertEqual(lines[2], "Changes needed.")
+                    self.assertEqual(lines[4], "Changes needed.")
 
     def test_a_big_diff_lists_every_file_and_says_it_was_cut(self):
         prompt, _ = self.prompt_for(big=True)
@@ -452,10 +513,10 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertIn("M\tsmall.txt", prompt.split("CHANGED FILES:", 1)[1].split("\nDIFF (cut", 1)[0])
         self.assertNotIn(self.CUT, prompt)
 
-    def test_the_deploy_key_reaches_only_the_check_and_the_harness_checkout(self):
+    def test_the_deploy_key_reaches_only_the_check_and_the_harness_checkouts(self):
         holding = [name for name, text in self.steps() if "secrets.FACTORY_DEPLOY_KEY" in text]
-        self.assertEqual(sorted(holding), sorted([CREDENTIAL, HARNESS]))
-        for name in (PROMPT, CLAUDE, SCHEMA, GRADE, POST):
+        self.assertEqual(sorted(holding), sorted([CREDENTIAL] + list(CHECKOUTS)))
+        for name in (AGENTS_HEAD, SKIP, RESOLVE, PROMPT, CLAUDE, SCHEMA, POST, FETCH, GRADE, REGRADE):
             self.assertNotIn("FACTORY_DEPLOY_KEY", self.step(name), name)
 
     def test_each_step_holds_only_its_own_key(self):
@@ -463,8 +524,13 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(self.secrets_in(CLAUDE), claude)
         self.assertEqual(self.secrets_in("Skip when Claude has no key"), claude)
         self.assertEqual(self.secrets_in(CREDENTIAL), {"FACTORY_DEPLOY_KEY"})
-        for name in (DRAFT, PROMPT, SCHEMA, GRADE, POST, BASE, HEAD, HARNESS_SHA):
+        for name in CHECKOUTS:
+            self.assertEqual(self.secrets_in(name), {"FACTORY_DEPLOY_KEY"}, name)
+        for name in (DRAFT, AGENTS_HEAD, SKIP, RESOLVE, PROMPT, SCHEMA, GRADE, POST, BASE, HEAD, HARNESS_SHA, FETCH,
+                     REGRADE):
             self.assertEqual(self.secrets_in(name), set(), name)
+        for job in single.jobs(self.code):
+            self.assertNotIn("secrets.", self.job_head(job), job)
         # The schema check holds nothing at all: no env, so no Claude credential, deploy key or token.
         self.assertNotIn("env:", self.step(SCHEMA))
         for word in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "FACTORY_DEPLOY_KEY", "GH_TOKEN", "token"):
@@ -561,7 +627,7 @@ def tsv(runs):
 
 
 class GradeTheReview(unittest.TestCase):
-    steps = single.ReviewPrWorkflow.steps
+    steps = ReusableReviewWorkflow.steps
     step = single.ReviewPrWorkflow.step
     run_in = ReusableReviewWorkflow.run_in
 
@@ -571,9 +637,10 @@ class GradeTheReview(unittest.TestCase):
         self.helper = (ROOT / "scripts" / "review_grade.py").read_text()
 
     def grade(self, report, runs=(("completed", "success", OTHER),), rubric=RUBRIC, wait="0", later=None,
-              fail=False, base=None, head=None, loop=None, own=None):
-        """Run the grade step in a workspace whose harness/ is a copy of this factory's grading files. Returns
-        the step's result, grade.txt or None, the step summary, and gh's argument lines."""
+              fail=False, base=None, head=None, loop=None, own=None, reports=None, names=None):
+        """Run the grade step in a workspace whose harness/ is a copy of this factory's grading files, with
+        `report` as report.json unless it's None, each of `reports` as reports/<name>.md, and `names` as
+        AGENT_NAMES. Returns the step's result, grade.txt or None, the step summary, and gh's argument lines."""
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             scripts = ws / "harness" / "scripts"
@@ -598,7 +665,12 @@ class GradeTheReview(unittest.TestCase):
                 (fake / "runs.{}".format(n)).write_text(tsv(more))
             (bin_dir / "gh").write_text(FAKE_GH)
             (bin_dir / "gh").chmod(0o755)
-            (temp / "report.json").write_text(report)
+            if report is not None:
+                (temp / "report.json").write_text(report)
+            if reports is not None:
+                (temp / "reports").mkdir()
+                for name, text in reports.items():
+                    (temp / "reports" / (name + ".md")).write_text(text)
             summary = ws / "summary.md"
             env = dict(PATH="{}:{}".format(bin_dir, os.environ["PATH"]), RUNNER_TEMP=str(temp),
                        GITHUB_STEP_SUMMARY=str(summary), GITHUB_RUN_ID=RUN_ID, REPO="o/r", HEAD_SHA="abc123",
@@ -607,6 +679,8 @@ class GradeTheReview(unittest.TestCase):
                 env["FAKE_GH_FAIL"] = REFUSED if fail is True else fail
             if own is not None:
                 env["OWN_CHECK_RUN_ID"] = own
+            if names is not None:
+                env["AGENT_NAMES"] = names
             result = self.run_in(GRADE, ws, **env)
             grade = temp / "grade.txt"
             args = fake / "args"
@@ -702,7 +776,7 @@ class GradeTheReview(unittest.TestCase):
         self.assertGreater(len(args), 1)
 
     def test_a_sibling_job_in_its_own_run_counts(self):
-        # Only the review's own job is left out: a test job beside it in the caller's run still grades.
+        # Only the grade's own job is left out: a test job beside it in the caller's run still grades.
         sibling = "https://github.com/o/r/actions/runs/{}/job/2".format(RUN_ID)
         self.assertGrade(READY,"Verdict: ready. Grade 1/10: ready, a check failed.",
                          runs=[("in_progress", "", OWN, "11"), ("completed", "failure", sibling, "12")], own="11")
@@ -742,26 +816,38 @@ class GradeTheReview(unittest.TestCase):
         self.assertIsNone(grade)
         self.assertIn("::warning::", result.stdout)
 
-    def post(self, grade):
+    def regrade(self, grade):
+        """Run the step that puts the grade on each comment the fetch kept, two agents' here. Returns gh's
+        argument lines and the bodies it sent."""
         with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
-            bin_dir.mkdir()
-            (bin_dir / "gh").write_text("#!/bin/sh\nexit 0\n")
-            (bin_dir / "gh").chmod(0o755)
-            (Path(tmp) / "report.md").write_text("Ready.\n\nVERDICT: ready\n")
+            path = single.fake_gh(tmp)
+            (Path(tmp) / "comments").mkdir()
+            for name, number in (("review-pr", "11"), ("cto", "12")):
+                (Path(tmp) / "comments" / (name + ".md")).write_text(
+                    "<!-- {} -->\n\nReady.\n\nVERDICT: ready\n\n---\n".format(name))
+                (Path(tmp) / "comments" / (name + ".id")).write_text(number + "\n")
             if grade is not None:
                 (Path(tmp) / "grade.txt").write_text(grade)
-            result = self.run_in(POST, tmp, RUNNER_TEMP=tmp, PATH=f"{bin_dir}:{os.environ['PATH']}",
-                                 REPO="o/r", PR="1", GH_TOKEN="", STANDARDS_LOADED="true")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return (Path(tmp) / "comment.md").read_text().splitlines()[-1]
+            result = self.run_in(REGRADE, tmp, RUNNER_TEMP=tmp, PATH=path, FAKE=tmp, REPO="o/r", GH_TOKEN="")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            args, bodies = Path(tmp) / "args", Path(tmp) / "bodies"
+            return (args.read_text().splitlines() if args.exists() else [],
+                    bodies.read_text().split("\n=====\n")[:-1] if bodies.exists() else [])
 
-    def test_the_comment_s_last_line_carries_the_grade(self):
-        self.assertEqual(self.post("Verdict: ready. Grade 10/10: ready, checks passing.\n"),
-                         "Posted by the review-pr workflow. Verdict: ready. Grade 10/10: ready, checks passing. "
-                         "A person decides what happens to this pull request.")
-        self.assertEqual(self.post(None),
-                         "Posted by the review-pr workflow. A person decides what happens to this pull request.")
+    def test_each_comment_s_last_line_carries_the_grade(self):
+        args, bodies = self.regrade("Verdict: ready. Grade 10/10: ready, checks passing.\n")
+        self.assertEqual([line.split()[3] for line in args],
+                         ["repos/o/r/issues/comments/12", "repos/o/r/issues/comments/11"])
+        self.assertTrue(all(line.startswith("api --method PATCH ") for line in args), args)
+        last = ("Posted by the review-pr workflow. Verdict: ready. Grade 10/10: ready, checks passing. "
+                "A person decides what happens to this pull request.")
+        self.assertEqual(bodies, ["<!-- {} -->\n\nReady.\n\nVERDICT: ready\n\n---\n{}\n".format(name, last)
+                                  for name in ("cto", "review-pr")])
+
+    def test_no_grade_leaves_the_comments_as_posted(self):
+        self.assertEqual(self.regrade(None), ([], []))
+        self.assertIn('echo "Posted by the review-pr workflow. A person decides what happens to this pull '
+                      'request."', self.step(POST))
 
     def test_the_prompt_asks_for_one_json_object_shaped_like_the_schema(self):
         prompt = " ".join(self.step(PROMPT).split())
@@ -786,9 +872,12 @@ class GradeTheReview(unittest.TestCase):
             self.assertIn("loop." + name, self.helper)
             self.assertNotIn("def " + name, self.helper)
         self.assertIn('loop.ROOT / loop.DEFAULTS["review_rubric"]', self.helper)
-        # The verdict comes from the schema check the comment uses, never from a report's last line.
+        # The verdict comes from the schema check the comment uses, never from a model's last line: report.json
+        # through review_report.load(), or, in the grade job, the line review_report.render() wrote, which
+        # review_report.rendered_verdict() reads back.
         self.assertIn("import review_report", self.helper)
         self.assertIn("review_report.load(", self.helper)
+        self.assertIn("review_report.rendered_verdict(", self.helper)
         self.assertNotIn("loop.report_verdict", self.helper)
         self.assertNotIn("def load", self.helper)
 
@@ -799,7 +888,8 @@ class GradeTheReview(unittest.TestCase):
             "GH_TOKEN: ${{ github.token }}", "REPO: ${{ github.repository }}",
             "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
             "GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}",
-            "OWN_CHECK_RUN_ID: ${{ job.check_run_id }}"]))
+            "OWN_CHECK_RUN_ID: ${{ job.check_run_id }}",
+            "AGENT_NAMES: ${{ needs.agents.outputs.names }}"]))
         self.assertIn("python3 harness/scripts/review_grade.py", grade)
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertRegex(on, r"grade-wait-minutes:\n(?:\s+description: .*\n)\s+required: false\n"
@@ -809,7 +899,7 @@ class GradeTheReview(unittest.TestCase):
     def test_the_grade_sets_no_status_and_approves_or_merges_nothing(self):
         self.assertEqual(sorted(single.block(self.code, "permissions")), ["contents: read", "pull-requests: write"])
         self.assertNotIn("statuses", self.code)
-        for name in (GRADE, POST):
+        for name in (GRADE, POST, FETCH, REGRADE):
             for word in ("statuses", "approve", "merge"):
                 self.assertNotIn(word, self.step(name).lower(), name)
         for word in ("statuses", "/reviews", "/merge", "--method", "-X", "POST", "PATCH", "PUT"):

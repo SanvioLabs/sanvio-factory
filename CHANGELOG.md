@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: Named review agents run as their own CI jobs
+
+The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, `skip-paths`'s among them, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, checks its JSON report against the schema and posts its own comment, rendered from that report, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back, takes each verdict from the line the schema check rendered, and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
+
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Skip the CI review when only skip-paths files changed; 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
+
+**Controls:** AC-5
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`scripts/review_report.py`](scripts/review_report.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; pass agents: review-pr,security-reviewer to run more
+
 ## 2026-11-18: Run a workflow by name
 
 New: `/run-workflow <name> [--as chat|loop|schedule]` runs one workflow from [`workflows/`](workflows/). It first runs `python3 scripts/workflows.py show <name> --as <mode>`, which prints the workflow's manifest with its paths relative to the harness root, or exits 1 with the reason when the workflow isn't there, its `runs` don't list that mode, it's `retired`, or it's run `--as schedule` and its `restricted_data` isn't `none`. Then the skill follows the workflow's own skill to draft into its output, runs its gate with one round of fixes, has its reviewer read the draft, and stops at the approval lines, naming who decides. It never sends, never changes an input and never fills in an approval. `python3 scripts/workflows.py list` prints each workflow's name, owner, status and runs. [`workflows/README.md`](workflows/README.md) has a new *Starting a workflow* section.
