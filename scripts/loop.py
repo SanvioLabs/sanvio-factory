@@ -305,6 +305,24 @@ GITHUB_REMOTE = re.compile(r"^(https://([^@/]+@)?github\.com/|git@github\.com:|s
 STEERING = re.compile(r"(?m)^@(steering/[\w.-]+\.md)\s*$")  # the steering files AGENTS.md loads every session
 NEVER_LOOSENS = "The project's own AGENTS.md or CLAUDE.md adds to these rules and never loosens them."
 NO_HOOKS = ("-c", "core.hooksPath=/dev/null")  # for a git command that could run a hook the branch carries
+# In a caller project, every git call the loop makes carries these (#640): no hook and no fsmonitor command
+# runs, and no refs/replace entry swaps one commit for another in what the review reads, whatever the clone holds. A filter, a credential helper or a signing program the config names
+# isn't covered here: hashing the config around each of the caller's commands and agents is (git_state()).
+CALLER_GIT_SAFE = NO_HOOKS + ("-c", "core.fsmonitor=false", "-c", "core.useReplaceRefs=false")
+
+
+class GitTampered(Exception):
+    """A caller's command or agent changed what the loop's own git reads: the clone's config or hooks, or the
+    worktree's own git files. The issue blocks before the loop runs git in that clone again (#640)."""
+
+    def __init__(self, step, changed):
+        self.step, self.changed = step, changed
+        super().__init__(step)
+
+    def reason(self):
+        return ("{} changed what git reads in this issue's checkout: {}. The loop runs no more git there; look at "
+                "the clone and the worktree, put them back, then put the issue back").format(
+                    self.step, ", ".join(self.changed[:DIRTY_CAP]))
 UPDATE_FAILED = "could not update the pull request: "
 
 
@@ -2974,20 +2992,9 @@ class Loop:
         turns the sandbox on, and work() refuses a caller where it's off."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
         if self.sandboxed() and self.caller():
-            # #639: held to its own folders, reads and writes, with a temp folder and caches of its own.
-            scratch = tempfile.mkdtemp(prefix="sanvio-caller-")
-            try:
-                profile = caller_profile(Path.home(), self.root, tree, self.repo, scratch, self.checkout_folders(),
-                                         state_dir(self.root, self.project.name if self.project else None),
-                                         self.cfg.get("caller_read_allow") or (),
-                                         self.cfg.get("caller_write_allow") or (),
-                                         extra=caller_denied(self.root, self.repo))
-                argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
-                # held: no stdin, no terminal, and nothing it started still running when scratch is removed.
-                return self.sh(argv, cwd=tree, timeout=timeout, env=caller_env(env, scratch), partial=partial,
-                               held=True)
-            finally:
-                shutil.rmtree(scratch, ignore_errors=True)
+            # #640: what the loop's own git reads next is checked before and after.
+            return self.held_git("a command the loop ran", tree,
+                                 lambda: self.caller_command(command, tree, env, timeout, partial))
         if self.sandboxed():
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
@@ -2995,6 +3002,72 @@ class Loop:
             # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
             return 126, "refused: a caller project's commands run only in sandbox-exec, which can't run here"
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
+
+    def git_state(self, tree):
+        """What the loop's own git reads in a caller's checkout, as {name: digest}: the clone's .git/config,
+        config.worktree and commondir, every file under its hooks/ and info/, git's own files for tree in
+        .git/worktrees/ (config, config.worktree, gitdir, commondir), and tree's .git file. A missing file is
+        "absent", a link is its target, so adding, removing or relinking one shows too (#640)."""
+        clone = Path(self.repo) / ".git"
+        worktree_git = worktree_git_dir(tree, self.repo)
+        paths = [clone / name for name in ("config", "config.worktree", "commondir")]
+        paths += [worktree_git / name for name in ("config", "config.worktree", "gitdir", "commondir")]
+        paths.append(Path(tree) / ".git")
+        for folder in (clone / "hooks", clone / "info"):
+            for top, dirs, files in os.walk(str(folder)):
+                dirs.sort()
+                paths += [Path(top) / name for name in sorted(files + [d for d in dirs
+                                                                       if os.path.islink(os.path.join(top, d))])]
+
+        def digest(path):
+            if os.path.islink(str(path)):
+                return "link:" + os.readlink(str(path))
+            try:
+                return hashlib.sha256(path.read_bytes()).hexdigest()
+            except FileNotFoundError:
+                return "absent"
+            except OSError as err:
+                return "unreadable:{}".format(err.errno)
+
+        def name(path):
+            for base, shown in ((Path(tree), "the worktree's "), (Path(self.repo), "")):
+                try:
+                    return shown + Path(path).relative_to(base).as_posix()
+                except ValueError:
+                    continue
+            return str(path)
+
+        return {name(path): digest(path) for path in paths}
+
+    def held_git(self, step, tree, run):
+        """run() for a caller's command or agent, with git_state() taken before and after: a change raises
+        GitTampered naming each file. Outside caller mode, run() alone."""
+        if not self.caller():
+            return run()
+        before = self.git_state(tree)
+        result = run()
+        after = self.git_state(tree)
+        changed = sorted(name for name in set(before) | set(after) if before.get(name, "absent") !=
+                         after.get(name, "absent"))
+        if changed:
+            raise GitTampered(step, changed)
+        return result
+
+    def caller_command(self, command, tree, env, timeout, partial):
+        """own_command() for a caller project (#639): held to its own folders, reads and writes, with a temp
+        folder and caches of its own, removed after."""
+        scratch = tempfile.mkdtemp(prefix="sanvio-caller-")
+        try:
+            profile = caller_profile(Path.home(), self.root, tree, self.repo, scratch, self.checkout_folders(),
+                                     state_dir(self.root, self.project.name if self.project else None),
+                                     self.cfg.get("caller_read_allow") or (), self.cfg.get("caller_write_allow") or (),
+                                     extra=caller_denied(self.root, self.repo))
+            argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
+            # held: no stdin, no terminal, and nothing it started still running when scratch is removed.
+            return self.sh(argv, cwd=tree, timeout=timeout, env=caller_env(env, scratch), partial=partial,
+                           held=True)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     def controls(self, tree, *args):
         """(exit code, output) of the loop's own controls.py with args on tree's controls.json, or None when tree
@@ -3026,7 +3099,9 @@ class Loop:
         return code, out if code == 0 else shown_url(out)
 
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
-        """sh's command, its output as it came."""
+        """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE."""
+        if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
+            cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
@@ -3194,13 +3269,17 @@ class Loop:
         if cmd is None:
             self.record_usage(number, step, round_no, None, configured_model(self.cfg, which))
             return REFUSED, why
+        builder = which in ("agent", "tester_agent") and not (untrusted or confine)
+        hold = (lambda run: self.held_git("the {} agent".format("build" if which == "agent" else "tester"), cwd,
+                                          run)) if builder else (lambda run: run())
         if number is None:  # never kept for a session retro either: see stream()
-            return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
+            return hold(lambda: self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
+                                        env=env_for_agents(os.environ, self.cfg.get("agent_env") or ())))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
-        result = self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step, round_no)
+        result = hold(lambda: self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step,
+                                          round_no))
         self.halt_if_interrupted()  # its exit code is the Ctrl-C's kill, not something it got wrong
         return result
 
@@ -4258,8 +4337,13 @@ class Loop:
             if round_no > 1 and not changed:
                 return self.block(number, "the build added nothing in round {}".format(round_no), said=said)
             self.mark(number, step="VALIDATE")
+            reviewed = self.git("rev-parse", "HEAD", cwd=tree)[1].strip() if self.caller() else None
 
             tcode, tout = self.own_command(self.cfg["test_command"], tree)
+            if reviewed is not None and self.git("rev-parse", "HEAD", cwd=tree)[1].strip() != reviewed:
+                # A caller's tests committed or moved the branch: what would be pushed isn't what was reviewed.
+                return self.block(number, "the tests moved loop/issue-{}'s HEAD from the commit the review "
+                                          "reads, so nothing was pushed".format(number), said=said)
             # A checkout with a register is held to it: the check's output goes after the tests', where the
             # saved file, the reviewer and the next build all read it, and a failing check fails the round. The
             # tests' own exit code stays when they failed too.
@@ -4307,7 +4391,7 @@ class Loop:
             self.outcomes[number][round_no] = {"tests": "passed" if tcode == 0 else "failed", "verdict": verdict}
             self.mark(number, tests="passed" if tcode == 0 else "failed ({})".format(tcode), review=verdict)
             if passed:
-                return self.scale(issue, branch, round_no, problems, fixed)
+                return self.scale(issue, branch, round_no, problems, fixed, reviewed=reviewed)
             problems.append("round {}: {}".format(
                 round_no, findings(review) if rcode == 0 else "review did not run"))
 
@@ -4469,8 +4553,9 @@ class Loop:
             self.git(*NO_HOOKS, "clean", "-fdq", cwd=tree)
             self.log(step, "{} edited files; discarded".format(who), number)
 
-    def scale(self, issue, branch, rounds, problems, fixed=()):
-        """fixed is process()'s list of the tester's files, for the pull request to name."""
+    def scale(self, issue, branch, rounds, problems, fixed=(), reviewed=None):
+        """fixed is process()'s list of the tester's files, for the pull request to name. reviewed, a caller's
+        commit the review read, has to be the branch's tip at the push (#640)."""
         number = issue["number"]
         self.halt_if_interrupted()
         self.mark(number, step="SCALE")
@@ -4493,6 +4578,10 @@ class Loop:
                                           "a person decides what comes next".format(
                                               reopened["number"], state.strip().lower() or "closed"))
         sha_code, sha = self.git("rev-parse", "--verify", "-q", branch)
+        if reviewed is not None and (sha_code != 0 or sha.strip() != reviewed):
+            self.reopened.pop(number, None)
+            return self.block(number, "loop/issue-{} isn't the commit the review read, so nothing was pushed".format(
+                number))
         if reopened and sha_code == 0 and sha.strip() == reopened.get("headRefOid"):
             self.reopened.pop(number, None)
             return self.block(number, "the round changed nothing on pull request #{}, so it pushed nothing".format(
@@ -4639,7 +4728,10 @@ class Loop:
         for row in list(self.status["issues"]):  # mark() reorders the rows
             tree = self.worktrees() / "issue-{}".format(row["number"])
             if row.get("state") == "pr" and row.get("pr") and tree.exists():
-                self.update_pr(row, tree)
+                try:
+                    self.update_pr(row, tree)
+                except GitTampered as err:
+                    self.block(row["number"], err.reason())
 
     def update_error(self, number, why):
         self.log_once("ERROR", UPDATE_FAILED + why.strip()[:200], number)
@@ -5042,6 +5134,8 @@ class Loop:
         try:
             try:
                 self.process(issue)
+            except GitTampered as err:
+                self.block(number, err.reason())
             except Exception as err:
                 folder = self.dir / "issue-{}".format(number)
                 folder.mkdir(exist_ok=True)

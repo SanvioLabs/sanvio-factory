@@ -722,6 +722,11 @@ open(os.path.join(state, step + "-env"), "w").write(json.dumps(sorted(os.environ
 open(os.path.join(state, step + "-unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
 open(os.path.join(state, step + "-confine"), "w").write(os.environ.get("SANVIO_CONFINE", "unset"))
 open(os.path.join(state, step + "-environ"), "w").write(json.dumps(dict(os.environ)))
+if step == "build" and os.path.exists(os.path.join(state, "build-sets-filter")):
+    # A clean filter in the clone's git config, which the loop's own git would run on its next add or status.
+    import subprocess
+    subprocess.run(["git", "config", "filter.x.clean", "touch " + os.path.join(state, "filter-ran") + "; cat"])
+    open(".gitattributes", "w").write("* filter=x\\n")
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -2304,9 +2309,9 @@ class TestAPass(unittest.TestCase):
     def test_a_missing_plan_still_opens_the_pull_request(self):
         real = loop.Loop.scale
 
-        def scale(runner, issue, *args):
+        def scale(runner, issue, *args, **kwargs):
             (runner.dir / "issue-{}".format(issue["number"]) / "plan.md").unlink()
-            return real(runner, issue, *args)
+            return real(runner, issue, *args, **kwargs)
         with mock.patch.object(loop.Loop, "scale", scale):
             self.go()
         self.assertIn("`plan.md` wasn't there.", self.pr_create_body())
@@ -9472,6 +9477,121 @@ class TestCallerCommands(unittest.TestCase):
         self.assertIsNone(loop.caller_config_problem(dict(loop.DEFAULTS, reader_agent="codex", review_agent="codex")))
         runner = loop.Loop(self.harness, dict(loop.DEFAULTS, reader_agent="codex"))
         self.assertEqual(runner.argv("reader_agent", confine=True)[0][:3], ["codex", "exec", "--sandbox"])
+
+    def blocked(self):
+        return [line for line in self.log() if " BLOCKED " in line]
+
+    def pull_requests(self):
+        calls = self.state / "gh-calls"
+        return [c for c in (calls.read_text().splitlines() if calls.exists() else []) if c.startswith("pr create")]
+
+    def test_a_callers_tests_adding_a_filter_to_git_config_block_before_the_loops_git_runs_it(self):
+        filtered = 'git config filter.x.clean "touch $LOOP_TEST_STATE/filter-ran; cat" && echo "* filter=x" > .gitattributes'
+        self.caller(**dict(self.FACTORY, test_command=self.FACTORY["test_command"] + " && " + filtered))
+        self.go()
+        blocked = self.blocked()
+        self.assertEqual(len(blocked), 1, self.log())
+        self.assertIn("a command the loop ran changed what git reads", blocked[0])
+        self.assertIn(".git/config", blocked[0])
+        self.assertFalse(self.ran("filter-ran"))
+        self.assertEqual(self.pull_requests(), [])
+
+    def test_a_callers_build_agent_adding_a_filter_blocks_before_the_loop_runs_git_again(self):
+        (self.state / "build-sets-filter").write_text("")
+        self.caller(**self.FACTORY)
+        self.go()
+        blocked = self.blocked()
+        self.assertEqual(len(blocked), 1, self.log())
+        self.assertIn("the build agent changed what git reads", blocked[0])
+        self.assertIn(".git/config", blocked[0])
+        self.assertFalse(self.ran("filter-ran"))
+        self.assertFalse(self.ran("factory-test"))  # no tests ran on what it left
+        self.assertEqual(self.pull_requests(), [])
+
+    def test_a_callers_tests_that_commit_block_and_nothing_is_pushed(self):
+        commit = 'git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "the tests\' own"'
+        self.caller(**dict(self.FACTORY, test_command=self.FACTORY["test_command"] + " && " + commit))
+        self.go()
+        blocked = self.blocked()
+        self.assertEqual(len(blocked), 1, self.log())
+        self.assertIn("moved loop/issue-12's HEAD", blocked[0])
+        self.assertEqual(self.pull_requests(), [])
+        self.assertFalse([line for line in self.log() if " SCALE " in line], self.log())
+
+    def test_every_git_call_in_a_caller_project_runs_with_hooks_and_fsmonitor_off(self):
+        self.caller(**self.FACTORY)
+        ran = []
+        real = subprocess.run
+
+        def run(cmd, *args, **kwargs):
+            ran.append(cmd)
+            return real(cmd, *args, **kwargs)
+
+        with mock.patch.object(loop.subprocess, "run", run):
+            self.go()
+        gits = [cmd for cmd in ran if isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git"]
+        self.assertTrue(gits)
+        for cmd in gits:
+            with self.subTest(cmd=cmd[:6]):
+                self.assertEqual(cmd[1:1 + len(loop.CALLER_GIT_SAFE)], list(loop.CALLER_GIT_SAFE))
+        # Outside caller mode, git's commands are as they were.
+        lp = loop.Loop(self.harness, dict(loop.DEFAULTS), project=self.project)
+        ran.clear()
+        with mock.patch.object(loop.subprocess, "run", run):
+            lp.git("status", "--porcelain")
+        self.assertEqual(ran[0][:2], ["git", "status"])
+
+    def test_a_replace_ref_in_the_clone_doesnt_change_what_the_loops_git_shows(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "f").write_text("payload\n")
+        subprocess.run(git + ["add", "f"], check=True)
+        subprocess.run(git + ["commit", "-qm", "real"], check=True)
+        real = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        (repo / "f").write_text("benign\n")
+        subprocess.run(git + ["commit", "-qam", "decoy"], check=True)
+        decoy = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        subprocess.run(git + ["replace", real, decoy], check=True)
+        show = git + ["show", "--format=", real + ":f"]
+        self.assertEqual(subprocess.run(show, capture_output=True, text=True).stdout, "benign\n")
+        safe = [git[0], *loop.CALLER_GIT_SAFE, *git[1:]] + ["show", "--format=", real + ":f"]
+        self.assertEqual(subprocess.run(safe, capture_output=True, text=True).stdout, "payload\n")
+
+    def test_a_callers_commands_run_held_and_nothing_else_does(self):
+        self.caller(**self.FACTORY)
+        groups = []
+        real = loop.Loop.ran
+
+        def ran(runner, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
+            groups.append((cmd[0] if isinstance(cmd, list) else cmd, held))
+            return real(runner, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held)
+
+        with mock.patch.object(loop.Loop, "ran", ran):
+            self.go()
+        self.assertIn((loop.SANDBOX_EXEC, True), groups)
+        self.assertEqual({name for name, group in groups if group}, {loop.SANDBOX_EXEC})
+
+    def test_git_state_sees_a_changed_config_a_new_hook_a_relinked_hook_and_a_rewritten_git_file(self):
+        self.caller(**self.FACTORY)
+        lp = loop.Loop(self.harness, project=self.project)
+        tree = self.trees / "app" / "issue-12"
+        tree.mkdir(parents=True)
+        (tree / ".git").write_text("gitdir: {}\n".format(self.project / ".git" / "worktrees" / "issue-12"))
+        hooks = self.project / ".git" / "hooks"
+        hooks.mkdir(exist_ok=True)
+        before = lp.git_state(tree)
+        for change, name in ((lambda: (self.project / ".git" / "config").open("a").write("[x]\n"), ".git/config"),
+                             (lambda: (hooks / "pre-push").write_text("evil"), ".git/hooks/pre-push"),
+                             (lambda: (hooks / "pre-push").unlink() or (hooks / "pre-push").symlink_to("/tmp/x"),
+                              ".git/hooks/pre-push"),
+                             (lambda: (tree / ".git").write_text("gitdir: /tmp/elsewhere\n"), "the worktree's .git")):
+            change()
+            after = lp.git_state(tree)
+            with self.subTest(name=name):
+                self.assertNotEqual(before.get(name, "absent"), after.get(name, "absent"))
+            before = after
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()

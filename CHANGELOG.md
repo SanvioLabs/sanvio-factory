@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: A caller's checkout can't change what the loop's own git runs
+
+In a caller project, every git command the loop runs now carries hooks, fsmonitor and replace refs off. Around each of the caller's commands and each build and tester session, the loop hashes the clone's `.git/config`, `config.worktree`, `commondir`, `hooks/` and `info/`, and the worktree's own git files. Any change blocks the issue, naming each file, before the loop runs git in that checkout again, so a clean filter, a hook or a credential helper a command or an agent adds never runs. After the tests, and again at the push, `loop/issue-N` has to be the commit the review read, or the issue blocks and nothing is pushed. The guard also refuses a held build agent's file-tool writes anywhere in the clone's `.git`, refs, objects and replace refs included, and any shell command naming `.git/config`, `config.worktree` or `hooks/`. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-18: A caller's planner and reviewer are held to its checkout
+
+**Controls:** AC-5, AU-9
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing for a project that isn't a caller. For a caller issue that blocks naming a git file, look at the clone and the worktree before putting the issue back: something in that checkout changed what git runs.
+
 ## 2026-11-18: A caller's planner and reviewer are held to its checkout
 
 `run` now refuses to start a caller project whose `reader_agent`, or `review_agent` where it's set, isn't a `claude` command or a named `ollama`, with one `ERROR` line before any issue is taken. The planner, the reviewer and the retro read text from the caller's repo, and those are the two readers the loop can hold to the checkout: claude with read tools alone, which checked live also won't follow a symlink out of the checkout, and ollama with no tools. `codex`'s read-only sandbox can still read files outside the checkout. Name a text-only ollama model for a caller: `ollama run` reads an image file a vision model's prompt names. Outside caller mode, a codex reader runs as before.
