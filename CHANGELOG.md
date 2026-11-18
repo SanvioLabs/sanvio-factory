@@ -54,6 +54,16 @@ Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`s
 
 **Do:** nothing; pass agents: review-pr,security-reviewer to run more
 
+## 2026-11-18: Blueprint interview questions come with options and a recommendation
+
+The blueprint-workflow skill now asks each interview question through `AskUserQuestion`, one per call, with two to four options drawn from what the session knows about the work, the likeliest marked ` (Recommended)`, and Other left open; a tool without it asks the same question in plain text with numbered options. The blueprint records what the person picked or wrote in their own words, never a recommended option they didn't pick, and a skipped question stays empty and named in `gaps`.
+
+**Needs:** 2026-11-16: Interview the person who does a workflow
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-18: Skip the CI review when only skip-paths files changed
 
 The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
