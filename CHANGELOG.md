@@ -46,6 +46,16 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`examples/controls/controls.json`]
 
 **Do:** nothing for the factory. To hold a project to a register, copy [`examples/controls/controls.json`](examples/controls/controls.json) into the root of the project's repo and add its entries.
 
+## 2026-11-17: A caller's commands are the factory's
+
+A caller project's `test_command`, `setup_command`, `generate_command`, `test_timeout` and `base` now come from the factory's `loop.json`, its `projects` entry for that folder and then its top level, never from the caller's own `loop.json`, which anyone who can push to the caller's repo can change. `run` logs one `WARN` naming each of those its own file sets, and refuses to start a caller whose `test_command` the factory doesn't set. The commands run in `sandbox-exec`, which now denies them reading or writing the paths the caller's agents are denied: the factory's private folders and `loop.json`, and every other project's clone, state and worktrees. It denies only the paths it names, so they can still write elsewhere, the factory's own files and the caller clone's `.git` included: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says what's still open. Where they wouldn't run in `sandbox-exec` (`sandbox_commands` false, no `sandbox-exec`, or one that can't apply a profile), `run` refuses a caller with an `ERROR` line; outside caller mode that's still a `WARN`. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-16: A caller's build is held to its worktree; 2026-11-13: Caller projects hold outside work for a person; 2026-11-12: The loop's own commands run in a sandbox on a Mac
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if a project under `"projects"` in your `loop.json` has `"caller": true`, copy its `test_command`, and any `setup_command`, `generate_command`, `test_timeout` and `base` it needs, from its own `loop.json` into that entry, and check `sandbox_commands` isn't `false` for it. Until you do, `run` refuses it.
+
 ## 2026-11-16: AI kinds of change in compliance steering
 
 [`steering/compliance.md`](steering/compliance.md) now names four kinds of change that carry AI risk: one that widens what an agent does unattended, one that lets outside text reach a prompt, one that changes who merges or decides, and one that changes the model, the provider or an agent's instructions. Each row gives its SP 800-53 controls, the OWASP Top 10 for LLM Applications risk by name, the NIST AI RMF 1.0 function and the ISO/IEC 42001:2023 Annex A control, and the question to answer before calling it done. The baseline names those three frameworks as companions to SP 800-53. AGENTS.md's Read when, the tickets paragraph and the builder's bullet list the new kinds, a ticket of one of them names its OWASP risk and AI RMF and ISO references, and the security reviewer names the OWASP risk on such a finding.

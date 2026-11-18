@@ -513,8 +513,11 @@ PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_
                 "setup_command")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 # The project keys a caller project takes from the factory's loop.json instead of its own: which label submits
-# work and which one stops it are this factory's to decide, and a caller can push to its own loop.json.
-CALLER_KEYS = ("ready_label", "blocked_label")
+# work and which one stops it are this factory's to decide, and so are the commands the loop runs on this machine,
+# how long they may take, and base, which git is handed as an argument (#596). A caller can push to its own
+# loop.json, and the person accepting its issue reads the issue, not that file.
+CALLER_KEYS = ("ready_label", "blocked_label", "test_command", "test_timeout", "setup_command", "generate_command",
+               "base")
 
 
 def is_caller(harness, entry):
@@ -528,7 +531,8 @@ def load_project_config(root, project):
     project leaves out is the default, not the factory's: the factory's base or labels describe this repo.
 
     A caller project is the exception for CALLER_KEYS: those come from the factory's top level, then its entry,
-    and the project's own loop.json is never read for them."""
+    and the project's own loop.json is never read for them. Where neither names test_command, it's None, and
+    caller_config_problem() refuses the run: the default tests this repo, not the caller's."""
     cfg = dict(DEFAULTS)
     path = Path(root) / "loop.json"
     harness = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -541,7 +545,19 @@ def load_project_config(root, project):
     path = Path(project) / "loop.json"
     own = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     cfg.update({k: v for k, v in own.items() if k in PROJECT_KEYS and not (caller and k in CALLER_KEYS)})
+    if caller and "test_command" not in entry and "test_command" not in harness:
+        cfg["test_command"] = None
     return cfg
+
+
+def caller_ignored(project):
+    """The CALLER_KEYS a caller project's own loop.json sets, sorted: the loop takes each from the factory's
+    loop.json instead, and says so. Empty where the file is missing or isn't a JSON object."""
+    try:
+        own = json.loads((Path(project) / "loop.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return sorted(set(own) & set(CALLER_KEYS)) if isinstance(own, dict) else []
 
 
 def shown_url(text):
@@ -680,12 +696,7 @@ def project_root(path, root=None):
         cfg = {}
     except ValueError as err:
         return refuse("its loop.json isn't JSON: {}".format(err))
-    if not isinstance(cfg, dict) or not isinstance(cfg.get("test_command"), str) or not cfg["test_command"].strip():
-        return refuse("its loop.json doesn't set test_command, the command that tests the project")
-    machine = sorted(set(cfg) & MACHINE_KEYS)
-    if machine:
-        return refuse('its loop.json sets {}, which only the factory\'s loop.json may set; move it there under '
-                      '"projects": {{"{}": {{...}}}}'.format(", ".join(machine), folder.name))
+    # The factory's first: a caller's test_command comes from there, so its own loop.json needn't set one.
     try:
         harness = json.loads((projects.parent / "loop.json").read_text(encoding="utf-8"))
     except OSError:
@@ -697,8 +708,17 @@ def project_root(path, root=None):
     entries = harness.get("projects", {})
     if not isinstance(entries, dict) or not all(isinstance(e, dict) for e in entries.values()):
         return refuse('"projects" in the factory\'s loop.json isn\'t an object of objects, one per project folder')
+    if not isinstance(cfg, dict):
+        return refuse("its loop.json isn't a JSON object")
+    caller = is_caller(harness, entries.get(folder.name, {}))
+    if not caller and (not isinstance(cfg.get("test_command"), str) or not cfg["test_command"].strip()):
+        return refuse("its loop.json doesn't set test_command, the command that tests the project")
+    machine = sorted(set(cfg) & MACHINE_KEYS)
+    if machine:
+        return refuse('its loop.json sets {}, which only the factory\'s loop.json may set; move it there under '
+                      '"projects": {{"{}": {{...}}}}'.format(", ".join(machine), folder.name))
     for name, entry in entries.items():
-        # A caller's entry also names its labels, which its own loop.json can't.
+        # A caller's entry also names its labels and commands, which its own loop.json can't.
         other = sorted(set(entry) - MACHINE_KEYS - (set(CALLER_KEYS) if is_caller(harness, entry) else set()))
         if other:
             return refuse('"projects" in the factory\'s loop.json sets {} for {}; a project\'s own loop.json '
@@ -986,12 +1006,17 @@ def caller_config_problem(cfg):
     caller itself has to be true or false wherever it's read, since anything else would quietly turn the
     acceptance hold off. A caller project needs a sandboxed network (network_allow), a token budget
     (max_issue_tokens) and the plan its pull requests name (account_tier), and acceptors and accept_label it
-    can read."""
+    can read. Its test_command has to come from the factory (load_project_config() leaves it None otherwise).
+    """
     caller = cfg.get("caller", False)
     if not isinstance(caller, bool):
         return "caller", "{} isn't true or false".format(repr(caller)[:100])
     if not caller:
         return None
+    tests = cfg.get("test_command")
+    if not isinstance(tests, str) or not tests.strip():
+        return "test_command", ('not set for this project, and a caller project\'s comes from the factory\'s '
+                                'loop.json alone: set it under "projects": {"<folder>": {"test_command": ...}}')
     label = cfg.get("accept_label")
     if not isinstance(label, str) or not label.strip():
         return "accept_label", "{} isn't a label name, and a caller project needs one".format(repr(label)[:100])
@@ -1071,7 +1096,7 @@ def sandbox_env(env):
     return env
 
 
-def sandbox_profile(home, root, environ=None):
+def sandbox_profile(home, root, environ=None, extra=()):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
@@ -1085,7 +1110,11 @@ def sandbox_profile(home, root, environ=None):
     take what's under it out of the deny. The base is home; for root's paths, home where root is inside it, so
     the folders that hold the factory can't be moved either, and root itself where it isn't; XDG_CONFIG_HOME;
     and GH_CONFIG_DIR's parent. Where a link takes the path outside its base, only its parent is guarded, and /
-    never is. Files can still be made beside a denied path, and the folders still written to."""
+    never is. Files can still be made beside a denied path, and the folders still written to.
+
+    extra is more paths to deny, such as caller_denied()'s for a caller project. Each takes root's base where it's
+    under root, home where it's under home, so the factory or ~/.sanvio-loop can't be renamed aside to reach
+    what's under them, and its parent otherwise."""
     environ = os.environ if environ is None else environ
     paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED]
     home_real, root_real = Path(home).resolve(), Path(root).resolve()
@@ -1098,6 +1127,10 @@ def sandbox_profile(home, root, environ=None):
     if os.path.isabs(gh):
         paths.append((Path(gh), None))  # None: its parent is its base
     paths += [(Path(root) / name, root_base) for name in SANDBOX_ROOT_DENIED]
+    for path in extra:
+        real = Path(path).resolve()
+        paths.append((Path(path), root_base if real == root_real or root_real in real.parents
+                      else Path(home) if home_real in real.parents else None))
 
     def quoted(path):
         return str(path).replace("\\", "\\\\").replace('"', '\\"')
@@ -2698,12 +2731,18 @@ class Loop:
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
         sandbox_profile denies, with sandbox_env's git settings, so git neither stops on the denied
-        ~/.gitconfig nor warns about ~/.config/git. Anything else runs it as before: only true turns the
-        sandbox on."""
+        ~/.gitconfig nor warns about ~/.config/git. For a caller project it's also denied every path
+        caller_denied() names, as its build and tester agents are. Anything else runs it as before: only true
+        turns the sandbox on, and work() refuses a caller where it's off."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
         if self.sandboxed():
-            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
+            extra = caller_denied(self.root, self.repo) if self.caller() else ()
+            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root, extra=extra), "/bin/sh", "-c",
+                    command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
+        if self.caller():
+            # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
+            return 126, "refused: a caller project's commands run only in sandbox-exec, which can't run here"
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
 
     def controls(self, tree, *args):
@@ -4496,7 +4535,9 @@ class Loop:
                 prog = multiplexer()
                 self.log("START", "in {0} session {1}: {0} attach -t {2}".format(prog, tmux, shell_quote(tmux)))
                 self.write_watch(tmux)
-            if self.cfg.get("sandbox_commands") is not False and not sandbox_available():
+            if self.caller():
+                pass  # work() refuses a caller whose commands wouldn't run in the sandbox, in one ERROR line
+            elif self.cfg.get("sandbox_commands") is not False and not sandbox_available():
                 self.log("WARN", "test_command, generate_command and setup_command run without a sandbox here, "
                          "since only macOS has sandbox-exec: they can read any file your user can")
             elif self.cfg.get("sandbox_commands") is False and sandbox_available():
@@ -4576,6 +4617,20 @@ class Loop:
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
+        if self.caller() and not self.sandboxed():
+            if self.cfg.get("sandbox_commands") is not True:
+                why = "sandbox_commands is false"
+            elif not sandbox_available():
+                why = "this machine has no sandbox-exec"
+            else:
+                why = "sandbox-exec can't apply a profile here ({})".format(self.sandbox_error)
+            self.log("ERROR", "sandbox_commands in loop.json: a caller project's test_command, setup_command and "
+                     "generate_command run only in sandbox-exec, and {}, so no issue is taken".format(why)[:300])
+            return 1
+        ignored = caller_ignored(self.project) if self.caller() and self.project else []
+        if ignored:
+            self.log("WARN", "the project's own loop.json sets {}, which a caller project takes from the factory's "
+                     "loop.json, so they're ignored".format(", ".join(ignored)))
         if self.cfg.get("fork") is not None:
             # A second remote changes which repo gh takes for every call in this clone, and set-default could
             # name the fork: every call names origin's instead, as review's do.
