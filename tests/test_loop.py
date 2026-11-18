@@ -4952,6 +4952,17 @@ class TestAPass(unittest.TestCase):
         self.assertIn("TEST OUTPUT OF THE LAST ROUND:\n", self.prompt("build"))
         self.assertIn(said, self.prompt("build"))
 
+    def test_when_the_tests_and_the_register_both_fail_the_tests_exit_code_and_wording_stay(self):
+        self.cfg["test_command"] = "echo the tests broke; exit 3"
+        self.register([soc2("CC6.1", "gone.md")])
+        self.go()
+        self.assertIn("the tests broke\nregister check (scripts/controls.py check) exited 1:\n"
+                      "SOC 2 CC6.1: evidence not found: gone.md", self.saved_tests())
+        lines = "\n".join(self.lines())
+        self.assertIn("round 1 tests failed (3)", lines)
+        self.assertNotIn("round 1 tests failed (1)", lines)
+        self.assertIn("the tests exited 3", self.prompt("review"))
+
     def test_a_register_that_passes_leaves_the_round_passing_and_the_review_names_what_it_touched(self):
         self.register([soc2("CC6.1", "feature.txt"), soc2("CC7.2", "feature.txt"), soc2("CC8.1", "README.md")])
         self.assertEqual(self.go(), 0)
