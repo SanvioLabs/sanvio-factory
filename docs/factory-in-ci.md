@@ -7,10 +7,12 @@ factory itself.
 | What | Workflow | Goes in | What it does | Needs |
 |---|---|---|---|---|
 | Checks | [`examples/ci/project-checks.yml`](../examples/ci/project-checks.yml) | The product repo | Runs the repo's checks on every pull request and every push to `main`. Each job skips with a notice until the file it needs exists, such as `pyproject.toml` or `package.json` | Nothing else |
-| Review | A short caller of [`.github/workflows/review-pr.yml`](../.github/workflows/review-pr.yml), which stays in your factory repo | The product repo | Reviews every pull request with your harness's review-pr skill, its rules and your team's standards, and posts the report as one comment, edited on each push | A read-only deploy key and an Anthropic API key, held as secrets |
+| Review | A short caller of [`.github/workflows/review-pr.yml`](../.github/workflows/review-pr.yml), which stays in your factory repo | The product repo | Reviews every pull request with your harness's review-pr skill, its rules and your team's standards, and posts the report as one comment, edited on each push | A read-only deploy key held as a secret, and an Anthropic API key held as a secret, or an AWS role assumed through OIDC on Amazon Bedrock |
 | Loop | [`examples/ci/loop.yml`](../examples/ci/loop.yml) | The factory repo | One pass of the loop on a runner: one issue labelled `loop-ready`, through to a pull request it doesn't merge | An API key, and a token that isn't the workflow's own if its pull requests are to start your checks |
 
 Start with checks, then add the review. The loop is optional.
+
+To run the review on Amazon Bedrock in your own AWS account instead of with an Anthropic key, [On Amazon Bedrock](../examples/ci/README.md#on-amazon-bedrock) has the caller, the role's template and the setup.
 
 None of the three merges. The factory never merges unless you turn on
 `auto_merge` in its `loop.json`, and even then only `loop.py review`, the

@@ -64,6 +64,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: review-pr-${{ github.event.pull_request.number }}
@@ -91,6 +92,12 @@ to repos whose writers you'd trust to read the harness.
 `factory-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
 
+`id-token: write` is for [the Bedrock path](#on-amazon-bedrock) alone, and
+every caller needs it, Bedrock or not: the factory's workflow asks for it, and
+a called workflow that asks for more than its caller grants fails before it
+starts. It grants nothing on GitHub, and with no `aws-role-arn` no step asks
+for a token.
+
 `@main` follows the factory's default branch, which is the point: one copy of
 the review that every repo picks up. Pinning to a commit
 (`review-pr.yml@<sha>`) is the stricter choice, since nothing in the
@@ -101,8 +108,94 @@ says what to set on the factory's repo so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
-such as Dependabot's. One with no
+such as Dependabot's, when the caller gives no `aws-role-arn`. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
+
+### On Amazon Bedrock
+
+To have Claude review on Amazon Bedrock in your own AWS account, with no
+Anthropic key, use this caller instead. The job swaps its GitHub OIDC token
+for a 15-minute session on an AWS role, so no AWS key is stored anywhere.
+Swap the role's ARN for the one your stack prints, below.
+
+```yaml
+name: Review pull request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    uses: your-org/factory/.github/workflows/review-pr.yml@main
+    with:
+      factory-repo: your-org/factory
+      aws-role-arn: arn:aws:iam::123456789012:role/factory-review
+      aws-region: us-east-1
+    secrets:
+      FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
+```
+
+`aws-region` is where Bedrock runs the review, and so where the pull request's
+code is sent. It has no default: a caller that gives the role without a region
+fails and says so. With `aws-role-arn` given, the review runs on Bedrock even
+if a Claude key is passed too. The session's values are emptied from the job
+as soon as the review ends, so the grade and the post never see them.
+
+Before the first pull request, in this order:
+
+1. **Bedrock has to be on the Approved tools table** in
+   [`steering/data-and-tools.md`](../../steering/data-and-tools.md), with its plan and the date you checked it, before a
+   customer's code goes to it. That's the company's decision, not the
+   workflow's. The account also needs access to Anthropic's models on Bedrock
+   in that region.
+2. **Deploy the role** from [`examples/ci/bedrock-review-role.yml`](bedrock-review-role.yml), once for each
+   product repo. It trusts only a pull request in that repo running the
+   factory's [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml) at `refs/heads/main` (the `FactoryRef`
+   parameter), and allows only calls to Anthropic's models. It takes the
+   account's GitHub OIDC provider as a parameter, since an account holds only
+   one for that address. If the account has none, an AWS admin adds one for
+   `https://token.actions.githubusercontent.com` with the audience
+   `sts.amazonaws.com`.
+
+   ```
+   aws cloudformation deploy --stack-name factory-review-product \
+     --template-file examples/ci/bedrock-review-role.yml \
+     --capabilities CAPABILITY_IAM \
+     --parameter-overrides ProductRepo=your-org/product FactoryRepo=your-org/factory \
+       GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+   ```
+
+   The stack's `RoleArn` output is the caller's `aws-role-arn`.
+3. **Put the workflow in the product repo's OIDC subject.** By default the
+   subject GitHub sends names the repo and the event, not the workflow, so the
+   role couldn't tell the factory's review from any other workflow in that
+   repo. This sets the product repo's subject to carry `job_workflow_ref` too:
+
+   ```
+   echo '{"use_default": false, "include_claim_keys": ["repo", "context", "job_workflow_ref"]}' \
+     | gh api --method PUT repos/your-org/product/actions/oidc/customization/sub --input -
+   ```
+
+   It changes the subject for every workflow in that repo, so any other AWS
+   role that trusts one of them by its subject needs its condition updated.
+
+Three things haven't been tried on a live run yet, so check them on the first
+one. That the subject GitHub sends matches the one the template expects,
+`repo:your-org/product:pull_request:job_workflow_ref:your-org/factory/.github/workflows/review-pr.yml@refs/heads/main`:
+if the role can't be assumed, compare the two before widening the trust.
+That `job_workflow_ref` names the factory's workflow, not the caller. And that
+a caller with a Claude key still starts once `id-token: write` is in its
+permissions.
 
 ## The secret
 

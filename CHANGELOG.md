@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: The CI review runs on Amazon Bedrock through OIDC
+
+A product repo's caller can now give `aws-role-arn` and `aws-region` in place of an Anthropic key. The review then assumes that AWS role with the job's GitHub OIDC token, for a 15-minute session with no AWS key stored anywhere, and runs Claude with `CLAUDE_CODE_USE_BEDROCK` set. A role without a region fails and says so, since where the code goes is the team's call. The session's values are emptied from the job before the grade and the post, and a report holding any of them isn't posted. [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) is a CloudFormation template for the role: it trusts only the factory's `review-pr.yml` at its default branch, run for one product repo's pull requests, matched exactly on the OIDC subject, and allows only invoking Anthropic's models. The workflow now asks for `id-token: write`, so every caller has to grant it, Bedrock or not. Bedrock isn't on the approved-tools table: adding it is the company's decision.
+
+**Controls:** AC-5
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** add `id-token: write` under `permissions:` in every product repo's caller, including those that review with a Claude key, or its next review fails at startup. To review on Bedrock: put Bedrock on the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md) before a customer's code goes to it; deploy [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) once for each product repo, with that account's GitHub OIDC provider; set the product repo's OIDC subject to include `repo`, `context` and `job_workflow_ref` with the `gh api` call in [`examples/ci/README.md`](examples/ci/README.md)'s *On Amazon Bedrock*; then swap the caller for the Bedrock one there, with the stack's `RoleArn` as `aws-role-arn` and your region as `aws-region`. On the first run, check the subject GitHub sends matches the role's.
+
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 
 While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.

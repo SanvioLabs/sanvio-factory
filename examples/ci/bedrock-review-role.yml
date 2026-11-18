@@ -1,0 +1,82 @@
+# The AWS role the factory's review workflow assumes to run Claude on Amazon
+# Bedrock, as a CloudFormation template. Deploy it once for each product repo,
+# in the AWS account whose Bedrock the reviews use. Its RoleArn output is the
+# caller's aws-role-arn. examples/ci/README.md, under "On Amazon Bedrock", has
+# the caller and the deploy command.
+#
+# What it trusts: a GitHub OIDC token from the account's provider for
+# token.actions.githubusercontent.com, and only one whose audience is
+# sts.amazonaws.com and whose subject names exactly:
+#   - the product repo, ProductRepo
+#   - a pull_request event
+#   - the factory's .github/workflows/review-pr.yml at FactoryRef, the
+#     factory's main unless you change it
+# Both are matched with StringEquals, with no wildcard, so a push, another
+# workflow in the product repo, another branch of the factory or another
+# repo's token can't assume it.
+#
+# GitHub's subject only carries the workflow once the product repo's OIDC
+# subject is customised to include job_workflow_ref, which the README's gh api
+# call does. The subject's exact shape hasn't been tried on a live run yet:
+# if the first review fails to assume the role, compare the sub this template
+# expects with the one in the run's token before widening anything.
+#
+# What it allows: invoking Anthropic's models on Bedrock, directly or through
+# an inference profile, in any region. No other model, no other Bedrock
+# action and no other AWS service.
+#
+# The OIDC provider is a parameter, not made here: an account holds one
+# provider for that URL, and other roles may already use it.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: The role the factory's review-pr workflow assumes through GitHub OIDC to invoke Anthropic models on Amazon Bedrock.
+
+Parameters:
+  ProductRepo:
+    Type: String
+    Description: The product repo whose pull requests are reviewed, as owner/name.
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+  FactoryRepo:
+    Type: String
+    Description: The factory repo that holds .github/workflows/review-pr.yml, as owner/name.
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+  FactoryRef:
+    Type: String
+    Default: refs/heads/main
+    Description: The factory ref the caller's uses line names, as a full ref.
+  GitHubOidcProviderArn:
+    Type: String
+    Description: The ARN of this account's IAM OIDC provider for https://token.actions.githubusercontent.com.
+
+Resources:
+  ReviewRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub "Assumed by the review-pr workflow of ${FactoryRepo} on pull requests in ${ProductRepo}, to invoke Anthropic models on Bedrock."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${ProductRepo}:pull_request:job_workflow_ref:${FactoryRepo}/.github/workflows/review-pr.yml@${FactoryRef}"
+      Policies:
+        - PolicyName: invoke-anthropic-models
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource:
+                  - "arn:aws:bedrock:*::foundation-model/anthropic.*"
+                  - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*anthropic.*"
+
+Outputs:
+  RoleArn:
+    Description: The aws-role-arn to give in the product repo's caller.
+    Value: !GetAtt ReviewRole.Arn

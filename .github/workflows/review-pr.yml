@@ -34,17 +34,29 @@
 # `claude setup-token` that bills a Claude subscription instead of the API;
 # and FACTORY_DEPLOY_KEY, the private half of a deploy key on this repo with
 # write access left off. All three are optional below so that a missing one
-# gets this workflow's own message. With neither Claude credential the review
-# skips with a notice; with both, the CLI uses the API key. A missing deploy
+# gets this workflow's own message. With neither Claude credential and no
+# aws-role-arn the review skips with a notice; with both, the CLI uses the API key. A missing deploy
 # key fails the run and posts nothing. Only the credential check and the
 # harness checkout see the deploy key, and only the key check and the review
-# see the Claude credentials. That
+# see the Claude credentials. The AWS session below reaches only the review,
+# and is cleared before the grade. That
 # boundary holds inside this file only: the caller lives in the product repo,
 # so anyone who can push a branch there can change it to print both keys.
 # Give the deploy key to repos whose writers you'd trust with this repo.
 # A commit on this repo's default branch runs in every calling repo with
 # that repo's secrets, so this repo's main needs the protection that
 # examples/ci/README.md describes under "Protecting the factory repo".
+#
+# On Amazon Bedrock: a caller that gives aws-role-arn and aws-region needs no
+# Claude credential. The job trades its GitHub OIDC token for a 15-minute
+# session on that AWS role, so no AWS key is stored anywhere, and the review
+# runs with CLAUDE_CODE_USE_BEDROCK set, on Bedrock whatever Claude credential
+# is also passed. A role without a region fails: where the code is sent is the
+# team's call, so there's no default. The session's values are emptied from
+# the job's environment as soon as the review ends. The role comes from
+# examples/ci/bedrock-review-role.yml, a CloudFormation template that trusts
+# only this workflow at the factory's default branch, run for one product
+# repo's pull requests, and allows only calls to Anthropic's models.
 #
 # Why the permissions are so small: the agent reads diff text that anyone who
 # can open a pull request can write, so treat it as untrusted input. The agent
@@ -53,8 +65,12 @@
 # runs. Whether these permissions allow that hasn't been tried on a live pull
 # request yet: if the read is refused, the grade says pending and the run's
 # summary says why. Only the last step uses it to write, to post the comment.
-# A called workflow can't get more than its caller grants, and this one asks
-# for no more than this. Keep it that way: don't add a permission.
+# id-token: write is there for the Bedrock path alone: it lets the job ask
+# GitHub for an OIDC token, which the AWS step trades for the role's session.
+# It grants nothing on GitHub, and without aws-role-arn no step asks for one.
+# A called workflow can't get more than its caller grants, and one that asks
+# for more fails at startup, so every caller grants it, Bedrock or not. Keep
+# it at these three: don't add another permission.
 #
 # The Claude Code CLI is pinned to an exact version, because a change in how
 # it reads its permission rules changes what the agent can reach. Move the pin
@@ -73,6 +89,16 @@ on:
         required: false
         default: 10
         type: number
+      aws-role-arn:
+        description: "Instead of a Claude credential: the ARN of an AWS role the review assumes through OIDC, to run on Amazon Bedrock."
+        required: false
+        default: ''
+        type: string
+      aws-region:
+        description: "The AWS region the review calls Bedrock in. Needed with aws-role-arn, and it has no default."
+        required: false
+        default: ''
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         description: "The Anthropic API key Claude reviews with, scoped to a workspace."
@@ -87,6 +113,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 jobs:
   review:
@@ -122,10 +149,16 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AWS_ROLE_ARN: ${{ inputs.aws-role-arn }}
+          AWS_REGION_INPUT: ${{ inputs.aws-region }}
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+          if [ -n "$AWS_ROLE_ARN" ] && [ -z "$AWS_REGION_INPUT" ]; then
+            echo "::error::The caller gives aws-role-arn but no aws-region. Add aws-region under with: in the caller, the region Bedrock runs the review in. It has no default, since where the code goes is the team's call."
+            exit 1
+          fi
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && [ -z "$AWS_ROLE_ARN" ]; then
             echo "REVIEW_SKIPPED=true" >> "$GITHUB_ENV"
-            echo "::notice::This pull request has no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (Dependabot's don't get Actions secrets), so the review skips."
+            echo "::notice::This pull request has no ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN (Dependabot's don't get Actions secrets), and the caller gives no aws-role-arn, so the review skips."
           fi
 
       - name: Fail when the harness has no credential
@@ -283,20 +316,34 @@ jobs:
               >> "$RUNNER_TEMP/prompt.md"
           fi
 
+      # Only on the Bedrock path. The action trades the job's OIDC token for a
+      # session on the caller's role, so this step holds no secret and no AWS
+      # key is stored anywhere. The session lasts 15 minutes, and the action
+      # exports it to every later step, so it runs directly before the review
+      # and the step after the review empties it again.
+      - name: Assume the review role on AWS
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true' && inputs.aws-role-arn != ''
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+          role-duration-seconds: 900
+
       # Run from the workspace, so harness/, base/ and head/ are all inside
-      # the confinement and nothing else on the runner is. The key sits in the
-      # environment of the process the tools run in, and /proc is outside the
-      # workspace, so a Read of /proc/self/environ is refused. The report is
-      # posted as written, bar its images, so this step refuses one that contains
-      # either credential: a backstop for one written out as it is, not a
-      # guarantee against an encoded one, which is why the confinement matters
-      # more. Each is checked only when set, since an empty pattern matches
-      # every report.
+      # the confinement and nothing else on the runner is. The credentials sit
+      # in the environment of the process the tools run in, and /proc is
+      # outside the workspace, so a Read of /proc/self/environ is refused. The
+      # report is posted as written, bar its images, so this step refuses one
+      # that contains any credential, the AWS session's included: a backstop
+      # for one written out as it is, not a guarantee against an encoded one,
+      # which is why the confinement matters more. Each is checked only when
+      # set, since an empty pattern matches every report.
       - name: Run the review-pr skill on Claude
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_USE_BEDROCK: ${{ inputs.aws-role-arn != '' && '1' || '' }}
         run: |
           cd "$GITHUB_WORKSPACE"
           set +e
@@ -311,9 +358,18 @@ jobs:
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && grep -qF -e "$CLAUDE_CODE_OAUTH_TOKEN" "$RUNNER_TEMP/report.md"; then
             leaked=true
           fi
+          if [ -n "$AWS_ACCESS_KEY_ID" ] && grep -qF -e "$AWS_ACCESS_KEY_ID" "$RUNNER_TEMP/report.md"; then
+            leaked=true
+          fi
+          if [ -n "$AWS_SECRET_ACCESS_KEY" ] && grep -qF -e "$AWS_SECRET_ACCESS_KEY" "$RUNNER_TEMP/report.md"; then
+            leaked=true
+          fi
+          if [ -n "$AWS_SESSION_TOKEN" ] && grep -qF -e "$AWS_SESSION_TOKEN" "$RUNNER_TEMP/report.md"; then
+            leaked=true
+          fi
           if [ "$leaked" = true ]; then
             rm -f "$RUNNER_TEMP/report.md"
-            echo "::error::The report contained the Claude credential, so it was not posted."
+            echo "::error::The report contained a credential, so it was not posted."
             exit 1
           fi
           # The CLI writes its errors where the report goes. Show them, after
@@ -323,6 +379,18 @@ jobs:
             head -c 2000 "$RUNNER_TEMP/report.md"
             exit "$code"
           fi
+
+      # The AWS step exports its session to every step after it, so this one
+      # empties those values for the grade and the post. It runs on every
+      # review, since emptying a value that was never set changes nothing. It
+      # isn't forced to run after a failed review: the job ends there, and the
+      # session expires 15 minutes after it was assumed.
+      - name: Clear the AWS credentials
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        run: |
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION; do
+            echo "$name=" >> "$GITHUB_ENV"
+          done
 
       # The grade is advisory, and the loop's own: scripts/loop.py turns the
       # report's verdict and the pull request's other checks into a number
