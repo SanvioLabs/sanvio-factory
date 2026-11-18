@@ -122,7 +122,7 @@ def interactive_env():
     """This environment as a person's session has it: no switch that makes the guard stricter, so a test
     reads the same whether a person runs it or a loop agent does."""
     return {k: v for k, v in os.environ.items()
-            if k not in ("SANVIO_HEADLESS", "HARNESS_HEADLESS", "SANVIO_UNATTENDED", "SANVIO_CONFINE")}
+            if k not in ("SANVIO_HEADLESS", "HARNESS_HEADLESS", "SANVIO_UNATTENDED")}
 
 
 class Unattended(unittest.TestCase):
@@ -753,9 +753,11 @@ class HeadlessPrivate(unittest.TestCase):
 
 
 class Confined(unittest.TestCase):
-    """A caller project's build agent (SANVIO_CONFINE set to its worktree and its clone's .git): no file tool or
-    shell path outside them, the sibling project's clone and the factory's loop.json above all (SPEC-003 AC-005).
-    The layout is a made-up factory: the worktree outside it, as ~/.sanvio-loop keeps them, and two projects."""
+    """A caller project's build agent (guard.py --confine naming its worktree and its clone's .git): no file
+    tool or shell path outside them, the sibling project's clone and the factory's loop.json above all (SPEC-003
+    AC-005). The layout is a made-up factory: the worktree outside it, as ~/.sanvio-loop keeps them, and two
+    projects. SANVIO_CONFINE is set to / throughout, as a caller's own settings could set it: the guard never
+    reads it (#597)."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -774,8 +776,9 @@ class Confined(unittest.TestCase):
         root = mock.patch.object(guard, "ROOT", str(self.factory))
         root.start()
         self.addCleanup(root.stop)
-        held = os.pathsep.join([str(self.tree), str(self.own / ".git")])
-        env = mock.patch.dict(os.environ, dict(interactive_env(), SANVIO_UNATTENDED="1", SANVIO_CONFINE=held),
+        self.held = [str(self.tree), str(self.own / ".git")]
+        self.args = ["--confine", self.held[0], "--confine", self.held[1]]
+        env = mock.patch.dict(os.environ, dict(interactive_env(), SANVIO_UNATTENDED="1", SANVIO_CONFINE="/"),
                               clear=True)
         env.start()
         self.addCleanup(env.stop)
@@ -783,14 +786,19 @@ class Confined(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def call(self, tool, **tool_input):
-        return guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": str(self.tree)})
+    def call(self, tool, held=True, **tool_input):
+        return guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": str(self.tree)},
+                            guard.confined_folders(self.args) if held else None)
 
     def assertRefused(self, verdict, why):
         self.assertIsNotNone(verdict)
         self.assertEqual(verdict[0], "deny")
-        self.assertIn("SANVIO_CONFINE", verdict[1])
         self.assertIn(why, verdict[1])
+
+    def hook(self, args, event, env=None):
+        result = subprocess.run([sys.executable, str(HOOKS / "guard.py")] + args, input=json.dumps(event),
+                                capture_output=True, text=True, env=env or dict(os.environ), timeout=30)
+        return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else None
 
     def test_a_file_tool_on_the_sibling_project_or_the_factory_is_refused(self):
         for tool in ("Read", "Edit", "Write", "MultiEdit"):
@@ -853,26 +861,46 @@ class Confined(unittest.TestCase):
         self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
         self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")
 
-    def test_unset_or_empty_the_guard_is_as_it_was(self):
-        for value in (None, ""):
-            env = {k: v for k, v in os.environ.items() if k != "SANVIO_CONFINE"}
-            if value is not None:
-                env["SANVIO_CONFINE"] = value
-            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True):
-                self.assertIsNone(guard.confined_folders())
-                self.assertIsNone(self.call("Read", file_path=str(self.sibling / "notes.txt")))
-                self.assertIsNone(self.call("Glob", pattern="*", path=str(self.factory)))
-                self.assertIsNone(self.call("Bash", command="cat {}".format(self.sibling / "notes.txt")))
-                self.assertIsNone(self.call("Bash", command="cat ~/.zshrc"))
+    def test_with_no_folders_given_the_guard_is_as_it_was_whatever_sanvio_confine_says(self):
+        self.assertIsNone(guard.confined_folders([]))
+        for value in ("/", str(self.tree), ""):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"SANVIO_CONFINE": value}):
+                self.assertIsNone(self.call("Read", held=False, file_path=str(self.sibling / "notes.txt")))
+                self.assertIsNone(self.call("Glob", held=False, pattern="*", path=str(self.factory)))
+                self.assertIsNone(self.call("Bash", held=False, command="cat {}".format(self.sibling / "notes.txt")))
+                self.assertIsNone(self.call("Bash", held=False, command="cat ~/.zshrc"))
 
-    def test_the_hook_refuses_the_sibling_end_to_end(self):
+    def test_the_folders_are_each_one_after_confine_resolved(self):
+        (self.tree.parent / "via").symlink_to(self.tree)
+        self.assertEqual(guard.confined_folders(["--confine", str(self.tree.parent / "via"), "--confine",
+                                                 str(self.own / ".git")]), self.held)
+
+    def test_a_confine_with_no_folder_or_another_argument_is_an_error(self):
+        for args in (["--confine"], ["--confine", ""], ["--confine", " "], ["--other"], [str(self.tree)],
+                     ["--confine", str(self.tree), "--confine"]):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                guard.confined_folders(args)
+
+    def test_the_hook_refuses_the_sibling_end_to_end_with_sanvio_confine_set_to_root(self):
+        self.assertEqual(os.environ["SANVIO_CONFINE"], "/")
         event = {"tool_name": "Read", "tool_input": {"file_path": str(self.sibling / "notes.txt")},
                  "cwd": str(self.tree)}
-        result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input=json.dumps(event),
-                                capture_output=True, text=True, env=dict(os.environ), timeout=30)
-        out = json.loads(result.stdout)["hookSpecificOutput"]
+        out = self.hook(self.args, event)
         self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
                          ("deny", guard.CONFINED_OUTSIDE))
+        own = dict(event, tool_input={"file_path": str(self.tree / "app.py")})
+        self.assertIsNone(self.hook(self.args, own))
+
+    def test_sanvio_confine_alone_holds_nothing_end_to_end(self):
+        event = {"tool_name": "Read", "tool_input": {"file_path": str(self.sibling / "notes.txt")},
+                 "cwd": str(self.tree)}
+        self.assertIsNone(self.hook([], event, dict(os.environ, SANVIO_CONFINE=str(self.tree))))
+
+    def test_an_argument_it_cant_read_is_refused_in_a_loop_agent(self):
+        event = {"tool_name": "Read", "tool_input": {"file_path": str(self.tree / "app.py")}, "cwd": str(self.tree)}
+        out = self.hook(["--confine"], event)
+        self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
+                         ("deny", guard.UNATTENDED_UNCHECKED))
 
 
 class SessionStart(unittest.TestCase):

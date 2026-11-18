@@ -720,6 +720,7 @@ open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SAN
 open(os.path.join(state, step + "-env"), "w").write(json.dumps(sorted(os.environ)))
 open(os.path.join(state, step + "-unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
 open(os.path.join(state, step + "-confine"), "w").write(os.environ.get("SANVIO_CONFINE", "unset"))
+open(os.path.join(state, step + "-environ"), "w").write(json.dumps(dict(os.environ)))
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -9034,8 +9035,9 @@ class TestCallerCommands(unittest.TestCase):
 
 class TestCallerConfinement(unittest.TestCase):
     """A caller project's build and tester agents read nothing of the factory's or another project's: the
-    sandbox's denyRead and Read and Edit deny rules name them, and SANVIO_CONFINE holds the guard to the worktree
-    and the clone's .git (SPEC-003 T011, REQ-008). Outside caller mode, nothing changes."""
+    sandbox's denyRead and Read and Edit deny rules name them, and the guard's hook command holds it to the
+    worktree and the clone's .git (SPEC-003 T011, REQ-008). They load none of the caller's own settings or MCP
+    servers (#597). Outside caller mode, nothing changes."""
 
     setUp, tearDown, commit, harness_config = (
         TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config)
@@ -9065,8 +9067,13 @@ class TestCallerConfinement(unittest.TestCase):
         return loop.Loop(self.harness, cfg, project=self.project)
 
     def settings(self, runner, which="agent"):
-        cmd = runner.argv(which)[0]
+        cmd = runner.argv(which, folders=runner.held_to(which, self.trees / "app" / "issue-12"))[0]
         return json.loads(cmd[cmd.index("--settings") + 1])
+
+    def guard_words(self, cmd):
+        """The guard's hook command in cmd's --settings, split as the shell splits it."""
+        hooks = json.loads(cmd[cmd.index("--settings") + 1])["hooks"]["PreToolUse"][0]["hooks"]
+        return shlex.split(hooks[0]["command"])
 
     def test_a_callers_build_and_tester_deny_the_sibling_the_factory_and_their_worktrees(self):
         tree = self.layout()
@@ -9135,31 +9142,87 @@ class TestCallerConfinement(unittest.TestCase):
         self.assertIsNone(self.runner(caller=False).held_to("agent", tree))
         self.assertIsNone(self.runner(agent="codex").held_to("agent", tree))
 
-    def test_env_for_agents_sets_sanvio_confine_only_when_held(self):
-        env = {"PATH": "/bin", "HOME": "/h"}
-        self.assertNotIn("SANVIO_CONFINE", loop.env_for_agents(env))
-        self.assertEqual(loop.env_for_agents(env), loop.env_for_agents(env, (), None))
-        got = loop.env_for_agents(env, held_to=["/w/issue-12", "/f/projects/app/.git"])
-        self.assertEqual(got["SANVIO_CONFINE"], os.pathsep.join(["/w/issue-12", "/f/projects/app/.git"]))
+    def test_a_callers_build_and_tester_load_none_of_its_settings_and_the_guard_names_its_folders(self):
+        tree = self.layout()
+        runner = self.runner()
+        guard = str(self.harness.absolute() / ".claude" / "hooks" / "guard.py")
+        for which in ("agent", "tester_agent"):
+            held = runner.held_to(which, tree)
+            cmd = runner.argv(which, folders=held)[0]
+            with self.subTest(which=which):
+                self.assertEqual(cmd[cmd.index("--setting-sources") + 1], "user")
+                self.assertIn("--strict-mcp-config", cmd)
+                self.assertEqual(self.guard_words(cmd), [sys.executable, guard, "--confine", held[0], "--confine",
+                                                         held[1]])
 
-    def confine_seen(self, step):
-        return (self.state / (step + "-confine")).read_text()
+    def test_a_callers_builder_with_no_folders_to_hold_it_to_is_refused(self):
+        self.layout()
+        for which in ("agent", "tester_agent"):
+            cmd, why = self.runner().argv(which)
+            with self.subTest(which=which):
+                self.assertIsNone(cmd)
+                self.assertIn("worktree", why)
+
+    def test_env_for_agents_never_sets_sanvio_confine(self):
+        env = {"PATH": "/bin", "HOME": "/h"}
+        self.assertEqual(loop.env_for_agents(env), {"PATH": "/bin", "HOME": "/h", "SANVIO_RETRO": "off",
+                                                    "HARNESS_RETRO": "off", "SANVIO_UNATTENDED": "1"})
+
+    def test_outside_caller_mode_the_command_line_and_environment_are_exactly_as_they_were(self):
+        tree = self.layout()
+        environ = {"PATH": os.environ["PATH"], "HOME": "/h", "LANG": "C", "GH_TOKEN": "x"}
+        settings = json.dumps({"hooks": {"PreToolUse": [{"matcher": json.loads(
+            (self.harness / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"][0]["matcher"],
+            "hooks": [{"type": "command", "command": shlex.quote(sys.executable) + " " + shlex.quote(
+                str(self.harness.absolute() / ".claude" / "hooks" / "guard.py")), "timeout": 10}]}]},
+            "sandbox": loop.sandbox_settings(["pypi.org"])})
+        want = {"agent": ["claude", "-p", "--permission-mode", "acceptEdits", "--settings", settings],
+                "tester_agent": ["claude", "-p", "--settings", settings]}
+        runner = self.runner(caller=False)
+        for which in ("agent", "tester_agent"):
+            ran = {}
+            def sh(cmd, **kwargs):
+                ran.update(cmd=cmd, env=kwargs["env"])
+                return 0, ""
+            with self.subTest(which=which), mock.patch.dict(os.environ, environ, clear=True), \
+                    mock.patch.object(runner, "sh", sh):
+                runner.agent(which, "PLAN: add it", tree)
+                self.assertEqual(ran["cmd"], want[which])
+                self.assertEqual(ran["env"], {"PATH": os.environ["PATH"], "HOME": "/h", "LANG": "C",
+                                              "SANVIO_RETRO": "off", "HARNESS_RETRO": "off",
+                                              "SANVIO_UNATTENDED": "1"})
+
+    def seen(self, step):
+        return (json.loads((self.state / (step + "-argv")).read_text()),
+                json.loads((self.state / (step + "-environ")).read_text()))
 
     def test_the_build_and_tester_agents_run_with_it_and_a_reader_without(self):
         tree = self.layout()
-        held = os.pathsep.join([os.path.realpath(str(tree)), os.path.realpath(str(self.project / ".git"))])
+        held = [os.path.realpath(str(tree)), os.path.realpath(str(self.project / ".git"))]
         runner = self.runner()
-        with contextlib.redirect_stdout(io.StringIO()):
-            runner.agent("agent", "PLAN: add it", tree, number=12, step="build")
-            self.assertEqual(self.confine_seen("build"), held)
-            runner.agent("tester_agent", "You are writing the tests", tree, number=12, step="test")
-            self.assertEqual(self.confine_seen("test"), held)
+        with contextlib.redirect_stdout(io.StringIO()), mock.patch.dict(os.environ):
+            os.environ.pop("SANVIO_CONFINE", None)
+            for which, step, prompt in (("agent", "build", "PLAN: add it"),
+                                        ("tester_agent", "test", "You are writing the tests")):
+                runner.agent(which, prompt, tree, number=12, step=step)
+                argv, environ = self.seen(step)
+                with self.subTest(which=which):
+                    self.assertIn("--strict-mcp-config", argv)
+                    self.assertEqual(self.guard_words(argv)[2:], ["--confine", held[0], "--confine", held[1]])
+                    self.assertNotIn("SANVIO_CONFINE", environ)
             runner.agent("agent", "PLAN: add it", tree)  # not streamed, as with no issue number
-            self.assertEqual(self.confine_seen("build"), held)
+            argv, environ = self.seen("build")
+            self.assertEqual(self.guard_words(argv)[2:], ["--confine", held[0], "--confine", held[1]])
+            self.assertNotIn("SANVIO_CONFINE", environ)
             runner.agent("reader_agent", "You are planning", tree, number=12, step="plan")
-            self.assertEqual(self.confine_seen("plan"), "unset")
+            argv, environ = self.seen("plan")
+            self.assertNotIn("--settings", argv)
+            self.assertNotIn("SANVIO_CONFINE", environ)
             self.runner(caller=False).agent("agent", "PLAN: add it", tree, number=12, step="build")
-            self.assertEqual(self.confine_seen("build"), "unset")
+            argv, environ = self.seen("build")
+            self.assertNotIn("--confine", self.guard_words(argv))
+            self.assertNotIn("--setting-sources", argv)
+            self.assertNotIn("--strict-mcp-config", argv)
 
 
 class TestGrade(unittest.TestCase):
