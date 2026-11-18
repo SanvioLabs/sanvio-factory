@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
+
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 
 While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
