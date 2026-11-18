@@ -69,8 +69,9 @@ class HandRunGrade(unittest.TestCase):
 
     def test_the_skill_writes_no_grade_when_the_prompt_names_the_last_line(self):
         self.assertIn("no grade line", self.flat)
-        for path in (ROOT / "scripts" / "loop.py", ROOT / ".github" / "workflows" / "review-pr.yml"):
-            self.assertIn("Its last line is its verdict", path.read_text(), path.name)
+        # The loop's own reviews keep the last-line verdict. The CI review asks for a JSON report instead.
+        path = ROOT / "scripts" / "loop.py"
+        self.assertIn("Its last line is its verdict", path.read_text(), path.name)
 
     def test_headless_runs_get_no_gh_pr_checks(self):
         headless = next(line for line in self.text.splitlines() if line.startswith("headless-tools:"))
