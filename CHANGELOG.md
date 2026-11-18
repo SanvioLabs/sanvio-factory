@@ -52,6 +52,26 @@ Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md
 
 **Do:** nothing.
 
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
+
+## 2026-11-18: The CI review's report is checked against a schema
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.
+
+**Needs:** 2026-11-10: Graded CI review; 2026-11-07: Review on a Claude subscription
+
+**Controls:** AC-5
+
+Files: [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json), [`scripts/review_report.py`](scripts/review_report.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_report.py`](tests/test_review_report.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing: product repos that call the workflow pick it up from the factory's default branch.
+
 ## 2026-11-18: A caller's build loads none of its own settings
 
 A caller project's claude build and tester agents now start with `--setting-sources user` and `--strict-mcp-config`, so the [`.claude/settings.json`](.claude/settings.json), `.claude/settings.local.json`, `.claude/rules/`, [`.claude/skills/`](.claude/skills), [`.claude/agents/`](.claude/agents/) and `.mcp.json` in the caller's checkout don't load: no hook of the caller's runs, no allow rule of its widens what the agent may run, no `env` block of its applies, and no MCP server of its starts. Its [`CLAUDE.md`](CLAUDE.md) no longer loads by itself either: the build reads it as a file, through the guard, as its prompt already tells it to. Checked live on Claude Code 2.1.327, as were the planner, reviewer and retro, whose `--restricted` already loaded none of it. Your own user settings still load, and the guard, sandbox and deny rules the loop passes with `--settings` still apply. The guard now gets the folders it holds those agents to as `--confine` arguments on its hook command, and no longer reads `SANVIO_CONFINE` at all, so no settings file can change them. A caller's build or tester with no folders to hold it to doesn't start. Outside caller mode, the agents' command line and environment don't change. Caller mode still isn't safe for a repo you don't trust: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says what's open.

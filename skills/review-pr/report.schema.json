@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["ready", "ready with nits", "changes needed"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "severity", "rule", "summary"],
+        "properties": {
+          "file": {"type": "string", "minLength": 1},
+          "line": {"type": "integer", "minimum": 1},
+          "severity": {"type": "string", "enum": ["blocks", "nit"]},
+          "rule": {"type": "string"},
+          "summary": {"type": "string"}
+        }
+      }
+    }
+  }
+}
