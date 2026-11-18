@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: Run a workflow by name
+
+New: `/run-workflow <name> [--as chat|loop|schedule]` runs one workflow from [`workflows/`](workflows/). It first runs `python3 scripts/workflows.py show <name> --as <mode>`, which prints the workflow's manifest with its paths relative to the harness root, or exits 1 with the reason when the workflow isn't there, its `runs` don't list that mode, it's `retired`, or it's run `--as schedule` and its `restricted_data` isn't `none`. Then the skill follows the workflow's own skill to draft into its output, runs its gate with one round of fixes, has its reviewer read the draft, and stops at the approval lines, naming who decides. It never sends, never changes an input and never fills in an approval. `python3 scripts/workflows.py list` prints each workflow's name, owner, status and runs. [`workflows/README.md`](workflows/README.md) has a new *Starting a workflow* section.
+
+**Needs:** 2026-11-16: Check a workflow folder with one command; 2026-11-16: Build a workflow from a blueprint
+
+**Controls:** AC-5
+
+Files: [`scripts/workflows.py`](scripts/workflows.py), [`skills/run-workflow/SKILL.md`](skills/run-workflow/SKILL.md), [`tests/test_workflows_script.py`](tests/test_workflows_script.py), [`workflows/README.md`](workflows/README.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-18: Blueprint interview questions come with options and a recommendation
 
 The blueprint-workflow skill now asks each interview question through `AskUserQuestion`, one per call, with two to four options drawn from what the session knows about the work, the likeliest marked ` (Recommended)`, and Other left open; a tool without it asks the same question in plain text with numbered options. The blueprint records what the person picked or wrote in their own words, never a recommended option they didn't pick, and a skipped question stays empty and named in `gaps`.
