@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: Named review agents run as their own CI jobs
+
+The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, and posts its own comment, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
+
+**Needs:** 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
+
+**Controls:** AC-5
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; pass agents: review-pr,security-reviewer to run more
+
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 
 While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
