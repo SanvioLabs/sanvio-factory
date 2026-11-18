@@ -4919,6 +4919,140 @@ class TestAPass(unittest.TestCase):
                 self.cfg["test_paths"] = value
                 self.assertEqual(self.go(), 0)
 
+    # -- a checkout's control register ----------------------------------------
+
+    def register(self, entries, files=None):
+        """controls.json holding entries on origin's main, with files (path: text) beside it, so the issue's
+        checkout starts with them."""
+        (self.work / "controls.json").write_text(json.dumps(entries))
+        for name, text in (files or {}).items():
+            path = self.work / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-q", "-m", "register")
+        git(self.work, "push", "-q", "origin", "main")
+        # The loop runs the script in its own clone, which is self.work here: over a stand-in the branch
+        # committed, the real one, uncommitted, so the checkout keeps the stand-in.
+        own_register_script(self.work)
+
+    def saved_tests(self):
+        return (self.work / ".loop" / "issue-12" / "test-output.txt").read_text()
+
+    def prompt(self, step):
+        return (self.state / (step + "-prompt")).read_text()
+
+    def test_a_register_with_evidence_gone_fails_the_round_and_every_reader_sees_why(self):
+        self.register([soc2("CC6.1", "gone.md")])
+        self.go()
+        said = "register check (scripts/controls.py check) exited 1:\nSOC 2 CC6.1: evidence not found: gone.md"
+        self.assertIn(said, self.saved_tests())
+        self.assertIn("round 1 tests failed (1)", "\n".join(self.lines()))
+        self.assertIn("the tests exited 1", self.prompt("review"))
+        self.assertIn(said, self.prompt("review"))
+        # The last build is round 2's, whose prompt carries round 1's test output.
+        self.assertEqual(self.started_steps(), ["plan", "build", "review", "build", "review"])
+        self.assertIn("TEST OUTPUT OF THE LAST ROUND:\n", self.prompt("build"))
+        self.assertIn(said, self.prompt("build"))
+
+    def test_when_the_tests_and_the_register_both_fail_the_tests_exit_code_and_wording_stay(self):
+        self.cfg["test_command"] = "echo the tests broke; exit 3"
+        self.register([soc2("CC6.1", "gone.md")])
+        self.go()
+        self.assertIn("the tests broke\nregister check (scripts/controls.py check) exited 1:\n"
+                      "SOC 2 CC6.1: evidence not found: gone.md", self.saved_tests())
+        lines = "\n".join(self.lines())
+        self.assertIn("round 1 tests failed (3)", lines)
+        self.assertNotIn("round 1 tests failed (1)", lines)
+        self.assertIn("the tests exited 3", self.prompt("review"))
+
+    def test_a_register_that_passes_leaves_the_round_passing_and_the_review_names_what_it_touched(self):
+        self.register([soc2("CC6.1", "feature.txt"), soc2("CC7.2", "feature.txt"), soc2("CC8.1", "README.md")])
+        self.assertEqual(self.go(), 0)
+        self.assertIn("register check (scripts/controls.py check) exited 0:\n"
+                      "controls.json: 3 controls, all evidence present", self.saved_tests())
+        self.assertIn("round 1 tests passed", "\n".join(self.lines()))
+        review = self.prompt("review")
+        self.assertIn("the tests exited 0", review)
+        self.assertIn("\nControls touched: SOC 2 CC6.1, SOC 2 CC7.2\n\nTEST OUTPUT:\n", review)
+        self.assertLess(review.index("DIFF:\n"), review.index("Controls touched:"))
+
+    def test_the_loop_runs_its_own_register_script_never_the_checkouts(self):
+        self.register([soc2("CC6.1", "gone.md")], {"scripts/controls.py": "print('ok')\n"})
+        self.go()
+        self.assertIn("SOC 2 CC6.1: evidence not found: gone.md", self.saved_tests())
+        self.assertIn("round 1 tests failed (1)", "\n".join(self.lines()))
+
+    def test_a_register_that_is_a_symlink_fails_the_round_unread(self):
+        (self.work / "elsewhere.json").write_text(json.dumps([soc2("CC6.1", "README.md")]))
+        os.symlink("elsewhere.json", str(self.work / "controls.json"))
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-q", "-m", "register")
+        git(self.work, "push", "-q", "origin", "main")
+        own_register_script(self.work)
+        self.go()
+        self.assertIn("register check (scripts/controls.py check) exited 1:\n"
+                      "controls.json: a symlink, which the loop doesn't follow", self.saved_tests())
+        self.assertNotIn("all evidence present", self.saved_tests())
+        self.assertIn("round 1 tests failed (1)", "\n".join(self.lines()))
+        self.assertIn("Controls touched: controls.json: a symlink, which the loop doesn't follow\n", self.prompt("review"))
+
+    def test_without_a_register_in_the_checkout_nothing_changes_even_with_one_in_the_loops_root(self):
+        self.cfg["test_command"] = "echo ran the tests && test -f feature.txt"
+        # Untracked, so the checkout doesn't get it: only the loop's own clone has it, and it would fail.
+        (self.work / "controls.json").write_text(json.dumps([soc2("CC6.1", "feature.txt"), soc2("CC7.2", "gone.md")]))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.saved_tests(), "ran the tests\n")
+        self.assertIn("round 1 tests passed", "\n".join(self.lines()))
+        for step in ("build", "review"):
+            self.assertNotIn("Controls touched", self.prompt(step), step)
+            self.assertNotIn("register check", self.prompt(step), step)
+        self.assertIn("\n\nTEST OUTPUT:\nran the tests\n", self.prompt("review"))
+
+
+def soc2(ident, evidence):
+    """A register entry under SOC 2, a framework the factory's own register doesn't use, with one evidence path."""
+    return {"framework": "SOC 2", "id": ident, "name": "Name of " + ident, "status": "core",
+            "summary": "What " + ident + " does.", "evidence": [evidence]}
+
+
+def own_register_script(root):
+    """The real scripts/controls.py in the loop's own clone, root, as the factory has it, uncommitted there, so no
+    checkout taken from origin gets this copy: a checkout has only what its branch committed."""
+    path = Path(root) / "scripts" / "controls.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(str(Path(loop.ROOT) / "scripts" / "controls.py"), str(path))
+
+
+class TestControlsLine(unittest.TestCase):
+    def test_no_register_gives_no_line(self):
+        self.assertEqual(loop.controls_line(None), "")
+
+    def test_one_control_a_line_becomes_one_line(self):
+        self.assertEqual(loop.controls_line((0, "SOC 2 CC6.1\nSOC 2 CC7.2\n")),
+                         "Controls touched: SOC 2 CC6.1, SOC 2 CC7.2\n")
+        self.assertEqual(loop.controls_line((0, "none\n")), "Controls touched: none\n")
+
+    def test_a_touched_that_failed_puts_what_it_said_on_the_line(self):
+        line = loop.controls_line((1, "controls.py: git diff against origin/main failed: bad revision\n"))
+        self.assertEqual(line, "Controls touched: controls.py: git diff against origin/main failed: bad revision\n")
+        self.assertEqual(loop.controls_line((124, "")), "Controls touched: (no output)\n")
+
+    def test_the_review_prompt_without_a_line_is_as_it_was_and_with_one_has_it_after_the_diff(self):
+        plain = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertEqual(plain, loop.review_prompt("Plan.", "+x", "ok", 0, controls=""))
+        self.assertIn("DIFF:\n+x\n\nTEST OUTPUT:\nok\n", plain)
+        held = loop.review_prompt("Plan.", "+x", "ok", 0, controls="Controls touched: SOC 2 CC6.1\n")
+        self.assertIn("DIFF:\n+x\nControls touched: SOC 2 CC6.1\n\nTEST OUTPUT:\nok\n", held)
+
+    def test_the_pr_review_prompt_without_a_line_is_as_it_was_and_with_one_ends_with_it(self):
+        plain = loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit")
+        self.assertEqual(plain, loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit", controls=""))
+        self.assertTrue(plain.endswith("DIFF:\n+x\n"))
+        held = loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit",
+                                     controls="Controls touched: SOC 2 CC6.1\n")
+        self.assertTrue(held.endswith("DIFF:\n+x\nControls touched: SOC 2 CC6.1\n"), held[-200:])
+
 
 class TestSandbox(unittest.TestCase):
     """sandbox_commands: on a Mac, test_command, generate_command and setup_command run inside sandbox-exec,
@@ -7306,6 +7440,20 @@ class TestReview(ReviewFixture, unittest.TestCase):
         row = self.status()["reviews"]["7"]
         self.assertEqual((row["sha"], row["state"]), (sha, "posted"))
         self.assertFalse((self.work / ".loop" / "lock").exists())
+
+    def test_a_pull_request_with_a_register_names_the_controls_it_touches_and_one_without_gets_no_line(self):
+        self.push(7, "controls.json", json.dumps([soc2("CC6.1", "thing.txt"), soc2("CC8.1", "README.md")]))
+        seven = self.push(7, "thing.txt")
+        eight = self.push(8, "eight.txt")
+        # Untracked in the loop's own clone, so neither checkout has it. Read for #8, it would name CC7.2.
+        (self.work / "controls.json").write_text(json.dumps([soc2("CC7.2", "eight.txt")]))
+        own_register_script(self.work)
+        self.list_prs(self.pr(7, seven), self.pr(8, eight))
+        self.assertEqual(self.go(), 0)
+        prompts = {n: [p for p in self.prompts() if "pull request #{},".format(n) in p] for n in (7, 8)}
+        self.assertEqual([len(prompts[7]), len(prompts[8])], [1, 1])
+        self.assertTrue(prompts[7][0].endswith("\nControls touched: SOC 2 CC6.1\n"), prompts[7][0][-300:])
+        self.assertNotIn("Controls touched", prompts[8][0])
 
     def test_the_default_query_asks_for_pull_requests_waiting_on_you(self):
         self.list_prs()
