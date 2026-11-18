@@ -77,7 +77,7 @@ def list_workflows(where):
 
 def show(where, name, mode):
     path = where / name / "workflow.json"
-    if not name or "/" in name or "\\" in name or ".." in name or not path.is_file():
+    if name in ("", ".") or "/" in name or "\\" in name or ".." in name or not path.is_file():
         print("no workflow named {} in {}".format(name, where), file=sys.stderr)
         return 1
     manifest, problem = read_manifest(path)

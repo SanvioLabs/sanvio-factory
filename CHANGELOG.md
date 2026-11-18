@@ -48,6 +48,8 @@ New: `/run-workflow <name> [--as chat|loop|schedule]` runs one workflow from [`w
 
 **Needs:** 2026-11-16: Check a workflow folder with one command; 2026-11-16: Build a workflow from a blueprint
 
+**Controls:** AC-5
+
 Files: [`scripts/workflows.py`](scripts/workflows.py), [`skills/run-workflow/SKILL.md`](skills/run-workflow/SKILL.md), [`tests/test_workflows_script.py`](tests/test_workflows_script.py), [`workflows/README.md`](workflows/README.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing.

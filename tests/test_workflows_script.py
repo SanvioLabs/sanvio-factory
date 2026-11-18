@@ -101,6 +101,42 @@ class TempWorkflows(unittest.TestCase):
         self.assertIn("restricted data", scheduled.stderr)
         self.assertEqual(self.show("payroll", "chat").returncode, 0)
 
+    def test_names_that_reach_outside_one_workflow_folder_are_refused(self):
+        self.add("new-quotes")
+        (self.dir / "workflow.json").write_text(json.dumps({"name": "the folder itself", "runs": ["chat"]}))
+        for name in (".", "", "new-quotes\\..", "..\\workflows"):
+            done = self.show(name)
+            self.assertEqual(done.returncode, 1, repr(name))
+            self.assertIn("no workflow named", done.stderr)
+            self.assertEqual(done.stdout, "")
+
+    def test_a_schedule_with_restricted_data_not_stated_is_refused(self):
+        self.add("weekly-orders", runs=["schedule"])
+        path = self.dir / "weekly-orders" / "workflow.json"
+        manifest = json.loads(path.read_text())
+        del manifest["restricted_data"]
+        path.write_text(json.dumps(manifest))
+        done = self.show("weekly-orders", "schedule")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("not stated", done.stderr)
+        self.assertEqual(done.stdout, "")
+
+    def test_a_broken_manifest_is_reported_and_the_others_still_list(self):
+        self.add("new-quotes")
+        for name, text in (("not-json", "{ half a manifest"), ("a-list", "[1, 2]")):
+            (self.dir / name).mkdir()
+            (self.dir / name / "workflow.json").write_text(text)
+        listed = run("list", "--dir", str(self.dir))
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertEqual(listed.stdout.splitlines(), ["new-quotes\tAna Ruiz, office lead\tlive\tchat"])
+        self.assertIn("can't be read", listed.stderr)
+        self.assertIn("isn't a JSON object", listed.stderr)
+        for name, why in (("not-json", "can't be read"), ("a-list", "isn't a JSON object")):
+            done = self.show(name)
+            self.assertEqual(done.returncode, 1, name)
+            self.assertIn(why, done.stderr)
+            self.assertEqual(done.stdout, "")
+
     def test_a_schedule_with_no_restricted_data_is_allowed(self):
         self.add("weekly-orders", runs=["schedule"], restricted_data="none")
         done = self.show("weekly-orders", "schedule")
