@@ -27,7 +27,7 @@ Read these when their moment comes:
 | [`steering/gates.md`](steering/gates.md) | Adding, moving or strengthening a check, or deciding whether a rule needs one |
 | [`steering/tickets.md`](steering/tickets.md) | Writing an issue, putting one on the loop, commenting on one, or closing one |
 | [`steering/api-security.md`](steering/api-security.md) | Writing or reviewing an API handler, raising a project's `security_level`, or setting up a project that exposes an API |
-| [`steering/compliance.md`](steering/compliance.md) | Writing or reviewing a change that stores or moves personal data, adds or changes access or logging, adds a dependency or outside service, or changes deployment or infrastructure |
+| [`steering/compliance.md`](steering/compliance.md) | Writing or reviewing a change that stores or moves personal data, adds or changes access or logging, adds a dependency or outside service, changes deployment or infrastructure, widens what an agent does unattended, lets outside text reach a prompt, changes who merges or decides, or changes the model, the provider or an agent's instructions |
 | [`steering/incidents.md`](steering/incidents.md) | An agent or a person finds an exposure, or a change nobody asked for |
 | [`steering/decisions.md`](steering/decisions.md) | Before a send, merge, deploy, delete or any other step a person decides, or asked what the agent can't decide alone |
 
