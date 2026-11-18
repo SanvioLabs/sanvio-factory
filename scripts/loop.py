@@ -78,8 +78,6 @@ import names  # noqa: E402 (beside this file: the state and home folders)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
-# The register script beside this file, the one the loop runs on a checkout's controls.json: never the checkout's.
-CONTROLS = SELF.parent / "controls.py"
 
 DEFAULTS = {
     # The command that starts an agent session. The prompt arrives on stdin. A name, claude or codex,
@@ -2711,15 +2709,17 @@ class Loop:
     def controls(self, tree, *args):
         """(exit code, output) of the loop's own controls.py with args on tree's controls.json, or None when tree
         has none. --file names that register, so the script never falls back to another repo's, and the script
-        is CONTROLS, so a checkout's own copy never runs. It's the loop's own script, not shell text from
-        config, so it runs as git does, with test_timeout. A register that's a symlink fails unread: in a pull
-        request's checkout it's the author's, and could point at a file on this machine."""
+        is scripts/controls.py in self.root, the loop's own clone, so a checkout's copy never runs. It's the
+        loop's own script, not shell text from config, so it runs as git does, with test_timeout. A register
+        that's a symlink fails unread: in a pull request's checkout it's the author's, and could point at a
+        file on this machine."""
         register = Path(tree) / "controls.json"
         if register.is_symlink():
             return 1, "controls.json: a symlink, which the loop doesn't follow"
         if not register.exists():
             return None
-        return self.sh([sys.executable, str(CONTROLS), *args, "--file", str(register)], cwd=tree,
+        script = self.root / "scripts" / "controls.py"
+        return self.sh([sys.executable, str(script), *args, "--file", str(register)], cwd=tree,
                        timeout=self.cfg["test_timeout"])
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):

@@ -4932,6 +4932,9 @@ class TestAPass(unittest.TestCase):
         git(self.work, "add", "-A")
         git(self.work, "commit", "-q", "-m", "register")
         git(self.work, "push", "-q", "origin", "main")
+        # The loop runs the script in its own clone, which is self.work here: over a stand-in the branch
+        # committed, the real one, uncommitted, so the checkout keeps the stand-in.
+        own_register_script(self.work)
 
     def saved_tests(self):
         return (self.work / ".loop" / "issue-12" / "test-output.txt").read_text()
@@ -4986,6 +4989,7 @@ class TestAPass(unittest.TestCase):
         git(self.work, "add", "-A")
         git(self.work, "commit", "-q", "-m", "register")
         git(self.work, "push", "-q", "origin", "main")
+        own_register_script(self.work)
         self.go()
         self.assertIn("register check (scripts/controls.py check) exited 1:\n"
                       "controls.json: a symlink, which the loop doesn't follow", self.saved_tests())
@@ -5010,6 +5014,14 @@ def soc2(ident, evidence):
     """A register entry under SOC 2, a framework the factory's own register doesn't use, with one evidence path."""
     return {"framework": "SOC 2", "id": ident, "name": "Name of " + ident, "status": "core",
             "summary": "What " + ident + " does.", "evidence": [evidence]}
+
+
+def own_register_script(root):
+    """The real scripts/controls.py in the loop's own clone, root, as the factory has it, uncommitted there, so no
+    checkout taken from origin gets this copy: a checkout has only what its branch committed."""
+    path = Path(root) / "scripts" / "controls.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(str(Path(loop.ROOT) / "scripts" / "controls.py"), str(path))
 
 
 class TestControlsLine(unittest.TestCase):
@@ -7400,6 +7412,7 @@ class TestReview(ReviewFixture, unittest.TestCase):
         eight = self.push(8, "eight.txt")
         # Untracked in the loop's own clone, so neither checkout has it. Read for #8, it would name CC7.2.
         (self.work / "controls.json").write_text(json.dumps([soc2("CC7.2", "eight.txt")]))
+        own_register_script(self.work)
         self.list_prs(self.pr(7, seven), self.pr(8, eight))
         self.assertEqual(self.go(), 0)
         prompts = {n: [p for p in self.prompts() if "pull request #{},".format(n) in p] for n in (7, 8)}
