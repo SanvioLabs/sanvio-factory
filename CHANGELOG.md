@@ -44,15 +44,35 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-18: Named review agents run as their own CI jobs
 
-The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, and posts its own comment, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
+The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, `skip-paths`'s among them, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, checks its JSON report against the schema and posts its own comment, rendered from that report, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back, takes each verdict from the line the schema check rendered, and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
 
-**Needs:** 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Skip the CI review when only skip-paths files changed; 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
 
 **Controls:** AC-5
 
-Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`scripts/review_report.py`](scripts/review_report.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing; pass agents: review-pr,security-reviewer to run more
+
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
+
+## 2026-11-18: The CI review's report is checked against a schema
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.
+
+**Needs:** 2026-11-10: Graded CI review; 2026-11-07: Review on a Claude subscription
+
+**Controls:** AC-5
+
+Files: [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json), [`scripts/review_report.py`](scripts/review_report.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_report.py`](tests/test_review_report.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing: product repos that call the workflow pick it up from the factory's default branch.
 
 ## 2026-11-18: A caller's build loads none of its own settings
 

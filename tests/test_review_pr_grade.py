@@ -74,8 +74,9 @@ class HandRunGrade(unittest.TestCase):
 
     def test_the_skill_writes_no_grade_when_the_prompt_names_the_last_line(self):
         self.assertIn("no grade line", self.flat)
-        for path in (ROOT / "scripts" / "loop.py", ROOT / ".github" / "workflows" / "review-pr.yml"):
-            self.assertIn("Its last line is its verdict", path.read_text(), path.name)
+        # The loop's own reviews keep the last-line verdict. The CI review asks for a JSON report instead.
+        path = ROOT / "scripts" / "loop.py"
+        self.assertIn("Its last line is its verdict", path.read_text(), path.name)
 
     def test_headless_runs_get_no_gh_pr_checks(self):
         headless = next(line for line in self.text.splitlines() if line.startswith("headless-tools:"))
@@ -117,32 +118,51 @@ class TheWorstVerdictGrades(unittest.TestCase):
         self.assertEqual(review_grade.worst(["ready", "looks good"]), "unreadable")
         self.assertEqual(review_grade.worst(["ready"]), "ready")
 
+    # What the grade job reads back: the report review_report.py rendered from an agent's checked JSON (#645).
+    @staticmethod
+    def rendered(verdict):
+        return "This review didn't run the tests.\n\nNo findings.\n\nVerdict: {}\n".format(verdict)
+
     def test_ready_and_changes_needed_grade_changes_needed(self):
         self.assertGrade(None, "Verdict: changes needed. Grade 3/10: changes needed, checks passing.",
-                         reports={"review-pr": "Fine.\n\nVERDICT: ready\n",
-                                  "security-reviewer": "A finding.\n\nVERDICT: changes needed\n"},
+                         reports={"review-pr": self.rendered("ready"),
+                                  "security-reviewer": self.rendered("changes needed")},
                          names="review-pr,security-reviewer")
 
     def test_a_listed_agent_with_no_report_grades_unreadable(self):
         self.assertGrade(None, "Verdict: unreadable. Grade 2/10: the verdict is unreadable.",
-                         reports={"review-pr": "Fine.\n\nVERDICT: ready\n"}, names="review-pr,security-reviewer")
+                         reports={"review-pr": self.rendered("ready")}, names="review-pr,security-reviewer")
         self.assertGrade(None, "Verdict: unreadable. Grade 2/10: the verdict is unreadable.", names="review-pr")
 
     def test_every_listed_agent_with_a_report_grades_as_its_reports_do(self):
         self.assertGrade(None, "Verdict: ready with nits. Grade 8/10: ready with nits, checks passing.",
-                         reports={"review-pr": "VERDICT: ready\n", "cto": "VERDICT: ready with nits\n"},
+                         reports={"review-pr": self.rendered("ready"), "cto": self.rendered("ready with nits")},
                          names="review-pr,cto")
 
-    def test_one_report_md_grades_as_it_always_has(self):
-        for report, line in (("Ready.\n\nVERDICT: ready\n", "Verdict: ready. Grade 10/10: ready, checks passing."),
-                             ("VERDICT: changes needed\n",
-                              "Verdict: changes needed. Grade 3/10: changes needed, checks passing."),
-                             ("Fine.\n", "Verdict: unreadable. Grade 2/10: the verdict is unreadable.")):
-            self.assertGrade(report, line)
+    def test_a_rendered_report_without_its_verdict_line_grades_unreadable(self):
+        # The schema check's UNREADABLE line, a model's own last line, or a verdict the schema doesn't allow.
+        for text in (reusable.UNREADABLE + "\n", "Fine.\n\nVERDICT: ready\n", self.rendered("ship it"),
+                     self.rendered("ready") + "Something after.\n"):
+            self.assertGrade(None, "Verdict: unreadable. Grade 2/10: the verdict is unreadable.",
+                             reports={"review-pr": text}, names="review-pr")
 
-    def test_reports_win_over_report_md(self):
-        self.assertGrade("VERDICT: changes needed\n", "Verdict: ready. Grade 10/10: ready, checks passing.",
-                         reports={"review-pr": "VERDICT: ready\n"})
+    def test_one_report_json_grades_as_it_always_has(self):
+        for text, line in ((reusable.report("ready"), "Verdict: ready. Grade 10/10: ready, checks passing."),
+                           (reusable.report("changes needed"),
+                            "Verdict: changes needed. Grade 3/10: changes needed, checks passing."),
+                           ("Fine.\n\nVERDICT: ready\n", "Verdict: unreadable. Grade 2/10: the verdict is unreadable.")):
+            self.assertGrade(text, line)
+
+    def test_reports_win_over_report_json(self):
+        self.assertGrade(reusable.report("changes needed"), "Verdict: ready. Grade 10/10: ready, checks passing.",
+                         reports={"review-pr": self.rendered("ready")})
+
+    def test_what_the_schema_check_renders_the_grade_reads_back(self):
+        import review_report
+        for verdict in VERDICTS:
+            text = review_report.render({"verdict": verdict, "findings": [
+                {"file": "a.py", "line": 2, "severity": "nit", "rule": "r", "summary": "Verdict: ready"}]})
+            self.assertEqual(review_report.rendered_verdict(text, review_report.schema()), verdict)
 
 
 if __name__ == "__main__":

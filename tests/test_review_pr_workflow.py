@@ -547,5 +547,158 @@ class TheAgentsCommentsStayApart(unittest.TestCase):
         self.assertEqual(kept["security-reviewer.id"], "8\n")
 
 
+CALLED = ROOT / ".github" / "workflows" / "review-pr.yml"
+SKIP = "Skip when only skip-paths files changed"
+SKIP_DOCS = "docs/**\npackage-lock.json\n"
+
+
+def git_env(tmp):
+    """An environment that keeps the machine's own git config out of the test."""
+    return {"PATH": os.environ["PATH"], "TMPDIR": tmp, "HOME": tmp, "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+
+
+def write(head, *names):
+    for name in names:
+        path = head / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("changed " + name + "\n")
+
+
+class SkipPaths(unittest.TestCase):
+    """The called workflow's skip-paths step, run on a real base and head commit."""
+    steps = ReviewPrWorkflow.steps
+    step = ReviewPrWorkflow.step
+
+    def setUp(self):
+        self.assertTrue(CALLED.is_file(), ".github/workflows/review-pr.yml doesn't exist")
+        self.text = CALLED.read_text()
+        self.code = code(self.text)
+
+    def names(self):
+        return [name for name, _ in self.steps()]
+
+    def skip_with(self, patterns, change):
+        """Run the step on a pull request that `change(head)` makes. Returns its result and what it added to the env."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env = git_env(tmp)
+            head = Path(tmp) / "head"
+            head.mkdir()
+
+            def git(*args):
+                return subprocess.run(["git", "-C", str(head), *args], env=env, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q")
+            (head / "src").mkdir()
+            (head / "src" / "x.py").write_text("def x():\n    return 'the same in both places'\n")
+            (head / "README.md").write_text("base\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            change(head)
+            git("add", "-A")
+            git("commit", "-q", "--allow-empty", "-m", "head")
+            added = Path(tmp) / "env"
+            added.touch()
+            script = self.step(SKIP).split("run: |\n", 1)[1]
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", textwrap.dedent(script)],
+                                    cwd=tmp, env={**env, "SKIP_PATHS": patterns, "BASE_SHA": base,
+                                                  "GITHUB_ENV": str(added)},
+                                    capture_output=True, text=True)
+            return result, added.read_text()
+
+    def test_the_input_is_optional_and_empty_by_default(self):
+        on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        block = re.search(r"^      skip-paths:\n((?:        .*\n)+)", on, re.M)
+        self.assertIsNotNone(block, "no skip-paths input")
+        lines = [line.strip() for line in block.group(1).splitlines()]
+        for line in ("required: false", "default: ''", "type: string"):
+            self.assertIn(line, lines)
+        self.assertIn("SKIP_PATHS: ${{ inputs.skip-paths }}", self.step(SKIP))
+
+    def test_without_patterns_the_review_runs_and_says_nothing(self):
+        result, added = self.skip_with("", lambda head: write(head, "docs/a.md"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(added, "")
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_blank_lines_alone_are_no_patterns(self):
+        result, added = self.skip_with("\n  \n\t\n", lambda head: write(head, "docs/a.md"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_every_file_matching_skips_with_a_notice_naming_the_patterns(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: write(head, "docs/a.md", "docs/api/b.md",
+                                                                     "package-lock.json"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(added, "REVIEW_SKIPPED=true\n")
+        notice = [line for line in result.stdout.splitlines() if line.startswith("::notice::")]
+        self.assertEqual(len(notice), 1, result.stdout)
+        for pattern in ("docs/**", "package-lock.json"):
+            self.assertIn(pattern, notice[0])
+
+    def test_one_file_that_matches_nothing_reviews(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: write(head, "docs/a.md", "package-lock.json",
+                                                                     "src/app.py"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_code_renamed_into_a_skipped_path_reviews(self):
+        def rename(head):
+            (head / "docs").mkdir()
+            (head / "src" / "x.py").rename(head / "docs" / "x.py")
+        result, added = self.skip_with(SKIP_DOCS, rename)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def test_a_pull_request_that_changes_nothing_reviews(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def test_the_step_holds_no_secret_and_no_token(self):
+        skip = self.step(SKIP)
+        for word in ("secrets.", "GH_TOKEN", "github.token"):
+            self.assertNotIn(word, skip)
+
+    def test_it_runs_after_the_head_checkout_and_before_any_credential_is_used(self):
+        # The agents job checks the head out for it, so it skips the jobs after it, review's head checkout
+        # and rules among them (#648).
+        names = self.names()
+        at = names.index(SKIP)
+        self.assertLess(names.index("Check out the pull request's head to list its files"), at)
+        self.assertLess(at, names.index("Check out the pull request's head"))
+        self.assertLess(at, names.index("Remove the pull request's own rules"))
+        holding = [name for name, text in self.steps()
+                   if re.search(r"secrets\.(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)|github\.token", text)]
+        before = [name for name in holding if names.index(name) < at]
+        self.assertEqual(before, ["Skip when Claude has no key"], "only the key check, which reads no file, runs first")
+        self.assertTrue([name for name in holding if names.index(name) > at], "no credential step after the skip")
+
+    def test_a_skip_runs_nothing_after_it(self):
+        # REVIEW_SKIPPED holds only inside the agents job, so the steps after the skip there wait on it, and the
+        # jobs after it run only on the run output the resolve step writes, which a skip leaves unwritten (#648).
+        names = self.names()
+        after = self.steps()[names.index(SKIP) + 1:]
+        for name in ("Run the review-pr skill on Claude", "Check the report against its schema", "Grade the review",
+                     "Post the report as one comment"):
+            self.assertIn(name, [each for each, _ in after])
+        job_of = {name: key for key, text in jobs(self.code).items() for name, _ in job_steps(text)}
+        self.assertEqual(job_of[SKIP], "agents")
+        for name, text in job_steps(jobs(self.code)["agents"]):
+            if names.index(name) > names.index(SKIP):
+                if_line = next((line for line in text.splitlines() if line.strip().startswith("if:")), "")
+                self.assertIn("env.REVIEW_SKIPPED != 'true'", if_line, name)
+        resolve = [text for name, text in job_steps(jobs(self.code)["agents"]) if name == "Resolve the agents"][0]
+        self.assertIn('out.write("run=true\\n")', resolve)
+        for key in ("review", "grade"):
+            head = jobs(self.code)[key].split("\n    steps:\n", 1)[0]
+            self.assertIn("needs.agents.outputs.run == 'true'", head, key)
+
+
 if __name__ == "__main__":
     unittest.main()

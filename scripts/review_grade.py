@@ -5,12 +5,16 @@ checks, through the factory's review-rubric.json.
 Usage, from the Actions workspace, as .github/workflows/review-pr.yml runs it:
     python3 harness/scripts/review_grade.py
 
-Each report is a file in $RUNNER_TEMP/reports/, <agent>.md, one for each review agent that ran, or
-$RUNNER_TEMP/report.md when that folder holds none. Each report's verdict is its last line, and the one graded is
-the worst of them, by WORST_FIRST. An agent $AGENT_NAMES lists (comma-separated) that has no report counts as
-unreadable, so an agent that failed can't raise the grade. The rubric is the review-rubric.json at the root of
-the factory checkout this file sits in, never one under base/ or head/, which the pull request's repo
-controls. The checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the grade's own job
+Each report is a file in $RUNNER_TEMP/reports/, <agent>.md, one for each review agent that ran: the report
+scripts/review_report.py rendered from that agent's checked JSON, as its comment carries it. Its verdict is the
+one review_report.rendered_verdict() reads off the verdict line render() wrote. Where that folder holds none,
+the verdict is the one in $RUNNER_TEMP/report.json, read by review_report.load() against the schema at
+skills/review-pr/report.schema.json. A report that isn't JSON or doesn't match the schema, or a rendered one
+without that line, grades as unreadable. The one graded is the worst of them, by WORST_FIRST. An agent
+$AGENT_NAMES lists (comma-separated) that has no report counts as unreadable, so an agent that failed can't
+raise the grade. The rubric is the review-rubric.json at the root of the factory checkout this file sits in.
+Neither the schema nor the rubric is ever read from base/ or head/, which the pull request's repo controls. The
+checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the grade's own job
 ($OWN_CHECK_RUN_ID, from job.check_run_id), so a sibling job in the same run still counts, a review agent's
 failed job included. Without that id, as
 on GitHub Enterprise Server, it leaves out every check run from this workflow run ($GITHUB_RUN_ID) instead.
@@ -22,8 +26,9 @@ It writes "Verdict: <verdict>. Grade <n>/10: <why>." to $RUNNER_TEMP/grade.txt a
 grade is advisory: it sets no status, approves nothing and merges nothing. It always exits 0, so the reviews
 keep their comments whatever happens here.
 
-The grade itself is loop.py's, imported from beside this file, so there is one copy of how a verdict and the
-checks become a number. Standard library only.
+The grade itself is loop.py's, and the report's reading review_report.py's, both imported from beside this
+file, so there is one copy of how a report is read and one of how a verdict and the checks become a number.
+Standard library only.
 """
 import os
 import subprocess
@@ -48,22 +53,30 @@ def worst(verdicts):
     return WORST_FIRST[min(ranks)] if ranks else "unreadable"
 
 
-def verdict_of(environ, read_verdict):
-    """The worst verdict among the reports in $RUNNER_TEMP/reports/, or of report.md when there are none there,
-    with unreadable for each agent $AGENT_NAMES lists that has no report."""
+def verdict_of(environ, review_report):
+    """The worst verdict among the rendered reports in $RUNNER_TEMP/reports/, or of report.json, through the
+    schema, when there are none there, with unreadable for each agent $AGENT_NAMES lists that has no report."""
     temp = Path(environ.get("RUNNER_TEMP", "."))
+    try:
+        rules = review_report.schema()
+    except (OSError, ValueError):  # no readable schema: nothing to check a verdict against
+        rules = None
     reports = {}
     for path in sorted((temp / "reports").glob("*.md")):
         try:
             reports[path.stem] = path.read_text()
         except OSError:
             reports[path.stem] = ""
-    if not reports:
+    if rules is None:
+        verdicts = ["unreadable"]
+    elif reports:
+        verdicts = [review_report.rendered_verdict(text, rules) for text in reports.values()]
+    else:
         try:
-            reports[""] = (temp / "report.md").read_text()
-        except OSError:
-            reports[""] = ""
-    verdicts = [read_verdict(text) for text in reports.values()]
+            report = review_report.load((temp / "report.json").read_text(), rules)
+        except (OSError, ValueError):  # no report, or not text: nothing to take a verdict from
+            report = None
+        verdicts = [report["verdict"] if report is not None else "unreadable"]
     names = [name.strip() for name in environ.get("AGENT_NAMES", "").split(",") if name.strip()]
     verdicts += ["unreadable" for name in names if name not in reports]
     return worst(verdicts)
@@ -125,8 +138,9 @@ def grade(environ):
     """(the line for grade.txt, whether the grade is pending, notes for the step summary)."""
     sys.path.insert(0, str(HERE))
     import loop  # here, inside main's try, so a broken loop.py still lets the review post
+    import review_report
 
-    verdict = verdict_of(environ, loop.report_verdict)
+    verdict = verdict_of(environ, review_report)
     rubric, why = loop.load_rubric(loop.ROOT / loop.DEFAULTS["review_rubric"])
     poll = number(environ, "GRADE_POLL_SECONDS", 30)
     deadline = time.monotonic() + wait_minutes(environ) * 60
