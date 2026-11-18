@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: A caller's build loads none of its own settings
+
+A caller project's claude build and tester agents now start with `--setting-sources user` and `--strict-mcp-config`, so the [`.claude/settings.json`](.claude/settings.json), `.claude/settings.local.json`, `.claude/rules/`, [`.claude/skills/`](.claude/skills), [`.claude/agents/`](.claude/agents/) and `.mcp.json` in the caller's checkout don't load: no hook of the caller's runs, no allow rule of its widens what the agent may run, no `env` block of its applies, and no MCP server of its starts. Its [`CLAUDE.md`](CLAUDE.md) no longer loads by itself either: the build reads it as a file, through the guard, as its prompt already tells it to. Checked live on Claude Code 2.1.327, as were the planner, reviewer and retro, whose `--restricted` already loaded none of it. Your own user settings still load, and the guard, sandbox and deny rules the loop passes with `--settings` still apply. The guard now gets the folders it holds those agents to as `--confine` arguments on its hook command, and no longer reads `SANVIO_CONFINE` at all, so no settings file can change them. A caller's build or tester with no folders to hold it to doesn't start. Outside caller mode, the agents' command line and environment don't change. Caller mode still isn't safe for a repo you don't trust: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says what's open.
+
+**Needs:** 2026-11-17: A caller's commands are the factory's; 2026-11-16: A caller's build is held to its worktree
+
+**Controls:** AC-5, AU-9
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. A loop that's running takes it the next time it starts.
+
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 
 While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
