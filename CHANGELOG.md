@@ -46,6 +46,14 @@ Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.
 
 **Do:** nothing.
 
+## 2026-11-16: A control register that fails CI when its evidence moves
+
+New: [`controls.json`](controls.json), the factory's own mapping of five security controls to the files that carry them, from NIST SP 800-53 Rev. 5 and the OWASP Top 10 for LLM Applications. It isn't a certification or an assessment. `python3 scripts/controls.py check` fails when an entry is malformed or an evidence path is gone, and the tests run it, so renaming or deleting one of those files fails CI until the register follows. `python3 scripts/controls.py touched origin/<base>` lists the controls a branch's changes reach, and the review-pr skill reports them on a `Controls touched:` line. Without `--file`, both commands read the repo they run in, its own `controls.json` at the git root, never the factory's from inside another repo, and `check` fails a folder path without a trailing `/`, a file path with one, and any path that leads outside the register's folder. [`docs/controls.md`](docs/controls.md) explains the fields, the six statuses and both commands.
+
+Files: [`controls.json`](controls.json), [`scripts/controls.py`](scripts/controls.py), [`tests/test_controls.py`](tests/test_controls.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`docs/controls.md`](docs/controls.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: A caller's build is held to its worktree
 
 A caller project's claude build and tester agents now run with Claude Code's sandbox and deny rules naming the factory's private folders, its `loop.json`, and every other project's clone, state and worktrees, and with the guard refusing any file or shell path outside the issue's worktree and the clone's `.git`. Each layer was checked live on Claude Code 2.1.325 against Read, Grep, Glob and a literal `cat`. The hold isn't complete yet: a caller's `test_command`, `setup_command` and `generate_command` still come from its own `loop.json` and run with only the loop's usual sandbox (#596), and its own [`.claude/settings.json`](.claude/settings.json) still loads into its build and tester sessions (#597). Without `caller`, nothing changes.
