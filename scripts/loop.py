@@ -78,6 +78,8 @@ import names  # noqa: E402 (beside this file: the state and home folders)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
+# The register script beside this file, the one the loop runs on a checkout's controls.json: never the checkout's.
+CONTROLS = SELF.parent / "controls.py"
 
 DEFAULTS = {
     # The command that starts an agent session. The prompt arrives on stdin. A name, claude or codex,
@@ -1356,8 +1358,19 @@ def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed
     return prompt
 
 
-def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
-    """fixed is the files a separate agent's tests are in, when one wrote them first."""
+def controls_line(found):
+    """The Controls touched: line a review prompt carries after its diff, from Loop.controls(tree, "touched", ...),
+    or "" when the checkout has no register. touched prints one control a line; the line joins them. What a
+    touched that failed printed goes on the line too, so the reviewer sees the failure, not a gap."""
+    if found is None:
+        return ""
+    said = [line.strip() for line in found[1].splitlines() if line.strip()]
+    return "Controls touched: {}\n".format(", ".join(said) or "(no output)")
+
+
+def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=(), controls=""):
+    """fixed is the files a separate agent's tests are in, when one wrote them first. controls is
+    controls_line()'s line, or "" for a checkout with no register, which leaves the prompt as it was."""
     held = (" A separate agent wrote these tests before the build: {}. Judge whether the build worked around "
             "them, for example with a skip or a mock that makes them meaningless, and say FIX if it "
             "did.".format(", ".join(fixed))) if fixed else ""
@@ -1389,8 +1402,9 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=()):
         "something real if this merged, such as wrong behaviour, a security or privacy gap, or lost data. "
         "Otherwise say VERDICT: PASS. A departure from the plan that changes no requirement's outcome is a "
         "problem to list, not a reason for FIX.{generate}{held}\n\n"
-        "PLAN:\n{plan}\n\nDIFF:\n{diff}\n\nTEST OUTPUT:\n{tests}\n"
+        "PLAN:\n{plan}\n\nDIFF:\n{diff}\n{controls}\nTEST OUTPUT:\n{tests}\n"
     ).format(code=code, plan=plan.strip(), diff=tail(diff, 60_000), tests=tail(tests), held=held, worked=worked,
+             controls=controls,
              generate=generated(generate, "Its files in the diff aren't outside the plan, and don't ask for it to be "
                                           "run by hand."))
 
@@ -1874,10 +1888,11 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     return body()
 
 
-def pr_review_prompt(number, title, base, diff, commits, skill="", rules=""):
+def pr_review_prompt(number, title, base, diff, commits, skill="", rules="", controls=""):
     """Everything goes in the prompt, and all of it after the first lines is text a stranger may have written.
 
-    rules, for a project, comes first, with the trusted lines.
+    rules, for a project, comes first, with the trusted lines. controls is controls_line()'s line, after the diff
+    with the rest of the material: the register it comes from is the pull request's own. "" adds nothing.
     """
     note = ("It is copied below from the loop's own clone: the checkout's copy may differ, so use this one. "
             if skill else "")
@@ -1896,7 +1911,7 @@ def pr_review_prompt(number, title, base, diff, commits, skill="", rules=""):
         prompt += "SKILL:\n{}\n\n".format(skill.strip())
     cut = "\n(diff cut at 60000 characters)" if len(diff) > 60_000 else ""
     return prompt + "TITLE (written by the author): {title}\n\nCOMMITS:\n{commits}\n\nDIFF:\n{diff}{cut}\n".format(
-        title=title, commits=commits.strip() or "(none)", diff=diff[:60_000], cut=cut)
+        title=title, commits=commits.strip() or "(none)", diff=diff[:60_000], cut=cut) + controls
 
 
 def report_verdict(report):
@@ -2692,6 +2707,20 @@ class Loop:
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
+
+    def controls(self, tree, *args):
+        """(exit code, output) of the loop's own controls.py with args on tree's controls.json, or None when tree
+        has none. --file names that register, so the script never falls back to another repo's, and the script
+        is CONTROLS, so a checkout's own copy never runs. It's the loop's own script, not shell text from
+        config, so it runs as git does, with test_timeout. A register that's a symlink fails unread: in a pull
+        request's checkout it's the author's, and could point at a file on this machine."""
+        register = Path(tree) / "controls.json"
+        if register.is_symlink():
+            return 1, "controls.json: a symlink, which the loop doesn't follow"
+        if not register.exists():
+            return None
+        return self.sh([sys.executable, str(CONTROLS), *args, "--file", str(register)], cwd=tree,
+                       timeout=self.cfg["test_timeout"])
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
         """(exit code, combined output, or stdout alone with stderr=False).
@@ -3898,6 +3927,17 @@ class Loop:
             self.mark(number, step="VALIDATE")
 
             tcode, tout = self.own_command(self.cfg["test_command"], tree)
+            # A checkout with a register is held to it: the check's output goes after the tests', where the
+            # saved file, the reviewer and the next build all read it, and a failing check fails the round. The
+            # tests' own exit code stays when they failed too.
+            register = self.controls(tree, "check")
+            if register is not None:
+                check_code, check_out = register
+                tout = "{}{}register check (scripts/controls.py check) exited {}:\n{}".format(
+                    tout, "\n" if tout and not tout.endswith("\n") else "", check_code, check_out)
+                if tcode == 0 and check_code != 0:
+                    tcode = check_code
+            reached = controls_line(self.controls(tree, "touched", "origin/{}".format(self.cfg["base"])))
             (folder / "test-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
             (folder / "diff.patch").write_text(diff[:OUTPUT_CAP], encoding="utf-8")
 
@@ -3907,7 +3947,7 @@ class Loop:
             # Read tools only: the worktree's settings and hooks are the build agent's to write.
             rcode, review = self.agent(self.reviewer(),
                                        review_prompt(plan, diff, tout or "(no output)", tcode, self.rules, generate,
-                                                     fixed),
+                                                     fixed, reached),
                                        tree, confine=True, number=number, step="review", round_no=round_no)
             self.discard_edits(tree, "REVIEW", "reviewer", number)
             (folder / "review.md").write_text(review, encoding="utf-8")
@@ -4939,7 +4979,9 @@ class Loop:
                 return False, sha, "could not diff against {}".format(base), True
             skill_file = self.root / "skills" / "review-pr" / "SKILL.md"
             skill = skill_file.read_text(encoding="utf-8") if skill_file.exists() else ""
-            prompt = pr_review_prompt(number, pr["title"], base, diff, commits, skill, self.rules)
+            # Against the ref the diff was taken from: a single-branch clone may have no current origin/<base>.
+            reached = controls_line(self.controls(tree, "touched", base_ref))
+            prompt = pr_review_prompt(number, pr["title"], base, diff, commits, skill, self.rules, reached)
             # stdout only: stderr is the agent's warnings and paths, and the report is posted publicly.
             who = self.reviewer()
             code, report = self.agent(who, prompt, tree, untrusted=True, stderr=False)

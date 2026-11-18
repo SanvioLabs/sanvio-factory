@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-17: The loop holds a checkout to its control register
+
+When the issue's checkout has a control register at its root, each build round now runs the loop's own `scripts/controls.py check` on it after `test_command`, and a round whose check fails fails, even when the tests passed. A register that's a symlink fails unread. The check's output follows the tests' in the round's `test-output.txt`, the review and the next build. The round's review prompt, and a pull request review's when that checkout has a register, carry a `Controls touched:` line after the diff. A checkout without a register runs as before, and the loop never reads the factory's own register for another checkout. Projects start from [`examples/controls/`](examples/controls/), an empty register and the steps for choosing its framework; [`docs/controls.md`](docs/controls.md) has a new *A project's register* section.
+
+**Needs:** 2026-11-16: A control register that fails CI when its evidence moves
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`examples/controls/controls.json`](examples/controls/controls.json), [`examples/controls/README.md`](examples/controls/README.md), [`docs/controls.md`](docs/controls.md), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_controls.py`](tests/test_controls.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing for the factory. To hold a project to a register, copy [`examples/controls/controls.json`](examples/controls/controls.json) into the root of the project's repo and add its entries.
+
 ## 2026-11-16: AI kinds of change in compliance steering
 
 [`steering/compliance.md`](steering/compliance.md) now names four kinds of change that carry AI risk: one that widens what an agent does unattended, one that lets outside text reach a prompt, one that changes who merges or decides, and one that changes the model, the provider or an agent's instructions. Each row gives its SP 800-53 controls, the OWASP Top 10 for LLM Applications risk by name, the NIST AI RMF 1.0 function and the ISO/IEC 42001:2023 Annex A control, and the question to answer before calling it done. The baseline names those three frameworks as companions to SP 800-53. AGENTS.md's Read when, the tickets paragraph and the builder's bullet list the new kinds, a ticket of one of them names its OWASP risk and AI RMF and ISO references, and the security reviewer names the OWASP risk on such a finding.

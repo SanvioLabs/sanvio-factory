@@ -17,7 +17,7 @@ Each entry is one JSON object.
 
 | Field | Holds |
 |---|---|
-| `framework` | The framework the control comes from, written the same way in every entry. Today the register uses `NIST SP 800-53 Rev. 5` and `OWASP Top 10 for LLM Applications`. `check` doesn't validate this name, so copy it from an existing entry |
+| `framework` | The framework the control comes from, written the same way in every entry. The factory's own register uses `NIST SP 800-53 Rev. 5` and `OWASP Top 10 for LLM Applications`; a project's uses the framework its company record names, such as `SOC 2`. `check` doesn't validate this name, so copy it from an existing entry |
 | `id` | The control's identifier in its framework, such as `AC-5`. For OWASP it's a slug of the risk's name, such as `prompt-injection`, because the numbers differ between editions of the list. An `id` appears once per framework; two frameworks can share one |
 | `name` | The control's name, as the framework gives it |
 | `status` | One of the six statuses below |
@@ -79,6 +79,27 @@ root:
 ```bash
 python3 scripts/controls.py touched origin/<base> --file projects/<name>/controls.json
 ```
+
+## A project's register
+
+A project the loop works on can have a register of its own. Copy
+[`examples/controls/controls.json`](../examples/controls/controls.json), an empty list, into the root of the
+project's repo and commit it there. Choose the `framework` value from
+`company/COMPANY.md`, the framework the company is held to. If that file names
+none, ask the person whether one applies before you assume there isn't, as
+[`steering/compliance.md`](../steering/compliance.md) says. Then add entries as below, with evidence
+paths relative to the project's root.
+
+Once the checkout has a register at its root, the loop runs `check` on it after
+`test_command` in every build round, using its own copy of
+[`scripts/controls.py`](../scripts/controls.py), never the checkout's. The check's output goes after
+the tests' output, where the reviewer, the round's `test-output.txt` and the
+next build round read it, and a failing check fails the round even when the
+tests passed. A register that's a symlink fails unread. The loop also puts `touched`'s output on a `Controls touched:`
+line after the diff in the round's review prompt, and in a pull request
+review's prompt when that pull request's checkout has a register. A checkout
+with no register runs as before: the loop never reads the factory's own
+register for it. [`examples/controls/`](../examples/controls/) has the same steps.
 
 ## Adding an entry
 
