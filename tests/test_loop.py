@@ -1,5 +1,6 @@
 """Run with: python3 -m unittest discover -s tests"""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -8613,6 +8614,417 @@ class TestAcceptance(unittest.TestCase):
         self.assertEqual(loop.caller_config_problem(dict(loop.DEFAULTS, caller="yes"))[0], "caller")
 
 
+NON_CALLER_PROFILE = """(version 1)(allow default)
+(deny file-read* file-write* (subpath "/nowhere-639/home/.ssh"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.aws"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.config/gh"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.config/gcloud"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.config/git"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.config/op"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.azure"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.kube"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.docker"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.gnupg"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.netrc"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.npmrc"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.pypirc"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.git-credentials"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.gitconfig"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.m2/settings.xml"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.terraform.d"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/.claude/.credentials.json"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/Library/Keychains"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/work/factory/company"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/work/factory/local-data"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/work/factory/.inbox"))
+(deny file-read* file-write* (subpath "/nowhere-639/home/work/factory/.claude/settings.local.json"))
+(deny file-write-unlink (literal "/nowhere-639/home"))
+(deny file-write-unlink (literal "/nowhere-639/home/.config"))
+(deny file-write-unlink (literal "/nowhere-639/home/.m2"))
+(deny file-write-unlink (literal "/nowhere-639/home/.claude"))
+(deny file-write-unlink (literal "/nowhere-639/home/Library"))
+(deny file-write-unlink (literal "/nowhere-639/home/work"))
+(deny file-write-unlink (literal "/nowhere-639/home/work/factory"))
+(deny file-write-unlink (literal "/nowhere-639/home/work/factory/.claude"))"""
+
+
+class TestCallerSandbox(unittest.TestCase):
+    """A caller project's test_command, generate_command and setup_command write only to their worktree, the run's
+    own temp folder and git's folder for that worktree, and read nothing under the factory, the loop's checkouts or
+    the home folder beyond their clone, worktree, temp and caller_read_allow (#639). Outside caller mode nothing
+    changes. The real runs need a Mac where sandbox-exec can apply a profile, and skip elsewhere."""
+
+    setUp, tearDown, real_sandbox, at_home = TestSandbox.setUp, TestSandbox.tearDown, TestSandbox.real_sandbox, \
+        TestSandbox.at_home
+
+    def test_outside_caller_mode_the_profile_is_exactly_as_it_was(self):
+        self.assertEqual(loop.sandbox_profile("/nowhere-639/home", "/nowhere-639/home/work/factory", {}),
+                         NON_CALLER_PROFILE)
+
+    def test_caller_read_allow_defaults_to_the_guards_tool_folders_and_nothing_is_writable_by_default(self):
+        spec = importlib.util.spec_from_file_location(
+            "guard_for_639", Path(__file__).resolve().parent.parent / ".claude" / "hooks" / "guard.py")
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        self.assertEqual([path[2:] for path in loop.DEFAULTS["caller_read_allow"]], list(guard.HOME_TOOL_PATHS))
+        self.assertTrue(all(path.startswith("~/") for path in loop.DEFAULTS["caller_read_allow"]))
+        self.assertEqual(loop.DEFAULTS["caller_write_allow"], [])
+        for key in ("caller_read_allow", "caller_write_allow"):
+            self.assertIn(key, loop.MACHINE_KEYS)
+            self.assertNotIn(key, loop.PROJECT_KEYS)
+
+    def test_a_caller_with_a_read_or_write_allow_that_isnt_a_list_of_paths_doesnt_start(self):
+        base = dict(loop.DEFAULTS, caller=True, test_command="true", accept_label="ok", acceptors=["pat"],
+                    account_tier="api", network_allow=[], max_issue_tokens=1000)
+        self.assertIsNone(loop.caller_config_problem(base))
+        for key in ("caller_read_allow", "caller_write_allow"):
+            for value in ("~/.pyenv", ["relative/path"], [3], None, ["~user/x"]):
+                with self.subTest(key=key, value=value):
+                    self.assertEqual(loop.caller_config_problem(dict(base, **{key: value}))[0], key)
+            self.assertIsNone(loop.caller_config_problem(dict(base, **{key: ["/opt/tools", "~/.cache/x"]})))
+
+    def profile(self, **extra):
+        home, root = self.root / "home", self.root / "home" / "factory"
+        args = dict(home=home, root=root, tree=self.root / "trees" / "app" / "issue-3",
+                    clone=root / "projects" / "app", scratch=self.root / "scratch",
+                    trees=[home / ".sanvio-loop" / "factory", self.root / "trees"],
+                    state=root / ".loop" / "projects" / "app", read_allow=["~/.pyenv"], write_allow=["/opt/w"],
+                    environ={}, extra=[root / "projects" / "other"])
+        args.update(extra)
+        return loop.caller_profile(**args).splitlines(), args
+
+    def test_every_allow_comes_before_every_specific_denial(self):
+        lines, args = self.profile()
+        allows = [i for i, line in enumerate(lines) if line.startswith("(allow ")]
+        specific = [i for i, line in enumerate(lines) if line.startswith("(deny file-read* file-write*")]
+        self.assertTrue(allows and specific)
+        self.assertLess(max(allows), min(specific), "\n".join(lines))
+        # The broad denials come first, and the factory is denied for writing again after write_allow.
+        self.assertEqual(lines[0], "(version 1)(allow default)")
+        everywhere = lines.index('(deny file-write* (subpath "/"))')
+        self.assertEqual(everywhere, 5 + len(loop.CALLER_SHARED_DENIED))
+        self.assertTrue(all(line.startswith("(deny file-read* (subpath") for line in lines[1:everywhere]),
+                        lines[1:everywhere])
+        again = lines.index('(deny file-write* (subpath "{}"))'.format(Path(args["root"]).resolve()))
+        self.assertLess(max(i for i in allows if "worktrees" not in lines[i]), again)
+
+    def test_the_git_files_a_command_could_point_elsewhere_are_denied_last(self):
+        lines, args = self.profile()
+        clone_git = Path(args["clone"]).resolve() / ".git"
+        tree = Path(args["tree"]).resolve()
+        worktree_git = clone_git / "worktrees" / "issue-3"
+        index = '(allow file-write* (literal "{}"))'.format(worktree_git / "index")
+        self.assertIn(index, lines)
+        # Nothing else in git's folder for the worktree is writable: not its config, MERGE_HEAD or the folder.
+        self.assertEqual([line for line in lines if line.startswith("(allow file-write*") and str(worktree_git) in line],
+                         [index, '(allow file-write* (literal "{}"))'.format(worktree_git / "index.lock")])
+        for line in ('(deny file-write* (literal "{}"))'.format(tree),
+                     '(deny file-write* (literal "{}"))'.format(tree / ".git"),
+                     '(deny file-write* (literal "{}"))'.format(clone_git),
+                     '(deny file-write* (subpath "{}"))'.format(clone_git / "config"),
+                     '(deny file-write* (subpath "{}"))'.format(clone_git / "hooks"),
+                     '(deny file-write* (subpath "{}"))'.format(clone_git / "info"),
+                     '(deny file-write* (subpath "{}"))'.format(clone_git / "modules"),
+                     '(deny file-read* file-write* (subpath "{}"))'.format(Path(args["state"]).resolve()),
+                     '(deny file-read* file-write* (subpath "{}"))'.format(
+                         (Path(args["home"]) / ".local" / "share" / "uv" / "credentials").resolve())):
+            with self.subTest(line=line):
+                self.assertIn(line, lines)
+                self.assertGreater(lines.index(line), lines.index(index))
+        for shared in loop.CALLER_SHARED_DENIED:
+            self.assertIn('(deny file-read* (subpath "{}"))'.format(Path(shared).resolve()), lines[:10])
+
+    def test_git_s_folder_for_the_worktree_is_the_one_its_git_file_names_in_the_clone(self):
+        clone, tree = self.root / "clone", self.root / "trees" / "issue-3"
+        (clone / ".git" / "worktrees" / "issue-31").mkdir(parents=True)
+        tree.mkdir(parents=True)
+        folders = (clone / ".git" / "worktrees").resolve()
+        self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-3")
+        (tree / ".git").write_text("gitdir: {}\n".format(clone / ".git" / "worktrees" / "issue-31"))
+        self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-31")
+        for elsewhere in (self.root / "fake", clone / ".git", folders / "issue-31" / "deeper"):
+            (tree / ".git").write_text("gitdir: {}\n".format(elsewhere))
+            self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-3", elsewhere)
+
+    def test_a_callers_command_gets_a_temp_folder_and_caches_of_its_own_removed_after(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=True), project=own)
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            scratch = Path(kwargs["env"]["TMPDIR"]).parent
+            seen.update(cmd=cmd, env=kwargs["env"], scratch=scratch, existed=scratch.is_dir(), kwargs=kwargs)
+            return 0, ""
+
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", self.root / "tree")
+        scratch, env = seen["scratch"], seen["env"]
+        self.assertTrue(seen["existed"])
+        self.assertFalse(scratch.exists())
+        self.assertTrue(scratch.name.startswith("sanvio-caller-"))
+        for name in ("TMPDIR", "XDG_CACHE_HOME", "UV_CACHE_DIR", "PIP_CACHE_DIR", "npm_config_cache"):
+            self.assertTrue(env[name].startswith(str(scratch) + os.sep), name)
+        self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(seen["cmd"][:2], [loop.SANDBOX_EXEC, "-p"])
+        self.assertIn('(allow file-write* (subpath "{}"))'.format(scratch.resolve()), seen["cmd"][2])
+        self.assertIs(seen["kwargs"].get("held"), True)
+        # Outside caller mode, the command and its environment are as they were, and it isn't held.
+        lp = loop.Loop(factory, dict(loop.DEFAULTS), project=own)
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", self.root / "tree")
+        self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p", loop.sandbox_profile(Path.home(), factory),
+                                       "/bin/sh", "-c", "true"])
+        self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
+        self.assertNotIn("held", seen["kwargs"])
+
+    def test_the_loops_output_files_never_write_through_a_link(self):
+        target = self.root / "elsewhere.txt"
+        target.write_text("kept\n")
+        folder = self.root / "issue-3"
+        folder.mkdir()
+        (folder / "test-output.txt").symlink_to(target)
+        loop.write_unfollowed(folder / "test-output.txt", "the tests' output\n")
+        self.assertEqual(target.read_text(), "kept\n")
+        self.assertFalse((folder / "test-output.txt").is_symlink())
+        self.assertEqual((folder / "test-output.txt").read_text(), "the tests' output\n")
+        loop.write_unfollowed(folder / "new.txt", "x")
+        self.assertEqual((folder / "new.txt").read_text(), "x")
+        # A hard link is replaced too, never written through.
+        (folder / "setup-output.txt").unlink() if (folder / "setup-output.txt").exists() else None
+        os.link(str(target), str(folder / "setup-output.txt"))
+        loop.write_unfollowed(folder / "setup-output.txt", "setup's output\n")
+        self.assertEqual(target.read_text(), "kept\n")
+        self.assertEqual((folder / "setup-output.txt").read_text(), "setup's output\n")
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["new.txt", "setup-output.txt", "test-output.txt"])
+
+    def test_on_a_real_mac_the_last_rule_that_matches_a_path_wins(self):
+        self.real_sandbox()
+        base = (self.root / "base").resolve()
+        (base / "allowed" / "denied").mkdir(parents=True)
+        for path in (base / "outside.txt", base / "allowed" / "in.txt", base / "allowed" / "denied" / "no.txt"):
+            path.write_text("x\n")
+        profile = "\n".join(["(version 1)(allow default)",
+                             '(deny file-read* (subpath "{}"))'.format(base),
+                             '(allow file-read* (subpath "{}"))'.format(base / "allowed"),
+                             '(deny file-read* (subpath "{}"))'.format(base / "allowed" / "denied")])
+        for path, reachable in ((base / "outside.txt", False), (base / "allowed" / "in.txt", True),
+                                (base / "allowed" / "denied" / "no.txt", False)):
+            done = subprocess.run([loop.SANDBOX_EXEC, "-p", profile, "/bin/cat", str(path)], capture_output=True,
+                                  text=True, timeout=30)
+            with self.subTest(path=path):
+                self.assertEqual(done.returncode == 0, reachable, done.stderr)
+
+    def caller_layout(self, base):
+        """A made-up factory under a made-up home in base: a caller clone with a real worktree, the guard, the
+        factory's loop.json, the caller's state folder and a tool folder. Returns (home, factory, clone, tree)."""
+        home, factory = base / "home", base / "home" / "factory"
+        clone, tree = factory / "projects" / "app", base / "trees" / "app" / "issue-3"
+        for folder in (factory / ".claude" / "hooks", clone, home / ".pyenv" / "bin", home / ".ssh", tree.parent,
+                       loop.state_dir(factory, "app") / "issue-3"):
+            folder.mkdir(parents=True, exist_ok=True)
+        (factory / ".claude" / "hooks" / "guard.py").write_text("# the guard\n")
+        (factory / "loop.json").write_text("{}\n")
+        (home / "notes.txt").write_text("made-up home text\n")
+        (home / ".ssh" / "key").write_text("x")
+        tool = home / ".pyenv" / "bin" / "tool"
+        tool.write_text("#!/bin/sh\necho tool-ok\n")
+        tool.chmod(0o755)
+        git = {"GIT_CONFIG_GLOBAL": os.devnull, "HOME": str(home)}
+        env = dict(os.environ, **git)
+        for args in (["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@example.com",
+                                                     "commit", "-q", "--allow-empty", "-m", "start"],
+                     ["worktree", "add", "-q", "-b", "loop/issue-3", str(tree)]):
+            subprocess.run(["git"] + args, cwd=str(clone), env=env, check=True, capture_output=True)
+        (tree / "sub").mkdir()
+        return home, factory, clone, tree
+
+    def test_on_a_real_mac_a_callers_command_reaches_only_its_own_folders_and_another_projects_reaches_all(self):
+        """Each command in a layout of its own, so one that changes git's config can't break the next."""
+        self.real_sandbox()
+        refused = {
+            "write the guard": 'echo x >> "{factory}/.claude/hooks/guard.py"',
+            "git config --local": "git config --local core.fsmonitor /tmp/x",
+            "write .git/config": 'echo x >> "{clone}/.git/config"',
+            "write a hook": 'echo x > "{clone}/.git/hooks/pre-push"',
+            "rewrite the worktree's .git": 'echo "gitdir: /tmp/elsewhere" > "{tree}/.git"',
+            "move the worktree's .git": 'mv "{tree}/.git" "{tree}/moved"',
+            "rewrite gitdir": 'echo /tmp/x > "{clone}/.git/worktrees/issue-3/gitdir"',
+            "move the clone's .git": 'mv "{clone}/.git" "{clone}/moved"',
+            "write the state folder": 'echo x > "{state}/review.md"',
+            "read the home folder": 'cat "{home}/notes.txt"',
+            "read the factory": 'cat "{factory}/loop.json"',
+            "write ~/.cache": 'mkdir -p "{home}/.cache" && echo x > "{home}/.cache/x"',
+            # The security review's routes, each run live (#639).
+            "rename git's folder and rebuild it": ('mv "{wg}" "{tree}/stash" && mkdir "{wg}" && '
+                                                   'echo "[core]" > "{wg}/config"'),
+            "write a config in git's folder": 'echo "[core]" > "{wg}/config"',
+            "plant the setup marker": 'ln -s "{factory}/.claude/hooks/guard.py" "{wg}/loop-setup-done"',
+            "write MERGE_HEAD": 'echo 0000 > "{wg}/MERGE_HEAD"',
+            "lock the worktree": 'echo x > "{wg}/locked"',
+            # Moved back where it's allowed, so the other project's run leaves nothing in the real temp folder.
+            "rename the worktree into temp": ('d=$(mktemp -d) && mv "{tree}" "$d/moved" && mv "$d/moved" "{tree}" '
+                                              '&& rmdir "$d"'),
+            "hard link the guard": 'ln "{factory}/.claude/hooks/guard.py" sub/g',
+            "read the shared temp folder": "ls /private/tmp",
+            "read other runs' temp folders": 'ls "$(dirname "$TMPDIR")/.."',
+            "read /Users/Shared": "ls /Users/Shared",
+            # The second review's routes: what an allow-default base still handed over (#639).
+            "the keychain": "security list-keychains",
+            "the clipboard": "pbpaste >/dev/null",
+            "read a terminal by name": 'exec 3<"{pty}"',
+            "connect a socket outside its folders": (sys.executable + " -c \"import socket; "
+                                                     "socket.socket(socket.AF_UNIX).connect('{sock}')\""),
+            # The sandbox matches the socket's real path, so a link in the worktree doesn't reach the allow for it.
+            "connect it through a link in the worktree": ('ln -s "{sock}" sub/l.sock && ' + sys.executable + " -c "
+                                                          "\"import socket; "
+                                                          "socket.socket(socket.AF_UNIX).connect('sub/l.sock')\""),
+            "hard link it into the worktree": ('ln "{sock}" sub/h.sock && ' + sys.executable + " -c \"import socket; "
+                                               "socket.socket(socket.AF_UNIX).connect('sub/h.sock')\""),
+        }
+        allowed = {
+            "a socket in its own temp folder": (sys.executable + " -c \"import os, socket, tempfile; d = "
+                                                "tempfile.mkdtemp(); p = d + '/s'; s = socket.socket(socket.AF_UNIX); "
+                                                "s.bind(p); s.listen(1); socket.socket(socket.AF_UNIX).connect(p); "
+                                                "os.unlink(p); os.rmdir(d)\""),
+            "write and read the worktree": "echo made > sub/new.txt && cat sub/new.txt",
+            "git status from a subfolder": "cd sub && git status --short && echo git-ok",
+            "a tool from caller_read_allow": '"{home}/.pyenv/bin/tool"',
+            "python's temp folder": sys.executable + " -c 'import tempfile; print(tempfile.mkdtemp())'",
+        }
+        if shutil.which("node"):
+            allowed["node writes its temp"] = ("node -e \"require('fs').writeFileSync(require('os').tmpdir() + "
+                                               "'/n', '1')\"")
+        # A terminal and a listening socket of the test's own, so neither route reaches anything real. Imported
+        # here: pty doesn't import on Windows, and this test runs only on a Mac.
+        import pty
+        import socket
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock = str((self.root / "l.sock").resolve())
+        listener.bind(sock)
+        listener.listen(64)
+        self.addCleanup(listener.close)
+        for number, (label, command) in enumerate(list(refused.items()) + list(allowed.items())):
+            for caller in (True, False):
+                base = self.root / "{}-{}".format(number, caller)
+                home, factory, clone, tree = self.caller_layout(base)
+                state = loop.state_dir(factory, "app") / "issue-3"
+                wg = clone / ".git" / "worktrees" / "issue-3"
+                text = command.format(factory=factory, clone=clone, tree=tree, state=state, home=home, wg=wg,
+                                      pty=os.ttyname(slave), sock=sock)
+                cfg = dict(loop.DEFAULTS, caller=caller, worktree_dir=str(base / "trees"))
+                with self.subTest(caller=caller, label=label), self.at_home(home):
+                    code, out = loop.Loop(factory, cfg, project=clone).own_command(text, tree)
+                    if caller and label in refused:
+                        self.assertNotEqual(code, 0, out)
+                        self.assertNotIn("made-up home text", out)
+                        # Nothing it was refused changed what the loop's own git reads next.
+                        self.assertEqual((factory / ".claude" / "hooks" / "guard.py").read_text(), "# the guard\n")
+                        self.assertNotIn("fsmonitor", (clone / ".git" / "config").read_text())
+                        self.assertEqual((tree / ".git").read_text().strip(),
+                                         "gitdir: {}".format((clone / ".git" / "worktrees" / "issue-3").resolve()))
+                        self.assertFalse((state / "review.md").exists())
+                        self.assertTrue(tree.is_dir() and not (wg / "config").exists() and not (wg / "MERGE_HEAD").exists())
+                        self.assertFalse(os.path.lexists(str(wg / "loop-setup-done")))
+                    else:
+                        self.assertEqual(code, 0, out)
+
+    def test_the_profile_denies_terminals_sockets_the_keychain_the_clipboard_and_work_handed_outside(self):
+        lines, args = self.profile()
+        tree, scratch = Path(args["tree"]).resolve(), Path(args["scratch"]).resolve()
+        devices = [line for line in lines if line.startswith("(allow file-write* (literal \"/dev/null\")")]
+        self.assertEqual(len(devices), 1, lines)
+        self.assertNotIn("/dev/tty", devices[0])
+        terminals = "(deny file-read* file-write* {})".format(loop.CALLER_TERMINALS)
+        self.assertIn(terminals, lines)
+        self.assertGreater(lines.index(terminals), max(i for i, line in enumerate(lines) if line.startswith("(allow file")))
+        sockets = lines.index("(deny network-outbound (remote unix-socket))")
+        for line in ['(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))',
+                     '(allow network-outbound (remote unix-socket (subpath "{}")))'.format(tree),
+                     '(allow network-outbound (remote unix-socket (subpath "{}")))'.format(scratch)]:
+            with self.subTest(line=line):
+                self.assertGreater(lines.index(line), sockets)
+        self.assertEqual([line for line in lines if "network-outbound" in line and line.startswith("(allow")
+                          and "mDNSResponder" not in line and str(tree) not in line and str(scratch) not in line], [])
+        lookups = [line for line in lines if line.startswith("(deny mach-lookup")]
+        self.assertEqual(len(lookups), 1, lines)
+        for name in ("com.apple.SecurityServer", "com.apple.securityd.xpc", "com.apple.secd", "com.apple.pasteboard.1"):
+            self.assertIn('(global-name "{}")'.format(name), lookups[0])
+        for operation in ("lsopen", "job-creation", "appleevent-send", "user-preference-write"):
+            self.assertIn("(deny {})".format(operation), lines)
+        self.assertIn('(deny file-read* (subpath "/private/var/tmp"))', lines)
+        self.assertFalse([line for line in lines if line.startswith("(allow mach") or line.startswith("(allow ls")])
+
+    def test_on_a_real_mac_a_callers_command_cant_open_the_terminal(self):
+        self.real_sandbox()
+        home, factory, clone, tree = self.caller_layout(self.root / "tty")
+        cfg = dict(loop.DEFAULTS, caller=True, worktree_dir=str(self.root / "tty" / "trees"))
+        with self.at_home(home):
+            code, out = loop.Loop(factory, cfg, project=clone).own_command("exec 3</dev/tty", tree)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("Operation not permitted", out)
+
+
+@unittest.skipIf(os.name == "nt", "sessions and process groups are POSIX")
+class TestHeldCommands(unittest.TestCase):
+    """A caller's command runs with nothing on stdin, in a session of its own with no terminal, and every process
+    still in that session is killed when it ends or times out, before its temp folder is removed (#639)."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.lp = loop.Loop(self.root, dict(loop.DEFAULTS))
+
+    def held(self, command, timeout=20):
+        return self.lp.sh(["/bin/sh", "-c", command], cwd=self.root, timeout=timeout, held=True, partial=True)
+
+    def gone(self, name):
+        pid = int((self.root / name).read_text())
+        deadline = time.monotonic() + 5
+        while loop.pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return not loop.pid_alive(pid)
+
+    def test_stdin_is_empty_and_there_is_no_terminal(self):
+        started = time.monotonic()
+        code, out = self.held('read x; echo "got[$x]"; if (exec 3</dev/tty) 2>/dev/null; then echo tty; fi')
+        self.assertEqual((code, out.strip()), (0, "got[]"))
+        self.assertLess(time.monotonic() - started, 10)
+
+    def test_what_it_left_running_is_killed_when_it_ends(self):
+        script = ("import os, time; os.setpgid(0, 0); open('group.pid', 'w').write(str(os.getpid())); "
+                  "time.sleep(60)")
+        code, out = self.held("sleep 60 >/dev/null 2>&1 & echo $! > bg.pid; "
+                              "{} -c \"{}\" >/dev/null 2>&1 & "
+                              "while [ ! -s group.pid ]; do sleep 0.05; done; echo done".format(sys.executable, script))
+        self.assertEqual((code, out.strip()), (0, "done"))
+        self.assertTrue(self.gone("bg.pid"), "a background child outlived the command")
+        self.assertTrue(self.gone("group.pid"), "a child in a group of its own outlived the command")
+
+    def test_what_it_left_running_is_killed_when_it_times_out(self):
+        code, out = self.held("sleep 60 >/dev/null 2>&1 & echo $! > bg.pid; echo started; sleep 60", timeout=2)
+        self.assertEqual(code, 124, out)
+        self.assertIn("started", out)
+        self.assertTrue(self.gone("bg.pid"))
+
+    def test_a_child_holding_the_output_open_doesnt_hang_the_loop(self):
+        started = time.monotonic()
+        code, out = self.held("sleep 60 & echo $! > bg.pid; echo quick", timeout=3)
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertIn("quick", out)
+        self.assertTrue(self.gone("bg.pid"))
+
+    def test_outside_held_mode_sh_runs_as_it_did(self):
+        with mock.patch.object(loop.subprocess, "run", wraps=subprocess.run) as run:
+            self.assertEqual(self.lp.sh(["/bin/sh", "-c", "echo hi"], cwd=self.root), (0, "hi\n"))
+        self.assertNotIn("start_new_session", run.call_args.kwargs)
+        self.assertNotIn("stdin", run.call_args.kwargs)
+
+
 class TestCallerIntake(unittest.TestCase):
     """caller true: an issue waits until a person here accepts it, is blocked if it changed since or hides an HTML
     comment, and needs a whole work order, all before any agent runs (SPEC-003 T007 to T010)."""
@@ -9014,12 +9426,15 @@ class TestCallerCommands(unittest.TestCase):
         warned = [l for l in self.log() if " WARN " in l and "ignored" in l]
         self.assertEqual(len(warned), 1, self.log())
         self.assertIn("base, generate_command, setup_command, test_command, test_timeout", warned[0])
-        # The profile denies the sibling project and the factory's loop.json, and never this project's clone.
+        # The profile denies the sibling project and the factory's loop.json, and never this project's clone,
+        # which it allows back after denying the factory (#639).
         profile = (self.state / "sandbox-profile").read_text()
         for path in (self.sibling, self.harness / "loop.json"):
             self.assertIn('(deny file-read* file-write* (subpath "{}"))'.format(os.path.realpath(str(path))),
                           profile)
-        self.assertNotIn('(subpath "{}")'.format(os.path.realpath(str(self.project))), profile)
+        own = '(subpath "{}")'.format(os.path.realpath(str(self.project)))
+        self.assertIn("(allow file-read* " + own + ")", profile)
+        self.assertFalse([line for line in profile.splitlines() if line.startswith("(deny") and own in line])
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()
