@@ -18,7 +18,7 @@ FINDING = {"file": "src/app.py", "line": 12, "severity": "blocks", "rule": "AGEN
 
 
 def report(verdict="changes needed", findings=(FINDING,), **more):
-    return json.dumps(dict({"verdict": verdict, "findings": [dict(f) for f in findings]}, **more))
+    return json.dumps(dict({"verdict": verdict, "findings": list(findings)}, **more))
 
 
 def without(key):
