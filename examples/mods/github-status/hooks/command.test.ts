@@ -16,6 +16,8 @@ type Options = {
   gh?: { isDown?: boolean; hold?: Promise<void> | null }
   // Called with each git command as it runs.
   onGit?: ((argv: string[]) => void) | undefined
+  // How many workflow runs GitHub says are in progress, read from this object each time. None means 0.
+  actions?: { running: number }
 }
 
 // A factory at ROOT with three folders under projects/: acme and beta are clones on GitHub, notes is a plain folder.
@@ -95,6 +97,7 @@ function stage(on: On, options: Options = {}) {
     if (options.gh?.isDown) return fail
     if (options.betaFails && text.includes('beta')) return fail
     if (text.includes('graphql')) return ok(COUNTS(text.includes('owner=acme') ? 4 : text.includes('owner=beta') ? 7 : 2))
+    if (text.includes('status=in_progress')) return ok(JSON.stringify({ total_count: options.actions?.running ?? 0 }))
     return ok('{"total_count": 0}')
   })
   on('ui.render', async () => ({ type: 'Box', props: {}, children: [] }) as never)
@@ -753,6 +756,51 @@ describe('/github with a project in focus', () => {
     await start($)
     await s.clock.settle()
     expect(await gitHub($, 'all')).toBe([`factory: ${HARNESS}`, ACME, BETA, '1 folder under projects/ has no GitHub remote.'].join('\n'))
+  })
+})
+
+describe('the wave', () => {
+  const FRAME = 100
+  const BEFORE = 'SanvioLabs/sanvio-factory · '
+  const AFTER = ' · 2 open pull requests · 1 open issue'
+
+  test('flows across the running actions frame by frame, and the rest of the line stays as it was', async ($, on) => {
+    const s = stage(on, { session: { id: A }, actions: { running: 2 } })
+    await start($)
+    await s.clock.settle()
+    const frames: string[] = []
+    // A whole cycle, wherever the clock starts in it.
+    for (let n = 0; n < 60; n++) {
+      frames.push(await drawn($))
+      await s.clock.advance(FRAME)
+    }
+    for (const frame of frames) {
+      expect(frame).toContain(BEFORE)
+      expect(frame).toContain(AFTER)
+    }
+    expect(new Set(frames).size).toBeGreaterThan(10)
+  })
+  test('draws the same line every frame with no action running', async ($, on) => {
+    const s = stage(on, { session: { id: A } })
+    await start($)
+    await s.clock.settle()
+    const first = await drawn($)
+    await s.clock.advance(FRAME * 3)
+    expect(await drawn($)).toBe(first)
+    expect(first).toContain(HARNESS)
+  })
+  test('stops once the next read finds nothing running', async ($, on) => {
+    const actions = { running: 2 }
+    const s = stage(on, { session: { id: A }, actions })
+    await start($)
+    await s.clock.settle()
+    expect(await drawn($)).toContain(BEFORE)
+    actions.running = 0
+    await s.clock.advance(LIMIT + TICK)
+    const first = await drawn($)
+    expect(first).toContain(HARNESS)
+    await s.clock.advance(FRAME * 3)
+    expect(await drawn($)).toBe(first)
   })
 })
 

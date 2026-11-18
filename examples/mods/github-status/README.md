@@ -43,7 +43,7 @@ claude plugin disable github-status@sanvio-factory --scope local
 | The line says | Means |
 |---|---|
 | `owner/name · reading…`, cyan | The first read of GitHub is under way |
-| `owner/name · 2 actions running (1 queued) · 3 open pull requests · 5 open issues`, cyan | What the last read found. Actions are workflow runs in progress, and the queued count shows only when there is one. Issues don't include pull requests |
+| `owner/name · 2 actions running (1 queued) · 3 open pull requests · 5 open issues`, cyan | What the last read found. Actions are workflow runs in progress, and the queued count shows only when there is one. Issues don't include pull requests While one or more are in progress, a soft wave of light flows across `2 actions running`, each letter fading up and back down as it passes, so a glance tells a running action from a finished one. It fades to white on a dark theme and to deep teal on a light one, from your theme setting, and to bold text where the theme is `auto`. It moves only on a fresh read: stale counts and `0 actions running` stay still |
 | `… · as of 7m ago`, yellow | The last read failed, so these are the counts from the one before, and how old they are |
 | `owner/name · GitHub unavailable (is gh installed and signed in?)`, yellow | No read has worked yet this session. `gh` is missing, signed out, offline, or can't see the repo |
 | `no GitHub remote`, dim | The session's folder has no `origin` remote on github.com, so the mod never calls `gh`. With a project in focus it's `<name>: no GitHub remote`: that project's folder has no GitHub `origin`, and `gh` isn't called for it |

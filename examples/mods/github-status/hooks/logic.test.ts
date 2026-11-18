@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
+import { LIMIT_MS, QUERY, SESSION, allText, due, failed, focusFile, focusName, isRunning, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText, schemeOf, shade, sweepLine, wave } from './logic'
 import type { Counts } from '../types'
 
 const REPO = 'SanvioLabs/sanvio-factory'
@@ -166,5 +166,67 @@ describe('the line with a project', () => {
     expect(failed(counts, REPO, 'beta')).toEqual({ kind: 'unavailable', repo: REPO, project: 'beta' })
     expect(failed(counts, REPO)).toEqual({ kind: 'unavailable', repo: REPO })
     expect(failed(counts, 'other/repo', 'acme')).toEqual({ kind: 'unavailable', repo: 'other/repo', project })
+  })
+})
+
+describe('the wave', () => {
+  test('each cell fades in and back out as the wave passes, a shade or two a frame, never jumping', () => {
+    for (const cell of [0, 8, 16]) {
+      const seen = Array.from({ length: 60 }, (_, n) => wave(17, n)[cell] ?? 0)
+      expect(Math.max(...seen)).toBe(5)
+      for (let n = 1; n < seen.length; n++) expect(Math.abs(seen[n]! - seen[n - 1]!)).toBeLessThanOrEqual(2)
+    }
+  })
+  test('the wave is soft: one frame holds several shades at once, brightest in the middle', () => {
+    const frame = Array.from({ length: 60 }, (_, n) => wave(17, n)).find(levels => levels[8] === 5)!
+    expect(new Set(frame).size).toBeGreaterThan(3)
+    expect(frame[7]).toBeLessThanOrEqual(5)
+    expect(frame[4]).toBeLessThan(frame[8]!)
+  })
+  test('it flows left to right, then the text rests unlit before the next wave', () => {
+    const peakOf = (n: number) => wave(17, n).indexOf(5)
+    const peaks = Array.from({ length: 60 }, (_, n) => peakOf(n)).filter(p => p >= 0)
+    expect(peaks.length).toBeGreaterThan(5)
+    for (let k = 1; k < peaks.length && peaks[k]! >= peaks[k - 1]!; k++) expect(peaks[k]).toBeGreaterThanOrEqual(peaks[k - 1]!)
+    const cycle = Array.from({ length: 80 }, (_, n) => wave(17, n).every(v => v === 0))
+    expect(cycle.includes(true)).toBe(true)
+  })
+  test('runs only on fresh counts with an action in progress', () => {
+    expect(isRunning({ kind: 'counts', repo: REPO, counts: COUNTS, at: NOW })).toBe(true)
+    expect(isRunning({ kind: 'counts', repo: REPO, counts: { ...COUNTS, running: 0, queued: 3 }, at: NOW })).toBe(false)
+    expect(isRunning({ kind: 'stale', repo: REPO, counts: COUNTS, at: NOW })).toBe(false)
+    expect(isRunning({ kind: 'reading', repo: REPO })).toBe(false)
+    expect(isRunning(null)).toBe(false)
+  })
+  test('lights only the running actions, and the pieces always read as the line', () => {
+    const state = { kind: 'counts', repo: REPO, counts: COUNTS, at: NOW, project: 'acme' } as const
+    const text = lineFor(state, NOW).text
+    for (let n = 0; n < 60; n++) {
+      const pieces = sweepLine(state, NOW, n)
+      expect(pieces.map(p => p.text).join('')).toBe(text)
+      const lit = pieces.filter(p => p.glow > 0).map(p => p.text).join('')
+      expect('2 actions running'.includes(lit) || lit === '').toBe(true)
+    }
+  })
+  test('a line with nothing running, or stale counts, is one piece that never lights', () => {
+    for (const state of [
+      { kind: 'counts', repo: REPO, counts: { ...COUNTS, running: 0 }, at: NOW } as const,
+      { kind: 'stale', repo: REPO, counts: COUNTS, at: NOW } as const,
+      { kind: 'reading', repo: REPO } as const,
+    ]) expect(sweepLine(state, NOW, 4)).toEqual([{ text: lineFor(state, NOW).text, glow: 0 }])
+  })
+  test('the theme setting picks the ramp, and one it can\'t place gets bold steps any theme can show', () => {
+    expect(schemeOf('dark')).toBe('dark')
+    expect(schemeOf('dark-daltonized')).toBe('dark')
+    expect(schemeOf('light-ansi')).toBe('light')
+    expect(schemeOf('auto')).toBeNull()
+    expect(schemeOf(undefined)).toBeNull()
+    expect(shade(0, 'dark')).toEqual({})
+    expect(shade(5, 'dark')).toEqual({ color: '#ffffff', bold: true })
+    expect(shade(5, 'light').color).not.toBe('#ffffff')
+    expect(shade(5, null)).toEqual({ color: 'text', bold: true })
+    expect(shade(1, null)).toEqual({ color: 'cyan', bold: true })
+    const ramp = [1, 2, 3, 4, 5].map(level => shade(level, 'dark').color)
+    expect(new Set(ramp).size).toBe(5)
   })
 })

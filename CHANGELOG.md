@@ -36,6 +36,14 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-17: A wave of light on the GitHub line while an action runs
+
+While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
+
+Files: [`examples/mods/github-status/hooks/logic.ts`](examples/mods/github-status/hooks/logic.ts), [`examples/mods/github-status/hooks/register.tsx`](examples/mods/github-status/hooks/register.tsx), [`examples/mods/github-status/hooks/logic.test.ts`](examples/mods/github-status/hooks/logic.test.ts), [`examples/mods/github-status/hooks/command.test.ts`](examples/mods/github-status/hooks/command.test.ts), [`examples/mods/github-status/README.md`](examples/mods/github-status/README.md), [`examples/mods/github-status/.claude-plugin/plugin.json`](examples/mods/github-status/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update github-status@sanvio-factory`, or start a new session, to take version 0.6.0.
+
 ## 2026-11-17: A caller's commands are the factory's
 
 A caller project's `test_command`, `setup_command`, `generate_command`, `test_timeout` and `base` now come from the factory's `loop.json`, its `projects` entry for that folder and then its top level, never from the caller's own `loop.json`, which anyone who can push to the caller's repo can change. `run` logs one `WARN` naming each of those its own file sets, and refuses to start a caller whose `test_command` the factory doesn't set. The commands run in `sandbox-exec`, which now denies them reading or writing the paths the caller's agents are denied: the factory's private folders and `loop.json`, and every other project's clone, state and worktrees. It denies only the paths it names, so they can still write elsewhere, the factory's own files and the caller clone's `.git` included: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says what's still open. Where they wouldn't run in `sandbox-exec` (`sandbox_commands` false, no `sandbox-exec`, or one that can't apply a profile), `run` refuses a caller with an `ERROR` line; outside caller mode that's still a `WARN`. Projects that aren't callers don't change.
