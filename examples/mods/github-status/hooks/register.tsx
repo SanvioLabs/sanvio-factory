@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { QUERY, allText, due, failed, focusFile, focusName, lineFor, parseCounts, parseRemote, projectName, projectWhy, sectionText } from './logic'
-import type { Tone } from './logic'
+import { FRAME_MS, QUERY, allText, due, failed, focusFile, focusName, isRunning, lineFor, parseCounts, parseRemote, projectName, projectWhy, schemeOf, sectionText, shade, sweepLine } from './logic'
+import type { Scheme, Tone } from './logic'
 import type { Counts, GitHubState } from '../types'
 
 const COMMAND = 'github'
@@ -28,6 +28,15 @@ const COLORS: Record<Tone, { color?: string; dimColor?: boolean }> = {
   warn: { color: 'yellow' },
 }
 
+// Whether the person's theme is dark or light, from its setting, so the wave fades to a color that shows.
+// Null where it can't tell, as for auto.
+let scheme: Scheme | null = null
+
+async function readScheme($: EngineInterface): Promise<void> {
+  const rows = await $.config.list().catch(() => [])
+  scheme = schemeOf(rows.find(row => row.key === 'theme')?.value)
+}
+
 // Set on session.start from the origin remote. Null means no GitHub remote, and gh is never called for it.
 let repo: string | null = null
 // Whether repo has been looked up: a /clear fires no session.start, so /project looks it up once.
@@ -35,6 +44,9 @@ let isRepoKnown = false
 // The focus a read is under way for, FACTORY_KEY for the factory's own. A read for a new focus can start during one for the old.
 let reading: string | null = null
 let timer: ReturnType<EngineInterface['clock']['every']> | null = null
+// The wave's clock, on only while the line shows an action running. Each tick asks for a redraw and
+// writes nothing: the frame comes from the clock when the line is drawn.
+let sweeping: ReturnType<EngineInterface['clock']['every']> | null = null
 
 // A repo to read, and the focus it's read for.
 type Target = { focus: string | null; repo: string }
@@ -217,6 +229,15 @@ async function sync($: EngineInterface, isAsked = false): Promise<void> {
   if (target) await finishRead($, target)
 }
 
+// Starts or stops the wave's clock. Called while drawing, the one place that sees every change to the line.
+function animate($: EngineInterface, isOn: boolean): void {
+  if (isOn && !sweeping) sweeping = $.clock.every(FRAME_MS, () => $.ui.invalidate('ui.render'))
+  else if (!isOn && sweeping) {
+    sweeping.cancel()
+    sweeping = null
+  }
+}
+
 function startTimer($: EngineInterface): void {
   timer = $.clock.every(TICK_MS, () => {
     void sync($).catch(() => {})
@@ -292,10 +313,18 @@ export const register: Register = on => {
     timer?.cancel()
     reading = null
     startTimer($)
+    await readScheme($)
     // The focus settles before the session goes on, so a reload never flashes the factory's line. GitHub isn't waited for.
     const target = await beginSync($).catch(() => null)
     if (target) void finishRead($, target).catch(() => {})
     return next(e)
+  })
+
+  // A theme changed in /config or by /theme: the wave's next frame uses its colors.
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const result = await next(e)
+    await readScheme($).catch(() => {})
+    return result
   })
 
   on('command.run', { command: PROJECT_COMMAND }, async ($, e) => {
@@ -336,15 +365,20 @@ export const register: Register = on => {
   // It only reads the atom: GitHub is read on the timer and by /github, never while drawing.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const status = await read($, statusAtom)
+    const isSweeping = isRunning(status) && !e.props.hasSurvey
+    animate($, isSweeping)
     if (!status || e.props.hasSurvey) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const line = lineFor(status, Date.now())
+    const pieces = isSweeping ? sweepLine(status, Date.now(), Math.floor((await $.clock.now()) / FRAME_MS)) : null
     const below = await next(e)
     return (
       <Box flexDirection="column">
         <Box flexWrap="wrap" columnGap={2}>
           <Text bold>◆ github</Text>
-          <Text {...COLORS[line.tone]}>{line.text}</Text>
+          <Text {...COLORS[line.tone]}>
+            {pieces ? pieces.map((piece, i) => <Text key={String(i)} {...shade(piece.glow, scheme)}>{piece.text}</Text>) : line.text}
+          </Text>
         </Box>
         {below}
       </Box>

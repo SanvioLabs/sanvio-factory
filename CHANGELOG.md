@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-17: A wave of light on the GitHub line while an action runs
+
+While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
+
+Files: [`examples/mods/github-status/hooks/logic.ts`](examples/mods/github-status/hooks/logic.ts), [`examples/mods/github-status/hooks/register.tsx`](examples/mods/github-status/hooks/register.tsx), [`examples/mods/github-status/hooks/logic.test.ts`](examples/mods/github-status/hooks/logic.test.ts), [`examples/mods/github-status/hooks/command.test.ts`](examples/mods/github-status/hooks/command.test.ts), [`examples/mods/github-status/README.md`](examples/mods/github-status/README.md), [`examples/mods/github-status/.claude-plugin/plugin.json`](examples/mods/github-status/.claude-plugin/plugin.json), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** `/plugin update github-status@sanvio-factory`, or start a new session, to take version 0.6.0.
+
 ## 2026-11-17: The loop holds a checkout to its control register
 
 When the issue's checkout has a control register at its root, each build round now runs the loop's own `scripts/controls.py check` on it after `test_command`, and a round whose check fails fails, even when the tests passed. A register that's a symlink fails unread. The check's output follows the tests' in the round's `test-output.txt`, the review and the next build. The round's review prompt, and a pull request review's when that checkout has a register, carry a `Controls touched:` line after the diff. A checkout without a register runs as before, and the loop never reads the factory's own register for another checkout. Projects start from [`examples/controls/`](examples/controls/), an empty register and the steps for choosing its framework; [`docs/controls.md`](docs/controls.md) has a new *A project's register* section.
