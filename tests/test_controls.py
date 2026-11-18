@@ -129,6 +129,18 @@ class Check(unittest.TestCase):
         code, out = run("check", cwd=ROOT)
         self.assertEqual((code, out), (0, ["controls.json: 5 controls, all evidence present"]))
 
+    def test_an_empty_register_passes_with_no_controls(self):
+        self.assertEqual(self.check([], name="controls.json"), (0, ["controls.json: 0 controls, all evidence present"]))
+
+    def test_any_framework_name_passes_such_as_soc_2(self):
+        code, out = self.check([control("CC6.1", framework="SOC 2")])
+        self.assertEqual((code, out), (0, ["fixture.json: 1 control, all evidence present"]))
+
+    def test_the_example_a_project_copies_is_empty_and_passes(self):
+        path = ROOT / "examples" / "controls" / "controls.json"
+        self.assertEqual(json.loads(path.read_text()), [])
+        self.assertEqual(run("check", "--file", str(path)), (0, ["controls.json: 0 controls, all evidence present"]))
+
 
 class Touched(unittest.TestCase):
     REGISTER = [
