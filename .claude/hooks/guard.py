@@ -44,8 +44,8 @@ Wired in .claude/settings.json as a PreToolUse hook. Six jobs:
    person first, and in a headless run or a loop agent, where nobody can
    answer, is refused.
 
-6. A caller project's build in scripts/loop.py (SANVIO_CONFINE set to its
-   worktree and its clone's .git) stays in those folders. A Read, Edit,
+6. A caller project's build in scripts/loop.py (this hook started with
+   --confine naming its worktree and its clone's .git) stays in those folders. A Read, Edit,
    Write, NotebookEdit, Grep or Glob whose path, resolved, is outside them is
    refused, and so is a shell command naming an absolute, ~ or .. path
    outside them and outside the system and tool folders SYSTEM_PATHS lists.
@@ -602,9 +602,9 @@ def is_headless():
     return os.environ.get("SANVIO_HEADLESS") == "1" or os.environ.get("HARNESS_HEADLESS") == "1"
 
 
-CONFINED_OUTSIDE = ("This build is held to its own worktree (SANVIO_CONFINE): no file outside it is read, "
+CONFINED_OUTSIDE = ("This build is held to its own worktree: no file outside it is read, "
                     "searched, listed or written. Work inside the worktree.")
-CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to it (SANVIO_CONFINE). Name "
+CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to it. Name "
                   "paths inside the worktree, and system tools by name.")
 # What a held build's shell may still name outside its folders: system and tool install paths it reads to run
 # at all, temp, and the device files a command writes to. Each a folder with all it holds, or a file. Nothing
@@ -626,13 +626,20 @@ URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"]*")
 HOME_VAR = re.compile(r"\$\{?HOME\}?(?![A-Za-z0-9_])")
 
 
-def confined_folders():
-    """The folders SANVIO_CONFINE names, resolved, or None when it's unset or empty. scripts/loop.py sets it for
-    a caller project's build and tester agents: the issue's worktree and the clone's .git (SPEC-003 REQ-008)."""
-    raw = os.environ.get("SANVIO_CONFINE", "")
-    if not raw:
-        return None
-    return [os.path.realpath(os.path.expanduser(part)) for part in raw.split(os.pathsep) if part.strip()]
+def confined_folders(args):
+    """The folders this hook's command line names, each after a --confine, resolved, or None when it names none.
+    scripts/loop.py puts them in the hook command of a caller project's build and tester agents: the issue's
+    worktree and the clone's .git (SPEC-003 REQ-008). The command line, not the environment, since an env block
+    in the caller's own settings could change a variable (#597). Any other argument, or a --confine without a
+    folder, is a ValueError: main() then refuses every call in a loop agent rather than hold it to nothing."""
+    folders = []
+    rest = list(args)
+    while rest:
+        flag = rest.pop(0)
+        if flag != "--confine" or not rest or not rest[0].strip():
+            raise ValueError("guard.py takes only --confine <folder>")
+        folders.append(os.path.realpath(os.path.expanduser(rest.pop(0))))
+    return folders or None
 
 
 def within(full, folders):
@@ -724,7 +731,7 @@ def machines_verdict(path, headless):
     return ("ask", MACHINES_ARE_THE_PERSONS.format(path))
 
 
-def decide(event):
+def decide(event, held=None):
     """(decision, reason) for one tool call, or None to let it through untouched."""
     tool = event.get("tool_name", "")
     data = event.get("tool_input") or {}
@@ -763,7 +770,6 @@ def decide(event):
         if path and MACHINES_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return machines_verdict(path, headless)
 
-    held = confined_folders()
     if held is not None and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if confined_outside(tool, data, cwd, held):
             return ("deny", CONFINED_OUTSIDE)
@@ -833,8 +839,9 @@ def headless_rewrite(event):
 def main():
     headless = is_headless()
     try:
+        held = confined_folders(sys.argv[1:])
         event = json.load(sys.stdin)
-        verdict = decide(event)
+        verdict = decide(event, held)
         if verdict is None and headless_rewrite(event) is not None:
             verdict = ("update", headless_rewrite(event))
     except Exception:
