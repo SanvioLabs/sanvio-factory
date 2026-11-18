@@ -49,9 +49,13 @@ that removes a feature lists the routes, tables, secrets and permissions it
 leaves behind, and removes them in the same change.
 
 **A ticket that touches personal data, access, logging, a dependency or
-deployment**, one of the kinds in [`compliance.md`](compliance.md), names the SP 800-53 control
-families that kind lists in its Context, so the builder and the security
-reviewer start from the same question.
+deployment, or that widens what an agent does unattended, lets outside text
+reach a prompt, changes who merges or decides, or changes the model, the
+provider or an agent's instructions**, one of the kinds in [`compliance.md`](compliance.md),
+names the SP 800-53 control families that kind lists in its Context, so the
+builder and the security reviewer start from the same question. For one of
+the last four kinds, it also names the OWASP risk by its name and the AI RMF
+and ISO 42001 references that kind's row lists.
 
 **One change per ticket.** If the acceptance criteria hold two unrelated
 outcomes, it's two tickets. If it can't fit one pull request, split it so each

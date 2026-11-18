@@ -36,6 +36,16 @@ The test for the author: if your diff changes lines that an entry from the last 
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-16: AI kinds of change in compliance steering
+
+[`steering/compliance.md`](steering/compliance.md) now names four kinds of change that carry AI risk: one that widens what an agent does unattended, one that lets outside text reach a prompt, one that changes who merges or decides, and one that changes the model, the provider or an agent's instructions. Each row gives its SP 800-53 controls, the OWASP Top 10 for LLM Applications risk by name, the NIST AI RMF 1.0 function and the ISO/IEC 42001:2023 Annex A control, and the question to answer before calling it done. The baseline names those three frameworks as companions to SP 800-53. AGENTS.md's Read when, the tickets paragraph and the builder's bullet list the new kinds, a ticket of one of them names its OWASP risk and AI RMF and ISO references, and the security reviewer names the OWASP risk on such a finding.
+
+**Needs:** 2026-11-11: Compliance steering with NIST SP 800-53
+
+Files: [`steering/compliance.md`](steering/compliance.md), [`AGENTS.md`](AGENTS.md), [`steering/tickets.md`](steering/tickets.md), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`agents/security-reviewer.md`](agents/security-reviewer.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-16: A control register that fails CI when its evidence moves
 
 New: [`controls.json`](controls.json), the factory's own mapping of five security controls to the files that carry them, from NIST SP 800-53 Rev. 5 and the OWASP Top 10 for LLM Applications. It isn't a certification or an assessment. `python3 scripts/controls.py check` fails when an entry is malformed or an evidence path is gone, and the tests run it, so renaming or deleting one of those files fails CI until the register follows. `python3 scripts/controls.py touched origin/<base>` lists the controls a branch's changes reach, and the review-pr skill reports them on a `Controls touched:` line. Without `--file`, both commands read the repo they run in, its own `controls.json` at the git root, never the factory's from inside another repo, and `check` fails a folder path without a trailing `/`, a file path with one, and any path that leads outside the register's folder. [`docs/controls.md`](docs/controls.md) explains the fields, the six statuses and both commands.

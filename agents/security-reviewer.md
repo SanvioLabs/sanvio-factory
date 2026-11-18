@@ -138,7 +138,11 @@ Then:
   - **Title** and **Severity** (Critical, High, Medium, Low)
   - **Where:** `file:line`
   - **Control:** the SP 800-53 control or family it touches, such as AC-3 or
-    SC-8, plus the company framework's clause where one applies
+    SC-8, plus the company framework's clause where one applies. A finding
+    in one of the AI kinds in [`../steering/compliance.md`](../steering/compliance.md) (an agent doing more
+    unattended, outside text reaching a prompt, who merges or decides, or the
+    model and its instructions) also names the OWASP Top 10 for LLM
+    Applications risk by name, such as prompt injection, beside the control.
   - **Attack:** what an attacker does, step by step, and what they get
   - **Fix:** the specific change, with code when it's short
 - **Recommendations:** observations and weaknesses with no attack path yet,
