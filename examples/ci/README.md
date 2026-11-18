@@ -74,6 +74,9 @@ jobs:
     uses: your-org/factory/.github/workflows/review-pr.yml@main
     with:
       factory-repo: your-org/factory
+      skip-paths: |
+        docs/**
+        package-lock.json
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -103,6 +106,18 @@ A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
+
+`skip-paths` is optional: leave it out and every pull request is reviewed. It
+takes shell glob patterns, one a line, matched against each changed file's path
+from the repo's root, and `*` crosses `/`, so `docs/*` matches `docs/api/a.md`
+too. A pull request skips with a notice only when every file it changes
+matches a pattern. Both sides of a rename count, so moving code into a skipped folder
+is still reviewed, and one file that matches nothing reviews the whole diff.
+Keep the patterns narrow: `*.md` would skip a change to a project's own `AGENTS.md`, which is
+a change to the rules. Don't reach for a `paths-ignore` filter on the caller
+instead. Once the review is a required check, GitHub leaves a required check
+pending when a path filter keeps its workflow from running, so the pull
+request can't merge. Skipping inside the job keeps the check green.
 
 ## The secret
 

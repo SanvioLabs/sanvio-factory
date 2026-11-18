@@ -33,6 +33,10 @@
 # checks, and it sets no status, approves nothing and merges nothing. The
 # grade-wait-minutes input says how long it waits for those checks to finish.
 #
+# The skip-paths input takes shell globs, one a line: when every file the pull
+# request changes matches one, the review skips with a notice after the head
+# checkout, and the check still passes.
+#
 # The secrets: ANTHROPIC_API_KEY, which has to be scoped to a workspace in the
 # Anthropic Console, or CLAUDE_CODE_OAUTH_TOKEN in its place, a token from
 # `claude setup-token` that bills a Claude subscription instead of the API;
@@ -77,6 +81,11 @@ on:
         required: false
         default: 10
         type: number
+      skip-paths:
+        description: "Shell glob patterns, one a line. When every file the pull request changes matches one, the review skips with a notice and its check passes."
+        required: false
+        default: ''
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         description: "The Anthropic API key Claude reviews with, scoped to a workspace."
@@ -196,6 +205,51 @@ jobs:
           path: head
           fetch-depth: 0
           persist-credentials: false
+
+      # The changed files come from git, so this step needs no token. Both
+      # sides of a rename count, so code moved into a skipped path is still
+      # reviewed, and a pull request that changes nothing is never skipped.
+      # In [[ == ]], * crosses /, so docs/* matches docs/api/a.md too.
+      - name: Skip when only skip-paths files changed
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        env:
+          SKIP_PATHS: ${{ inputs.skip-paths }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          patterns=()
+          while read -r pattern; do
+            if [ -n "$pattern" ]; then
+              patterns+=("$pattern")
+            fi
+          done <<< "$SKIP_PATHS"
+          if [ "${#patterns[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          changed=$(git -C head -c core.quotePath=false diff --name-only --no-renames "$BASE_SHA...HEAD")
+          count=0
+          while IFS= read -r file; do
+            if [ -z "$file" ]; then
+              continue
+            fi
+            count=$((count + 1))
+            matched=false
+            for pattern in "${patterns[@]}"; do
+              if [[ $file == $pattern ]]; then
+                matched=true
+                break
+              fi
+            done
+            if [ "$matched" = false ]; then
+              echo "A changed file matches none of skip-paths, so the review runs."
+              exit 0
+            fi
+          done <<< "$changed"
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          list=$(printf '%s, ' "${patterns[@]}")
+          echo "REVIEW_SKIPPED=true" >> "$GITHUB_ENV"
+          echo "::notice::Every file this pull request changes matches skip-paths (${list%, }), so the review skips."
 
       # The project's rules are read from base/ alone. A change to them is in
       # the diff, where it's reviewed, not followed. Claude Code loads a

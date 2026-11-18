@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
+
 ## 2026-11-18: The CI review's report is checked against a schema
 
 The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.

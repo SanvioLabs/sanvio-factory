@@ -139,6 +139,9 @@ them against the skill on your machine, which spends model tokens.
   can edit it, as step 5 says.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
   So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's.
+- A pull request whose changed files all match the caller's `skip-paths`
+  skips with a notice, and its check passes. [`examples/ci/README.md`](../examples/ci/README.md)
+  (*The caller*) says how the patterns match.
 
 ### The grade
 
