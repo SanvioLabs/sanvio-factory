@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: A review thread per blocking finding
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes two new inputs, both off by default: with `review-threads: false` and `fail-on: never` it posts the same comment and its check result is unchanged. `review-threads: true` adds a last step, [`scripts/review_threads.py`](scripts/review_threads.py), that opens a review thread on each `blocks` finding in the checked report, on its line, its file or the first changed file, at most 25 a run, finds it again on the next push by a hidden marker, resolves it with a reply once the finding is no longer reported, and reopens it if the finding comes back. A thread a person resolved, or someone else opened, is never touched, and an unreadable report opens and resolves nothing. `fail-on: blocks` fails the check, with an error naming how many blocking findings are open, while the report holds one or can't be read. The threads and the result come from the validated report, never the model's text, and nothing approves, requests changes or merges. [`docs/factory-in-ci.md`](docs/factory-in-ci.md) has a new *Review threads and a failing check* section on pairing it with *Require conversation resolution before merging*.
+
+**Needs:** 2026-11-18: The CI review's report is checked against a schema
+
+**Controls:** AC-5
+
+Files: [`scripts/review_threads.py`](scripts/review_threads.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_threads.py`](tests/test_review_threads.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; set `review-threads` or `fail-on` under `with:` in a product repo's caller to opt in.
+
 ## 2026-11-18: The CI review's report is checked against a schema
 
 The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.

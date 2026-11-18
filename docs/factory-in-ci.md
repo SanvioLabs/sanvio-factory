@@ -163,6 +163,43 @@ The comment's last line gives the verdict and a grade out of 10, such as
 - **What it does:** nothing but say it. It sets no status, approves nothing
   and merges nothing. [The grade](../examples/ci/README.md#the-grade) has the detail.
 
+### Review threads and a failing check
+
+Two inputs in the caller, both off by default. Off, the review posts its one
+comment and its check passes or fails as before.
+
+- **`review-threads: true`** opens a review thread on each finding whose
+  severity is `blocks`: on its line when the diff shows that line, otherwise
+  on its file, otherwise on the first changed file, with the finding's own
+  file and line in the thread. Nits get no thread. A later push finds the
+  same thread again by a hidden marker in it rather than opening a second.
+  When a run no longer reports the finding, the thread gets a reply and is
+  resolved, and it's reopened if the finding comes back. A thread a person
+  resolved stays resolved, a thread someone else opened is never touched, and
+  a run whose report can't be read opens and resolves nothing. A run opens at
+  most 25 new threads.
+- **`fail-on: blocks`** fails the review's check, with an error naming how
+  many blocking findings are open, while the report holds one. A report that
+  can't be read fails it too. `fail-on: never`, the default, always passes it.
+
+Both come from the report after
+[`scripts/review_threads.py`](../scripts/review_threads.py) checks it against the schema, and the
+script writes every thread itself, so the model writes none of them. A
+GitHub call that fails is a warning, and never changes the check's result.
+
+**Pairing it with your branch rules:** turn on *Require conversation
+resolution before merging* in the product repo's branch ruleset, and
+`review-threads` makes each blocking finding something the pull request
+can't merge past until the next run stops reporting it or a person resolves
+its thread. A person resolving it is a decision, and it holds: the next run
+leaves that thread resolved. To make a blocking finding fail a required
+check instead, set `fail-on: blocks` and require the review's check in the
+same ruleset. Either way the workflow approves nothing, requests no changes
+and merges nothing: a person still decides, through the rules they set. A
+review that skips, for a fork, a draft or a missing Claude key, passes its
+check whatever `fail-on` says, so a required check doesn't stop those pull
+requests on its own.
+
 ## The loop on a runner
 
 Optional, and for the factory's own issues. [`examples/ci/loop.yml`](../examples/ci/loop.yml) runs

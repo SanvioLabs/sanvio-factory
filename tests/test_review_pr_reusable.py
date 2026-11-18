@@ -339,7 +339,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
             paths.append(line.strip())
         self.assertEqual(paths, ["/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/",
                                  "/.github/workflows/review-pr.yml", "/review-rubric.json", "/scripts/loop.py",
-                                 "/scripts/names.py", "/scripts/review_grade.py", "/scripts/review_report.py"])
+                                 "/scripts/names.py", "/scripts/review_grade.py", "/scripts/review_report.py",
+                                 "/scripts/review_threads.py"])
         self.assertIn("sparse-checkout-cone-mode: false", harness)
         for name in (BASE, HEAD):
             self.assertNotIn("sparse-checkout", self.step(name), name)

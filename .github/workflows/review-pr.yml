@@ -6,7 +6,7 @@
 #
 # What it does: it checks out three folders side by side. harness/ holds only
 # this repo's AGENTS.md, steering/, skills/, agents/ and standards/, and the
-# review-rubric.json and four scripts the report and the grade need, at its
+# review-rubric.json and five scripts the report, the grade and the threads need, at its
 # default branch, read with a read-only deploy key, so every
 # product repo reviews against the same skills and rules, and the log names
 # the harness commit it used. base/ is the product repo at the pull request's
@@ -23,9 +23,13 @@
 # against harness/skills/review-pr/report.schema.json and writes the comment
 # from its fields, each flattened to one line with its HTML, images and
 # mentions defused. A report that doesn't match posts no findings, only a line
-# saying it couldn't be read. The last step is the only one that posts, and it never
-# approves, requests changes or merges: a person decides what happens to the
-# pull request.
+# saying it couldn't be read. Only the last two steps post: the comment, and,
+# when the caller turns on review-threads, a review thread per blocking
+# finding, which scripts/review_threads.py writes from the same checked report.
+# With fail-on: blocks, the last step also fails the check while the report
+# holds a blocking finding. Neither step ever approves, requests changes or
+# merges: a person decides what happens to the pull request. With both inputs
+# at their defaults, the last step doesn't run.
 #
 # The comment's last line carries a grade out of 10, as the loop's reviews do.
 # It's advisory: it comes from this repo's review-rubric.json, through
@@ -56,7 +60,8 @@
 # requests. The grade step uses it to try to read the pull request's check
 # runs. Whether these permissions allow that hasn't been tried on a live pull
 # request yet: if the read is refused, the grade says pending and the run's
-# summary says why. Only the last step uses it to write, to post the comment.
+# summary says why. Only the last two steps use it to write: to post the
+# comment, and to open, answer, resolve and reopen the review threads.
 # A called workflow can't get more than its caller grants, and this one asks
 # for no more than this. Keep it that way: don't add a permission.
 #
@@ -77,6 +82,16 @@ on:
         required: false
         default: 10
         type: number
+      review-threads:
+        description: "Open a review thread on each blocking finding, and resolve it once a later run no longer reports it."
+        required: false
+        default: false
+        type: boolean
+      fail-on:
+        description: "blocks fails this check while the report holds a blocking finding; never, the default, always passes it."
+        required: false
+        default: "never"
+        type: string
     secrets:
       ANTHROPIC_API_KEY:
         description: "The Anthropic API key Claude reviews with, scoped to a workspace."
@@ -164,6 +179,7 @@ jobs:
             /scripts/names.py
             /scripts/review_grade.py
             /scripts/review_report.py
+            /scripts/review_threads.py
           sparse-checkout-cone-mode: false
 
       - name: Say which harness commit reviews
@@ -404,3 +420,23 @@ jobs:
           else
             gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
           fi
+
+      # Opt-in: with review-threads false and fail-on never, the defaults, this
+      # step doesn't run. It comes after the comment, so a GitHub call that
+      # fails here leaves the comment posted. scripts/review_threads.py reads
+      # report.json through the same schema check as the comment, from
+      # harness/ alone, and writes every thread itself from the fields, so the
+      # model writes none of them. It touches only the threads this workflow
+      # opened, never a person's, and the check result comes from the report,
+      # never from a GitHub call. It holds no secret, only the job's token.
+      - name: Open a thread per blocking finding
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true' && (inputs.review-threads || inputs.fail-on != 'never')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_THREADS: ${{ inputs.review-threads }}
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: |
+          python3 harness/scripts/review_threads.py

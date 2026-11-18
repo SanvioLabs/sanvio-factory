@@ -19,7 +19,7 @@ a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
 [`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), with the
-[`review-rubric.json`](../../review-rubric.json) and the four scripts the report and [the grade](#the-grade) need, [`scripts/review_report.py`](../../scripts/review_report.py) among them, which checks the report against its schema, `base/` (the product repo at the pull
+[`review-rubric.json`](../../review-rubric.json) and the five scripts the report, [the grade](#the-grade) and the review threads need, [`scripts/review_report.py`](../../scripts/review_report.py) among them, which checks the report against its schema, `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
@@ -74,6 +74,8 @@ jobs:
     uses: your-org/factory/.github/workflows/review-pr.yml@main
     with:
       factory-repo: your-org/factory
+      review-threads: false
+      fail-on: never
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -103,6 +105,16 @@ A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
+
+`review-threads` and `fail-on` are off as shown, and then the run posts the
+same comment and passes or fails as before. `review-threads: true` also opens
+a review thread on each blocking finding, at most 25 a run, and resolves it
+once a later run no longer reports the finding. `fail-on: blocks` fails the
+review's check while the report holds a blocking finding, or can't be read.
+Both come from the checked report, through
+[`scripts/review_threads.py`](../../scripts/review_threads.py), never from the model's text, and neither
+approves or merges anything. [Your factory in CI](../../docs/factory-in-ci.md#review-threads-and-a-failing-check)
+says how to pair them with your branch rules.
 
 ## The secret
 
@@ -138,7 +150,9 @@ the deploy key can read the whole of your factory's repo, and the workflow check
 A private factory's other files (scripts, docs, examples, reports) aren't
 checked out, so the review can't read them or quote them. The exceptions are
 [`review-rubric.json`](../../review-rubric.json), [`scripts/loop.py`](../../scripts/loop.py), [`scripts/names.py`](../../scripts/names.py) and
-[`scripts/review_grade.py`](../../scripts/review_grade.py), which [the grade](#the-grade) needs.
+[`scripts/review_grade.py`](../../scripts/review_grade.py), which [the grade](#the-grade) needs, and
+[`scripts/review_report.py`](../../scripts/review_report.py) and [`scripts/review_threads.py`](../../scripts/review_threads.py), which check the report and open
+the review threads.
 
 ## Protecting the factory repo
 
