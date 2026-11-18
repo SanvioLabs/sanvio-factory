@@ -1,0 +1,20 @@
+[
+  {"framework": "NIST SP 800-53 Rev. 5", "id": "AC-5", "name": "Separation of duties", "status": "configured",
+   "summary": "The building and reviewing agents are separate, and the loop opens pull requests but doesn't merge while auto_merge is off, its default.",
+   "setup": "Keep auto_merge off, or require approval from someone other than the author in a branch ruleset that applies to admins before turning it on.",
+   "evidence": ["AGENTS.md", "scripts/loop.py", "examples/ci/README.md", "docs/review-rubric.md"]},
+  {"framework": "NIST SP 800-53 Rev. 5", "id": "AT-2", "name": "Literacy training and awareness", "status": "configured",
+   "summary": "Orientation and the exercises teach the rules, and orientation offers to record who went through it in the company record.",
+   "setup": "Run /orientation for each person and keep the Onboarding table in company/COMPANY.md.",
+   "evidence": ["skills/orientation/SKILL.md", "skills/orientation/COMPANY.example.md", "EXERCISES.md"]},
+  {"framework": "NIST SP 800-53 Rev. 5", "id": "AU-9", "name": "Protection of audit information", "status": "configured",
+   "summary": "Each usage-log line carries the hash of the one before it, the guard refuses agent writes to the logs, and the monthly review checks the chain.",
+   "setup": "Forward the usage log and the loop's logs to a store no user or agent can edit, and run the monthly log review.",
+   "evidence": ["scripts/log_chain.py", ".claude/hooks/guard.py", "scripts/usage_report.py"]},
+  {"framework": "NIST SP 800-53 Rev. 5", "id": "SA-9", "name": "External system services", "status": "core",
+   "summary": "An approved-tools table records each AI tool's plan and the date it was checked, and the setup check warns about any MCP server it doesn't list.",
+   "evidence": ["steering/data-and-tools.md", "scripts/check_setup.py"]},
+  {"framework": "OWASP Top 10 for LLM Applications", "id": "prompt-injection", "name": "Prompt injection", "status": "gap-limit",
+   "summary": "Reviewers read text as data and the evals plant instructions to prove it, but no model-based agent can be made immune.",
+   "evidence": ["agents/security-reviewer.md", "examples/ci/evals/", "examples/eval-suite-planted-instructions/"]}
+]
