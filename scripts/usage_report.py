@@ -20,8 +20,9 @@ loop's .loop/loop.log as its date, issue and level only, and each day the loop
 spent more than 3 times the median day with spend. A missing log is a line that
 says so. Its last section, Controls, prints what scripts/controls.py check prints
 for controls.json, then each CHANGELOG.md entry in those days with a
-**Controls:** line, as its date, name and ids. It then writes today's date to .sanvio/usage/last-review, which the
-factory dashboard shows. It never changes the logs it reads.
+**Controls:** line, as its date, name and ids. It then writes today's date to
+.sanvio/usage/last-review, which the factory dashboard shows. It never changes
+the logs it reads.
 """
 import argparse
 import contextlib
@@ -40,7 +41,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from log_chain import verify  # noqa: E402 (needs scripts/ on the path first)
 from usage_log import log_path  # noqa: E402 (needs .claude/hooks/ on the path first)
 import names  # noqa: E402 (same reason as log_chain)
-import controls  # noqa: E402 (same reason as log_chain)
 
 REVIEW_DAYS = 30  # the days a log review covers, today included
 SPIKE = 3  # a day's loop spend over this many times the median day's is listed
@@ -205,6 +205,7 @@ def review(root, today, usage_path):
     return "\n".join(out) + "\n"
 
 
+# tests/test_changelog.py reads the log with these same two, so the two readers can't drift apart.
 CHANGELOG_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
 CHANGELOG_CONTROLS = re.compile(r"^\*\*Controls:\*\* (.+)$", re.M)
 
@@ -232,6 +233,9 @@ def controls_section(root, since, until):
     register = root / "controls.json"
     if not register.is_file():
         return ["No controls.json, so no controls to list."]
+    # Imported here, not at the top: controls loads subprocess, and export.py imports
+    # this module on the promise that it loads no network or subprocess module.
+    import controls
     printed = io.StringIO()
     with contextlib.redirect_stdout(printed):
         controls.check(str(register))

@@ -102,7 +102,7 @@ entry has no `**Controls:**` line.
 `## Controls` section. It prints what `check` prints for the register, then a
 blank line, then each entry in the review's 30 days that has a `**Controls:**`
 line, as `<date>: <name>: <ids>`, or `None.` when there are none. With no
-`controls.json` it prints `No controls.json, so no controls to list.` instead,
+[`controls.json`](../controls.json) it prints `No controls.json, so no controls to list.` instead,
 and the review still counts as done.
 
 ## Adding an entry

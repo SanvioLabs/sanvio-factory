@@ -3,13 +3,16 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}): (\S.*)$", re.M)
+sys.path.insert(0, str(ROOT / ".claude" / "hooks"))
+sys.path.insert(0, str(ROOT / "scripts"))
+# The monthly review lists **Controls:** lines with these, so this test reads the log the same way.
+from usage_report import CHANGELOG_CONTROLS as CONTROLS, CHANGELOG_HEADING as HEADING  # noqa: E402
 NEEDS = re.compile(r"^\*\*Needs:\*\* (.+)$", re.M)
-CONTROLS = re.compile(r"^\*\*Controls:\*\* (.+)$", re.M)
 
 # zsh ties these lowercase names to special variables: `path=x` empties PATH, so the next git isn't found.
 ZSH_TIED = ("path", "cdpath", "fignore", "fpath", "mailpath", "manpath", "module_path", "psvar")
@@ -41,7 +44,8 @@ def register_ids():
 
 
 def problems(text, ids=None):
-    """Every reason skills/whats-new couldn't read this log. Empty means it can.
+    """Every reason skills/whats-new couldn't read this log, and every **Controls:** id that
+    isn't in the register. Empty means the log reads and each id names a control.
     `ids` are the control ids a **Controls:** line may name, by default those in controls.json."""
     if ids is None:
         ids = register_ids()

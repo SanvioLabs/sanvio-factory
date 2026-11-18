@@ -38,7 +38,7 @@ A second optional line, also after the description and before `Files:`:
 `**Controls:** AC-5, prompt-injection`
 Each item is the `id` of a control in [`controls.json`](controls.json) whose evidence the change edits, adds or removes, or whose status it changes. `, ` separates items.
 
-Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. The changelog test fails an id `controls.json` doesn't have, and `python3 scripts/usage_report.py --review` lists each month's lines, so the register's changes can be read back without a diff.
+Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. The changelog test fails an id [`controls.json`](controls.json) doesn't have, and `python3 scripts/usage_report.py --review` lists each month's lines, so the register's changes can be read back without a diff.
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
