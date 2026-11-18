@@ -593,6 +593,55 @@ class Review(unittest.TestCase):
         self.main("--review")
         self.assertEqual((self.log.read_bytes(), (self.root / ".loop" / "loop.log").read_bytes()), before)
 
+    CHANGELOG = ("# What's new\n\n"
+                 "## 2026-11-10: Chain the loop's logs\n\nx\n\n**Controls:** AU-9, prompt-injection\n\n"
+                 "Files: a.\n\n**Do:** nothing.\n\n"
+                 "## 2026-11-01: No controls here\n\nx\n\nFiles: a.\n\n**Do:** nothing.\n\n"
+                 "## 2026-10-13: Just before the window\n\nx\n\n**Controls:** AC-5\n\nFiles: a.\n\n**Do:** nothing.\n")
+
+    def register(self, evidence="evidence.md"):
+        """A one-entry controls.json in the root, with its evidence file there."""
+        (self.root / "evidence.md").write_text("x\n")
+        (self.root / "controls.json").write_text(json.dumps([
+            {"framework": "NIST SP 800-53 Rev. 5", "id": "AU-9", "name": "Protection of audit information",
+             "status": "core", "summary": "x", "evidence": [evidence]}]))
+
+    def controls_section(self):
+        lines = self.review()
+        return lines[lines.index("## Controls"):]
+
+    def test_the_review_ends_with_the_check_and_the_periods_controls_lines(self):
+        self.register()
+        (self.root / "CHANGELOG.md").write_text(self.CHANGELOG)
+        self.assertEqual(self.controls_section(), [
+            "## Controls", "", "controls.json: 1 control, all evidence present", "",
+            "2026-11-10: Chain the loop's logs: AU-9, prompt-injection"])
+
+    def test_no_controls_lines_in_the_period_is_none(self):
+        self.register()
+        (self.root / "CHANGELOG.md").write_text(self.CHANGELOG.replace("**Controls:** AU-9, prompt-injection\n\n", ""))
+        section = self.controls_section()
+        self.assertEqual(section[-1], "None.")
+        self.assertNotIn("AC-5", "\n".join(section))
+
+    def test_no_changelog_is_none(self):
+        self.register()
+        self.assertEqual(self.controls_section()[-1], "None.")
+
+    def test_no_register_says_so_and_still_reviews(self):
+        (self.root / "CHANGELOG.md").write_text(self.CHANGELOG)
+        self.assertEqual(self.controls_section(), ["## Controls", "", "No controls.json, so no controls to list."])
+        code, out = self.main("--review")
+        self.assertEqual(code, 0)
+        self.assertIn("No controls.json, so no controls to list.", out)
+        self.assertTrue(self.last_review().is_file())
+
+    def test_a_missing_evidence_path_shows_the_checks_failure(self):
+        self.register(evidence="gone.md")
+        section = self.controls_section()
+        self.assertIn("NIST SP 800-53 Rev. 5 AU-9: evidence not found: gone.md", section)
+        self.assertNotIn("controls.json: 1 control, all evidence present", section)
+
     def test_a_run_without_review_writes_no_last_review(self):
         self.usage({"ts": "2026-11-01T10:00:00Z", "event": "skill", "name": "learn"})
         code, _ = self.main()

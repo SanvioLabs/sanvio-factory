@@ -54,7 +54,9 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
      [`skills/review-tests/`](../review-tests/) goes deeper
    - Standards: where it departs from a written standard, quote the standard
    - This factory itself: a noticeable change with no new entry in
-     [`CHANGELOG.md`](../../CHANGELOG.md). Its header says what counts
+     [`CHANGELOG.md`](../../CHANGELOG.md). Its header says what counts. When
+     `Controls touched:` isn't `none` and the new entry has no `**Controls:**`
+     line naming those ids, that's a finding
 5. **Sort each finding, then decide.** Every finding is one of two kinds:
    - **Blocks:** it would cost something real if it merged as it is. Wrong
      behaviour, or behaviour the ticket didn't ask for. A security hole:

@@ -80,6 +80,31 @@ root:
 python3 scripts/controls.py touched origin/<base> --file projects/<name>/controls.json
 ```
 
+## The Controls line and the monthly list
+
+A [`CHANGELOG.md`](../CHANGELOG.md) entry for a change that moves a control carries one more line,
+after its description and before `Files:`:
+
+```text
+**Controls:** AC-5, prompt-injection
+```
+
+It holds the `id` of each control whose evidence the change edits, adds or
+removes, or whose status it changes, separated by `, `. Write the bare `id`,
+without the framework. The CHANGELOG's own header says the same.
+
+The changelog test, [`tests/test_changelog.py`](../tests/test_changelog.py), fails any id on a
+`**Controls:**` line that isn't an `id` in [`controls.json`](../controls.json). The review-pr skill reports a
+finding when its `Controls touched:` line isn't `none` and the change's new
+entry has no `**Controls:**` line.
+
+`python3 scripts/usage_report.py --review`, the monthly log review, ends with a
+`## Controls` section. It prints what `check` prints for the register, then a
+blank line, then each entry in the review's 30 days that has a `**Controls:**`
+line, as `<date>: <name>: <ids>`, or `None.` when there are none. With no
+[`controls.json`](../controls.json) it prints `No controls.json, so no controls to list.` instead,
+and the review still counts as done.
+
 ## Adding an entry
 
 Add an object to the array with every field the table asks for, point its
