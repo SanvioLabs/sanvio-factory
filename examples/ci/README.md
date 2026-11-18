@@ -19,7 +19,7 @@ a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
 [`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), with the
-[`review-rubric.json`](../../review-rubric.json) and the three scripts [the grade](#the-grade) needs, `base/` (the product repo at the pull
+[`review-rubric.json`](../../review-rubric.json) and the four scripts the report and [the grade](#the-grade) need, [`scripts/review_report.py`](../../scripts/review_report.py) among them, which checks the report against its schema, `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
@@ -227,7 +227,8 @@ factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scri
 from the factory's default branch. A [`review-rubric.json`](../../review-rubric.json) in the product repo,
 or in the pull request, is never read. It combines the report's verdict with
 the pull request's other checks. The shipped rubric gives a failed check, and
-a report whose last line isn't a verdict, a grade of their own. A ladder
+a report that doesn't match the factory's [`skills/review-pr/report.schema.json`](../../skills/review-pr/report.schema.json),
+a grade of their own. A ladder
 rubric says what each grade needs instead, such as a 10 that needs a check run
 named `security-scan` to have passed, matched by the check run's name.
 [`docs/review-rubric.md`](../../docs/review-rubric.md) has both shapes and worked examples. A rubric

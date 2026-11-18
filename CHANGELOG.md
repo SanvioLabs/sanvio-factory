@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: The CI review's report is checked against a schema
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.
+
+**Needs:** 2026-11-10: Graded CI review; 2026-11-07: Review on a Claude subscription
+
+**Controls:** AC-5
+
+Files: [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json), [`scripts/review_report.py`](scripts/review_report.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_report.py`](tests/test_review_report.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing: product repos that call the workflow pick it up from the factory's default branch.
+
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 
 While the line above the prompt shows one or more GitHub Actions runs in progress, a soft wave of light flows across `2 actions running`: each letter fades up through five shades and back down as the wave passes, about three seconds a pass, with a short rest between. The text itself never changes. The wave fades to white on a dark theme and to deep teal on a light one, read from the theme setting and again whenever it changes; on `auto` it uses two bold steps any terminal shows. It moves only when the last read found an action running: stale counts and `0 actions running` stay still. Its timer runs only then and asks for a redraw ten times a second; GitHub is still read once every two minutes.
