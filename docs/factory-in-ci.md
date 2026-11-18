@@ -128,6 +128,13 @@ them against the skill on your machine, which spends model tokens.
   change them. Its [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), `CLAUDE.local.md` and [`.claude`](../.claude)
   folders, and its symlinks, are removed before the review starts, and the
   standards come from the factory repo's default branch.
+- The comment isn't the model's text. Claude writes one JSON object, which
+  [`scripts/review_report.py`](../scripts/review_report.py) checks against the factory's
+  [`skills/review-pr/report.schema.json`](../skills/review-pr/report.schema.json), never a copy in the product repo,
+  before it builds the comment from the fields: each one on a single line,
+  with its HTML escaped, its images broken and its `@` mentions taken out. A
+  report that doesn't match posts no findings, only `The review's report
+  couldn't be read, so no findings are posted.`, and grades as unreadable.
 - The caller is another matter. It lives in the product repo, so a pull request
   can edit it, as step 5 says.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
@@ -145,8 +152,8 @@ The comment's last line gives the verdict and a grade out of 10, such as
   out by [`scripts/loop.py`](../scripts/loop.py), both read from the factory's default branch, so
   it's graded the way the loop grades. A product repo or a pull request can't
   change it. [`examples/ci/README.md`](../examples/ci/README.md) (*The grade*) says where the two can
-  still differ. The shipped rubric gives a failed check, or a report with no
-  verdict on its last line, its own grade. A ladder rubric instead says what
+  still differ. The shipped rubric gives a failed check, or a report that
+  doesn't match its schema, its own grade. A ladder rubric instead says what
   each grade needs, such as a 10 that needs a check named `security-scan`:
   [`review-rubric.md`](review-rubric.md) has both shapes.
 - **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo, and
