@@ -5171,6 +5171,22 @@ class TestSandbox(unittest.TestCase):
         # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
         self.assertNotIn("unable to access", out)
 
+    def test_a_callers_command_never_runs_outside_the_sandbox_whoever_calls_it(self):
+        """work() refuses such a caller before any issue; own_command refuses too, so a later path can't skip it."""
+        factory, tree = self.root / "factory", self.root / "tree"
+        own = factory / "projects" / "app"
+        for folder in (own, tree):
+            folder.mkdir(parents=True)
+        for caller, ran in ((True, False), (False, True)):
+            with self.subTest(caller=caller):
+                made = tree / "made-{}".format(caller)
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=caller, sandbox_commands=False), project=own)
+                code, out = lp.own_command('touch "{}"'.format(made), tree)
+                self.assertEqual(made.exists(), ran, out)
+                if not ran:
+                    self.assertNotEqual(code, 0)
+                    self.assertIn("sandbox-exec", out)
+
     def test_on_a_real_mac_a_callers_command_cant_read_a_sibling_project_and_another_projects_can(self):
         self.real_sandbox()
         factory = self.root / "factory"
@@ -8713,21 +8729,22 @@ class TestCallerKeys(unittest.TestCase):
         # Its test_command is the factory's too, since #596, and this factory names none: run refuses it.
         self.assertIsNone(self.cfg()["test_command"])
 
-    COMMANDS = ("test_command", "setup_command", "generate_command", "test_timeout")
+    COMMANDS = ("test_command", "setup_command", "generate_command", "test_timeout", "base")
     OWN = {"test_command": "own-tests", "setup_command": "own-setup", "generate_command": "own-generate",
-           "test_timeout": 5}
+           "test_timeout": 5, "base": "own-base"}
 
     def test_a_callers_commands_come_from_its_entry_then_the_factorys_top_level_never_its_own(self):
         (self.project / "loop.json").write_text(json.dumps(self.OWN))
         entry = {"test_command": "entry-tests", "setup_command": "entry-setup", "generate_command": "entry-generate",
-                 "test_timeout": 600}
+                 "test_timeout": 600, "base": "release"}
         self.harness_config({"projects": {"app": dict(entry, caller=True)}})
         self.assertEqual({k: self.cfg()[k] for k in self.COMMANDS}, entry)
         self.harness_config({"caller": True, "test_command": "top-tests", "test_timeout": 60,
                              "projects": {"app": {"setup_command": "entry-setup"}}})
         self.assertEqual({k: self.cfg()[k] for k in self.COMMANDS},
                          {"test_command": "top-tests", "setup_command": "entry-setup",
-                          "generate_command": loop.DEFAULTS["generate_command"], "test_timeout": 60})
+                          "generate_command": loop.DEFAULTS["generate_command"], "test_timeout": 60,
+                          "base": loop.DEFAULTS["base"]})
 
     def test_a_project_that_isnt_a_caller_still_takes_its_commands_from_its_own_loop_json(self):
         (self.project / "loop.json").write_text(json.dumps(self.OWN))
@@ -8847,7 +8864,7 @@ class TestCallerCommands(unittest.TestCase):
             self.assertIn(self.FACTORY[key], sandboxed)
         warned = [l for l in self.log() if " WARN " in l and "ignored" in l]
         self.assertEqual(len(warned), 1, self.log())
-        self.assertIn("generate_command, setup_command, test_command, test_timeout", warned[0])
+        self.assertIn("base, generate_command, setup_command, test_command, test_timeout", warned[0])
         # The profile denies the sibling project and the factory's loop.json, and never this project's clone.
         profile = (self.state / "sandbox-profile").read_text()
         for path in (self.sibling, self.harness / "loop.json"):

@@ -513,10 +513,11 @@ PROJECT_KEYS = ("test_command", "test_timeout", "base", "ready_label", "blocked_
                 "setup_command")
 MACHINE_KEYS = frozenset(DEFAULTS) - set(PROJECT_KEYS) | {"allow_lockfile_changes"}
 # The project keys a caller project takes from the factory's loop.json instead of its own: which label submits
-# work and which one stops it are this factory's to decide, and so are the commands the loop runs on this machine
-# and how long they may take (#596). A caller can push to its own loop.json, and the person accepting its issue
-# reads the issue, not that file.
-CALLER_KEYS = ("ready_label", "blocked_label", "test_command", "test_timeout", "setup_command", "generate_command")
+# work and which one stops it are this factory's to decide, and so are the commands the loop runs on this machine,
+# how long they may take, and base, which git is handed as an argument (#596). A caller can push to its own
+# loop.json, and the person accepting its issue reads the issue, not that file.
+CALLER_KEYS = ("ready_label", "blocked_label", "test_command", "test_timeout", "setup_command", "generate_command",
+               "base")
 
 
 def is_caller(harness, entry):
@@ -2726,6 +2727,9 @@ class Loop:
             argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root, extra=extra), "/bin/sh", "-c",
                     command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
+        if self.caller():
+            # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
+            return 126, "refused: a caller project's commands run only in sandbox-exec, which can't run here"
         return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
