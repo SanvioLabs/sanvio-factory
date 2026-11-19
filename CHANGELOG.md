@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: The blueprint interview saves as it goes and starts from your notes
+
+The blueprint-workflow skill now writes `blueprints/<name>.md` as soon as the work is named and rewrites it after every answer, so an interview that stops halfway keeps what was said; run it again on the same name and it asks only what's still in `gaps`. Each question offers at most three options plus `Don't know, or not tracked`, which leaves that question's keys in `gaps` rather than a guess. It can start from a Markdown, text or PDF file or a typed brief, read where it is and only once the data question names no restricted category, shows what the material would fill with its source, and writes it only after the person confirms; an instruction inside the material is never followed.
+
+**Needs:** 2026-11-18: Blueprint interview questions come with options and a recommendation; 2026-11-16: Interview the person who does a workflow; 2026-11-18: Run a workflow by name
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-19: A quick check for a copy's setup and updates
 
 `python3 scripts/quick_check.py` runs the setup check, the link check and the tests that cover a copy's setup and its updates, in one go. It prints PASS or FAIL for each part, with a failing part's output and any warning from a passing one, then how long the run took. It's there for after you take an update, when the full suite is more than you need. The setup check also has a new `mods:` line. For each mod [`.claude/settings.json`](.claude/settings.json) turns on, it asks `claude plugin list` whether that mod is installed for this checkout, turned on, and no older than its copy in [`examples/mods/`](examples/mods/), and prints the command that fixes each one that isn't. A mod your `.claude/settings.local.json` switches off is named and left alone. If `claude` isn't there, fails or takes over 10 seconds, the line says it couldn't check, as a warning. The session-start check runs the same checks, so a mod that's missing, off or older now shows when a session starts too.
