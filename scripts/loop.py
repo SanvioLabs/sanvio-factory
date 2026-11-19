@@ -326,7 +326,7 @@ GIT_VALUE_OPTIONS = ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--c
 # What turns off each driver git's config names, by its section: a caller's .gitattributes can name any one of
 # them for any path, and git would run it outside the sandbox. lfs is always among them (#640).
 CALLER_DRIVER_OFF = {"filter": (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")),
-                     "diff": (("textconv", ""),), "merge": (("driver", ""),)}
+                     "diff": (("textconv", ""), ("command", "")), "merge": (("driver", ""),)}
 # In a caller project's state folder: once it's there, the loop runs no git in that project, and run takes no
 # issue from it, until a person looks at the clone and the worktrees and deletes it (#640).
 GIT_TAMPERED = "git-tampered"
@@ -1330,9 +1330,15 @@ SANDBOX_DEVICES = ('(literal "/dev/null")', '(literal "/dev/zero")', '(literal "
 # pointer files git follows to find a repository are denied too, since one pointed at a folder the command
 # wrote would hand the loop's own git, which runs outside the sandbox, a config the command chose.
 CALLER_GIT_DENIED = ("config", "config.lock", "config.worktree", "hooks", "info", "modules", "commondir")
-# In git's folder for the worktree, the only files a caller's command may write: what git status refreshes. Anything
-# else there (its config, MERGE_HEAD, locked, the folder itself) would be read by the loop's own git next.
-CALLER_WORKTREE_GIT_WRITABLE = ("index", "index.lock")
+# In git's folder for the worktree, what a caller's command may write: nothing. Its git writes a copy of the index
+# in the run's temp folder instead (GIT_INDEX_FILE), since an index it wrote could name ../ or .git paths, and the
+# loop's own git checkout would write them outside any sandbox (#640). Anything else there (its config, MERGE_HEAD,
+# locked, the folder itself) would be read by the loop's own git next.
+CALLER_WORKTREE_GIT_WRITABLE = ()
+# The subcommands that write the worktree from what the index says, or the index from what it holds: the loop
+# checks a caller worktree's index before any of them (index_problem()).
+INDEX_READERS = ("add", "checkout", "cherry-pick", "commit", "merge", "read-tree", "rebase", "reset", "restore",
+                 "revert", "rm", "stash", "switch")
 # Folders outside the home folder where other runs, other users and other sessions keep files: the system's temp
 # folders, which hold every run's own temp folder, and the other users' and mounted volumes. Denied for reading;
 # the run's own temp folder is allowed back.
@@ -1356,20 +1362,31 @@ CALLER_TOOL_SECRETS = ("~/.local/share/uv/credentials",)
 CALLER_TOOL_SECRET_PATTERNS = (r"/\.(nvm|volta)/.*/etc/npmrc$",)
 
 
-def worktree_git_dir(tree, clone):
-    """git's own folder for tree in clone's .git: what tree's .git file names when that's in the clone's
-    .git/worktrees/, as git suffixes the name where a stale folder had it, else .git/worktrees/<tree's name>."""
-    tree, clone = Path(tree), Path(clone)
-    folders = (clone / ".git" / "worktrees").resolve()
+def linked_git_dir(tree, clone):
+    """git's own folder for tree in clone's .git/worktrees/, found by the link back git keeps there, each folder's
+    gitdir file naming its worktree's .git, or None where no folder names tree. Never from tree's own .git file,
+    which a build can rewrite to name a repository of its own (#640). git suffixes a folder's name where a stale
+    one had it, so the name alone can't say."""
+    folders = (Path(clone) / ".git" / "worktrees").resolve()
+    want = os.path.join(os.path.realpath(str(tree)), ".git")
     try:
-        named = (tree / ".git").read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
-        named = ""
-    if named.startswith("gitdir:"):
-        path = Path(named[len("gitdir:"):].strip()).resolve()
-        if path.parent == folders:
-            return path
-    return folders / tree.name
+        names = sorted(os.listdir(str(folders)))
+    except OSError:
+        return None
+    for name in names:
+        try:
+            named = (folders / name / "gitdir").read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if named and os.path.join(os.path.realpath(os.path.dirname(named)), os.path.basename(named)) == want:
+            return folders / name
+    return None
+
+
+def worktree_git_dir(tree, clone):
+    """git's own folder for tree in clone's .git: linked_git_dir(), else .git/worktrees/<tree's name>, where git
+    puts a new one."""
+    return linked_git_dir(tree, clone) or (Path(clone) / ".git" / "worktrees").resolve() / Path(tree).name
 
 
 def caller_profile(home, root, tree, clone, scratch, trees, state, read_allow=(), write_allow=(), environ=None,
@@ -1385,8 +1402,8 @@ def caller_profile(home, root, tree, clone, scratch, trees, state, read_allow=()
        writing the worktree, scratch, each path in write_allow and CALLER_DEVICES. Not files: no unix socket
        but CALLER_SOCKETS and those under the worktree and scratch, no CALLER_MACH_DENIED service, and none of
        CALLER_OUTSIDE_DENIED.
-    3. Writing is denied under the factory's root again, whatever write_allow says, then allowed back for
-       CALLER_WORKTREE_GIT_WRITABLE alone in git's own folder for this worktree (worktree_git_dir()).
+    3. Writing is denied under the factory's root again, whatever write_allow says, git's own folder for this
+       worktree included: CALLER_WORKTREE_GIT_WRITABLE, empty, would be allowed back there.
     4. Denied last, reading and writing: everything sandbox_profile() denies (credentials, the factory's
        private folders) and extra, then state, the caller's own state folder, then the token files under the
        tool folders, then CALLER_TERMINALS. Writing: the worktree itself and its .git file, so neither can be renamed or replaced, the
@@ -3137,6 +3154,51 @@ class Loop:
             raise GitTampered(step, changed)
         return result
 
+    def caller_worktree(self, cwd):
+        """For a git the loop runs in a caller project: git's own folder for cwd where cwd is a worktree the clone
+        links back to, False where cwd is under the loop's checkouts and isn't one, else None (#640)."""
+        if cwd is None or self.project is None:
+            return None
+        where, top = os.path.realpath(str(cwd)), os.path.realpath(str(self.worktrees()))
+        if not where.startswith(top + os.sep):
+            return None
+        tree = os.path.join(top, os.path.relpath(where, top).split(os.sep)[0])
+        return linked_git_dir(tree, self.repo) or False
+
+    def index_problem(self, cwd, env):
+        """Why the worktree's index can't be trusted, or None: an entry whose path leaves the worktree or names a
+        .git in any case, or a submodule's. git checkout writes what the index names, ../ and .git paths included,
+        though git add never puts one there; a caller's command could have written it in an earlier run (#640)."""
+        try:
+            done = subprocess.run(["git", *CALLER_GIT_SAFE, "ls-files", "--stage", "-z"], cwd=str(cwd), env=env,
+                                  capture_output=True,
+                                  text=True, encoding="utf-8", errors="surrogateescape", timeout=120)
+        except (OSError, subprocess.SubprocessError) as err:
+            return "couldn't be read ({})".format(type(err).__name__)
+        if done.returncode != 0:
+            return "couldn't be read (git exit {})".format(done.returncode)
+        bad = []
+        for entry in done.stdout.split("\0"):
+            if not entry:
+                continue
+            info, _, path = entry.partition("\t")
+            parts = path.split("/")
+            if info.startswith("160000") or path.startswith("/") or any(
+                    part in ("", ".", "..") or part.casefold() == ".git" for part in parts):
+                bad.append(path)
+        return "names {}".format(", ".join(bad[:DIRTY_CAP])) if bad else None
+
+    def mark_tampered(self, why, number=None):
+        """Write tampered_mark(), saying why. A failure to write it is logged: the refusal stands either way."""
+        mark = self.tampered_mark()
+        try:
+            mark.parent.mkdir(parents=True, exist_ok=True)
+            write_unfollowed(mark, "{} {}{}\n".format(datetime.now().isoformat(timespec="seconds"),
+                                                       "issue #{}: ".format(number) if number else "", why))
+        except OSError as err:
+            self.log("ERROR", "could not write {}: {}".format(mark, err), number)
+        self.log("ERROR", "the loop runs no more git in this project until a person deletes {}".format(mark), number)
+
     def tampered_mark(self):
         """The file in this project's state folder that stops all git in it: a caller's command can't read or
         write that folder, and its agents are held away from it."""
@@ -3146,27 +3208,23 @@ class Loop:
         """Block the issue a GitTampered came from, and mark the project, so the loop runs no git in its clone or
         worktrees again, in this run or the next, until a person looks and deletes the mark (#640). The next
         issue's own hashes would start from what was changed, and pass it."""
-        mark = self.tampered_mark()
-        try:
-            mark.parent.mkdir(parents=True, exist_ok=True)
-            when = datetime.now().isoformat(timespec="seconds")
-            write_unfollowed(mark, "{} issue #{}: {}\n".format(when, number, err.reason()))
-        except OSError as why:
-            self.log("ERROR", "could not write {}: {}".format(mark, why), number)
-        self.log("ERROR", "the loop runs no more git in this project until a person deletes {}".format(mark), number)
+        self.mark_tampered(err.reason(), number)
         self.block(number, err.reason())
 
-    def drivers_off(self):
-        """(key, value) pairs that turn off every filter, diff and merge driver git's config here names, your own
-        config's and the system's included, and lfs's whether or not it's named. Worked out once a run for each
-        clone, as the loop's own git reads them without changing them (#640)."""
+    def drivers_off(self, cwd=None):
+        """(key, value) pairs that turn off every filter, diff and merge driver git's config names in cwd, or the
+        clone, your own config's and the system's included, and lfs's whether or not it's named. Asked in the
+        folder itself, as an include can apply on a worktree's branch alone. Worked out once a run for each
+        folder, as the loop's own git reads them without changing them (#640)."""
         cache = self.__dict__.setdefault("_drivers_off", {})
-        if str(self.repo) not in cache:
+        where = str(cwd or self.repo)
+        if where not in cache:
             names = {section: ["lfs"] if section == "filter" else [] for section in CALLER_DRIVER_OFF}
             try:
                 done = subprocess.run(["git", *CALLER_GIT_SAFE, "config", "-z", "--name-only", "--get-regexp",
-                                       r"^(filter|diff|merge)\."], cwd=str(self.repo), capture_output=True,
-                                      text=True, encoding="utf-8", errors="replace", timeout=60)
+                                       r"^(filter|diff|merge)\."], cwd=where, capture_output=True,
+                                      env=self.linked_env(dict(os.environ), cwd), text=True, encoding="utf-8",
+                                      errors="replace", timeout=60)
                 listed = done.stdout.split("\0") if done.returncode == 0 else []
             except (OSError, subprocess.SubprocessError):
                 listed = []
@@ -3175,18 +3233,39 @@ class Loop:
                 name, dot, _ = rest.rpartition(".")
                 if section in names and dot and name not in names[section]:
                     names[section].append(name)
-            cache[str(self.repo)] = [("{}.{}.{}".format(section, name, var), value)
-                                     for section, found in names.items() for name in found
-                                     for var, value in CALLER_DRIVER_OFF[section]]
-        return cache[str(self.repo)]
+            cache[where] = [("{}.{}.{}".format(section, name, var), value)
+                            for section, found in names.items() for name in found
+                            for var, value in CALLER_DRIVER_OFF[section]]
+        return cache[where]
 
-    def caller_git_env(self, env, safe=False):
-        """env, or this process's own, for a git the loop runs in a caller project: drivers_off() added as
-        GIT_CONFIG_KEY_n entries, and with safe, CALLER_GIT_SAFE as well, for a git the loop doesn't start itself."""
-        pairs = list(self.drivers_off())
+    def linked_env(self, env, cwd):
+        """env with GIT_DIR and GIT_WORK_TREE naming cwd's own folder in the clone where cwd is a caller worktree,
+        so git never reads the worktree's .git file, which a build can rewrite (#640). Else env as it was."""
+        linked = self.caller_worktree(cwd)
+        if linked:
+            where, top = os.path.realpath(str(cwd)), os.path.realpath(str(self.worktrees()))
+            env.update(GIT_DIR=str(linked),
+                       GIT_WORK_TREE=os.path.join(top, os.path.relpath(where, top).split(os.sep)[0]))
+        return env
+
+    def caller_git_env(self, env, safe=False, cwd=None):
+        """env, or this process's own, for a git the loop runs in a caller project, in cwd: drivers_off() added as
+        GIT_CONFIG_KEY_n entries, linked_env(), and with safe, CALLER_GIT_SAFE as well, for a git the loop
+        doesn't start itself."""
+        pairs = list(self.drivers_off(cwd))
         if safe:
             pairs = [tuple(CALLER_GIT_SAFE[i + 1].split("=", 1)) for i in range(0, len(CALLER_GIT_SAFE), 2)] + pairs
-        return config_pairs(dict(os.environ if env is None else env), pairs)
+        return self.linked_env(config_pairs(dict(os.environ if env is None else env), pairs), cwd)
+
+    def index_copy(self, tree, scratch):
+        """The absolute path of a copy of tree's index in scratch, for a caller's command's git: the same staged
+        files, so git status says what it would, and none of what it writes reaches the loop's own git."""
+        copy = Path(scratch).resolve() / "index"
+        try:
+            shutil.copyfile(str(worktree_git_dir(tree, self.repo) / "index"), str(copy))
+        except OSError:
+            pass  # no index yet: its git makes one in scratch
+        return str(copy)
 
     def caller_command(self, command, tree, env, timeout, partial):
         """own_command() for a caller project (#639): held to its own folders, reads and writes, with a temp
@@ -3198,9 +3277,11 @@ class Loop:
                                      self.cfg.get("caller_read_allow") or (), self.cfg.get("caller_write_allow") or (),
                                      extra=caller_denied(self.root, self.repo))
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
+            # Its git reads and writes a copy of the worktree's index, which it can't write (#640).
+            env = caller_env(env, scratch)
+            env["GIT_INDEX_FILE"] = self.index_copy(tree, scratch)
             # held: no stdin, no terminal, and nothing it started still running when scratch is removed.
-            return self.sh(argv, cwd=tree, timeout=timeout, env=caller_env(env, scratch), partial=partial,
-                           held=True)
+            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial, held=True)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -3218,7 +3299,7 @@ class Loop:
             return None
         script = self.root / "scripts" / "controls.py"
         # Its git diff runs in the caller's checkout, so with the settings the loop's own git has there (#640).
-        env = self.caller_git_env(None, safe=True) if self.caller() else None
+        env = self.caller_git_env(None, safe=True, cwd=tree) if self.caller() else None
         return self.sh([sys.executable, str(script), *args, "--file", str(register)], cwd=tree,
                        timeout=self.cfg["test_timeout"], env=env)
 
@@ -3248,7 +3329,16 @@ class Loop:
             at = git_subcommand(args)
             if at is not None and args[at] in CALLER_GIT_FLAGS:
                 args[at + 1:at + 1] = CALLER_GIT_FLAGS[args[at]]
-            cmd, env = [cmd[0], *CALLER_GIT_SAFE, *args], self.caller_git_env(env)
+            linked = self.caller_worktree(cwd)
+            if linked is False:
+                return 1, ("refused: {} is under the loop's checkouts but isn't a worktree the clone links back to, "
+                           "so the loop runs no git there").format(cwd)
+            cmd, env = [cmd[0], *CALLER_GIT_SAFE, *args], self.caller_git_env(env, cwd=cwd)
+            if linked and at is not None and args[at] in INDEX_READERS:
+                why = self.index_problem(cwd, env)
+                if why:
+                    self.mark_tampered("the worktree's index: " + why)
+                    return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
@@ -3651,6 +3741,10 @@ class Loop:
                         handle.write(line)
                         handle.flush()
                 proc.wait()
+                if self.caller() and not on_windows():
+                    # What it started and left running could change the checkout after the loop has looked
+                    # (#640). One that started a session of its own isn't found: HOW-IT-WORKS.md says so.
+                    end_session(proc.pid)
             finally:
                 timer.cancel()
                 self.agents.discard(proc)
@@ -4977,7 +5071,9 @@ class Loop:
             if code not in (0, 1) or not self.merging(tree):
                 return self.update_error(number, out)
             try:
-                (tree / "CHANGELOG.md").write_text(resolved, encoding="utf-8")
+                # Not through a link: something in the checkout could have put one there, to a file the
+                # loop's user can write (#640).
+                write_unfollowed(tree / "CHANGELOG.md", resolved)
             except OSError as err:
                 return self.update_error(number, "could not write CHANGELOG.md: {}".format(type(err).__name__))
             code, out = self.git(*NO_HOOKS, "add", "CHANGELOG.md", cwd=tree)

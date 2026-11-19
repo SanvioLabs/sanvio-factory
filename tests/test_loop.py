@@ -727,6 +727,13 @@ if step == "build" and os.path.exists(os.path.join(state, "build-sets-filter")):
     import subprocess
     subprocess.run(["git", "config", "filter.x.clean", "touch " + os.path.join(state, "filter-ran") + "; cat"])
     open(".gitattributes", "w").write("* filter=x\\n")
+if step == "build" and os.path.exists(os.path.join(state, "build-leaves-child")):
+    # Something the build started and left running when it ended, which could change the checkout after the
+    # loop's look at it (#640).
+    import subprocess
+    child = subprocess.Popen(["sleep", "60"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+    open(os.path.join(state, "build-child.pid"), "w").write(str(child.pid))
 if step == "build" and os.path.exists(os.path.join(state, "build-nests-repo")):
     # A repository inside the worktree with a clean filter of its own, a submodule entry for it in the index and
     # a .gitmodules saying never to ignore it: the loop's own git status would run git there, filter and all.
@@ -8735,11 +8742,11 @@ class TestCallerSandbox(unittest.TestCase):
         clone_git = Path(args["clone"]).resolve() / ".git"
         tree = Path(args["tree"]).resolve()
         worktree_git = clone_git / "worktrees" / "issue-3"
-        index = '(allow file-write* (literal "{}"))'.format(worktree_git / "index")
-        self.assertIn(index, lines)
-        # Nothing else in git's folder for the worktree is writable: not its config, MERGE_HEAD or the folder.
+        # Nothing in git's folder for the worktree is writable, its index included: a command's git writes a
+        # copy of the index in its own temp folder (#640).
         self.assertEqual([line for line in lines if line.startswith("(allow file-write*") and str(worktree_git) in line],
-                         [index, '(allow file-write* (literal "{}"))'.format(worktree_git / "index.lock")])
+                         [])
+        index = '(deny file-write* (subpath "{}"))'.format(Path(args["root"]).resolve())
         for line in ('(deny file-write* (literal "{}"))'.format(tree),
                      '(deny file-write* (literal "{}"))'.format(tree / ".git"),
                      '(deny file-write* (literal "{}"))'.format(clone_git),
@@ -8756,17 +8763,25 @@ class TestCallerSandbox(unittest.TestCase):
         for shared in loop.CALLER_SHARED_DENIED:
             self.assertIn('(deny file-read* (subpath "{}"))'.format(Path(shared).resolve()), lines[:10])
 
-    def test_git_s_folder_for_the_worktree_is_the_one_its_git_file_names_in_the_clone(self):
+    def test_git_s_folder_for_the_worktree_is_the_one_the_clone_links_back_to_it(self):
         clone, tree = self.root / "clone", self.root / "trees" / "issue-3"
-        (clone / ".git" / "worktrees" / "issue-31").mkdir(parents=True)
+        other = self.root / "trees" / "issue-4"
+        for name, where in (("issue-31", tree), ("issue-4", other)):
+            (clone / ".git" / "worktrees" / name).mkdir(parents=True)
+            (clone / ".git" / "worktrees" / name / "gitdir").write_text("{}\n".format(where / ".git"))
         tree.mkdir(parents=True)
         folders = (clone / ".git" / "worktrees").resolve()
-        self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-3")
-        (tree / ".git").write_text("gitdir: {}\n".format(clone / ".git" / "worktrees" / "issue-31"))
+        # The clone's gitdir file names the worktree's .git, and git suffixes the folder's name where a stale one
+        # had it: the back-link finds it whatever the worktree's own .git file says, which a build can rewrite.
         self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-31")
-        for elsewhere in (self.root / "fake", clone / ".git", folders / "issue-31" / "deeper"):
-            (tree / ".git").write_text("gitdir: {}\n".format(elsewhere))
-            self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-3", elsewhere)
+        self.assertEqual(loop.linked_git_dir(tree, clone), folders / "issue-31")
+        for named in (clone / ".git" / "worktrees" / "issue-4", self.root / "fake", clone / ".git"):
+            (tree / ".git").write_text("gitdir: {}\n".format(named))
+            self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-31", named)
+        # A worktree the clone has no back-link to has none, and the profile names its usual folder.
+        (clone / ".git" / "worktrees" / "issue-31" / "gitdir").write_text("/elsewhere/.git\n")
+        self.assertIsNone(loop.linked_git_dir(tree, clone))
+        self.assertEqual(loop.worktree_git_dir(tree, clone), folders / "issue-3")
 
     def test_a_callers_command_gets_a_temp_folder_and_caches_of_its_own_removed_after(self):
         factory = self.root / "factory"
@@ -9740,14 +9755,20 @@ class TestCallerCommands(unittest.TestCase):
                 p.unlink()
             return names
 
+        # One more, defined only where the branch is loop/<something>, as a worktree's is and the clone's isn't.
+        (bins / "onbranch").write_text('[filter "ob"]\n\tclean = {}\n'.format(tool("obclean")))
+        with config.open("a") as f:
+            f.write('[includeIf "onbranch:loop/**"]\n\tpath = {}\n'.format(bins / "onbranch"))
         for caller in (False, True):
             tree = Path(tempfile.mkdtemp())
             self.addCleanup(shutil.rmtree, tree, ignore_errors=True)
             with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_NOSYSTEM": "1"}):
                 lp = loop.Loop(self.harness, dict(loop.DEFAULTS, caller=caller), project=self.project)
                 subprocess.run(["git", "init", "-q", str(tree)], check=True)
-                (tree / ".gitattributes").write_text("a filter=Odd.Name\nb filter=p\nc diff=d\nm merge=m\n")
-                for name in "abcm":
+                (tree / ".gitattributes").write_text("a filter=Odd.Name\nb filter=p\nc diff=d\nm merge=m\n"
+                                                     "o filter=ob\n")
+                subprocess.run(["git", "-C", str(tree), "checkout", "-q", "-b", "loop/x"], check=True)
+                for name in "abcmo":
                     (tree / name).write_text("1\n")
                 seen = {}
                 lp.git("add", "-A", cwd=tree)
@@ -9764,17 +9785,20 @@ class TestCallerCommands(unittest.TestCase):
                 lp.git("checkout", "-q", "-b", "side", cwd=tree)
                 (tree / "m").write_text("s\n")
                 lp.git("commit", "-qam", "s", cwd=tree)
-                lp.git("checkout", "-q", "main", cwd=tree)
+                lp.git("checkout", "-q", "loop/x", cwd=tree)
                 (tree / "m").write_text("t\n")
                 lp.git("commit", "-qam", "t", cwd=tree)
                 fired()
-                lp.git("merge-tree", "--write-tree", "main", "side", cwd=tree)
+                lp.git("merge-tree", "--write-tree", "loop/x", "side", cwd=tree)
                 seen["merge-tree"] = fired()
+                if caller:
+                    self.assertIn(("diff.d.command", ""), lp.drivers_off(tree))
             with self.subTest(caller=caller):
                 if caller:
                     self.assertEqual(seen, {k: [] for k in seen})
                 else:
                     self.assertIn("clean", seen["add"])
+                    self.assertIn("obclean", seen["add"])
                     self.assertIn("extdiff", seen["diff"])
                     self.assertIn("smudge", seen["reset"])
                     self.assertIn("merge", seen["merge-tree"])
@@ -9856,6 +9880,124 @@ class TestCallerCommands(unittest.TestCase):
                            ("core.useReplaceRefs", "false"), ("diff.ignoreSubmodules", "all"),
                            ("filter.lfs.process", "")):
             self.assertEqual(keys.get(key), value, key)
+
+    def linked(self, number=12):
+        """A real worktree of the project's clone where the loop keeps it, on loop/issue-<number>."""
+        tree = self.trees / "app" / "issue-{}".format(number)
+        tree.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "-C", str(self.project), "worktree", "add", "-q", "-b", "loop/issue-{}".format(number),
+                        str(tree), "HEAD"], check=True, capture_output=True)
+        return tree
+
+    def raw_index(self, tree, entries):
+        """Writes the worktree's index by hand, as a caller's command could: (path, blob) entries that git's own
+        commands would refuse to add."""
+        import hashlib
+        import struct
+        body = b""
+        for path, sha in sorted(entries):
+            name = path.encode()
+            entry = struct.pack(">10I", 0, 0, 0, 0, 0, 0, 0o100644, 0, 0, 0) + bytes.fromhex(sha) + \
+                struct.pack(">H", len(name)) + name
+            body += entry + b"\0" * (8 - len(entry) % 8)
+        data = b"DIRC" + struct.pack(">II", 2, len(entries)) + body
+        index = loop.worktree_git_dir(tree, self.project) / "index"
+        index.write_bytes(data + hashlib.sha1(data).digest())
+
+    def test_an_index_naming_a_path_outside_the_worktree_stops_the_loops_git_before_it_writes_there(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        lp = loop.Loop(self.harness, project=self.project)
+        blob = subprocess.run(["git", "-C", str(tree), "hash-object", "-w", "--stdin"], input="planted\n",
+                              capture_output=True, text=True, check=True).stdout.strip()
+        readme = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD:README.md"], capture_output=True,
+                                text=True, check=True).stdout.strip()
+        for bad in ("../escape-640", "sub/../../escape-640", "sub/.git/config", ".GIT/config", "./dot"):
+            with self.subTest(path=bad):
+                self.raw_index(tree, [("README.md", readme), (bad, blob)])
+                code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
+                self.assertNotEqual(code, 0)
+                self.assertIn(bad, out)
+                self.assertFalse((tree.parent / "escape-640").exists())
+                self.assertFalse((tree / "sub").exists())
+                mark = loop.state_dir(self.harness, "app") / "git-tampered"
+                self.assertTrue(mark.is_file())
+                mark.unlink()
+        # A clean index goes through.
+        subprocess.run(["git", "-C", str(tree), "reset", "-q"], check=True)
+        self.assertEqual(lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)[0], 0)
+
+    def test_the_loops_git_in_a_worktree_takes_its_folder_from_the_clone_not_from_the_worktrees_git_file(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        # A repository of the caller's making, with a clean filter, which tree/.git is rewritten to name.
+        evil = tree / "x"
+        subprocess.run(["git", "init", "-q", "--bare", str(evil)], check=True)
+        subprocess.run(["git", "--git-dir", str(evil), "config", "core.bare", "false"], check=True)
+        subprocess.run(["git", "--git-dir", str(evil), "config", "filter.e.clean",
+                        "touch {}; cat".format(self.state / "filter-ran")], check=True)
+        (tree / ".gitattributes").write_text("* filter=e\n")
+        (tree / ".git").write_text("gitdir: {}\n".format(evil))
+        lp = loop.Loop(self.harness, project=self.project)
+        lp.git("status", "--porcelain", cwd=tree)
+        lp.git("add", "-A", cwd=tree)
+        self.assertFalse(self.ran("filter-ran"))
+        # Where the clone names no worktree at that path, the loop's git doesn't run there at all.
+        stray = self.trees / "app" / "issue-99"
+        stray.mkdir(parents=True)
+        (stray / ".git").write_text("gitdir: {}\n".format(evil))
+        code, out = lp.git("status", "--porcelain", cwd=stray)
+        self.assertNotEqual(code, 0)
+        self.assertIn("isn't a worktree", out)
+        self.assertFalse(self.ran("filter-ran"))
+
+    def test_a_callers_commands_write_a_copy_of_the_index_never_the_worktrees_own(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        lp = loop.Loop(self.harness, project=self.project)
+        index = loop.worktree_git_dir(tree, self.project) / "index"
+        before = index.read_bytes()
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            copy = Path(kwargs["env"]["GIT_INDEX_FILE"])
+            seen.update(copy=copy, same=copy.read_bytes() == before)
+            copy.write_bytes(b"rewritten")
+            return 0, ""
+
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", tree)
+        self.assertTrue(seen["same"])
+        self.assertTrue(seen["copy"].name == "index" and seen["copy"].is_absolute())
+        self.assertNotEqual(seen["copy"].parent, index.parent)
+        self.assertEqual(index.read_bytes(), before)
+
+    def test_what_a_callers_build_left_running_is_ended_with_it(self):
+        (self.state / "build-leaves-child").write_text("")
+        self.caller(**self.FACTORY)
+        self.go()
+        pid = int((self.state / "build-child.pid").read_text())
+        deadline = time.monotonic() + 5
+        while loop.pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(loop.pid_alive(pid))
+
+    def test_the_changelog_merge_writes_no_further_than_the_worktree(self):
+        self.caller(**self.FACTORY)
+        lp = loop.Loop(self.harness, project=self.project)
+        tree = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tree, ignore_errors=True)
+        target = tree.parent / (tree.name + "-target")
+        target.write_text("kept\n")
+        self.addCleanup(target.unlink)
+        (tree / "CHANGELOG.md").symlink_to(target)
+        with mock.patch.object(lp, "git", return_value=(0, "")), mock.patch.object(lp, "merging", return_value=True), \
+                mock.patch.object(lp, "own_command", return_value=(1, "stop here")), \
+                mock.patch.object(lp, "update_error"):
+            lp.merge_changelog({"number": 12, "pushed": "abc", "pr": "5"}, tree, "origin/develop", "merged text\n")
+        self.assertEqual(target.read_text(), "kept\n")
+        self.assertFalse((tree / "CHANGELOG.md").is_symlink())
+        self.assertEqual((tree / "CHANGELOG.md").read_text(), "merged text\n")
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()
