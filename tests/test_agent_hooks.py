@@ -1016,5 +1016,67 @@ class SessionStart(unittest.TestCase):
             self.assertIn("systemMessage", json.loads(out))
 
 
+@unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Claude Code runs a hook's command with bash")
+class OutsideTheClone(unittest.TestCase):
+    """A session can start in a folder with none of the factory's files while its .claude/settings.json still
+    loads, as Claude's desktop app does when it opens a scratch workspace. python3 exits 2 for a script it can't
+    find, and Claude Code reads 2 as "block": every prompt was refused. Now a logger skips, the session start says
+    where the session is, and the guard still refuses each tool call, saying why."""
+
+    def setUp(self):
+        self.elsewhere = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.elsewhere, ignore_errors=True)
+        self.hooks = json.loads((ROOT / ".claude" / "settings.json").read_text())["hooks"]
+
+    def commands(self, script):
+        return sorted({hook["command"] for blocks in self.hooks.values() for block in blocks
+                       for hook in block["hooks"] if script in hook["command"]})
+
+    def run_hook(self, command, folder, stdin="{}"):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(folder), SANVIO_USAGE_LOG="off", SANVIO_RETRO="off")
+        return subprocess.run(["bash", "-c", command], cwd=str(folder), input=stdin, env=env, capture_output=True,
+                              text=True, timeout=60)
+
+    def test_every_hook_command_names_a_script_the_tests_know(self):
+        named = {re.search(r"hooks/(\w+)\.py", hook["command"]).group(1) for blocks in self.hooks.values()
+                 for block in blocks for hook in block["hooks"]}
+        self.assertEqual(named, {"guard", "usage_log", "session_start", "session_retro"})
+
+    def test_the_loggers_skip_where_their_script_isnt(self):
+        for script in ("usage_log.py", "session_retro.py"):
+            for command in self.commands(script):
+                with self.subTest(command=command):
+                    done = self.run_hook(command, self.elsewhere)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(done.stderr, "")
+
+    def test_the_session_start_says_the_session_isnt_in_a_clone(self):
+        for command in self.commands("session_start.py"):
+            done = self.run_hook(command, self.elsewhere)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("isn't a Sanvio Factory clone", done.stdout)
+            self.assertIn(self.elsewhere, done.stdout)
+
+    def test_the_guard_still_refuses_every_tool_call_and_says_why(self):
+        for command in self.commands("guard.py"):
+            done = self.run_hook(command, self.elsewhere, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": "README.md"}}))
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("isn't in a Sanvio Factory clone", done.stderr)
+
+    def test_in_the_clone_each_command_runs_its_script(self):
+        secret = "." + "env"  # spelled in parts, so the guard reading this file's own edits doesn't stop on it
+        for command in self.commands("guard.py"):
+            done = self.run_hook(command, ROOT, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": str(ROOT / "README.md")}, "cwd": str(ROOT)}))
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertNotIn("isn't in a Sanvio Factory clone", done.stderr)
+            done = self.run_hook(command, ROOT, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": str(ROOT / secret)}, "cwd": str(ROOT)}))
+            self.assertIn("deny", done.stdout)
+        for command in self.commands("session_start.py"):
+            self.assertNotIn("isn't a Sanvio Factory clone", self.run_hook(command, ROOT).stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
