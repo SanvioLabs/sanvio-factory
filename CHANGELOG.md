@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: A quick check for a copy's setup and updates
+
+`python3 scripts/quick_check.py` runs the setup check, the link check and the tests that cover a copy's setup and its updates, in one go. It prints PASS or FAIL for each part, with a failing part's output and any warning from a passing one, then how long the run took. It's there for after you take an update, when the full suite is more than you need. The setup check also has a new `mods:` line. For each mod [`.claude/settings.json`](.claude/settings.json) turns on, it asks `claude plugin list` whether that mod is installed for this checkout, turned on, and no older than its copy in [`examples/mods/`](examples/mods/), and prints the command that fixes each one that isn't. A mod your `.claude/settings.local.json` switches off is named and left alone. If `claude` isn't there, fails or is slow, the line says it couldn't check, as a warning. The session-start check runs the same checks, so a mod that's missing, off or older now shows when a session starts too.
+
+**Controls:** SA-9
+
+Files: [`scripts/quick_check.py`](scripts/quick_check.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_quick_check.py`](tests/test_quick_check.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run python3 scripts/quick_check.py to check your setup, and run any `claude plugin` command its `mods:` line prints.
+
 ## 2026-11-19: A session outside the clone isn't stopped at every prompt
 
 When a session starts in a folder that doesn't hold the factory's files but still loads its settings, as Claude's desktop app does when it opens a scratch workspace, each hook used to fail: `python3` exits 2 for a script it can't find, and Claude Code reads 2 as a refusal, so every prompt was blocked with a "can't open file" error. Now the usage log and the retro hooks skip quietly there, the session start tells the agent the session isn't in a clone, so it says so first, and the guard still refuses every tool call, with a message saying why rather than Python's error. In a clone, every hook runs as before.
