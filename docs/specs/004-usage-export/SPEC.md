@@ -125,6 +125,7 @@ Affected:
   move or delete the commands file or the export config
 - examples/usage-store/, new: the reference store (bucket, validator,
   queries, alert job) as Terraform and one function
+- skills/factory-trends/: offers to send the bundle as its last step
 - reports/usage/README.md: the sending flow, and a second paste-ready message
   for detailed mode
 - steering/data-and-tools.md: the commands file in the retention table, the
@@ -135,7 +136,6 @@ Not Affected:
 - what the usage log records for anyone not in detailed mode
 - scripts/loop.py's run records (the heartbeat reads status.json, it
   doesn't change it)
-- skills/factory-trends/, which still writes its sprint report from local logs
 ```
 
 ## User Stories
@@ -169,6 +169,8 @@ Not Affected:
 | REQ-015 | Event-Driven | When a node's last heartbeat is older than its window (30 minutes by default), or a heartbeat shows a run past a set share of its budget (80% by default), the reference store's alert job shall send one alert to the destination the owner configures, and not again for the same node or run until it recovers. |
 | REQ-016 | Event-Driven | When a bundle lands whose `chain_head` doesn't follow from the same person's last accepted bundle, the store shall mark both, as the local report does for a broken chain. |
 | REQ-017 | Ubiquitous | `reports/usage/README.md` shall carry the sending flow and a second paste-ready message telling the team what detailed mode records, who can read it and when it ends. |
+| REQ-018 | Event-Driven | When `factory-trends` has written a person's sprint report, it shall offer to send that period's general bundle, show the person the bundle first, and send it through `send_usage.py` only on their yes. Laptops send no heartbeat. |
+| REQ-019 | Ubiquitous | An unattended node shall authenticate to the store with short-lived credentials from the cloud provider's certificate-based workload identity, one certificate per node, so that no long-lived key sits on its disk and access is revoked node by node. `examples/usage-store/` shall set this up. |
 
 ## Acceptance Criteria
 
@@ -187,13 +189,15 @@ Not Affected:
 | AC-011 | REQ-015 | Stopping a test node's loop raises one alert inside its window, and one alert only; a run pushed past 80% of its budget raises one | A live run, recorded in TASKS.md |
 | AC-012 | The questions the store answers | Every key in the v2 shape maps to at least one RQ in a table the tests read; adding a key with no mapping fails | Unit test |
 | AC-013 | REQ-017 | The detailed-mode message names what's recorded, who reads it, and the end date | Reading, at review |
+| AC-014 | REQ-018 | `factory-trends` shows the bundle and sends nothing when the person says no | Reading, plus a test of the skill's send step with a stand-in sender |
+| AC-015 | REQ-019 | A test node sends with a certificate-issued credential, holds no access key on disk, and is refused once its certificate is revoked | A live run, recorded in TASKS.md |
 
 ## Security Requirements
 
 | ID | Requirement |
 |---|---|
 | SEC-001 | Command text is scrubbed twice: by the hook before it's written to disk (REQ-005), and by the sender before it leaves (REQ-009). A secret never lands in a local file to be cleaned later. |
-| SEC-002 | The sender reads no credential itself. It uses the cloud CLI's named profile set in the export config, and the config names the profile, never a key. |
+| SEC-002 | The sender reads no credential itself. It uses the cloud CLI's named profile set in the export config, and the config names the profile, never a key. On an unattended node that profile gets short-lived credentials (REQ-019). |
 | SEC-003 | A sender's access to the store is write-only, to its own prefix. No sender can read anything back, its own included. |
 | SEC-004 | Agents can't write, move or delete `.sanvio/export.json` or the commands file: the guard refuses it, as it does the usage log. |
 | SEC-005 | The alert destination (a chat webhook, say) is read from the store's own secret store by name. It never sits in the repo, in the export config, or in a bundle. |
@@ -248,18 +252,13 @@ Resolved by Pat on 2026-11-19:
 - [x] Q3: Unattended nodes send general bundles and heartbeats automatically,
   and never detailed mode (REQ-011).
 
-Still open:
+- [x] Q4: An unattended node authenticates with short-lived credentials from
+  the cloud provider's certificate-based workload identity, one certificate
+  per node, revoked node by node (REQ-019). No long-lived key on its disk.
+- [x] Q5: `export.py`'s rule changes from "a project's loop runs never leave
+  the machine" to "only the projects the owner lists, under a label the owner
+  picks", with the list empty by default (REQ-002).
+- [x] Q6: A person sends when they write their sprint report: `factory-trends`
+  offers it as its last step (REQ-018). Laptops send no heartbeat.
 
-- [ ] Q4: How does an unattended node prove who it is to the store without a
-  long-lived key on its disk? Recommended: short-lived credentials from the
-  cloud provider's certificate-based workload identity, one certificate per
-  node, revoked node by node. The fallback is a write-only key per node,
-  scoped to its own prefix, stored outside the repo and named by profile.
-- [ ] Q5: REQ-002 changes `export.py`'s rule that a project's loop runs never
-  leave the machine, to "only the projects the owner lists, under a label the
-  owner picks". Without it, the heartbeat and spend alerts can't see most
-  loops, because most loops run on projects. Recommended: accept the change,
-  default the list to empty.
-- [ ] Q6: How often do laptops send? Recommended: a person sends when they
-  write their sprint report, and `factory-trends` offers it as its last step.
-  Laptops send no heartbeat.
+No questions remain open.
