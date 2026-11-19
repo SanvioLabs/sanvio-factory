@@ -44,13 +44,93 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-18: The CI review runs on Amazon Bedrock through OIDC
 
-A product repo's caller can now give `aws-role-arn` and `aws-region` in place of an Anthropic key. The review then assumes that AWS role with the job's GitHub OIDC token, for a 15-minute session with no AWS key stored anywhere, and runs Claude with `CLAUDE_CODE_USE_BEDROCK` set. A role without a region fails and says so, since where the code goes is the team's call. The session's values are emptied from the job before the grade and the post, and a report holding any of them isn't posted. [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) is a CloudFormation template for the role: it trusts only the factory's `review-pr.yml` at its default branch, run for one product repo's pull requests, matched exactly on the OIDC subject, and allows only invoking Anthropic's models. The workflow now asks for `id-token: write`, so every caller has to grant it, Bedrock or not. Bedrock isn't on the approved-tools table: adding it is the company's decision.
+A product repo's caller can now give `aws-role-arn` and `aws-region` in place of an Anthropic key. Each agent's review job then assumes that AWS role with its GitHub OIDC token, for a 15-minute session with no AWS key stored anywhere, and runs Claude with `CLAUDE_CODE_USE_BEDROCK` set. A role without a region fails and says so, since where the code goes is the team's call. The session's values are emptied from that job before the schema check and the post, the grade runs as its own job without them, and a report holding any of them isn't posted. [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) is a CloudFormation template for the role: it trusts only the factory's `review-pr.yml` at its default branch, run for one product repo's pull requests, matched exactly on the OIDC subject, and allows only invoking Anthropic's models. The review job now asks for `id-token: write`, the only job that does, and every caller has to grant it, Bedrock or not. Bedrock isn't on the approved-tools table: adding it is the company's decision.
+
+**Needs:** 2026-11-18: Named review agents run as their own CI jobs
 
 **Controls:** AC-5
 
 Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** add `id-token: write` under `permissions:` in every product repo's caller, including those that review with a Claude key, or its next review fails at startup. To review on Bedrock: put Bedrock on the Approved tools table in [`steering/data-and-tools.md`](steering/data-and-tools.md) before a customer's code goes to it; deploy [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) once for each product repo, with that account's GitHub OIDC provider; set the product repo's OIDC subject to include `repo`, `context` and `job_workflow_ref` with the `gh api` call in [`examples/ci/README.md`](examples/ci/README.md)'s *On Amazon Bedrock*; then swap the caller for the Bedrock one there, with the stack's `RoleArn` as `aws-role-arn` and your region as `aws-region`. On the first run, check the subject GitHub sends matches the role's.
+
+## 2026-11-18: A caller's commands are held to their own folders
+
+A caller project's `test_command`, `setup_command` and `generate_command` now write only inside the issue's worktree, a temp folder the loop makes for each run and removes after, the `index` in git's own folder for that worktree, and what a new `caller_write_allow` lists, empty by default. They read nothing under your home folder, the factory, the loop's checkouts, `/Users`, `/Volumes` or the system's temp folders but the caller's clone, that worktree, the run's temp folder and what a new `caller_read_allow` lists, by default the tool folders version managers and uv keep interpreters in. `TMPDIR` and the uv, pip, npm and XDG caches point into the run's temp folder. Whatever the two lists say, the caller's own state folder, the clone's `.git/config`, `hooks/`, `info/` and `modules/`, and the files git follows to find a worktree's repository stay out of reach, so a command can't hand the loop's own git a config it chose. They also run with nothing on stdin and no terminal, can't open the loop's pane by name, can't reach the keychain or the clipboard, can't connect to a unix socket but DNS's and their own, so not to tmux, an ssh agent or Docker, and can't start work outside the sandbox with `open`, `launchctl` or Apple events; whatever they leave running is killed when they end. Each route was checked live on a Mac but Apple events, whose rule is in place unchecked, since a live check would have macOS ask for permission. Still open: the network, a child that starts its own session with `setsid`, and any macOS service the sandbox doesn't name, as [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says. The loop also writes `test-output.txt`, `setup-output.txt`, `update-output.txt`, `diff.patch` and the setup marker by putting a new file in place, so a link planted there is replaced, not written through. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-18: A caller's build loads none of its own settings; 2026-11-17: A caller's commands are the factory's
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing for a project that isn't a caller. A caller's tests that need a terminal, the keychain or a socket outside their own folders now fail; that's the change. For a caller project whose commands need a tool outside the default folders, add its folder to `caller_read_allow`, and anything they must write outside the worktree to `caller_write_allow`, in its entry under `"projects"` in the factory's `loop.json`.
+
+## 2026-11-18: Named review agents run as their own CI jobs
+
+The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, `skip-paths`'s among them, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, checks its JSON report against the schema and posts its own comment, rendered from that report, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back, takes each verdict from the line the schema check rendered, and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
+
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Skip the CI review when only skip-paths files changed; 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
+
+**Controls:** AC-5
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`scripts/review_report.py`](scripts/review_report.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; pass agents: review-pr,security-reviewer to run more
+
+## 2026-11-18: Run a workflow by name
+
+New: `/run-workflow <name> [--as chat|loop|schedule]` runs one workflow from [`workflows/`](workflows/). It first runs `python3 scripts/workflows.py show <name> --as <mode>`, which prints the workflow's manifest with its paths relative to the harness root, or exits 1 with the reason when the workflow isn't there, its `runs` don't list that mode, it's `retired`, or it's run `--as schedule` and its `restricted_data` isn't `none`. Then the skill follows the workflow's own skill to draft into its output, runs its gate with one round of fixes, has its reviewer read the draft, and stops at the approval lines, naming who decides. It never sends, never changes an input and never fills in an approval. `python3 scripts/workflows.py list` prints each workflow's name, owner, status and runs. [`workflows/README.md`](workflows/README.md) has a new *Starting a workflow* section.
+
+**Needs:** 2026-11-16: Check a workflow folder with one command; 2026-11-16: Build a workflow from a blueprint
+
+**Controls:** AC-5
+
+Files: [`scripts/workflows.py`](scripts/workflows.py), [`skills/run-workflow/SKILL.md`](skills/run-workflow/SKILL.md), [`tests/test_workflows_script.py`](tests/test_workflows_script.py), [`workflows/README.md`](workflows/README.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-18: Blueprint interview questions come with options and a recommendation
+
+The blueprint-workflow skill now asks each interview question through `AskUserQuestion`, one per call, with two to four options drawn from what the session knows about the work, the likeliest marked ` (Recommended)`, and Other left open; a tool without it asks the same question in plain text with numbered options. The blueprint records what the person picked or wrote in their own words, never a recommended option they didn't pick, and a skipped question stays empty and named in `gaps`.
+
+**Needs:** 2026-11-16: Interview the person who does a workflow
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
+
+## 2026-11-18: The CI review's report is checked against a schema
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) now asks Claude for one JSON object, a verdict and a list of findings, instead of a Markdown report. A new step, `Check the report against its schema`, runs [`scripts/review_report.py`](scripts/review_report.py), which checks it against [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json) from the factory checkout, never from the product repo, and writes the comment itself: a fixed line saying the tests weren't run, one line per finding, then the verdict. Each field is put on one line, with `&`, `<` and `>` escaped, `![` broken and `@` mentions removed. A report that isn't JSON or doesn't match posts no findings, only `The review's report couldn't be read, so no findings are posted.`, and the grade reads the same check, so it grades as unreadable. Reviews run in a session and the loop's own reviews keep their Markdown report and last-line verdict.
+
+**Needs:** 2026-11-10: Graded CI review; 2026-11-07: Review on a Claude subscription
+
+**Controls:** AC-5
+
+Files: [`skills/review-pr/report.schema.json`](skills/review-pr/report.schema.json), [`scripts/review_report.py`](scripts/review_report.py), [`scripts/review_grade.py`](scripts/review_grade.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`examples/ci/README.md`](examples/ci/README.md), [`tests/test_review_report.py`](tests/test_review_report.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing: product repos that call the workflow pick it up from the factory's default branch.
+
+## 2026-11-18: A caller's build loads none of its own settings
+
+A caller project's claude build and tester agents now start with `--setting-sources user` and `--strict-mcp-config`, so the [`.claude/settings.json`](.claude/settings.json), `.claude/settings.local.json`, `.claude/rules/`, [`.claude/skills/`](.claude/skills), [`.claude/agents/`](.claude/agents/) and `.mcp.json` in the caller's checkout don't load: no hook of the caller's runs, no allow rule of its widens what the agent may run, no `env` block of its applies, and no MCP server of its starts. Its [`CLAUDE.md`](CLAUDE.md) no longer loads by itself either: the build reads it as a file, through the guard, as its prompt already tells it to. Checked live on Claude Code 2.1.327, as were the planner, reviewer and retro, whose `--restricted` already loaded none of it. Your own user settings still load, and the guard, sandbox and deny rules the loop passes with `--settings` still apply. The guard now gets the folders it holds those agents to as `--confine` arguments on its hook command, and no longer reads `SANVIO_CONFINE` at all, so no settings file can change them. A caller's build or tester with no folders to hold it to doesn't start. Outside caller mode, the agents' command line and environment don't change. Caller mode still isn't safe for a repo you don't trust: [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says what's open.
+
+**Needs:** 2026-11-17: A caller's commands are the factory's; 2026-11-16: A caller's build is held to its worktree
+
+**Controls:** AC-5, AU-9
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing. A loop that's running takes it the next time it starts.
 
 ## 2026-11-17: A wave of light on the GitHub line while an action runs
 

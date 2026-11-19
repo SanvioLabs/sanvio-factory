@@ -1,6 +1,8 @@
 """Run with: python3 -m unittest discover -s tests"""
+import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -9,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / "examples" / "ci" / "review-pr.yml"
+REUSABLE = ROOT / ".github" / "workflows" / "review-pr.yml"
 SECRET_REF = re.compile(r"\$\{\{ secrets\.[A-Z][A-Z0-9_]* \}\}")
 KEY_SHAPES = re.compile(r"sk-ant|ghp_|gho_|github_pat_|AKIA[0-9A-Z]{8}|-----BEGIN")
 
@@ -51,6 +54,76 @@ def branch(script, name):
     """The body of a `name)` branch of a shell case, up to its `;;`, or None."""
     match = re.search(r"^\s*{}\)\s*\n(.*?)^\s*;;".format(re.escape(name)), script, re.M | re.S)
     return match.group(1) if match else None
+
+
+def jobs(text):
+    """Each job under the top-level `jobs:`, as {key: its text}, in order. Cut job by job, so a job's last step
+    never carries the next job's keys."""
+    body = text.split("\njobs:\n", 1)[1]
+    out = {}
+    for part in re.split(r"^(?=  [a-z][a-z0-9_-]*:\s*$)", body, flags=re.M):
+        match = re.match(r"  ([a-z][a-z0-9_-]*):", part)
+        if match:
+            out[match.group(1)] = part
+    return out
+
+
+def job_steps(text):
+    """Each step in one job's text as (name, text), the name '' for one without."""
+    body = text.split("\n    steps:\n", 1)[1]
+    out = []
+    for part in re.split(r"^(?=      - )", body, flags=re.M):
+        if not part.strip():
+            continue
+        name = re.search(r"^      (?:- |  )name: \"?(.*?)\"?$", part, re.M)
+        out.append((name.group(1) if name else "", part))
+    return out
+
+
+def reusable_step(name):
+    """The one step named `name` in any job of the reusable workflow, without its comments."""
+    found = [text for job in jobs(code(REUSABLE.read_text())).values() for each, text in job_steps(job)
+             if each == name]
+    assert len(found) == 1, "no single step named " + name
+    return found[0]
+
+
+def run_script(step, cwd, **env):
+    """Run a step's script from `cwd`, as Actions would from the workspace."""
+    script = step.split("run: |\n", 1)[1]
+    return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", textwrap.dedent(script)],
+                          cwd=cwd, env={"PATH": os.environ["PATH"], **env}, capture_output=True, text=True)
+
+
+BOT = "github-actions[bot]"
+# A stand-in gh: it logs its arguments, keeps each body=@file it's sent, and answers a --jq call by running the
+# workflow's own filter over $FAKE/comments.json with jq, as gh would over the API's page.
+FAKE_GH = """#!/bin/sh
+printf '%s\\n' "$*" >> "$FAKE/args"
+expr=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --jq) expr="$2"; shift ;;
+    body=@*) cat "${1#body=@}" >> "$FAKE/bodies"; printf '\\n=====\\n' >> "$FAKE/bodies" ;;
+  esac
+  shift
+done
+if [ -n "$expr" ]; then jq -r "$expr" "$FAKE/comments.json"; fi
+"""
+
+
+def fake_gh(folder, comments=()):
+    """A bin/ folder in `folder` holding the stand-in gh, with `comments` as the pull request's comments."""
+    bin_dir = Path(folder) / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(FAKE_GH)
+    (bin_dir / "gh").chmod(0o755)
+    (Path(folder) / "comments.json").write_text(json.dumps(list(comments)))
+    return "{}:{}".format(bin_dir, os.environ["PATH"])
+
+
+def comment(number, login, body):
+    return {"id": number, "user": {"login": login}, "body": body}
 
 
 class ReviewPrWorkflow(unittest.TestCase):
@@ -290,24 +363,359 @@ class ReviewPrWorkflow(unittest.TestCase):
             self.assertIn(word, header)
 
 
-REUSABLE = ROOT / ".github" / "workflows" / "review-pr.yml"
+RESOLVE = "Resolve the agents"
+READ_ONLY = "Read,Grep,Glob"
+# A harness with two skills and three agents. review-pr's headless-tools line grants a shell to a hand run, and
+# security-reviewer's ci-shell: line sits outside any front matter: neither may reach CI's tool list.
+HARNESS = {
+    "skills/review-pr/SKILL.md": "---\nname: review-pr\nheadless-tools: Read, Bash(gh pr view:*)\n---\n# Review\n",
+    "skills/loop-control/SKILL.md": "---\nname: loop-control\n---\n# Loop\n",
+    "agents/security-reviewer.md": "# Security reviewer\n\nci-shell: npm audit\n",
+    "agents/cto.md": "# CTO\n",
+    "agents/README.md": "# Agents\n",
+}
+VALID = "Valid names: cto, loop-control, review-pr, security-reviewer"
+
+
+class ResolveTheAgents(unittest.TestCase):
+    """The agents job's Resolve step, run against a harness/ made up for each test."""
+
+    def resolve(self, agents, extra=None):
+        """Run the step with AGENTS=`agents`, over HARNESS and the `extra` files. Returns its result and its
+        outputs as a dict."""
+        files = dict(HARNESS, **(extra or {}))
+        with tempfile.TemporaryDirectory() as tmp:
+            for path, text in files.items():
+                (Path(tmp) / "harness" / path).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / "harness" / path).write_text(text)
+            output = Path(tmp) / "output"
+            output.touch()
+            result = run_script(reusable_step(RESOLVE), tmp, AGENTS=agents, GITHUB_OUTPUT=str(output))
+            return result, dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def matrix(self, agents, extra=None):
+        result, outputs = self.resolve(agents, extra)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(outputs["run"], "true")
+        return json.loads(outputs["matrix"]), outputs["names"]
+
+    def assertRefused(self, agents, said, extra=None):
+        result, outputs = self.resolve(agents, extra)
+        self.assertNotEqual(result.returncode, 0, agents)
+        self.assertEqual(outputs, {}, "a refused list writes no output")
+        self.assertIn("::error::", result.stdout, agents)
+        self.assertIn(said, result.stdout, agents)
+
+    def test_the_input_defaults_to_review_pr(self):
+        on = code(REUSABLE.read_text()).split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn('agents:\n        description: "Comma-separated review agents to run, each a skill in skills/ '
+                      'or an agent in agents/."\n        required: false\n        default: review-pr\n'
+                      '        type: string\n', on)
+        self.assertIn("AGENTS: ${{ inputs.agents }}", reusable_step(RESOLVE))
+
+    def test_the_default_is_one_read_only_entry(self):
+        matrix, names = self.matrix("review-pr")
+        self.assertEqual(matrix, [{"name": "review-pr", "file": "harness/skills/review-pr/SKILL.md",
+                                   "tools": READ_ONLY}])
+        self.assertEqual(names, "review-pr")
+
+    def test_two_names_give_two_entries_in_order(self):
+        matrix, names = self.matrix(" review-pr , security-reviewer,,review-pr,")
+        self.assertEqual(matrix, [
+            {"name": "review-pr", "file": "harness/skills/review-pr/SKILL.md", "tools": READ_ONLY},
+            {"name": "security-reviewer", "file": "harness/agents/security-reviewer.md", "tools": READ_ONLY}])
+        self.assertEqual(names, "review-pr,security-reviewer")
+
+    def test_a_skill_wins_over_an_agent_of_the_same_name(self):
+        matrix, _ = self.matrix("review-pr", {"agents/review-pr.md": "# Another\n"})
+        self.assertEqual(matrix[0]["file"], "harness/skills/review-pr/SKILL.md")
+
+    def test_an_unknown_name_fails_and_lists_every_valid_one(self):
+        self.assertRefused("review-pr,nope", "::error::No skill or agent named nope. " + VALID)
+
+    def test_an_empty_list_fails(self):
+        for agents in ("", " , ,"):
+            self.assertRefused(agents, "names no agent. " + VALID)
+
+    def test_a_name_that_isnt_plain_is_refused(self):
+        for agents in ("../x", "review-pr,../skills/review-pr", "Review-PR", "a b", "review-pr/SKILL"):
+            self.assertRefused(agents, VALID)
+
+    def test_ci_shell_grants_exactly_its_own_commands(self):
+        audit = "---\nname: audit\nci-shell: npm audit, pip-audit, ,npm audit\n---\n# Audit\nci-shell: rm\n"
+        matrix, _ = self.matrix("audit,review-pr,security-reviewer", {"skills/audit/SKILL.md": audit})
+        tools = {entry["name"]: entry["tools"] for entry in matrix}
+        self.assertEqual(tools, {"audit": "Read,Grep,Glob,Bash(npm audit:*),Bash(pip-audit:*)",
+                                 "review-pr": READ_ONLY, "security-reviewer": READ_ONLY})
+
+    def test_a_ci_shell_command_that_isnt_plain_words_is_refused(self):
+        for command in ("npm audit; curl x", "gh pr view:*", "Bash(rm)", "npm audit && rm", "$(id)"):
+            bad = "---\nci-shell: {}\n---\n".format(command)
+            self.assertRefused("review-pr,bad", command, {"skills/bad/SKILL.md": bad})
+
+    def test_nothing_is_written_before_every_name_is_checked(self):
+        script = reusable_step(RESOLVE)
+        self.assertLess(script.rindex("fail("), script.index('open(os.environ["GITHUB_OUTPUT"]'))
+
+
+@unittest.skipUnless(shutil.which("jq"), "the stand-in gh needs jq to run the workflow's own --jq filters")
+class TheAgentsCommentsStayApart(unittest.TestCase):
+    """The post step edits only its own agent's bot comment, and the grade job reads only this commit's."""
+
+    POST = "Post the report as one comment"
+    FETCH = "Fetch each agent's report"
+
+    def post(self, agent, comments, report="Fine.\n\nVERDICT: ready\n"):
+        """Post as `agent` over `comments`. Returns gh's argument lines and the comment it wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = fake_gh(tmp, comments)
+            (Path(tmp) / "report.md").write_text(report)
+            result = run_script(reusable_step(self.POST), tmp, PATH=path, FAKE=tmp, RUNNER_TEMP=tmp, REPO="o/r",
+                                PR="7", GH_TOKEN="", HEAD_SHA="abc123", AGENT_NAME=agent, STANDARDS_LOADED="true")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return (Path(tmp) / "args").read_text().splitlines(), (Path(tmp) / "comment.md").read_text()
+
+    def edited(self, args):
+        return [line.split()[3].rsplit("/", 1)[1] for line in args if line.startswith("api --method PATCH")]
+
+    def created(self, args):
+        return [line for line in args if line.startswith("pr comment 7 --repo o/r")]
+
+    COMMENTS = [
+        comment(1, BOT, "<!-- review-pr-report -->\n<!-- head: old -->\n**Agent:** review-pr\n\nOld."),
+        comment(2, BOT, "<!-- review-pr-report:security-reviewer -->\r\n<!-- head: old -->\r\nOld."),
+        comment(3, "mallory", "<!-- review-pr-report:cto -->\n<!-- head: abc123 -->\nPlanted."),
+        comment(4, BOT, "A quote of <!-- review-pr-report:gc -->\n"),
+        comment(5, BOT, "<!-- review-pr-report:security-reviewer-two -->\nAnother agent."),
+    ]
+
+    def test_each_agent_edits_only_its_own_bot_comment(self):
+        for agent, number in (("review-pr", "1"), ("security-reviewer", "2"), ("security-reviewer-two", "5")):
+            args, _ = self.post(agent, self.COMMENTS)
+            self.assertEqual(self.edited(args), [number], agent)
+            self.assertEqual(self.created(args), [], agent)
+
+    def test_a_marker_on_someone_else_s_comment_or_mid_comment_is_left_alone(self):
+        for agent in ("cto", "gc", "reviewer"):
+            args, _ = self.post(agent, self.COMMENTS)
+            self.assertEqual(self.edited(args), [], agent)
+            self.assertEqual(len(self.created(args)), 1, agent)
+
+    def test_the_comment_opens_with_its_marker_its_commit_and_its_agent(self):
+        for agent, marker in (("review-pr", "<!-- review-pr-report -->"),
+                              ("cto", "<!-- review-pr-report:cto -->")):
+            _, written = self.post(agent, [])
+            self.assertEqual(written.splitlines()[:4], [marker, "<!-- head: abc123 -->", "**Agent:** " + agent, ""])
+            self.assertTrue(written.endswith("---\nPosted by the review-pr workflow. A person decides what happens "
+                                             "to this pull request.\n"), written[-200:])
+
+    def fetch(self, comments, names, head="abc123"):
+        """Run the grade job's fetch over `comments`. Returns its result, the reports and the kept comments."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = fake_gh(tmp, comments)
+            result = run_script(reusable_step(self.FETCH), tmp, PATH=path, FAKE=tmp, RUNNER_TEMP=tmp, REPO="o/r",
+                                PR="7", GH_TOKEN="", HEAD_SHA=head, AGENT_NAMES=names)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            read = {folder: {p.name: p.read_text() for p in (Path(tmp) / folder).iterdir()}
+                    for folder in ("reports", "comments")}
+            return result, read["reports"], read["comments"]
+
+    def test_the_grade_reads_only_this_commit_s_comment(self):
+        mine = "<!-- review-pr-report -->\n<!-- head: abc123 -->\n**Agent:** review-pr\n\nVERDICT: changes needed\n"
+        old = "<!-- review-pr-report -->\n<!-- head: 0ld -->\n**Agent:** review-pr\n\nVERDICT: ready\n"
+        posted = "\n---\nPosted by the review-pr workflow. A person decides what happens to this pull request."
+        comments = [comment(1, BOT, mine + posted), comment(2, BOT, old + posted),
+                    comment(3, BOT, old.replace("report -->", "report:cto -->") + posted),
+                    comment(4, "mallory", mine.replace("report -->", "report:gc -->") + posted)]
+        result, reports, kept = self.fetch(comments, "review-pr,cto,gc")
+        self.assertEqual(reports, {"review-pr.md": mine + "\n"})
+        self.assertEqual(kept, {"review-pr.md": mine + "\n---\n", "review-pr.id": "1\n"})
+        for name in ("cto", "gc"):
+            self.assertIn("::warning::{} has no comment for this commit".format(name), result.stdout)
+
+    def test_a_report_is_cut_at_its_last_rule(self):
+        body = ("<!-- review-pr-report:cto -->\n<!-- head: abc123 -->\n**Agent:** cto\n\nA\n---\nB\n\n"
+                "VERDICT: ready\n\n---\nPosted by the review-pr workflow.")
+        _, reports, _ = self.fetch([comment(9, BOT, body)], "cto")
+        self.assertTrue(reports["cto.md"].endswith("A\n---\nB\n\nVERDICT: ready\n\n"), reports)
+
+    def test_what_the_post_writes_the_grade_reads_back(self):
+        _, written = self.post("security-reviewer", [], report="One finding.\n\nVERDICT: ready with nits\n")
+        _, reports, kept = self.fetch([comment(8, BOT, written)], "security-reviewer")
+        self.assertEqual([line for line in reports["security-reviewer.md"].splitlines() if line][-1],
+                         "VERDICT: ready with nits")
+        self.assertEqual(kept["security-reviewer.id"], "8\n")
+
+
+CALLED = ROOT / ".github" / "workflows" / "review-pr.yml"
+SKIP = "Skip when only skip-paths files changed"
+SKIP_DOCS = "docs/**\npackage-lock.json\n"
+
+
+def git_env(tmp):
+    """An environment that keeps the machine's own git config out of the test."""
+    return {"PATH": os.environ["PATH"], "TMPDIR": tmp, "HOME": tmp, "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+
+
+def write(head, *names):
+    for name in names:
+        path = head / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("changed " + name + "\n")
+
+
+class SkipPaths(unittest.TestCase):
+    """The called workflow's skip-paths step, run on a real base and head commit."""
+    steps = ReviewPrWorkflow.steps
+    step = ReviewPrWorkflow.step
+
+    def setUp(self):
+        self.assertTrue(CALLED.is_file(), ".github/workflows/review-pr.yml doesn't exist")
+        self.text = CALLED.read_text()
+        self.code = code(self.text)
+
+    def names(self):
+        return [name for name, _ in self.steps()]
+
+    def skip_with(self, patterns, change):
+        """Run the step on a pull request that `change(head)` makes. Returns its result and what it added to the env."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env = git_env(tmp)
+            head = Path(tmp) / "head"
+            head.mkdir()
+
+            def git(*args):
+                return subprocess.run(["git", "-C", str(head), *args], env=env, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q")
+            (head / "src").mkdir()
+            (head / "src" / "x.py").write_text("def x():\n    return 'the same in both places'\n")
+            (head / "README.md").write_text("base\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            change(head)
+            git("add", "-A")
+            git("commit", "-q", "--allow-empty", "-m", "head")
+            added = Path(tmp) / "env"
+            added.touch()
+            script = self.step(SKIP).split("run: |\n", 1)[1]
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", textwrap.dedent(script)],
+                                    cwd=tmp, env={**env, "SKIP_PATHS": patterns, "BASE_SHA": base,
+                                                  "GITHUB_ENV": str(added)},
+                                    capture_output=True, text=True)
+            return result, added.read_text()
+
+    def test_the_input_is_optional_and_empty_by_default(self):
+        on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        block = re.search(r"^      skip-paths:\n((?:        .*\n)+)", on, re.M)
+        self.assertIsNotNone(block, "no skip-paths input")
+        lines = [line.strip() for line in block.group(1).splitlines()]
+        for line in ("required: false", "default: ''", "type: string"):
+            self.assertIn(line, lines)
+        self.assertIn("SKIP_PATHS: ${{ inputs.skip-paths }}", self.step(SKIP))
+
+    def test_without_patterns_the_review_runs_and_says_nothing(self):
+        result, added = self.skip_with("", lambda head: write(head, "docs/a.md"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(added, "")
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_blank_lines_alone_are_no_patterns(self):
+        result, added = self.skip_with("\n  \n\t\n", lambda head: write(head, "docs/a.md"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_every_file_matching_skips_with_a_notice_naming_the_patterns(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: write(head, "docs/a.md", "docs/api/b.md",
+                                                                     "package-lock.json"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(added, "REVIEW_SKIPPED=true\n")
+        notice = [line for line in result.stdout.splitlines() if line.startswith("::notice::")]
+        self.assertEqual(len(notice), 1, result.stdout)
+        for pattern in ("docs/**", "package-lock.json"):
+            self.assertIn(pattern, notice[0])
+
+    def test_one_file_that_matches_nothing_reviews(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: write(head, "docs/a.md", "package-lock.json",
+                                                                     "src/app.py"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+        self.assertNotIn("::notice::", result.stdout)
+
+    def test_code_renamed_into_a_skipped_path_reviews(self):
+        def rename(head):
+            (head / "docs").mkdir()
+            (head / "src" / "x.py").rename(head / "docs" / "x.py")
+        result, added = self.skip_with(SKIP_DOCS, rename)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def test_a_pull_request_that_changes_nothing_reviews(self):
+        result, added = self.skip_with(SKIP_DOCS, lambda head: None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("REVIEW_SKIPPED", added)
+
+    def test_the_step_holds_no_secret_and_no_token(self):
+        skip = self.step(SKIP)
+        for word in ("secrets.", "GH_TOKEN", "github.token"):
+            self.assertNotIn(word, skip)
+
+    def test_it_runs_after_the_head_checkout_and_before_any_credential_is_used(self):
+        # The agents job checks the head out for it, so it skips the jobs after it, review's head checkout
+        # and rules among them (#648).
+        names = self.names()
+        at = names.index(SKIP)
+        self.assertLess(names.index("Check out the pull request's head to list its files"), at)
+        self.assertLess(at, names.index("Check out the pull request's head"))
+        self.assertLess(at, names.index("Remove the pull request's own rules"))
+        holding = [name for name, text in self.steps()
+                   if re.search(r"secrets\.(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)|github\.token", text)]
+        before = [name for name in holding if names.index(name) < at]
+        self.assertEqual(before, ["Skip when Claude has no key"], "only the key check, which reads no file, runs first")
+        self.assertTrue([name for name in holding if names.index(name) > at], "no credential step after the skip")
+
+    def test_a_skip_runs_nothing_after_it(self):
+        # REVIEW_SKIPPED holds only inside the agents job, so the steps after the skip there wait on it, and the
+        # jobs after it run only on the run output the resolve step writes, which a skip leaves unwritten (#648).
+        names = self.names()
+        after = self.steps()[names.index(SKIP) + 1:]
+        for name in ("Run the review-pr skill on Claude", "Check the report against its schema", "Grade the review",
+                     "Post the report as one comment"):
+            self.assertIn(name, [each for each, _ in after])
+        job_of = {name: key for key, text in jobs(self.code).items() for name, _ in job_steps(text)}
+        self.assertEqual(job_of[SKIP], "agents")
+        for name, text in job_steps(jobs(self.code)["agents"]):
+            if names.index(name) > names.index(SKIP):
+                if_line = next((line for line in text.splitlines() if line.strip().startswith("if:")), "")
+                self.assertIn("env.REVIEW_SKIPPED != 'true'", if_line, name)
+        resolve = [text for name, text in job_steps(jobs(self.code)["agents"]) if name == "Resolve the agents"][0]
+        self.assertIn('out.write("run=true\\n")', resolve)
+        for key in ("review", "grade"):
+            head = jobs(self.code)[key].split("\n    steps:\n", 1)[0]
+            self.assertIn("needs.agents.outputs.run == 'true'", head, key)
+
+
+
 TEMPLATE = ROOT / "examples" / "ci" / "bedrock-review-role.yml"
 AWS_ACTION_SHA = "e1253824e5c10ff9df46874f81ed3ec929e19cfd"
-SKIP = "Skip when Claude has no key"
+NO_KEY = "Skip when Claude has no key"
 ASSUME = "Assume the review role on AWS"
-CLAUDE = "Run the review-pr skill on Claude"
+REVIEW = "Run the review-pr skill on Claude"
 CLEAR = "Clear the AWS credentials"
 GRADE = "Grade the review"
 POST = "Post the report as one comment"
-USUAL_IF = "steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'"
+CHECK = "Check the report against its schema"
 AWS_VALUES = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")
 CLEARED = AWS_VALUES + ("AWS_REGION", "AWS_DEFAULT_REGION")
 
 
 class BedrockReview(unittest.TestCase):
     """The reusable review's Bedrock path: an AWS role assumed through OIDC in place of a Claude key."""
-    steps = ReviewPrWorkflow.steps
-    step = ReviewPrWorkflow.step
     run_step = ReviewPrWorkflow.run_step
 
     def setUp(self):
@@ -315,15 +723,24 @@ class BedrockReview(unittest.TestCase):
         self.text = REUSABLE.read_text()
         self.code = code(self.text)
 
-    def names(self):
-        return [name for name, _ in self.steps()]
+    def job(self, name):
+        """One job's steps, (name, text), cut at the job's end (#648 split the review into jobs)."""
+        return job_steps(jobs(self.code)[name])
+
+    def step(self, name):
+        found = [text for job in jobs(self.code) for each, text in self.job(job) if each == name]
+        self.assertEqual(len(found), 1, "no single step named " + name)
+        return found[0]
+
+    def names(self, job="review"):
+        return [name for name, _ in self.job(job)]
 
     def if_line(self, name):
         return next((line.strip() for line in self.step(name).splitlines() if line.strip().startswith("if:")), "")
 
     def review_with(self, report, **env):
         """Run the Claude step with a stand-in claude that writes `report`. Returns it and whether a report is left."""
-        script = self.step(CLAUDE).split("run: |\n", 1)[1]
+        script = self.step(REVIEW).split("run: |\n", 1)[1]
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
@@ -335,14 +752,14 @@ class BedrockReview(unittest.TestCase):
                 env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "GITHUB_WORKSPACE": tmp,
                      "FAKE_REPORT": report, **env},
                 capture_output=True, text=True)
-            return result, (Path(tmp) / "report.md").exists()
+            return result, (Path(tmp) / "report.json").exists()
 
     def test_it_takes_the_role_and_the_region_as_optional_inputs(self):
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         for name in ("aws-role-arn", "aws-region"):
             self.assertRegex(on, r"      {}:\n        description: .*\n        required: false\n"
                                  r"        default: ''\n        type: string\n".format(name))
-        self.assertIn("CLAUDE_CODE_USE_BEDROCK: ${{ inputs.aws-role-arn != '' && '1' || '' }}", self.step(CLAUDE))
+        self.assertIn("CLAUDE_CODE_USE_BEDROCK: ${{ inputs.aws-role-arn != '' && '1' || '' }}", self.step(REVIEW))
 
     def test_the_aws_action_is_pinned_to_v6_3_0_and_holds_no_secret(self):
         assume = self.step(ASSUME)
@@ -355,12 +772,13 @@ class BedrockReview(unittest.TestCase):
         self.assertEqual(self.text.count("aws-actions/configure-aws-credentials@"), 1)
 
     def test_the_role_is_assumed_only_when_given_and_directly_before_the_review(self):
-        self.assertEqual(self.if_line(ASSUME), "if: " + USUAL_IF + " && inputs.aws-role-arn != ''")
+        # The review job runs only when the agents job says so, so its steps carry no gate of their own.
+        self.assertEqual(self.if_line(ASSUME), "if: inputs.aws-role-arn != ''")
         names = self.names()
-        self.assertEqual(names.index(ASSUME) + 1, names.index(CLAUDE))
+        self.assertEqual(names.index(ASSUME) + 1, names.index(REVIEW))
 
     def test_nothing_set_skips_with_a_notice_naming_all_three(self):
-        result, _, added = self.run_step(SKIP)
+        result, _, added = self.run_step(NO_KEY)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("REVIEW_SKIPPED=true", added)
         notice = next(line for line in result.stdout.splitlines() if line.startswith("::notice::"))
@@ -368,27 +786,33 @@ class BedrockReview(unittest.TestCase):
             self.assertIn(name, notice)
 
     def test_a_role_with_its_region_runs_the_review(self):
-        result, _, added = self.run_step(SKIP, AWS_ROLE_ARN="arn:aws:iam::123456789012:role/r",
+        result, _, added = self.run_step(NO_KEY, AWS_ROLE_ARN="arn:aws:iam::123456789012:role/r",
                                          AWS_REGION_INPUT="us-east-1")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("REVIEW_SKIPPED", added)
 
     def test_a_role_without_a_region_fails_and_names_both(self):
-        result, _, added = self.run_step(SKIP, AWS_ROLE_ARN="arn:aws:iam::123456789012:role/r")
+        result, _, added = self.run_step(NO_KEY, AWS_ROLE_ARN="arn:aws:iam::123456789012:role/r")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("REVIEW_SKIPPED", added)
         error = next(line for line in result.stdout.splitlines() if line.startswith("::error::"))
         for name in ("aws-role-arn", "aws-region"):
             self.assertIn(name, error)
 
+    def test_the_role_check_is_in_the_agents_job_and_the_role_is_used_only_in_review(self):
+        self.assertIn(NO_KEY, self.names("agents"))
+        for name in (ASSUME, REVIEW, CLEAR):
+            self.assertIn(name, self.names("review"), name)
+        self.assertNotIn("configure-aws-credentials", jobs(self.code)["agents"])
+
     def test_the_skip_step_reads_the_role_and_the_region(self):
-        skip = self.step(SKIP)
+        skip = self.step(NO_KEY)
         self.assertIn("AWS_ROLE_ARN: ${{ inputs.aws-role-arn }}", skip)
         self.assertIn("AWS_REGION_INPUT: ${{ inputs.aws-region }}", skip)
 
     def test_a_key_alone_still_runs_the_review_with_no_role(self):
         for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
-            result, _, added = self.run_step(SKIP, **{name: "k"})
+            result, _, added = self.run_step(NO_KEY, **{name: "k"})
             self.assertEqual(result.returncode, 0, name + ": " + result.stdout + result.stderr)
             self.assertNotIn("REVIEW_SKIPPED", added, name)
             result, kept = self.review_with("Looks fine.", **{name: "cred-123", "CLAUDE_CODE_USE_BEDROCK": ""})
@@ -414,15 +838,19 @@ class BedrockReview(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(added.splitlines(), [name + "=" for name in CLEARED])
 
-    def test_the_clear_step_runs_after_the_review_and_before_the_grade_and_the_post(self):
+    def test_the_clear_step_runs_after_the_review_and_before_the_schema_check_and_the_post(self):
         names = self.names()
-        self.assertEqual(names.index(CLAUDE) + 1, names.index(CLEAR))
-        self.assertLess(names.index(CLEAR), names.index(GRADE))
+        self.assertEqual(names.index(REVIEW) + 1, names.index(CLEAR))
+        self.assertLess(names.index(CLEAR), names.index(CHECK))
         self.assertLess(names.index(CLEAR), names.index(POST))
-        self.assertEqual(self.if_line(CLEAR), "if: " + USUAL_IF)
+        self.assertEqual(self.if_line(CLEAR), "")
         self.assertNotIn("secrets.", self.step(CLEAR))
-        for name in (GRADE, POST):
+        for name in (CHECK, POST):
             self.assertNotIn("AWS_", self.step(name), name)
+        # The grade is its own job, on another runner, so the session never reaches it.
+        self.assertIn(GRADE, self.names("grade"))
+        self.assertNotIn("AWS_", jobs(self.code)["grade"])
+        self.assertNotIn("aws-", jobs(self.code)["grade"])
 
     def test_the_header_says_how_the_bedrock_path_works(self):
         header = " ".join(self.text.split("\nname:", 1)[0].split())
@@ -477,7 +905,6 @@ class BedrockReview(unittest.TestCase):
             self.assertIn(words, header)
         self.assertIsNone(KEY_SHAPES.search(text), "something in the template looks like a key")
         self.assertIsNone(re.search(r"(?:AKIA|ASIA)[0-9A-Z]{16}", text))
-
 
 if __name__ == "__main__":
     unittest.main()

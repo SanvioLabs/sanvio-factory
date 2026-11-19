@@ -19,7 +19,7 @@ a change to them reaches every repo on its next pull request. The product
 repos need no [`skills/`](../../skills/) folder. The workflow checks out three folders side by
 side: `harness/` at its default branch, holding only its `AGENTS.md`,
 [`steering/`](../../steering/), [`skills/`](../../skills/), [`agents/`](../../agents/) and [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml), with the
-[`review-rubric.json`](../../review-rubric.json) and the three scripts [the grade](#the-grade) needs, `base/` (the product repo at the pull
+[`review-rubric.json`](../../review-rubric.json) and the four scripts the report and [the grade](#the-grade) need, [`scripts/review_report.py`](../../scripts/review_report.py) among them, which checks the report against its schema, `base/` (the product repo at the pull
 request's base, where the project's own rules are read) and `head/` (the pull
 request, minus its symlinks and, at any depth, its own `.claude` folders,
 its own `AGENTS.md` or `CLAUDE.md` and its own `CLAUDE.local.md`). Claude reads them with
@@ -75,6 +75,9 @@ jobs:
     uses: your-org/factory/.github/workflows/review-pr.yml@main
     with:
       factory-repo: your-org/factory
+      skip-paths: |
+        docs/**
+        package-lock.json
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -110,6 +113,34 @@ A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's, when the caller gives no `aws-role-arn`. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
+
+To run more review agents than the review-pr skill, add
+`agents: review-pr,security-reviewer`, say, under `with:`. Each name is a skill
+in the factory's [`skills/`](../../skills/) or an agent in its [`agents/`](../../agents/), and a name that's
+neither fails the run and lists the valid names. Each agent runs as its own
+job beside the others, with Read, Grep and Glob, and posts its own comment
+under its name, which the next push edits. The default, `review-pr` alone,
+reviews as before, in the comment it already edits. An agent gets a shell only
+when its file's front matter has a `ci-shell:` line, such as
+`ci-shell: npm audit, pip-audit`, and then only for the commands it names. No
+agent in the factory has one yet, so `security-reviewer` lists the audits it
+couldn't run under Not checked. Once every agent's job has finished, one grade,
+from the worst verdict among them, goes on every agent's comment. An agent
+whose job failed counts as unreadable. Each agent is one more unattended model
+run on your Claude credential, with the pull request's text in its prompt, so
+name only the agents whose reports someone will read.
+
+`skip-paths` is optional: leave it out and every pull request is reviewed. It
+takes shell glob patterns, one a line, matched against each changed file's path
+from the repo's root, and `*` crosses `/`, so `docs/*` matches `docs/api/a.md`
+too. A pull request skips with a notice only when every file it changes
+matches a pattern. Both sides of a rename count, so moving code into a skipped folder
+is still reviewed, and one file that matches nothing reviews the whole diff.
+Keep the patterns narrow: `*.md` would skip a change to a project's own `AGENTS.md`, which is
+a change to the rules. Don't reach for a `paths-ignore` filter on the caller
+instead. Once the review is a required check, GitHub leaves a required check
+pending when a path filter keeps its workflow from running, so the pull
+request can't merge. Skipping inside the job keeps the check green.
 
 ### On Amazon Bedrock
 
@@ -148,8 +179,10 @@ jobs:
 `aws-region` is where Bedrock runs the review, and so where the pull request's
 code is sent. It has no default: a caller that gives the role without a region
 fails and says so. With `aws-role-arn` given, the review runs on Bedrock even
-if a Claude key is passed too. The session's values are emptied from the job
-as soon as the review ends, so the grade and the post never see them.
+if a Claude key is passed too. With more than one agent in `agents`, each
+agent's job assumes the role for its own review. The session's values are
+emptied from that job as soon as its review ends, so the schema check and the
+post never see them, and the grade runs as a job of its own without them.
 
 Before the first pull request, in this order:
 
@@ -320,7 +353,8 @@ factory's [`review-rubric.json`](../../review-rubric.json), worked out by [`scri
 from the factory's default branch. A [`review-rubric.json`](../../review-rubric.json) in the product repo,
 or in the pull request, is never read. It combines the report's verdict with
 the pull request's other checks. The shipped rubric gives a failed check, and
-a report whose last line isn't a verdict, a grade of their own. A ladder
+a report that doesn't match the factory's [`skills/review-pr/report.schema.json`](../../skills/review-pr/report.schema.json),
+a grade of their own. A ladder
 rubric says what each grade needs instead, such as a 10 that needs a check run
 named `security-scan` to have passed, matched by the check run's name.
 [`docs/review-rubric.md`](../../docs/review-rubric.md) has both shapes and worked examples. A rubric
@@ -332,10 +366,10 @@ it on an open pull request first with `python3 scripts/loop.py grade <n>
 new rubric.
 
 The grade waits up to 10 minutes for the pull request's other checks to
-finish. It leaves out only the review's own job, so a test job beside it in
-the caller's workflow counts. To wait a different time, add
+finish. It leaves out only its own grade job, so a test job beside it in
+the caller's workflow counts, and so does a review agent's job that failed. To wait a different time, add
 `grade-wait-minutes: 5`, say, under `with:` in the caller. It waits at most 15
-minutes, so the review still posts inside the job's 30. A check still running
+minutes, so the grade still lands inside its job's 30. A check still running
 when the wait ends leaves the grade pending, and nothing grades it later: the
 next push or a re-run grades it again. If GitHub refuses to list the checks
 (HTTP 403, a token without `checks: read`, as on a private repo), the grade is

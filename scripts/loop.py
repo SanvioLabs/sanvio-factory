@@ -67,6 +67,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -78,6 +79,11 @@ import names  # noqa: E402 (beside this file: the state and home folders)
 
 ROOT = Path(__file__).resolve().parent.parent
 SELF = Path(__file__).resolve()  # this file, whose change on disk a running loop logs
+
+# caller_read_allow's default: the tool folders under the home folder that .claude/hooks/guard.py's HOME_TOOL_PATHS
+# names (tests/test_loop.py holds the two equal). The guard stands alone, so it isn't imported.
+CALLER_READ_ALLOW = ("~/.nvm", "~/.pyenv", "~/.rbenv", "~/.rustup", "~/.volta", "~/.cargo/bin", "~/.local/bin",
+                     "~/.local/share/uv", "~/.bun/bin")
 
 DEFAULTS = {
     # The command that starts an agent session. The prompt arrives on stdin. A name, claude or codex,
@@ -103,6 +109,16 @@ DEFAULTS = {
     # and the loop logs a WARN. For a project whose tests need one of those paths, the factory's loop.json
     # sets it false under "projects".
     "sandbox_commands": True,
+    # What a caller project's test_command, generate_command and setup_command may read under the home folder,
+    # the factory and the loop's checkouts, besides their clone, worktree and the run's own temp folder: each an
+    # absolute or ~ path, a folder with all it holds, or a file. The default is where version managers and uv
+    # keep interpreters and tools, the same folders .claude/hooks/guard.py's HOME_TOOL_PATHS lets a held build's
+    # shell name. A machine key, like the next: an outside party's repo mustn't widen them.
+    "caller_read_allow": list(CALLER_READ_ALLOW),
+    # What those commands may write beyond their worktree, the run's own temp folder and git's folder for that
+    # worktree. Empty by default: a shared package cache one caller can write is one another project's build
+    # reads, so the loop points each run's caches at its own temp folder instead.
+    "caller_write_allow": [],
     # Whether a separate agent writes failing tests after the planner and before round 1, which the build then
     # has to make pass without changing them. Only true turns it on. A machine key, like the next two: they
     # limit what an agent may write, so a clone anyone can push to must not set them.
@@ -374,6 +390,47 @@ def kill_tree(proc):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     else:
         os.killpg(proc.pid, signal.SIGKILL)
+
+
+def end_session(leader, sweeps=5):
+    """SIGKILL every process left in the session leader started (#639): its process group, then any process that
+    moved to another group in the session, found by asking os.getsid of each process ps lists, since macOS's pgrep
+    and ps can't name a session. It sweeps again until a sweep finds none, up to sweeps times, so a child forked while
+    ps was listing is caught by the next. One gone already is the same outcome. A process that started a session of
+    its own, with setsid, is in neither and isn't found: HOW-IT-WORKS.md says so. leader is a pid the caller has
+    reaped, but no pid is reused while its session or group still has a member, and leader itself is never killed
+    by the sweep."""
+    try:
+        os.killpg(leader, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass  # the group has no process left: what the kill was for
+    for _ in range(sweeps):
+        try:
+            listed = subprocess.run(["ps", "-A", "-o", "pid="], capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return  # no ps: the group's kill above is all there is
+        found = 0
+        for word in listed.split():
+            try:
+                pid = int(word)
+                if pid != leader and os.getsid(pid) == leader:
+                    os.kill(pid, signal.SIGKILL)
+                    found += 1
+            except (ValueError, ProcessLookupError, PermissionError):
+                pass  # ended since ps listed it, another user's, or not a pid: nothing of this session's to end
+        if not found:
+            return
+
+
+def timed_out_output(timeout, partial, out, err):
+    """ran()'s output for a command that timed out: the line saying so, after what it printed first, out then err,
+    with partial. Either may be bytes, text or None."""
+    timed_out = "timed out after {}s".format(timeout)
+    if not partial:
+        return timed_out
+    so_far = "".join(p.decode(errors="replace") if isinstance(p, bytes) else p or "" for p in (out, err))
+    return so_far.rstrip("\n") + "\n" + timed_out if so_far.strip() else timed_out
 
 
 def catch_signals(handler):
@@ -1032,6 +1089,11 @@ def caller_config_problem(cfg):
     if not budget(cfg)[0]:
         return "max_issue_tokens", "{} sets no budget, and a caller project needs one above 0".format(
             repr(cfg.get("max_issue_tokens"))[:100])
+    for key in ("caller_read_allow", "caller_write_allow"):
+        paths = cfg.get(key)
+        if not (isinstance(paths, list) and all(isinstance(path, str) and (path.startswith("~/") or
+                                                                           os.path.isabs(path)) for path in paths)):
+            return key, "{} isn't a list of absolute or ~ paths".format(repr(paths)[:100])
     return None
 
 
@@ -1115,6 +1177,21 @@ def sandbox_profile(home, root, environ=None, extra=()):
     extra is more paths to deny, such as caller_denied()'s for a caller project. Each takes root's base where it's
     under root, home where it's under home, so the factory or ~/.sanvio-loop can't be renamed aside to reach
     what's under them, and its parent otherwise."""
+    denied, folders = sandbox_denials(home, root, environ, extra)
+    rules = ["(version 1)(allow default)"]
+    rules += ['(deny file-read* file-write* (subpath "{}"))'.format(sbpl(path)) for path in denied]
+    rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(folder)) for folder in folders]
+    return "\n".join(rules)
+
+
+def sbpl(path):
+    """path quoted for a sandbox-exec profile's string."""
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def sandbox_denials(home, root, environ=None, extra=()):
+    """(the paths sandbox_profile() denies reading and writing, the folders it guards from unlinking), each
+    resolved and listed once, in the order the profile names them."""
     environ = os.environ if environ is None else environ
     paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED]
     home_real, root_real = Path(home).resolve(), Path(root).resolve()
@@ -1132,9 +1209,6 @@ def sandbox_profile(home, root, environ=None, extra=()):
         paths.append((Path(path), root_base if real == root_real or root_real in real.parents
                       else Path(home) if home_real in real.parents else None))
 
-    def quoted(path):
-        return str(path).replace("\\", "\\\\").replace('"', '\\"')
-
     denied, folders = [], []
     for path, base in paths:
         real = path.resolve()
@@ -1145,10 +1219,155 @@ def sandbox_profile(home, root, environ=None, extra=()):
         for folder in above or [real.parent]:
             if folder != Path(folder.anchor) and folder not in folders:
                 folders.append(folder)
+    return denied, folders
+
+
+# What any command writes to whatever the profile says: the device files a shell and its tools open.
+SANDBOX_DEVICES = ('(literal "/dev/null")', '(literal "/dev/zero")', '(literal "/dev/tty")',
+                   '(literal "/dev/stdout")', '(literal "/dev/stderr")', '(literal "/dev/dtracehelper")',
+                   '(subpath "/dev/fd")')
+# In the clone's .git, what a caller's command may never write even where git's folder for its worktree is
+# writable: what git reads its settings and hooks from, and the folders that hold more of them (#639). The
+# pointer files git follows to find a repository are denied too, since one pointed at a folder the command
+# wrote would hand the loop's own git, which runs outside the sandbox, a config the command chose.
+CALLER_GIT_DENIED = ("config", "config.lock", "config.worktree", "hooks", "info", "modules", "commondir")
+# In git's folder for the worktree, the only files a caller's command may write: what git status refreshes. Anything
+# else there (its config, MERGE_HEAD, locked, the folder itself) would be read by the loop's own git next.
+CALLER_WORKTREE_GIT_WRITABLE = ("index", "index.lock")
+# Folders outside the home folder where other runs, other users and other sessions keep files: the system's temp
+# folders, which hold every run's own temp folder, and the other users' and mounted volumes. Denied for reading;
+# the run's own temp folder is allowed back.
+CALLER_SHARED_DENIED = ("/private/tmp", "/private/var/tmp", "/private/var/folders", "/Users", "/Volumes")
+# The device files a caller's command may write: SANDBOX_DEVICES but the terminal. It runs with none (ran_held()),
+# and CALLER_TERMINALS keeps it from opening the loop's pane by name.
+CALLER_DEVICES = tuple(device for device in SANDBOX_DEVICES if device != '(literal "/dev/tty")')
+# Every terminal device, denied reading and writing: one opened by name could read what's typed in the loop's pane.
+CALLER_TERMINALS = '(literal "/dev/tty") (regex #"^/dev/(tty[a-z]|pty|ptmx)")'
+# The macOS services a caller's command may not ask for, since each hands over what the file rules deny: the
+# keychain's, through which `security` and gh read saved logins, and the clipboard's. Checked live (#639).
+CALLER_MACH_DENIED = ("com.apple.SecurityServer", "com.apple.securityd.xpc", "com.apple.secd", "com.apple.pasteboard.1")
+# The one unix socket outside its own folders a caller's command may connect to: DNS, as the network stays open. Any
+# other could be a tmux server, an ssh or gpg agent or Docker's, each of which runs or signs outside the sandbox.
+CALLER_SOCKETS = ("/private/var/run/mDNSResponder",)
+# What hands work to a process outside the sandbox: LaunchServices (open), launchd jobs, Apple events, and
+# preferences, which cfprefsd writes. A preferences write already didn't land when checked live; this keeps it so.
+CALLER_OUTSIDE_DENIED = ("lsopen", "job-creation", "appleevent-send", "user-preference-write")
+# Under the tool folders caller_read_allow lets a command read, the files that can hold a package index's token.
+CALLER_TOOL_SECRETS = ("~/.local/share/uv/credentials",)
+CALLER_TOOL_SECRET_PATTERNS = (r"/\.(nvm|volta)/.*/etc/npmrc$",)
+
+
+def worktree_git_dir(tree, clone):
+    """git's own folder for tree in clone's .git: what tree's .git file names when that's in the clone's
+    .git/worktrees/, as git suffixes the name where a stale folder had it, else .git/worktrees/<tree's name>."""
+    tree, clone = Path(tree), Path(clone)
+    folders = (clone / ".git" / "worktrees").resolve()
+    try:
+        named = (tree / ".git").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        named = ""
+    if named.startswith("gitdir:"):
+        path = Path(named[len("gitdir:"):].strip()).resolve()
+        if path.parent == folders:
+            return path
+    return folders / tree.name
+
+
+def caller_profile(home, root, tree, clone, scratch, trees, state, read_allow=(), write_allow=(), environ=None,
+                   extra=()):
+    """sandbox-exec's profile for a caller project's test_command, generate_command or setup_command (#639).
+    sandbox-exec takes the last rule that matches a path, so the order is the guarantee, and each step is
+    checked live on a Mac by tests/test_loop.py:
+
+    1. Reading is denied under the home folder, the factory's root, each folder in trees (where the loop
+       keeps checkouts) and CALLER_SHARED_DENIED; writing is denied everywhere.
+    2. Allowed back: reading the caller's clone, its worktree, scratch (the run's own temp folder) and each
+       path in read_allow, and the metadata alone of each folder above them, which /bin/sh's cd looks at;
+       writing the worktree, scratch, each path in write_allow and CALLER_DEVICES. Not files: no unix socket
+       but CALLER_SOCKETS and those under the worktree and scratch, no CALLER_MACH_DENIED service, and none of
+       CALLER_OUTSIDE_DENIED.
+    3. Writing is denied under the factory's root again, whatever write_allow says, then allowed back for
+       CALLER_WORKTREE_GIT_WRITABLE alone in git's own folder for this worktree (worktree_git_dir()).
+    4. Denied last, reading and writing: everything sandbox_profile() denies (credentials, the factory's
+       private folders) and extra, then state, the caller's own state folder, then the token files under the
+       tool folders, then CALLER_TERMINALS. Writing: the worktree itself and its .git file, so neither can be renamed or replaced, the
+       clone's .git itself and CALLER_GIT_DENIED in it; and unlinking the folders sandbox_profile() guards.
+
+    Each path is resolved, as the sandbox matches the real one, and named whether or not it exists."""
+    def real(path):
+        path = str(path)
+        return (Path(home) / path[2:] if path.startswith("~/") else Path(path)).resolve()
+
+    def rule(verb, kind, paths):
+        return ['({} ({} "{}"))'.format(verb, kind, sbpl(path)) for path in paths]
+
+    worktree_git = worktree_git_dir(tree, clone)
+    tree, clone = real(tree), real(clone)
+    denied, folders = sandbox_denials(home, root, environ, extra)
     rules = ["(version 1)(allow default)"]
-    rules += ['(deny file-read* file-write* (subpath "{}"))'.format(quoted(path)) for path in denied]
-    rules += ['(deny file-write-unlink (literal "{}"))'.format(quoted(folder)) for folder in folders]
+    rules += rule("deny file-read*", "subpath", [real(home), real(root)] + [real(path) for path in trees]
+                  + [real(path) for path in CALLER_SHARED_DENIED])
+    rules.append('(deny file-write* (subpath "/"))')
+    readable = [clone, tree, real(scratch)] + [real(p) for p in read_allow]
+    rules += rule("allow file-read*", "subpath", readable)
+    # Each folder above those, its own metadata alone: macOS's /bin/sh checks every folder on the way when it
+    # changes directory, and refuses a cd below one it can't look at. Nothing in them can be read or listed.
+    above = []
+    for path in readable:
+        above += [folder for folder in reversed(path.parents) if folder not in above]
+    rules += rule("allow file-read-metadata", "literal", above)
+    rules += rule("allow file-write*", "subpath", [tree, real(scratch)] + [real(p) for p in write_allow])
+    rules.append("(allow file-write* {})".format(" ".join(CALLER_DEVICES)))
+    # Not files, so their order against the file rules doesn't matter: no unix socket but DNS and its own folders',
+    # no keychain or clipboard, and nothing that starts work outside the sandbox.
+    rules.append("(deny network-outbound (remote unix-socket))")
+    rules += ['(allow network-outbound (remote unix-socket (path-literal "{}")))'.format(sbpl(path))
+              for path in CALLER_SOCKETS]
+    rules += ['(allow network-outbound (remote unix-socket (subpath "{}")))'.format(sbpl(path))
+              for path in (tree, real(scratch))]
+    rules.append("(deny mach-lookup {})".format(" ".join('(global-name "{}")'.format(name)
+                                                         for name in CALLER_MACH_DENIED)))
+    rules += ["(deny {})".format(operation) for operation in CALLER_OUTSIDE_DENIED]
+    rules += rule("deny file-write*", "subpath", [real(root)])
+    rules += rule("allow file-write*", "literal", [worktree_git / name for name in CALLER_WORKTREE_GIT_WRITABLE])
+    rules += rule("deny file-read* file-write*", "subpath", denied + [real(state)]
+                  + [real(path) for path in CALLER_TOOL_SECRETS])
+    rules += ['(deny file-read* file-write* (regex #"^{}{}"))'.format(re.escape(str(real(home))), pattern)
+              for pattern in CALLER_TOOL_SECRET_PATTERNS]
+    rules.append("(deny file-read* file-write* {})".format(CALLER_TERMINALS))
+    rules += rule("deny file-write*", "literal", [tree, tree / ".git", clone / ".git"])
+    rules += rule("deny file-write*", "subpath", [clone / ".git" / name for name in CALLER_GIT_DENIED])
+    rules += rule("deny file-write-unlink", "literal", folders)
     return "\n".join(rules)
+
+
+def caller_env(env, scratch):
+    """sandbox_env(env) for a caller's command, with temp and every package cache it would otherwise share with
+    other projects pointed into scratch, the run's own temp folder, which the loop removes once it's done."""
+    env = sandbox_env(env)
+    env.update(TMPDIR=str(Path(scratch) / "tmp"), XDG_CACHE_HOME=str(Path(scratch) / "cache"),
+               UV_CACHE_DIR=str(Path(scratch) / "cache" / "uv"), PIP_CACHE_DIR=str(Path(scratch) / "cache" / "pip"),
+               npm_config_cache=str(Path(scratch) / "cache" / "npm"))
+    for name in ("tmp", "cache"):
+        (Path(scratch) / name).mkdir(exist_ok=True)
+    return env
+
+
+def write_unfollowed(path, text):
+    """Writes text to path as UTF-8 by writing a new file beside it and putting it in path's place, so a link
+    planted at path, symbolic or hard, is replaced rather than written through. The folders above it are the
+    loop's own, or git's for the worktree, whose writable files caller_profile() names."""
+    path = Path(path)
+    handle, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=str(path.parent))
+    try:
+        with open(handle, "w", encoding="utf-8") as out:
+            out.write(text)
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, str(path))  # a link at path, symbolic or hard, is replaced, never written through
+    except BaseException:
+        if os.path.lexists(temporary):
+            os.unlink(temporary)
+        raise
 
 
 # The home folder's credential folders, unreadable from a sandboxed shell. Checked live on macOS on 2026-11-11:
@@ -1271,22 +1490,17 @@ AGENT_SIGN_IN = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH
                  "CODEX_API_KEY")
 
 
-def env_for_agents(environ, keep=(), held_to=None):
+def env_for_agents(environ, keep=()):
     """The environment every agent the loop starts gets: the test command's, so no GitHub, cloud or SSH token
     is in reach of an agent steered by an issue, plus its own sign-in and keep, the names loop.json's
     agent_env gives, where each is set. SANVIO_UNATTENDED=1 tells .claude/hooks/guard.py nobody is watching, so
     a call it can't check is refused rather than let through with a warning. The retro switch stays off: no
-    agent's session is kept for a session retro.
-
-    held_to, the folders Loop.held_to() gives a caller project's build or tester agent, sets SANVIO_CONFINE to
-    them, joined with os.pathsep, which tells the guard to refuse a path outside them. Without it, nothing
-    changes."""
+    agent's session is kept for a session retro. Nothing here confines an agent: a caller's build and tester get
+    their folders on the guard's command line (Loop.guard_settings()), which no settings file can change."""
     keep = [name for name in keep if isinstance(name, str)] if isinstance(keep, (list, tuple)) else []
     env = env_for_tests(environ)
     env.update({k: environ[k] for k in list(AGENT_SIGN_IN) + keep if k in environ})
     env.update(SANVIO_RETRO="off", HARNESS_RETRO="off", SANVIO_UNATTENDED="1")
-    if held_to:
-        env["SANVIO_CONFINE"] = os.pathsep.join(held_to)
     return env
 
 
@@ -2735,10 +2949,23 @@ class Loop:
         caller_denied() names, as its build and tester agents are. Anything else runs it as before: only true
         turns the sandbox on, and work() refuses a caller where it's off."""
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
+        if self.sandboxed() and self.caller():
+            # #639: held to its own folders, reads and writes, with a temp folder and caches of its own.
+            scratch = tempfile.mkdtemp(prefix="sanvio-caller-")
+            try:
+                profile = caller_profile(Path.home(), self.root, tree, self.repo, scratch, self.checkout_folders(),
+                                         state_dir(self.root, self.project.name if self.project else None),
+                                         self.cfg.get("caller_read_allow") or (),
+                                         self.cfg.get("caller_write_allow") or (),
+                                         extra=caller_denied(self.root, self.repo))
+                argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
+                # held: no stdin, no terminal, and nothing it started still running when scratch is removed.
+                return self.sh(argv, cwd=tree, timeout=timeout, env=caller_env(env, scratch), partial=partial,
+                               held=True)
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
         if self.sandboxed():
-            extra = caller_denied(self.root, self.repo) if self.caller() else ()
-            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root, extra=extra), "/bin/sh", "-c",
-                    command]
+            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         if self.caller():
             # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
@@ -2761,20 +2988,24 @@ class Loop:
         return self.sh([sys.executable, str(script), *args, "--file", str(register)], cwd=tree,
                        timeout=self.cfg["test_timeout"])
 
-    def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False):
+    def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False,
+           held=False):
         """(exit code, combined output, or stdout alone with stderr=False).
 
         A missing command or a timeout is a code, not a crash. With partial, a timeout's output is what
         the command printed so far, then the line saying it timed out. A failure's output goes through
         shown_url, since it's what the log, a status note and a blocked issue's comment quote: a git error
         can name origin's URL, token and all. What a command that worked printed is kept as it was.
+        held=True runs it as ran_held() says, for a caller's own commands.
         """
-        code, out = self.ran(cmd, cwd, stdin, timeout, shell, stderr, env, partial)
+        code, out = self.ran(cmd, cwd, stdin, timeout, shell, stderr, env, partial, held)
         return code, out if code == 0 else shown_url(out)
 
-    def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial):
+    def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
         """sh's command, its output as it came."""
         try:
+            if held:
+                return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
             # UTF-8 whatever the system's default, as git, gh and the agents write it. errors="replace": a pull
             # request's diff or commit message needn't be UTF-8.
             # shell=True only for the loop's own configured commands (test_command, setup, generate), which are
@@ -2784,16 +3015,36 @@ class Loop:
         except FileNotFoundError:
             return 127, "command not found: {}".format(cmd if shell else cmd[0])
         except subprocess.TimeoutExpired as err:
-            timed_out = "timed out after {}s".format(timeout)
-            if not partial:
-                return 124, timed_out
-            # What arrived before the timeout, as bytes even with text=True, and None if nothing did.
-            parts = [err.stdout, err.stderr] if stderr else [err.stdout]
-            so_far = "".join(p.decode(errors="replace") if isinstance(p, bytes) else p or "" for p in parts)
-            return 124, so_far.rstrip("\n") + "\n" + timed_out if so_far.strip() else timed_out
+            return 124, timed_out_output(timeout, partial, err.stdout, err.stderr if stderr else None)
         except OSError as err:
             return 126, "could not run {}: {}".format(cmd if shell else cmd[0], err.strerror or err)
         return done.returncode, (done.stdout or "") + ((done.stderr or "") if stderr else "")
+
+    def ran_held(self, cmd, cwd, timeout, stderr, env, partial):
+        """ran() for a caller's own command, an argv list (#639). Nothing on stdin and a session of its own, so it
+        has no terminal and can't read what's typed in the loop's pane. Once it ends or times out, end_session()
+        kills whatever it left running, so nothing it started writes the worktree while the loop's own git reads
+        it, or makes its temp folder again after own_command() removes it. A child still holding the output open
+        then can't keep the loop waiting: what arrived within 10 seconds of the kill is what it printed."""
+        proc = subprocess.Popen(cmd, cwd=str(cwd or self.root), env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            try:
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                end_session(proc.pid)
+                try:
+                    out, err = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired as late:
+                    out, err = late.stdout, late.stderr
+                return 124, timed_out_output(timeout, partial, out, err if stderr else None)
+        finally:
+            end_session(proc.pid)
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+        text = [part.decode("utf-8", errors="replace") for part in (out or b"", err or b"")]
+        return proc.returncode, text[0] + (text[1] if stderr else "")
 
     def git(self, *args, cwd=None):
         return self.sh(["git"] + list(args), cwd=cwd or self.repo)
@@ -2915,28 +3166,26 @@ class Loop:
         confine asks for the same where it can be had, and runs any other command as it is: for an
         issue the loop has already checked the author of.
         """
-        cmd, why = self.argv(which, untrusted, confine)
+        cmd, why = self.argv(which, untrusted, confine, folders=self.held_to(which, cwd, untrusted or confine))
         if cmd is None:
             self.record_usage(number, step, round_no, None, configured_model(self.cfg, which))
             return REFUSED, why
         if number is None:  # never kept for a session retro either: see stream()
             return self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or (),
-                                              self.held_to(which, cwd, untrusted or confine)))
+                           env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
-        result = self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step, round_no,
-                             held_to=self.held_to(which, cwd, untrusted or confine))
+        result = self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step, round_no)
         self.halt_if_interrupted()  # its exit code is the Ctrl-C's kill, not something it got wrong
         return result
 
     def held_to(self, which, cwd, reader=False):
-        """The folders the guard holds a caller project's claude build or tester agent to, through
-        SANVIO_CONFINE: the issue's worktree, cwd, and the clone's .git, which git in the worktree reads. Each
-        resolved, as the guard resolves the paths it checks. None for anything else, which then gets the
-        environment it always had: outside caller mode, for a reader, or for an agent that isn't claude, whose
-        tools the guard doesn't see."""
+        """The folders the guard holds a caller project's claude build or tester agent to, named on its hook
+        command (guard_settings()): the issue's worktree, cwd, and the clone's .git, which git in the worktree
+        reads. Each resolved, as the guard resolves the paths it checks. None for anything else, whose command
+        is as it always was: outside caller mode, for a reader, or for an agent that isn't claude, whose tools
+        the guard doesn't see."""
         if reader or not self.caller() or which not in ("agent", "tester_agent"):
             return None
         cmd = command(self.cfg, which)[0]
@@ -2944,10 +3193,12 @@ class Loop:
             return None
         return [os.path.realpath(str(cwd)), os.path.realpath(str(self.repo / ".git"))]
 
-    def argv(self, which, untrusted=False, confine=False):
+    def argv(self, which, untrusted=False, confine=False, folders=None):
         """(the command agent() runs for which, None), or (None, why it won't run it). See agent().
 
-        The reasons are fixed strings: review_run() logs them on one line.
+        folders is what held_to() gives: a caller's claude build or tester agent needs it, and is refused
+        without it, since its guard would hold it to nothing. The reasons are fixed strings: review_run()
+        logs them on one line.
         """
         cmd, why = command(self.cfg, which)
         if cmd is None:
@@ -2962,21 +3213,29 @@ class Loop:
         if untrusted and name != "ollama":
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
         settings = {}
+        sources = []
         if which in ("agent", "tester_agent") and Path(cmd[0]).name == "claude":
+            if self.caller() and not folders:
+                return None, "{} is a caller's build, and nothing says which worktree to hold it to".format(which)
             if self.project:
-                settings.update(json.loads(self.guard_settings()))
+                settings.update(json.loads(self.guard_settings(folders if self.caller() else None)))
             if isinstance(self.cfg.get("network_allow"), list):
                 settings["sandbox"] = sandbox_settings(self.cfg["network_allow"])
             if self.caller():
                 # SPEC-003 REQ-008: a caller's build reads nothing of the factory's or another project's.
                 # The sandbox's denyRead holds the shell, and the deny rules hold Read, Grep and Glob, which
-                # the sandbox doesn't touch. The guard's SANVIO_CONFINE check (held_to()) is the backstop.
+                # the sandbox doesn't touch. The guard's --confine check (held_to()) is the backstop.
                 denied = caller_denied(self.root, self.repo)
                 if "sandbox" in settings:
                     settings["sandbox"]["filesystem"]["denyRead"] += denied
                 settings["permissions"] = {"deny": caller_deny_rules(denied)}
+                # #597: none of the caller's own settings or MCP servers. Its checkout's .claude/ could hold a
+                # hook, which runs outside the sandbox, the deny rules and the guard, or an allow rule. User
+                # settings are this machine's; what --settings passes still applies.
+                sources = ["--setting-sources", "user", "--strict-mcp-config"]
         if settings:
             cmd = cmd + ["--settings", json.dumps(settings)]
+        cmd = cmd + sources
         if which == "agent" and self.builder_runs_tests() and Path(cmd[0]).name == "claude":
             # The project's own test command and nothing else: the rest of Bash stays as it was.
             cmd = cmd + ["--allowedTools", "Bash({}:*)".format(self.cfg["test_command"].strip())]
@@ -2986,10 +3245,12 @@ class Loop:
         """Whether the build agent may run test_command itself. Only true turns it on."""
         return self.cfg.get("builder_runs_tests") is True and bool(str(self.cfg.get("test_command", "")).strip())
 
-    def guard_settings(self):
+    def guard_settings(self, held=None):
         """--settings for a claude build agent in a project's checkout, which holds none of the harness's
         hooks: the harness's guard.py before each tool call, by its absolute path, with the matcher
-        .claude/settings.json gives it. Another agent, such as codex, has nowhere to put it."""
+        .claude/settings.json gives it. Another agent, such as codex, has nowhere to put it. held, a caller's
+        folders from held_to(), goes on the hook's command line, each after a --confine; without it the
+        command is as it always was."""
         matcher = ""  # matches every tool, should settings.json not say
         try:
             settings = json.loads((self.root / ".claude" / "settings.json").read_text(encoding="utf-8"))
@@ -3002,10 +3263,12 @@ class Loop:
         guard = self.root.absolute() / ".claude" / "hooks" / "guard.py"
         # The Python running the loop, not python3: Windows' installer puts python on PATH, not python3.
         command = shlex.quote(sys.executable) + " " + shlex.quote(str(guard))
+        for folder in held or ():
+            command += " --confine " + shlex.quote(folder)
         hook = {"type": "command", "command": command, "timeout": 10}
         return json.dumps({"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [hook]}]}})
 
-    def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0, held_to=None):
+    def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0):
         """sh() for an agent, with each line it says appended to path as it arrives, for its window to show.
 
         A claude command is asked for --output-format stream-json --verbose, which prints each event as
@@ -3016,7 +3279,6 @@ class Loop:
         replaced by the reply's text, which goes to the log too and is all the return value holds, so
         everything built from it reads as plain text, and its usage is recorded for number.
 
-        held_to is what held_to() gave, for the agent's SANVIO_CONFINE: see env_for_agents().
         A streaming claude build or tester is watched against max_issue_tokens: the issue's run so far, plus
         each assistant event's tokens as they come. Once that passes the budget it is killed, with everything
         it started, and nothing more is read. What its events counted is recorded as its usage, with no cost,
@@ -3044,7 +3306,7 @@ class Loop:
                                     text=True, encoding="utf-8", errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
-                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or (), held_to))
+                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])
@@ -3457,6 +3719,14 @@ class Loop:
             self.log_once("ERROR", "could not read its dependencies: " + detail.strip()[:200], number)
         return verdict
 
+    def checkout_folders(self):
+        """Every folder the loop keeps this factory's checkouts in: worktree_dir's, where set, and the default under
+        ~/.sanvio-loop, whichever this project uses, so a caller's command reads no other issue's checkout."""
+        folders = [names.loop_home() / self.root.name]
+        if self.cfg.get("worktree_dir"):
+            folders.append(Path(self.cfg["worktree_dir"]).expanduser())
+        return folders
+
     def worktrees(self):
         """Where the checkouts go, a project's in a folder of its own name below."""
         if self.cfg["worktree_dir"]:
@@ -3708,7 +3978,7 @@ class Loop:
             # Kept on this machine: an install's output can name paths, hosts or secrets, and a comment is public.
             folder = self.dir / "issue-{}".format(number)
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "setup-output.txt").write_text(out[-OUTPUT_CAP:], encoding="utf-8")
+            write_unfollowed(folder / "setup-output.txt", out[-OUTPUT_CAP:])
             self.block(number, "setup failed (exit {}), and its output is in setup-output.txt".format(code))
             return False
         # A git that fails proves nothing.
@@ -3724,7 +3994,7 @@ class Loop:
                 "commit them. Make setup write only what git ignores, and clear them from the worktree"
             ).format(safe_to_post(", ".join(paths[:DIRTY_CAP])), " and {} more".format(more) if more > 0 else ""))
             return False
-        marker.write_text("", encoding="utf-8")
+        write_unfollowed(marker, "")
         self.log("SETUP", "done", number)
         return True
 
@@ -3977,8 +4247,8 @@ class Loop:
                 if tcode == 0 and check_code != 0:
                     tcode = check_code
             reached = controls_line(self.controls(tree, "touched", "origin/{}".format(self.cfg["base"])))
-            (folder / "test-output.txt").write_text(tout[-OUTPUT_CAP:], encoding="utf-8")
-            (folder / "diff.patch").write_text(diff[:OUTPUT_CAP], encoding="utf-8")
+            write_unfollowed(folder / "test-output.txt", tout[-OUTPUT_CAP:])
+            write_unfollowed(folder / "diff.patch", diff[:OUTPUT_CAP])
 
             why = self.over_budget(number)
             if why:
@@ -4458,7 +4728,7 @@ class Loop:
             self.mark(number, update_tried=target)
             folder = self.dir / "issue-{}".format(number)
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "update-output.txt").write_text(out[-OUTPUT_CAP:], encoding="utf-8")
+            write_unfollowed(folder / "update-output.txt", out[-OUTPUT_CAP:])
             if code != 0:
                 self.log("UPDATE", "kept: tests failed after merging {}".format(base), number)
                 last = [line for line in out.splitlines() if line.strip()][-PR_TEST_LINES:]

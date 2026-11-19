@@ -77,8 +77,8 @@ Set it up in this order. Each step links to its detail in
    [The caller](../examples/ci/README.md#the-caller)
 6. **Open a test pull request** in one product repo (the next section has
    what to put in it). The workflow posts one comment on it, and a second push
-   edits that comment rather than adding another. Until step 7, the comment's
-   first line says no team standards were loaded. The run's log names the
+   edits that comment rather than adding another. Until step 7, the comment
+   says under its agent's name that no team standards were loaded. The run's log names the
    harness commit it reviewed with.
 7. **Add your team's standards**, if you have them written down, as Markdown
    files in a `standards/` folder at the factory repo's root. A finding then
@@ -130,10 +130,28 @@ them against the skill on your machine, which spends model tokens.
   change them. Its [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), `CLAUDE.local.md` and [`.claude`](../.claude)
   folders, and its symlinks, are removed before the review starts, and the
   standards come from the factory repo's default branch.
+- The comment isn't the model's text. Claude writes one JSON object, which
+  [`scripts/review_report.py`](../scripts/review_report.py) checks against the factory's
+  [`skills/review-pr/report.schema.json`](../skills/review-pr/report.schema.json), never a copy in the product repo,
+  before it builds the comment from the fields: each one on a single line,
+  with its HTML escaped, its images broken and its `@` mentions taken out. A
+  report that doesn't match posts no findings, only `The review's report
+  couldn't be read, so no findings are posted.`, and grades as unreadable.
 - The caller is another matter. It lives in the product repo, so a pull request
   can edit it, as step 5 says.
+- More agents run only when the caller names them, as
+  `agents: review-pr,security-reviewer` under `with:`, each a skill in the
+  factory's [`skills/`](../skills/) or an agent in its [`agents/`](../agents/). Each runs as its own
+  job and posts its own comment, and one grade, from the worst verdict, goes
+  on each. An agent gets a shell only from a `ci-shell:` line in its front
+  matter, for the commands it names, and none has one yet. Each is one more
+  unattended model run with the pull request's text in its prompt.
+  [The caller](../examples/ci/README.md#the-caller) has the detail.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
   So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's.
+- A pull request whose changed files all match the caller's `skip-paths`
+  skips with a notice, and its check passes. [`examples/ci/README.md`](../examples/ci/README.md)
+  (*The caller*) says how the patterns match.
 
 ### The grade
 
@@ -144,15 +162,15 @@ The comment's last line gives the verdict and a grade out of 10, such as
   out by [`scripts/loop.py`](../scripts/loop.py), both read from the factory's default branch, so
   it's graded the way the loop grades. A product repo or a pull request can't
   change it. [`examples/ci/README.md`](../examples/ci/README.md) (*The grade*) says where the two can
-  still differ. The shipped rubric gives a failed check, or a report with no
-  verdict on its last line, its own grade. A ladder rubric instead says what
+  still differ. The shipped rubric gives a failed check, or a report that
+  doesn't match its schema, its own grade. A ladder rubric instead says what
   each grade needs, such as a 10 that needs a check named `security-scan`:
   [`review-rubric.md`](review-rubric.md) has both shapes.
 - **How to change it:** edit [`review-rubric.json`](../review-rubric.json) in the factory repo, and
   try it on an open pull request with `python3 scripts/loop.py grade <n>
   --verdict "ready"` first.
 - **How long it waits:** up to 10 minutes for the pull request's other checks,
-  leaving out every job in the caller's own workflow run. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
+  leaving out only the grade's own job, so a review agent's failed job counts. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
   stops at 30 minutes, so keep it under about 15. A check still running at the
   end leaves the grade pending until the next push or a re-run.
 - **What it does:** nothing but say it. It sets no status, approves nothing
