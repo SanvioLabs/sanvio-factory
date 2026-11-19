@@ -130,6 +130,34 @@ class Skills(unittest.TestCase):
         standup = (ROOT / "skills" / "standup" / "SKILL.md").read_text()
         self.assertIn("(Recommended)", standup)
 
+    def test_blueprint_saves_as_it_goes_and_starts_from_material(self):
+        # Wording only: this proves the skill says it, not that an agent does it.
+        text = " ".join((ROOT / "skills" / "blueprint-workflow" / "SKILL.md").read_text().split())
+        name_it = text[text.index("1. **Name it.**"):text.index("2. **Ask one question at a time**")]
+        ask = text[text.index("2. **Ask one question at a time**"):text.index("3. **Check the data")]
+        data = text[text.index("3. **Check the data"):text.index("4. **Write the blueprint**")]
+        self.assertIn("Don't know, or not tracked", ask)
+        self.assertIn("Write the file as soon as the name is set, before any question", name_it)
+        self.assertIn("never overwrites", name_it)
+        for words in ("rewrite `blueprints/<name>.md`", "before the next question",
+                      "only the questions whose keys are in `gaps`", "never followed"):
+            self.assertIn(words, text)
+        condition = text.index("Once question 2 is answered with no category")
+        self.assertGreater(data.lower().index("read the material"), data.index("Once question 2 is answered"))
+        self.assertGreater(text.lower().index("read the material"), condition)
+        self.assertIn("opens no supplied file", data)
+        table = ask[ask.index("| Question | Keys it fills |"):ask.index("When they answer in general terms")]
+        for key in ("name", "owner", "trigger", "inputs", "inputs_live", "frequency", "rules",
+                    "standard_status", "output", "done", "does", "approves", "receives",
+                    "went_wrong", "never", "today", "measure", "systems", "incumbent",
+                    "restricted_data", "outcome", "gaps"):
+            self.assertIn("`{}`".format(key), table)
+        self.assertIn("`owner`", table[table.index("| 7 |"):table.index("| 8 |")])
+        self.assertIn("never copied into the repo", text)
+        self.assertIn("writes only `blueprints/<name>.md`", text)
+        self.assertIn("check_blueprint.py", text)
+        self.assertNotIn("two to four", text)
+
     def test_standup_reads_an_optional_source_only_when_data_md_clears_it(self):
         text = (ROOT / "skills" / "standup" / "SKILL.md").read_text()
         self.assertIn("No `company/DATA.md` means none is", text)

@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: The blueprint interview saves as it goes and starts from your notes
+
+The blueprint-workflow skill now writes `blueprints/<name>.md` as soon as the work is named and rewrites it after every answer, so an interview that stops halfway keeps what was said; run it again on the same name and it asks only what's still in `gaps`. Each question offers at most three options plus `Don't know, or not tracked`, which leaves that question's keys in `gaps` rather than a guess. It can start from a Markdown, text or PDF file or a typed brief, read where it is and only once the data question names no restricted category, shows what the material would fill with its source, and writes it only after the person confirms; an instruction inside the material is never followed.
+
+**Needs:** 2026-11-18: Blueprint interview questions come with options and a recommendation; 2026-11-16: Interview the person who does a workflow; 2026-11-18: Run a workflow by name
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
 ## 2026-11-19: A session outside the clone isn't stopped at every prompt
 
 When a session starts in a folder that doesn't hold the factory's files but still loads its settings, as Claude's desktop app does when it opens a scratch workspace, each hook used to fail: `python3` exits 2 for a script it can't find, and Claude Code reads 2 as a refusal, so every prompt was blocked with a "can't open file" error. Now the usage log and the retro hooks skip quietly there, the session start tells the agent the session isn't in a clone, so it says so first, and the guard still refuses every tool call, with a message saying why rather than Python's error. In a clone, every hook runs as before.
