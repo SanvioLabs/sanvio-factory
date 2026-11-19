@@ -9019,6 +9019,14 @@ class TestCallerSandbox(unittest.TestCase):
         self.assertIn("Operation not permitted", out)
 
 
+def ps_runs():
+    """Whether ps can list processes here, as end_session() needs it to: sandbox-exec refuses it (#639)."""
+    try:
+        return subprocess.run(["ps", "-A", "-o", "pid="], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 @unittest.skipIf(os.name == "nt", "sessions and process groups are POSIX")
 class TestHeldCommands(unittest.TestCase):
     """A caller's command runs with nothing on stdin, in a session of its own with no terminal, and every process
@@ -9053,6 +9061,10 @@ class TestHeldCommands(unittest.TestCase):
                               "while [ ! -s group.pid ]; do sleep 0.05; done; echo done".format(sys.executable, script))
         self.assertEqual((code, out.strip()), (0, "done"))
         self.assertTrue(self.gone("bg.pid"), "a background child outlived the command")
+        if not ps_runs():
+            # The loop runs its own tests in sandbox-exec, which refuses /bin/ps, so end_session() can't list the
+            # session there. The loop itself runs outside it, where the sweep does.
+            self.skipTest("ps can't run here, as inside the loop's sandbox, so end_session() can't sweep")
         self.assertTrue(self.gone("group.pid"), "a child in a group of its own outlived the command")
 
     def test_what_it_left_running_is_killed_when_it_times_out(self):
