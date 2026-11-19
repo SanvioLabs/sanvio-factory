@@ -648,6 +648,10 @@ class Mods(unittest.TestCase):
         self.stand_in("echo 'Installed plugins:'")
         self.assert_couldnt_check()
 
+    def test_json_that_isnt_a_list_warns(self):
+        self.stand_in("echo '{\"plugins\": []}'")
+        self.assert_couldnt_check()
+
     def test_a_list_that_takes_too_long_warns(self):
         self.stand_in("exec /bin/sleep 5")
         with mock.patch.object(check_setup, "CLAUDE_TIMEOUT", 0.5):

@@ -459,8 +459,6 @@ def listed_plugins(root, which):
         data = json.loads(result.stdout)
     except ValueError:
         return None, "claude plugin list didn't print JSON"
-    if isinstance(data, dict) and isinstance(data.get("plugins"), list):
-        data = data["plugins"]
     if not isinstance(data, list):
         return None, "claude plugin list didn't print a list of plugins"
     return data, None
