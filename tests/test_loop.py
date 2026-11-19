@@ -8754,8 +8754,12 @@ class TestCallerSandbox(unittest.TestCase):
         seen = {}
 
         def sh(cmd, **kwargs):
-            scratch = Path(kwargs["env"]["TMPDIR"]).parent
-            seen.update(cmd=cmd, env=kwargs["env"], scratch=scratch, existed=scratch.is_dir(), kwargs=kwargs)
+            seen.update(cmd=cmd, env=kwargs["env"], kwargs=kwargs)
+            if kwargs.get("held"):
+                # Only a caller's run has a temp folder of its own; elsewhere TMPDIR is whatever the machine has,
+                # and on Linux CI there's none.
+                scratch = Path(kwargs["env"]["TMPDIR"]).parent
+                seen.update(scratch=scratch, existed=scratch.is_dir())
             return 0, ""
 
         with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
