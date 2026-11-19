@@ -79,12 +79,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_start.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_start.py\"; if [ -f \"$f\" ]; then python3 \"$f\"; else echo \"This session's folder, ${CLAUDE_PROJECT_DIR:-.}, isn't a Sanvio Factory clone: the factory's settings loaded, but its guard, hooks and skills aren't there. Say so before any work, and ask the person to start a session in their clone's folder.\"; fi",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
@@ -96,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard.py\"; [ -f \"$f\" ] || { echo \"Refused: this session isn't in a Sanvio Factory clone, as ${CLAUDE_PROJECT_DIR:-.} has no .claude/hooks/guard.py, so no tool call runs. Start a session in the clone's folder.\" >&2; exit 2; }; python3 \"$f\"",
             "timeout": 10
           }
         ]
@@ -106,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
@@ -117,12 +117,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_retro.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_retro.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
@@ -133,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_retro.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session_retro.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
@@ -144,7 +144,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
@@ -156,7 +156,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/usage_log.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\"",
             "timeout": 5
           }
         ]
