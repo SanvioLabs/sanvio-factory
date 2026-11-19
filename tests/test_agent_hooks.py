@@ -887,6 +887,17 @@ class Confined(unittest.TestCase):
         self.assertIsNone(self.call("Write", held=False, file_path=str(git / "config")))
         self.assertIsNone(self.call("Bash", held=False, command="echo x >> {}".format(git / "config")))
 
+    def test_a_file_tool_makes_no_repository_inside_the_worktree(self):
+        for path in (self.tree / "sub" / ".git" / "config", self.tree / "sub" / ".git", self.tree / "a" / "b" / ".GIT" / "HEAD",
+                     self.tree / "vendor" / ".Git" / "hooks" / "post-checkout"):
+            with self.subTest(path=path):
+                self.assertRefused(self.call("Write", file_path=str(path)), "a repository inside the worktree")
+        for path in (self.tree / ".github" / "x", self.tree / "x.git" / "y", self.tree / ".gitignore",
+                     self.tree / "sub" / ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.call("Write", file_path=str(path)))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "sub" / ".git" / "config")))
+
     def test_credentials_are_still_refused_inside(self):
         self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
         self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")

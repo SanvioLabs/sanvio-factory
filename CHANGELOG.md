@@ -44,7 +44,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-18: A caller's checkout can't change what the loop's own git runs
 
-In a caller project, every git command the loop runs now carries hooks, fsmonitor and replace refs off. Around each of the caller's commands and each build and tester session, the loop hashes the clone's `.git/config`, `config.worktree`, `commondir`, `hooks/` and `info/`, and the worktree's own git files. Any change blocks the issue, naming each file, before the loop runs git in that checkout again, so a clean filter, a hook or a credential helper a command or an agent adds never runs. After the tests, and again at the push, `loop/issue-N` has to be the commit the review read, or the issue blocks and nothing is pushed. The guard also refuses a held build agent's file-tool writes anywhere in the clone's `.git`, refs, objects and replace refs included, and any shell command naming `.git/config`, `config.worktree` or `hooks/`. Projects that aren't callers don't change.
+In a caller project, every git command the loop runs, and the one in its `controls.py` check, now runs with hooks, fsmonitor and replace refs off, never looks inside a submodule, runs no external diff or textconv, and runs none of the filter, diff or merge drivers any git config names, your own and `lfs` included, which a caller's `.gitattributes` could otherwise pick. Around each of the caller's commands and each build and tester session, the loop hashes the clone's `.git/config`, `config.worktree`, `commondir`, `hooks/` and `info/`, and the worktree's own git files, and looks for a `.git` anywhere inside the worktree, as it does before running git in a worktree an earlier run left. Either blocks the issue, naming each file, and writes `git-tampered` in the project's state folder, so the loop runs no more git in that project, this run or the next, until a person deletes it. The caller's commands can't make a `.git` in the worktree at all. After the tests, and again at the push, `loop/issue-N` has to be the commit the review read, or the issue blocks and nothing is pushed. The guard also refuses a held build agent's file-tool writes anywhere in the clone's `.git`, refs, objects and replace refs included, and to any `.git` inside the worktree; its refusal of shell commands naming `.git/config`, `config.worktree` or `hooks/` is best effort. Projects that aren't callers don't change.
 
 **Needs:** 2026-11-18: A caller's planner and reviewer are held to its checkout
 
@@ -52,7 +52,7 @@ In a caller project, every git command the loop runs now carries hooks, fsmonito
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
 
-**Do:** nothing for a project that isn't a caller. For a caller issue that blocks naming a git file, look at the clone and the worktree before putting the issue back: something in that checkout changed what git runs.
+**Do:** nothing for a project that isn't a caller. If a caller project stops with a `git-tampered` `ERROR`, look at its clone and worktrees before deleting that file in `.loop/projects/<name>/`: something in that checkout changed what git runs. A caller's repo that uses git-lfs or submodules gets neither.
 
 ## 2026-11-18: A caller's planner and reviewer are held to its checkout
 

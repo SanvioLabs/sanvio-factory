@@ -611,6 +611,8 @@ CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to
                   "paths inside the worktree, and system tools by name.")
 CONFINED_GIT = ("This build may not change the clone's {}: the loop's own git reads it, outside any sandbox. "
                 "Change the worktree's files and the loop commits them; leave everything in .git to the loop.")
+CONFINED_NESTED = ("{} would be a repository inside the worktree, and the loop's own git, outside any sandbox, would "
+                   "read its config when it looked inside a submodule. A held build makes no .git there.")
 CONFINED_GIT_SHELL = ("{} is the clone's git settings or hooks, which the loop's own git reads outside any sandbox. "
                       "A held build's shell doesn't name them.")
 # What a held build's shell may still name outside its folders: system and tool install paths it reads to run
@@ -679,6 +681,21 @@ def in_held_git(full, folders):
         if here == folder or here.startswith(folder + os.sep):
             rest = os.path.relpath(here, folder)
             return ".git" if rest == "." else ".git/" + rest.replace(os.sep, "/")
+    return None
+
+
+def nested_git(full, folders):
+    """The path below a held folder that isn't itself a .git, relative to it, where a resolved path has a .git
+    part, in any case, or None: a .git inside the worktree, which the loop's own git would read (#640)."""
+    for folder in folders:
+        folder = folder.rstrip(os.sep)
+        if os.path.basename(folder).casefold() == ".git":
+            continue
+        here, base = full.casefold(), folder.casefold()
+        if here.startswith(base + os.sep):
+            rest = os.path.relpath(full, folder)
+            if any(part.casefold() == ".git" for part in rest.split(os.sep)):
+                return rest.replace(os.sep, "/")
     return None
 
 
@@ -829,6 +846,9 @@ def decide(event, held=None):
         part = in_held_git(resolved(path, cwd), held) if path and tool in FILE_TOOLS and tool != "Read" else None
         if part:
             return ("deny", CONFINED_GIT.format(part))
+        nested = nested_git(resolved(path, cwd), held) if path and tool in FILE_TOOLS and tool != "Read" else None
+        if nested:
+            return ("deny", CONFINED_NESTED.format(nested))
 
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):

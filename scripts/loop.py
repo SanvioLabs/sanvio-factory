@@ -306,23 +306,73 @@ STEERING = re.compile(r"(?m)^@(steering/[\w.-]+\.md)\s*$")  # the steering files
 NEVER_LOOSENS = "The project's own AGENTS.md or CLAUDE.md adds to these rules and never loosens them."
 NO_HOOKS = ("-c", "core.hooksPath=/dev/null")  # for a git command that could run a hook the branch carries
 # In a caller project, every git call the loop makes carries these (#640): no hook and no fsmonitor command
-# runs, and no refs/replace entry swaps one commit for another in what the review reads, whatever the clone holds. A filter, a credential helper or a signing program the config names
-# isn't covered here: hashing the config around each of the caller's commands and agents is (git_state()).
-CALLER_GIT_SAFE = NO_HOOKS + ("-c", "core.fsmonitor=false", "-c", "core.useReplaceRefs=false")
+# runs, no refs/replace entry swaps one commit for another in what the review reads, and no command goes into a
+# submodule, whatever the clone holds. A filter, a credential helper or a signing program the clone's config
+# names isn't covered here: hashing that config around each of the caller's commands and agents is
+# (git_state()). Nor are the drivers your own git config names, which a caller's .gitattributes can pick:
+# caller_git_env() turns those off.
+CALLER_GIT_SAFE = NO_HOOKS + ("-c", "core.fsmonitor=false", "-c", "core.useReplaceRefs=false",
+                              "-c", "submodule.recurse=false", "-c", "fetch.recurseSubmodules=false",
+                              "-c", "push.recurseSubmodules=no", "-c", "diff.ignoreSubmodules=all",
+                              "-c", "status.submoduleSummary=false")
+# After the subcommand, in a caller project: git status and git diff otherwise run git inside a submodule's
+# folder to see whether it changed, reading that folder's own config and running the filters it names, and a
+# caller's .gitmodules can override diff.ignoreSubmodules but not this flag. A diff runs no external diff
+# program and no textconv either, as those come from config too (#640).
+CALLER_GIT_FLAGS = {"status": ("--ignore-submodules=all",),
+                    "diff": ("--ignore-submodules=all", "--no-ext-diff", "--no-textconv")}
+# git's options before its subcommand that take the next word as their value.
+GIT_VALUE_OPTIONS = ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix")
+# What turns off each driver git's config names, by its section: a caller's .gitattributes can name any one of
+# them for any path, and git would run it outside the sandbox. lfs is always among them (#640).
+CALLER_DRIVER_OFF = {"filter": (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")),
+                     "diff": (("textconv", ""),), "merge": (("driver", ""),)}
+# In a caller project's state folder: once it's there, the loop runs no git in that project, and run takes no
+# issue from it, until a person looks at the clone and the worktrees and deletes it (#640).
+GIT_TAMPERED = "git-tampered"
+
+
+def git_subcommand(args):
+    """Where git's subcommand is in args, its words after git itself, or None: past each option before it, and
+    the value of each one in GIT_VALUE_OPTIONS."""
+    at = 0
+    while at < len(args):
+        if args[at] in GIT_VALUE_OPTIONS:
+            at += 2
+        elif args[at].startswith("-"):
+            at += 1
+        else:
+            return at
+    return None
+
+
+def config_pairs(env, pairs):
+    """env with each (key, value) in pairs added as git's GIT_CONFIG_KEY_n and GIT_CONFIG_VALUE_n, after any it
+    holds already. Unlike -c, a key here can hold any character, an = included."""
+    try:
+        count = max(int(env.get("GIT_CONFIG_COUNT") or 0), 0)
+    except ValueError:
+        count = 0
+    for key, value in pairs:
+        env["GIT_CONFIG_KEY_{}".format(count)], env["GIT_CONFIG_VALUE_{}".format(count)] = key, value
+        count += 1
+    env["GIT_CONFIG_COUNT"] = str(count)
+    return env
 
 
 class GitTampered(Exception):
-    """A caller's command or agent changed what the loop's own git reads: the clone's config or hooks, or the
-    worktree's own git files. The issue blocks before the loop runs git in that clone again (#640)."""
+    """A caller's command or agent changed what the loop's own git reads: the clone's config or hooks, the
+    worktree's own git files, or a repository inside the worktree. The issue blocks, and tampered() marks the
+    project so the loop runs no git in it again until a person clears it (#640)."""
 
     def __init__(self, step, changed):
         self.step, self.changed = step, changed
         super().__init__(step)
 
     def reason(self):
-        return ("{} changed what git reads in this issue's checkout: {}. The loop runs no more git there; look at "
-                "the clone and the worktree, put them back, then put the issue back").format(
-                    self.step, ", ".join(self.changed[:DIRTY_CAP]))
+        return ("{} changed what git reads in this issue's checkout: {}. The loop runs no more git in this project "
+                "until a person looks at the clone and its worktrees, puts them back and deletes {} in its state "
+                "folder").format(self.step, ", ".join(self.changed[:DIRTY_CAP]), GIT_TAMPERED)
 UPDATE_FAILED = "could not update the pull request: "
 
 
@@ -1231,6 +1281,13 @@ def sbpl(path):
     return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
 
+def sbpl_regex(path):
+    """path as a sandbox-exec regex (#"...") matching itself alone: each character a regex gives a meaning
+    escaped with one backslash, as the profile's regex reads them. Not re.escape, which also escapes a - and
+    other characters the profile's regex needn't take escaped."""
+    return re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", str(path))
+
+
 def sandbox_denials(home, root, environ=None, extra=()):
     """(the paths sandbox_profile() denies reading and writing, the folders it guards from unlinking), each
     resolved and listed once, in the order the profile names them."""
@@ -1379,6 +1436,9 @@ def caller_profile(home, root, tree, clone, scratch, trees, state, read_allow=()
     rules.append("(deny file-read* file-write* {})".format(CALLER_TERMINALS))
     rules += rule("deny file-write*", "literal", [tree, tree / ".git", clone / ".git"])
     rules += rule("deny file-write*", "subpath", [clone / ".git" / name for name in CALLER_GIT_DENIED])
+    # No .git anywhere in the worktree, in any case, as a Mac's disk ignores it: the loop's own git would read a
+    # repository there, and its config, when it looked inside a submodule (#640).
+    rules.append('(deny file-write* (regex #"^{}/(.*/)?\\.[Gg][Ii][Tt](/|$)"))'.format(sbpl_regex(tree)))
     rules += rule("deny file-write-unlink", "literal", folders)
     return "\n".join(rules)
 
@@ -3039,19 +3099,94 @@ class Loop:
 
         return {name(path): digest(path) for path in paths}
 
+    def nested_git(self, tree):
+        """Each .git below tree's top, a file, a folder or a link, in any case, as a Mac's disk ignores it, named as
+        "the worktree's <path>", and each folder that couldn't be read, which could hide one. The loop's own git
+        would read a repository there, and run what its config names, when it looked inside a submodule (#640).
+        Links aren't followed, the worktree's own .git isn't counted, as git_state() hashes it, and a folder
+        that isn't there, the worktree included, holds none."""
+        found, top = [], str(tree)
+
+        def unreadable(err):
+            if not isinstance(err, FileNotFoundError):  # a folder that isn't there holds no .git
+                found.append("the worktree's {} (unreadable)".format(os.path.relpath(err.filename, top)))
+
+        for here, dirs, files in os.walk(top, onerror=unreadable):
+            for name in sorted(dirs + files):
+                if name.casefold() == ".git" and here != top:
+                    found.append("the worktree's " + Path(os.path.relpath(os.path.join(here, name), top)).as_posix())
+            dirs[:] = sorted(d for d in dirs if d.casefold() != ".git")
+        return found
+
     def held_git(self, step, tree, run):
         """run() for a caller's command or agent, with git_state() taken before and after: a change raises
-        GitTampered naming each file. Outside caller mode, run() alone."""
+        GitTampered naming each file. A repository inside the worktree, before or after, raises it too, as
+        comparing the two would pass one that was there already. Outside caller mode, run() alone."""
         if not self.caller():
             return run()
+        nested = self.nested_git(tree)
+        if nested:
+            raise GitTampered("an earlier step", nested)
         before = self.git_state(tree)
         result = run()
         after = self.git_state(tree)
         changed = sorted(name for name in set(before) | set(after) if before.get(name, "absent") !=
                          after.get(name, "absent"))
+        changed += self.nested_git(tree)
         if changed:
             raise GitTampered(step, changed)
         return result
+
+    def tampered_mark(self):
+        """The file in this project's state folder that stops all git in it: a caller's command can't read or
+        write that folder, and its agents are held away from it."""
+        return self.dir / GIT_TAMPERED
+
+    def tampered(self, number, err):
+        """Block the issue a GitTampered came from, and mark the project, so the loop runs no git in its clone or
+        worktrees again, in this run or the next, until a person looks and deletes the mark (#640). The next
+        issue's own hashes would start from what was changed, and pass it."""
+        mark = self.tampered_mark()
+        try:
+            mark.parent.mkdir(parents=True, exist_ok=True)
+            when = datetime.now().isoformat(timespec="seconds")
+            write_unfollowed(mark, "{} issue #{}: {}\n".format(when, number, err.reason()))
+        except OSError as why:
+            self.log("ERROR", "could not write {}: {}".format(mark, why), number)
+        self.log("ERROR", "the loop runs no more git in this project until a person deletes {}".format(mark), number)
+        self.block(number, err.reason())
+
+    def drivers_off(self):
+        """(key, value) pairs that turn off every filter, diff and merge driver git's config here names, your own
+        config's and the system's included, and lfs's whether or not it's named. Worked out once a run for each
+        clone, as the loop's own git reads them without changing them (#640)."""
+        cache = self.__dict__.setdefault("_drivers_off", {})
+        if str(self.repo) not in cache:
+            names = {section: ["lfs"] if section == "filter" else [] for section in CALLER_DRIVER_OFF}
+            try:
+                done = subprocess.run(["git", *CALLER_GIT_SAFE, "config", "-z", "--name-only", "--get-regexp",
+                                       r"^(filter|diff|merge)\."], cwd=str(self.repo), capture_output=True,
+                                      text=True, encoding="utf-8", errors="replace", timeout=60)
+                listed = done.stdout.split("\0") if done.returncode == 0 else []
+            except (OSError, subprocess.SubprocessError):
+                listed = []
+            for key in listed:
+                section, _, rest = key.strip("\n").partition(".")
+                name, dot, _ = rest.rpartition(".")
+                if section in names and dot and name not in names[section]:
+                    names[section].append(name)
+            cache[str(self.repo)] = [("{}.{}.{}".format(section, name, var), value)
+                                     for section, found in names.items() for name in found
+                                     for var, value in CALLER_DRIVER_OFF[section]]
+        return cache[str(self.repo)]
+
+    def caller_git_env(self, env, safe=False):
+        """env, or this process's own, for a git the loop runs in a caller project: drivers_off() added as
+        GIT_CONFIG_KEY_n entries, and with safe, CALLER_GIT_SAFE as well, for a git the loop doesn't start itself."""
+        pairs = list(self.drivers_off())
+        if safe:
+            pairs = [tuple(CALLER_GIT_SAFE[i + 1].split("=", 1)) for i in range(0, len(CALLER_GIT_SAFE), 2)] + pairs
+        return config_pairs(dict(os.environ if env is None else env), pairs)
 
     def caller_command(self, command, tree, env, timeout, partial):
         """own_command() for a caller project (#639): held to its own folders, reads and writes, with a temp
@@ -3082,8 +3217,10 @@ class Loop:
         if not register.exists():
             return None
         script = self.root / "scripts" / "controls.py"
+        # Its git diff runs in the caller's checkout, so with the settings the loop's own git has there (#640).
+        env = self.caller_git_env(None, safe=True) if self.caller() else None
         return self.sh([sys.executable, str(script), *args, "--file", str(register)], cwd=tree,
-                       timeout=self.cfg["test_timeout"])
+                       timeout=self.cfg["test_timeout"], env=env)
 
     def sh(self, cmd, cwd=None, stdin=None, timeout=None, shell=False, stderr=True, env=None, partial=False,
            held=False):
@@ -3099,9 +3236,19 @@ class Loop:
         return code, out if code == 0 else shown_url(out)
 
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
-        """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE."""
+        """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE before its
+        subcommand, CALLER_GIT_FLAGS after it and every driver turned off, and doesn't run at all once the project
+        is marked (tampered())."""
         if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
-            cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
+            mark = self.tampered_mark()
+            if mark.exists() or mark.is_symlink():
+                return 1, ("refused: the loop runs no git in this project while {} is there. Look at the clone "
+                           "and its worktrees, then delete it").format(mark)
+            args = list(cmd[1:])
+            at = git_subcommand(args)
+            if at is not None and args[at] in CALLER_GIT_FLAGS:
+                args[at + 1:at + 1] = CALLER_GIT_FLAGS[args[at]]
+            cmd, env = [cmd[0], *CALLER_GIT_SAFE, *args], self.caller_git_env(env)
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
@@ -3984,6 +4131,9 @@ class Loop:
 
         Whatever was committed here and never pushed goes: the pull request is what was reviewed. Changes
         never committed can't be got back, so they stop the round instead, for a person to look at."""
+        nested = self.nested_git(tree) if self.caller() else []
+        if nested:
+            raise GitTampered("an earlier run", nested)
         code, out = self.git("status", "--porcelain", "--untracked-files=no", cwd=tree)
         if code != 0 or out.strip():
             self.block(number, "the worktree has uncommitted changes, so the round reset nothing: {}".format(
@@ -4731,7 +4881,7 @@ class Loop:
                 try:
                     self.update_pr(row, tree)
                 except GitTampered as err:
-                    self.block(row["number"], err.reason())
+                    self.tampered(row["number"], err)
 
     def update_error(self, number, why):
         self.log_once("ERROR", UPDATE_FAILED + why.strip()[:200], number)
@@ -4740,6 +4890,9 @@ class Loop:
         """Look at one pull request, and merge only when every check says the merge is the loop's to make."""
         number, base = row["number"], self.cfg["base"]
         branch, remote = "loop/issue-{}".format(number), "origin/" + base
+        nested = self.nested_git(tree) if self.caller() else []
+        if nested:
+            raise GitTampered("an earlier run", nested)
 
         def kept(why):
             self.log_once("UPDATE", "kept: " + why, number)
@@ -4997,6 +5150,11 @@ class Loop:
         if found:
             self.log("ERROR", "{} in loop.json: {}, so no issue is taken".format(*found)[:200])
             return 1
+        if self.caller() and (self.tampered_mark().exists() or self.tampered_mark().is_symlink()):
+            self.log("ERROR", "{}: a caller's command or agent changed what the loop's own git reads here, so no "
+                     "issue is taken until a person looks at the clone and its worktrees and deletes it".format(
+                         self.tampered_mark())[:300])
+            return 1
         if self.caller() and not self.cfg["acceptors"]:
             self.log("WARN", "acceptors is empty, so no issue is accepted and every one waits")
         why = sandbox_problem(self.cfg)
@@ -5135,7 +5293,7 @@ class Loop:
             try:
                 self.process(issue)
             except GitTampered as err:
-                self.block(number, err.reason())
+                self.tampered(number, err)
             except Exception as err:
                 folder = self.dir / "issue-{}".format(number)
                 folder.mkdir(exist_ok=True)

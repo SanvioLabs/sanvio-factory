@@ -727,6 +727,23 @@ if step == "build" and os.path.exists(os.path.join(state, "build-sets-filter")):
     import subprocess
     subprocess.run(["git", "config", "filter.x.clean", "touch " + os.path.join(state, "filter-ran") + "; cat"])
     open(".gitattributes", "w").write("* filter=x\\n")
+if step == "build" and os.path.exists(os.path.join(state, "build-nests-repo")):
+    # A repository inside the worktree with a clean filter of its own, a submodule entry for it in the index and
+    # a .gitmodules saying never to ignore it: the loop's own git status would run git there, filter and all.
+    import subprocess
+    quiet = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "init", "-q", "vendor/x"], env=quiet)
+    open("vendor/x/f", "w").write("x\\n")
+    subprocess.run(["git", "-C", "vendor/x", "add", "f"], env=quiet)
+    subprocess.run(["git", "-C", "vendor/x", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm",
+                    "f"], env=quiet)
+    subprocess.run(["git", "-C", "vendor/x", "config", "filter.x.clean",
+                    "touch " + os.path.join(state, "filter-ran") + "; cat"], env=quiet)
+    open("vendor/x/.gitattributes", "w").write("* filter=x\\n")
+    os.utime("vendor/x/f", (1000, 1000))
+    subprocess.run(["git", "update-index", "--add", "--cacheinfo", "160000," + head + ",vendor/x"], env=quiet)
+    open(".gitmodules", "w").write('[submodule "x"]\\n\\tpath = vendor/x\\n\\turl = ./x\\n\\tignore = none\\n')
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -8889,6 +8906,14 @@ class TestCallerSandbox(unittest.TestCase):
             "connect it through a link in the worktree": ('ln -s "{sock}" sub/l.sock && ' + sys.executable + " -c "
                                                           "\"import socket; "
                                                           "socket.socket(socket.AF_UNIX).connect('sub/l.sock')\""),
+            # The third review's route: a repository inside the worktree, whose config the loop's own git status
+            # would read when it looks inside a submodule (#640). Any spelling: a Mac's disk ignores case.
+            "init a repository inside the worktree": "git init -q sub/nested",
+            "make a .git folder inside it": 'mkdir sub/.git && echo "[core]" > sub/.git/config',
+            "make it in another case": "mkdir sub/.GIT",
+            "a .git file pointing elsewhere": 'echo "gitdir: /tmp/x" > sub/.git',
+            "rename a folder into place": "mkdir sub/stash && mv sub/stash sub/.git",
+            "link a .git into place": 'ln -s "{clone}/.git" sub/.git',
             "hard link it into the worktree": ('ln "{sock}" sub/h.sock && ' + sys.executable + " -c \"import socket; "
                                                "socket.socket(socket.AF_UNIX).connect('sub/h.sock')\""),
         }
@@ -8899,6 +8924,7 @@ class TestCallerSandbox(unittest.TestCase):
                                                 "os.unlink(p); os.rmdir(d)\""),
             "write and read the worktree": "echo made > sub/new.txt && cat sub/new.txt",
             "git status from a subfolder": "cd sub && git status --short && echo git-ok",
+            "a folder only named like .git": "mkdir sub/.github sub/x.git sub/.gitx && echo x > sub/.gitignore",
             "a tool from caller_read_allow": '"{home}/.pyenv/bin/tool"',
             "python's temp folder": sys.executable + " -c 'import tempfile; print(tempfile.mkdtemp())'",
         }
@@ -9592,6 +9618,244 @@ class TestCallerCommands(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotEqual(before.get(name, "absent"), after.get(name, "absent"))
             before = after
+
+    def test_a_callers_build_agent_nesting_a_repo_blocks_before_the_loops_git_looks_inside_it(self):
+        (self.state / "build-nests-repo").write_text("")
+        self.caller(**self.FACTORY)
+        self.go()
+        blocked = self.blocked()
+        self.assertEqual(len(blocked), 1, self.log())
+        self.assertIn("the build agent", blocked[0])
+        self.assertIn("vendor/x/.git", blocked[0])
+        self.assertFalse(self.ran("filter-ran"))
+        self.assertFalse(self.ran("factory-test"))
+        self.assertEqual(self.pull_requests(), [])
+
+    def nested(self, ignore="none"):
+        """A repository with a submodule entry at sub, a repository of its own there whose config names a clean
+        filter that touches filter-ran, and a .gitmodules saying how to treat it. Returns the outer one."""
+        tree = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tree, ignore_errors=True)
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        subprocess.run(["git", "init", "-q", str(tree)], check=True)
+        (tree / "base").write_text("1\n")
+        subprocess.run(git + ["add", "base"], cwd=str(tree), check=True)
+        subprocess.run(git + ["commit", "-qm", "base"], cwd=str(tree), check=True)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(tree), capture_output=True, text=True).stdout
+        subprocess.run(["git", "update-index", "--add", "--cacheinfo", "160000,{},sub".format(head.strip())],
+                       cwd=str(tree), check=True)
+        (tree / ".gitmodules").write_text('[submodule "sub"]\n\tpath = sub\n\turl = ./x\n\tignore = {}\n'.format(ignore))
+        subprocess.run(git + ["add", ".gitmodules"], cwd=str(tree), check=True)
+        subprocess.run(git + ["commit", "-qm", "gitlink"], cwd=str(tree), check=True)
+        sub = tree / "sub"
+        sub.mkdir()
+        subprocess.run(["git", "init", "-q", str(sub)], check=True)
+        (sub / "f").write_text("x\n")
+        subprocess.run(git + ["add", "f"], cwd=str(sub), check=True)
+        subprocess.run(git + ["commit", "-qm", "f"], cwd=str(sub), check=True)
+        subprocess.run(["git", "config", "filter.x.clean", "touch {}; cat".format(self.state / "filter-ran")],
+                       cwd=str(sub), check=True)
+        (sub / ".gitattributes").write_text("* filter=x\n")
+        return tree
+
+    def test_the_loops_git_never_looks_inside_a_repo_nested_in_a_callers_worktree(self):
+        self.caller(**self.FACTORY)
+        quiet = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        for caller in (False, True):
+            for args in (("status", "--porcelain"), ("diff",), ("diff", "--name-only")):
+                tree = self.nested()
+                os.utime(str(tree / "sub" / "f"), (1000, 1000))
+                cfg = dict(loop.DEFAULTS, caller=caller)
+                with self.subTest(caller=caller, args=args), mock.patch.dict(os.environ, quiet):
+                    (self.state / "filter-ran").unlink(missing_ok=True)
+                    loop.Loop(self.harness, cfg, project=self.project).git(*args, cwd=tree)
+                    # Outside caller mode the plant works, which is what shows the caller's git is held.
+                    if args != ("diff", "--name-only"):
+                        self.assertEqual(self.ran("filter-ran"), not caller)
+                    elif caller:
+                        self.assertFalse(self.ran("filter-ran"))
+
+    def test_a_callers_status_and_diff_ignore_submodules_and_a_diff_runs_no_driver_of_its_own(self):
+        self.caller(**self.FACTORY)
+        lp = loop.Loop(self.harness, project=self.project)
+        ran = []
+
+        def run(cmd, *args, **kwargs):
+            ran.append((list(cmd), kwargs.get("env")))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(loop.subprocess, "run", run):
+            lp.git("status", "--porcelain")
+            lp.git("diff", "a", "b")
+            lp.git("--literal-pathspecs", "diff", "--name-only", "--", "x")
+            lp.git("add", "-A")
+            lp.sh(["git", "status", "--porcelain"], cwd=self.project)
+            lp.sh(["git", "diff", "--cached", "--name-status"], cwd=self.project)
+        safe = len(loop.CALLER_GIT_SAFE)
+        shown = {tuple(cmd[1 + safe:]): env for cmd, env in ran if cmd[0] == "git" and "config" not in cmd[1 + safe:2 + safe]}
+        expected = {
+            ("status", "--ignore-submodules=all", "--porcelain"),
+            ("diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "a", "b"),
+            ("--literal-pathspecs", "diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv",
+             "--name-only", "--", "x"),
+            ("add", "-A"),
+            ("diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "--cached", "--name-status"),
+        }
+        self.assertEqual(set(shown), expected)
+        for cmd, env in shown.items():
+            with self.subTest(cmd=cmd):
+                keys = {env[k]: env["GIT_CONFIG_VALUE_" + k[len("GIT_CONFIG_KEY_"):]] for k in env
+                        if k.startswith("GIT_CONFIG_KEY_")}
+                for key in ("filter.lfs.clean", "filter.lfs.smudge", "filter.lfs.process"):
+                    self.assertEqual(keys.get(key), "")
+                self.assertEqual(keys.get("filter.lfs.required"), "false")
+                self.assertEqual(int(env["GIT_CONFIG_COUNT"]), len(keys))
+        for args in (("submodule.recurse=false",), ("fetch.recurseSubmodules=false",), ("push.recurseSubmodules=no",),
+                     ("diff.ignoreSubmodules=all",), ("status.submoduleSummary=false",)):
+            self.assertIn(args[0], loop.CALLER_GIT_SAFE)
+
+    def test_a_driver_the_operators_git_config_names_never_runs_in_a_callers_worktree(self):
+        self.caller(**self.FACTORY)
+        bins = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bins, ignore_errors=True)
+
+        def tool(name, code=0):
+            path = bins / name
+            path.write_text('#!/bin/sh\ntouch "{}"\ncat "$1" 2>/dev/null || cat\nexit {}\n'.format(
+                self.state / ("driver-" + name), code))
+            path.chmod(0o755)
+            return path
+
+        config = bins / "gitconfig"
+        config.write_text("[user]\n\tname = t\n\temail = t@example.com\n[init]\n\tdefaultBranch = main\n"
+                          '[filter "Odd.Name"]\n\tclean = {}\n\tsmudge = {}\n\trequired = true\n'
+                          '[filter "p"]\n\tprocess = {}\n[diff "d"]\n\ttextconv = {}\n\tcommand = {}\n'
+                          '[merge "m"]\n\tdriver = {} %O %A %B\n'.format(
+                              tool("clean"), tool("smudge"), tool("process", 1), tool("textconv"), tool("extdiff"),
+                              tool("merge")))
+
+        def fired():
+            names = sorted(p.name[len("driver-"):] for p in self.state.glob("driver-*"))
+            for p in self.state.glob("driver-*"):
+                p.unlink()
+            return names
+
+        for caller in (False, True):
+            tree = Path(tempfile.mkdtemp())
+            self.addCleanup(shutil.rmtree, tree, ignore_errors=True)
+            with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_NOSYSTEM": "1"}):
+                lp = loop.Loop(self.harness, dict(loop.DEFAULTS, caller=caller), project=self.project)
+                subprocess.run(["git", "init", "-q", str(tree)], check=True)
+                (tree / ".gitattributes").write_text("a filter=Odd.Name\nb filter=p\nc diff=d\nm merge=m\n")
+                for name in "abcm":
+                    (tree / name).write_text("1\n")
+                seen = {}
+                lp.git("add", "-A", cwd=tree)
+                seen["add"] = fired()
+                lp.git("commit", "-qm", "one", cwd=tree)
+                (tree / "c").write_text("2\n")
+                lp.git("commit", "-qam", "two", cwd=tree)
+                fired()
+                lp.git("diff", "HEAD~1", "HEAD", cwd=tree)
+                seen["diff"] = fired()
+                (tree / "a").unlink()
+                lp.git("reset", "-q", "--hard", "HEAD", cwd=tree)
+                seen["reset"] = fired()
+                lp.git("checkout", "-q", "-b", "side", cwd=tree)
+                (tree / "m").write_text("s\n")
+                lp.git("commit", "-qam", "s", cwd=tree)
+                lp.git("checkout", "-q", "main", cwd=tree)
+                (tree / "m").write_text("t\n")
+                lp.git("commit", "-qam", "t", cwd=tree)
+                fired()
+                lp.git("merge-tree", "--write-tree", "main", "side", cwd=tree)
+                seen["merge-tree"] = fired()
+            with self.subTest(caller=caller):
+                if caller:
+                    self.assertEqual(seen, {k: [] for k in seen})
+                else:
+                    self.assertIn("clean", seen["add"])
+                    self.assertIn("extdiff", seen["diff"])
+                    self.assertIn("smudge", seen["reset"])
+                    self.assertIn("merge", seen["merge-tree"])
+
+    def test_once_a_caller_project_has_blocked_on_git_the_loop_runs_no_git_in_it_until_a_person_clears_it(self):
+        filtered = 'git config filter.x.clean "touch $LOOP_TEST_STATE/filter-ran; cat" && echo "* filter=x" > .gitattributes'
+        self.caller(**dict(self.FACTORY, test_command=self.FACTORY["test_command"] + " && " + filtered))
+        self.go()
+        mark = loop.state_dir(self.harness, "app") / "git-tampered"
+        self.assertTrue(mark.is_file())
+        self.assertIn(".git/config", mark.read_text())
+        # The next run takes no issue, and says why.
+        self.assertEqual(self.go(), 1)
+        self.assertTrue([line for line in self.log() if " ERROR " in line and "git-tampered" in line], self.log())
+        # Nor does any git the loop runs in that project.
+        lp = loop.Loop(self.harness, project=self.project)
+        code, out = lp.git("status", "--porcelain")
+        self.assertNotEqual(code, 0)
+        self.assertIn("git-tampered", out)
+        # Outside caller mode, the mark means nothing.
+        self.assertEqual(loop.Loop(self.harness, dict(loop.DEFAULTS), project=self.project).git(
+            "rev-parse", "--git-dir")[0], 0)
+
+    def test_a_reused_caller_worktree_holding_a_nested_repo_blocks_before_the_loops_git_runs_there(self):
+        self.caller(**self.FACTORY)
+        lp = loop.Loop(self.harness, project=self.project)
+        tree = self.trees / "app" / "issue-12"
+        tree.mkdir(parents=True)
+        for name in ("sub/.git", "deep/er/.GIT"):
+            (tree / name).mkdir(parents=True)
+            ran = []
+            with self.subTest(name=name), mock.patch.object(lp, "sh", lambda cmd, **k: ran.append(cmd) or (0, "")):
+                with self.assertRaises(loop.GitTampered) as caught:
+                    lp.from_remote(12, tree, "loop/issue-12", {"number": 5})
+                self.assertIn(name, caught.exception.reason())
+                self.assertEqual(ran, [])
+            shutil.rmtree(str(tree / name.split("/")[0]))
+        # A .git file counts as well as a folder, a link too, and names merely like it don't.
+        (tree / "sub").mkdir()
+        (tree / "sub" / ".git").write_text("gitdir: /tmp/x\n")
+        self.assertEqual(lp.nested_git(tree), ["the worktree's sub/.git"])
+        (tree / "sub" / ".git").unlink()
+        (tree / "sub" / ".git").symlink_to(self.project / ".git")
+        self.assertEqual(lp.nested_git(tree), ["the worktree's sub/.git"])
+        (tree / "sub" / ".git").unlink()
+        for name in (".github", "x.git", ".gitignore"):
+            (tree / "sub" / name).mkdir()
+        (tree / ".git").write_text("gitdir: elsewhere\n")  # the worktree's own
+        self.assertEqual(lp.nested_git(tree), [])
+        # A folder it can't list could hide one, so it counts; a worktree that isn't there holds none.
+        (tree / "locked").mkdir()
+        (tree / "locked").chmod(0)
+        try:
+            if os.access(str(tree / "locked"), os.R_OK):
+                self.skipTest("this user reads a folder whatever its mode, as root does")
+            self.assertEqual(lp.nested_git(tree), ["the worktree's locked (unreadable)"])
+        finally:
+            (tree / "locked").chmod(0o755)
+        self.assertEqual(lp.nested_git(tree / "gone"), [])
+
+    def test_a_callers_controls_check_runs_its_git_with_the_loops_safe_settings(self):
+        self.caller(**self.FACTORY)
+        lp = loop.Loop(self.harness, project=self.project)
+        tree = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tree, ignore_errors=True)
+        (tree / "controls.json").write_text("[]\n")
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen.update(env=kwargs.get("env"))
+            return 0, ""
+
+        with mock.patch.object(lp, "sh", sh):
+            lp.controls(tree, "check")
+        env = seen["env"]
+        keys = {env["GIT_CONFIG_KEY_{}".format(i)]: env["GIT_CONFIG_VALUE_{}".format(i)]
+                for i in range(int(env["GIT_CONFIG_COUNT"]))}
+        for key, value in (("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"),
+                           ("core.useReplaceRefs", "false"), ("diff.ignoreSubmodules", "all"),
+                           ("filter.lfs.process", "")):
+            self.assertEqual(keys.get(key), value, key)
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()
