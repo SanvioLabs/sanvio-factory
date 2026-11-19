@@ -887,5 +887,71 @@ class OrientationDataSourcesTest(unittest.TestCase):
         self.assertIn("mark the source `unconfirmed`", step)
 
 
+class OrientationSetupStepTest(unittest.TestCase):
+    """Orientation's step 1 is a guided setup that ends with the person's own checklist."""
+
+    SKILL = ROOT / "skills" / "orientation" / "SKILL.md"
+    SURFACES = ("Claude Desktop's Code tab", "the Claude Code CLI", "an IDE extension", "another tool")
+
+    def section(self, start, end):
+        text = self.SKILL.read_text()
+        self.assertIn(start, text, "orientation has no {}".format(start))
+        begin = text.index(start)
+        self.assertIn(end, text[begin:], "orientation has no {} after {}".format(end, start))
+        return " ".join(text[begin:text.index(end, begin)].split())
+
+    def step_1(self):
+        return self.section("### 1.", "### 2.")
+
+    def test_step_1_checks_login_remote_and_quick_check(self):
+        step = self.step_1()
+        for words in ("gh auth status", "git ls-remote", "python3 scripts/quick_check.py"):
+            self.assertIn(words, step)
+
+    def test_step_1_installs_mods_locally_and_reloads(self):
+        step = self.step_1()
+        for words in ("--scope local", "/reload-plugins"):
+            self.assertIn(words, step)
+
+    def test_step_1_asks_which_surface_with_a_recommended_option(self):
+        step = self.step_1()
+        for words in self.SURFACES + ("(Recommended)",):
+            self.assertIn(words, step)
+
+    def test_step_1_ends_with_the_persons_checklist(self):
+        self.assertIn("Your steps", self.step_1())
+
+    def test_step_1_runs_no_full_suite_and_prints_no_credential(self):
+        step = self.step_1()
+        for words in ("python3 -m unittest discover -s tests", "printenv", "gh auth token"):
+            self.assertNotIn(words, step)
+
+    def test_the_rules_allow_only_the_two_fixes_and_still_forbid_the_rest(self):
+        rules = self.section("## Rules for this skill", "## Steps")
+        self.assertNotIn("Never run a fix the setup check names", rules)
+        for words in ("git checkout", "never commit", "Never add, log in to or configure a connector",
+                      "printenv", "gh auth token"):
+            self.assertIn(words, rules)
+
+    def test_step_7_still_names_the_full_suite(self):
+        self.assertIn("python3 -m unittest discover -s tests", self.section("### 7.", "### 8."))
+
+    def test_the_eight_steps_are_there_in_order(self):
+        text = self.SKILL.read_text()
+        places = []
+        for number in range(1, 9):
+            heading = "### {}.".format(number)
+            self.assertIn(heading, text)
+            places.append(text.index(heading))
+        self.assertEqual(places, sorted(places))
+
+    def test_the_output_lists_the_open_checklist_steps(self):
+        text = self.SKILL.read_text()
+        self.assertIn("## Output", text)
+        output = " ".join(text[text.index("## Output"):].split())
+        self.assertIn("Your steps", output)
+        self.assertNotIn("Any FAIL or WARN from step 1", output)
+
+
 if __name__ == "__main__":
     unittest.main()

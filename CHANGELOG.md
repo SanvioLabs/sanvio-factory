@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: Orientation starts with a guided setup
+
+Orientation's first step now asks which surface you're using, runs the setup check and the quick check, checks your GitHub login and whether `origin` can be reached, and offers to install or update the factory's mods at local scope and to switch the hook on, each only on your yes. It ends with a **Your steps** checklist of what's left for you, each item saying where you do it, and no longer runs the full test suite, which CI runs on every pull request.
+
+**Needs:** 2026-11-19: A quick check for a copy's setup and updates
+
+**Controls:** AT-2
+
+Files: [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-19: A quick check for a copy's setup and updates
 
 `python3 scripts/quick_check.py` runs the setup check, the link check and the tests that cover a copy's setup and its updates, in one go. It prints PASS or FAIL for each part, with a failing part's output and any warning from a passing one, then how long the run took. It's there for after you take an update, when the full suite is more than you need. The setup check also has a new `mods:` line. For each mod [`.claude/settings.json`](.claude/settings.json) turns on, it asks `claude plugin list` whether that mod is installed for this checkout, turned on, and no older than its copy in [`examples/mods/`](examples/mods/), and prints the command that fixes each one that isn't. A mod your `.claude/settings.local.json` switches off is named and left alone. If `claude` isn't there, fails or takes over 10 seconds, the line says it couldn't check, as a warning. The session-start check runs the same checks, so a mod that's missing, off or older now shows when a session starts too.
