@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-18: A caller's planner and reviewer are held to its checkout
+
+`run` now refuses to start a caller project whose `reader_agent`, or `review_agent` where it's set, isn't a `claude` command or a named `ollama`, with one `ERROR` line before any issue is taken. The planner, the reviewer and the retro read text from the caller's repo, and those are the two readers the loop can hold to the checkout: claude with read tools alone, which checked live also won't follow a symlink out of the checkout, and ollama with no tools. `codex`'s read-only sandbox can still read files outside the checkout. Name a text-only ollama model for a caller: `ollama run` reads an image file a vision model's prompt names. Outside caller mode, a codex reader runs as before.
+
+**Needs:** 2026-11-18: A caller's commands are held to their own folders
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if a caller project's `reader_agent` or `review_agent` is `codex` or another command, set it to `claude` or a text-only `ollama:<model>` in its entry under `"projects"` in the factory's `loop.json`. Until you do, `run` refuses it.
+
 ## 2026-11-18: A caller's commands are held to their own folders
 
 A caller project's `test_command`, `setup_command` and `generate_command` now write only inside the issue's worktree, a temp folder the loop makes for each run and removes after, the `index` in git's own folder for that worktree, and what a new `caller_write_allow` lists, empty by default. They read nothing under your home folder, the factory, the loop's checkouts, `/Users`, `/Volumes` or the system's temp folders but the caller's clone, that worktree, the run's temp folder and what a new `caller_read_allow` lists, by default the tool folders version managers and uv keep interpreters in. `TMPDIR` and the uv, pip, npm and XDG caches point into the run's temp folder. Whatever the two lists say, the caller's own state folder, the clone's `.git/config`, `hooks/`, `info/` and `modules/`, and the files git follows to find a worktree's repository stay out of reach, so a command can't hand the loop's own git a config it chose. They also run with nothing on stdin and no terminal, can't open the loop's pane by name, can't reach the keychain or the clipboard, can't connect to a unix socket but DNS's and their own, so not to tmux, an ssh agent or Docker, and can't start work outside the sandbox with `open`, `launchctl` or Apple events; whatever they leave running is killed when they end. Each route was checked live on a Mac but Apple events, whose rule is in place unchecked, since a live check would have macOS ask for permission. Still open: the network, a child that starts its own session with `setsid`, and any macOS service the sandbox doesn't name, as [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says. The loop also writes `test-output.txt`, `setup-output.txt`, `update-output.txt`, `diff.patch` and the setup marker by putting a new file in place, so a link planted there is replaced, not written through. Projects that aren't callers don't change.

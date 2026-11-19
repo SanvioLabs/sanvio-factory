@@ -9041,10 +9041,12 @@ class TestCallerIntake(unittest.TestCase):
         TestAPass.setUp(self)
         self.cfg.update(caller=True, acceptors=["Pat-Here"], account_tier="Claude Team", network_allow=[],
                         max_issue_tokens=4_000_000, ready_label="factory:submit", blocked_label="factory:stopped")
-        # The stand-in agent isn't claude, which Claude Code's sandbox needs: that check has tests of its own.
-        sandbox = mock.patch.object(loop, "sandbox_problem", return_value=None)
-        sandbox.start()
-        self.addCleanup(sandbox.stop)
+        # The stand-in agent isn't claude, which Claude Code's sandbox needs and a caller's reader has to be (#644):
+        # those checks have tests of their own.
+        for name in ("sandbox_problem", "reader_unheld"):
+            held = mock.patch.object(loop, name, return_value=None)
+            held.start()
+            self.addCleanup(held.stop)
         # A caller's own commands run only in sandbox-exec (#596), so its runs here have the stand-in.
         stand_in_sandbox(self, Path(self.tmp.name) / "bin")
         self.cfg["sandbox_commands"] = True
@@ -9439,6 +9441,37 @@ class TestCallerCommands(unittest.TestCase):
         own = '(subpath "{}")'.format(os.path.realpath(str(self.project)))
         self.assertIn("(allow file-read* " + own + ")", profile)
         self.assertFalse([line for line in profile.splitlines() if line.startswith("(deny") and own in line])
+
+    def test_a_caller_whose_planner_or_reviewer_can_read_outside_its_checkout_is_refused_before_any_issue(self):
+        for entry in ({"reader_agent": "codex"}, {"review_agent": "codex"},
+                      {"reader_agent": "codex exec --sandbox read-only -"}, {"review_agent": "cat"}):
+            key = next(iter(entry))
+            with self.subTest(entry=entry):
+                self.caller(**dict(self.FACTORY, **entry))
+                self.assertEqual(self.go(), 1)
+                last = self.log()[-1]
+                self.assertIn("ERROR {} in loop.json: ".format(key), last)
+                self.assertIn("claude or ollama", last)
+                self.assertIn("so no issue is taken", last)
+                for name in ("own-setup", "own-test", "factory-setup", "factory-test"):
+                    self.assertFalse(self.ran(name), name)
+                self.assertFalse((self.state / "agents-started").exists())
+
+    def test_claude_and_ollama_readers_start_a_caller_and_a_codex_reader_starts_anything_else(self):
+        for entry in ({}, {"reader_agent": "claude"}, {"reader_agent": "claude -p --model claude-haiku-5-5"},
+                      {"reader_agent": "ollama:qwen3:8b"}, {"review_agent": "claude"},
+                      {"review_agent": "ollama:qwen3:8b"}, {"review_agent": ""}):
+            with self.subTest(entry=entry):
+                self.assertIsNone(loop.caller_config_problem(dict(CALLER_CFG, **entry)))
+        self.assertEqual(loop.caller_config_problem(dict(CALLER_CFG, reader_agent="ollama"))[0], "reader_agent")
+        # A wrapper or a different spelling isn't claude itself, so it's refused, not trusted (#644's review).
+        for command in ("env claude -p", "sh -c claude", "Claude -p", "ollama run qwen3:8b"):
+            with self.subTest(command=command):
+                self.assertEqual(loop.caller_config_problem(dict(CALLER_CFG, reader_agent=command))[0], "reader_agent")
+        # Outside caller mode a codex reader starts and runs as it always did, held to nothing new.
+        self.assertIsNone(loop.caller_config_problem(dict(loop.DEFAULTS, reader_agent="codex", review_agent="codex")))
+        runner = loop.Loop(self.harness, dict(loop.DEFAULTS, reader_agent="codex"))
+        self.assertEqual(runner.argv("reader_agent", confine=True)[0][:3], ["codex", "exec", "--sandbox"])
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()

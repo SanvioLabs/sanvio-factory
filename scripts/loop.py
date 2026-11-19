@@ -1064,6 +1064,7 @@ def caller_config_problem(cfg):
     acceptance hold off. A caller project needs a sandboxed network (network_allow), a token budget
     (max_issue_tokens) and the plan its pull requests name (account_tier), and acceptors and accept_label it
     can read. Its test_command has to come from the factory (load_project_config() leaves it None otherwise).
+    Its planner and reviewer have to be readers Loop.argv() can hold to the checkout (reader_unheld()).
     """
     caller = cfg.get("caller", False)
     if not isinstance(caller, bool):
@@ -1089,12 +1090,35 @@ def caller_config_problem(cfg):
     if not budget(cfg)[0]:
         return "max_issue_tokens", "{} sets no budget, and a caller project needs one above 0".format(
             repr(cfg.get("max_issue_tokens"))[:100])
+    for which in ("reader_agent", "review_agent"):
+        if which == "review_agent" and not cfg.get(which):
+            continue  # unset, the reviewer is reader_agent, checked above
+        why = reader_unheld(cfg, which)
+        if why:
+            return which, why
     for key in ("caller_read_allow", "caller_write_allow"):
         paths = cfg.get(key)
         if not (isinstance(paths, list) and all(isinstance(path, str) and (path.startswith("~/") or
                                                                            os.path.isabs(path)) for path in paths)):
             return key, "{} isn't a list of absolute or ~ paths".format(repr(paths)[:100])
     return None
+
+
+def reader_unheld(cfg, which):
+    """Why cfg[which], a reader, can't be held to a caller's checkout, or None when it can (#644). The planner,
+    the reviewer and the retro read text from the caller's repo, which can be written to steer them, and
+    Loop.argv() holds only two kinds of reader: a claude command, confined to read tools in the checkout
+    (confined()), and a named ollama, which has no tools. codex's read-only sandbox can still read files outside
+    the checkout, and any other command is unknown."""
+    if which not in cfg:
+        return None
+    cmd, why = command(cfg, which)
+    if cmd is None:
+        return "{} can't run: {}".format(repr(cfg[which])[:40], why)[:100]
+    if confined(cmd) is not None or named(cfg[which])[0] == "ollama":
+        return None
+    return "{} can read outside the checkout; a caller's planner and reviewer must be claude or ollama".format(
+        repr(cfg[which])[:40])
 
 
 def env_for_tests(environ):
