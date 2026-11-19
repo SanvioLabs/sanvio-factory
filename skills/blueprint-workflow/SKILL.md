@@ -104,7 +104,10 @@ run, so every question starts from that, never from the general case.
    say so now: the workflow is built and tested on invented data only until
    the team's agreements cover it. Ask the rest of the questions about the
    work, not about any real record, and don't ask them to paste or attach one.
-   Put the categories in `restricted_data`, or `none`.
+   Put the categories in `restricted_data`, or `none` when they name none. A
+   `Don't know, or not tracked` answer leaves `restricted_data` empty and in
+   `gaps`, and the rest of the interview treats the work as if it touches
+   restricted data.
 
    Then the material from step 1, if the person named any. Once question 2 is
    answered with no category from *Data that needs an agreement first*, read
