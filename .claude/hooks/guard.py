@@ -70,6 +70,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 import tempfile
 import traceback
@@ -613,6 +614,8 @@ CONFINED_GIT = ("This build may not change the clone's {}: the loop's own git re
                 "Change the worktree's files and the loop commits them; leave everything in .git to the loop.")
 CONFINED_NESTED = ("{} would be a repository inside the worktree, and the loop's own git, outside any sandbox, would "
                    "read its config when it looked inside a submodule. A held build makes no .git there.")
+CONFINED_LINKED = ("{} has another hard link, which can be a file outside the worktree. A held build writes no file "
+                   "with more than one: write a new file instead.")
 CONFINED_GIT_SHELL = ("{} is the clone's git settings or hooks, which the loop's own git reads outside any sandbox. "
                       "A held build's shell doesn't name them.")
 # What a held build's shell may still name outside its folders: system and tool install paths it reads to run
@@ -697,6 +700,16 @@ def nested_git(full, folders):
             if any(part.casefold() == ".git" for part in rest.split(os.sep)):
                 return rest.replace(os.sep, "/")
     return None
+
+
+def hard_linked(path):
+    """Whether path is a file with another hard link: realpath can't see one, and a write through it lands in
+    every name the file has, one outside the worktree included (#640)."""
+    try:
+        found = os.lstat(os.path.expanduser(path))
+    except OSError:
+        return False
+    return stat.S_ISREG(found.st_mode) and found.st_nlink > 1
 
 
 def shell_held_git(command, cwd, folders):
@@ -849,6 +862,8 @@ def decide(event, held=None):
         nested = nested_git(resolved(path, cwd), held) if path and tool in FILE_TOOLS and tool != "Read" else None
         if nested:
             return ("deny", CONFINED_NESTED.format(nested))
+        if path and tool in FILE_TOOLS and tool != "Read" and hard_linked(os.path.join(cwd or "", path)):
+            return ("deny", CONFINED_LINKED.format(path))
 
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):

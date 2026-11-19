@@ -9968,7 +9968,7 @@ class TestCallerCommands(unittest.TestCase):
         with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
             lp.own_command("true", tree)
         self.assertTrue(seen["same"])
-        self.assertTrue(seen["copy"].name == "index" and seen["copy"].is_absolute())
+        self.assertTrue(seen["copy"].name.startswith("index-") and seen["copy"].is_absolute())
         self.assertNotEqual(seen["copy"].parent, index.parent)
         self.assertEqual(index.read_bytes(), before)
 
@@ -9998,6 +9998,65 @@ class TestCallerCommands(unittest.TestCase):
         self.assertEqual(target.read_text(), "kept\n")
         self.assertFalse((tree / "CHANGELOG.md").is_symlink())
         self.assertEqual((tree / "CHANGELOG.md").read_text(), "merged text\n")
+
+    def test_a_callers_agents_run_with_every_driver_off_and_their_own_git_otherwise_as_it_was(self):
+        self.caller(**self.FACTORY)
+        self.go()
+        for step in ("build", "plan"):
+            with self.subTest(step=step):
+                env = json.loads((self.state / (step + "-environ")).read_text())
+                keys = {env["GIT_CONFIG_KEY_{}".format(i)]: env["GIT_CONFIG_VALUE_{}".format(i)]
+                        for i in range(int(env["GIT_CONFIG_COUNT"]))}
+                self.assertEqual(keys.get("filter.lfs.process"), "")
+                # The agent's shell runs git in repositories its tests make: nothing points it at the issue's.
+                self.assertNotIn("GIT_DIR", env)
+                self.assertNotIn("GIT_WORK_TREE", env)
+                self.assertNotIn("core.hooksPath", keys)
+
+    def test_the_index_copy_is_never_written_through_a_link(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        lp = loop.Loop(self.harness, project=self.project)
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, ignore_errors=True)
+        victim = scratch.parent / (scratch.name + "-victim")
+        victim.write_text("original\n")
+        self.addCleanup(victim.unlink)
+        (scratch / "index").symlink_to(victim)
+        copy = lp.index_copy(tree, scratch)
+        self.assertEqual(victim.read_text(), "original\n")
+        self.assertFalse(Path(copy).is_symlink())
+
+    def test_a_relative_back_link_still_finds_the_worktrees_folder(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        folder = loop.linked_git_dir(tree, self.project)
+        # Between the two real paths, so it climbs only as far as they part, as git writes it.
+        relative = os.path.relpath(os.path.join(os.path.realpath(str(tree)), ".git"), os.path.realpath(str(folder)))
+        self.assertFalse(relative.startswith("../" * 8), relative)  # not up to / and down again
+        (folder / "gitdir").write_text(relative + "\n")
+        self.assertEqual(loop.linked_git_dir(tree, self.project), folder)
+
+    def test_tidy_leaves_a_caller_worktree_holding_a_nested_repo_or_a_bad_index_and_marks_the_project(self):
+        self.caller(**self.FACTORY)
+        tree = self.linked()
+        (tree / "sub" / ".git").mkdir(parents=True)
+        lp = loop.Loop(self.harness, project=self.project)
+        lp.status["issues"] = [{"number": 12, "state": "pr", "pr": "5"}]
+        removed = []
+        real = lp.git
+
+        def git(*args, **kwargs):
+            if "worktree" in args:
+                removed.append(args)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(lp, "gh", return_value=(0, "MERGED abc")), mock.patch.object(lp, "git", git):
+            lp.tidy()
+        self.assertEqual(removed, [])
+        self.assertTrue(tree.exists())
+        mark = loop.state_dir(self.harness, "app") / "git-tampered"
+        self.assertIn("sub/.git", mark.read_text())
 
     def test_a_caller_with_no_test_command_from_the_factory_is_refused_before_any_issue(self):
         self.caller()

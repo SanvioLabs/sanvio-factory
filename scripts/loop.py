@@ -1378,6 +1378,8 @@ def linked_git_dir(tree, clone):
             named = (folders / name / "gitdir").read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError):
             continue
+        if named and not os.path.isabs(named):  # worktree.useRelativePaths: from the folder the file is in
+            named = os.path.join(str(folders / name), named)
         if named and os.path.join(os.path.realpath(os.path.dirname(named)), os.path.basename(named)) == want:
             return folders / name
     return None
@@ -3224,7 +3226,7 @@ class Loop:
                 done = subprocess.run(["git", *CALLER_GIT_SAFE, "config", "-z", "--name-only", "--get-regexp",
                                        r"^(filter|diff|merge)\."], cwd=where, capture_output=True,
                                       env=self.linked_env(dict(os.environ), cwd), text=True, encoding="utf-8",
-                                      errors="replace", timeout=60)
+                                      errors="surrogateescape", timeout=60)
                 listed = done.stdout.split("\0") if done.returncode == 0 else []
             except (OSError, subprocess.SubprocessError):
                 listed = []
@@ -3248,6 +3250,14 @@ class Loop:
                        GIT_WORK_TREE=os.path.join(top, os.path.relpath(where, top).split(os.sep)[0]))
         return env
 
+    def agents_env(self, cwd):
+        """env_for_agents() for an agent started in cwd. In a caller project, with drivers_off() too: Claude Code
+        runs git in the worktree, outside any sandbox, when a session starts, and the caller's .gitattributes could
+        pick a driver your config names for it (#640). Not GIT_DIR or CALLER_GIT_SAFE: the agent's own shell runs
+        git too, in repositories its tests make, and those would land in the issue's instead."""
+        env = env_for_agents(os.environ, self.cfg.get("agent_env") or ())
+        return config_pairs(env, self.drivers_off(cwd)) if self.caller() else env
+
     def caller_git_env(self, env, safe=False, cwd=None):
         """env, or this process's own, for a git the loop runs in a caller project, in cwd: drivers_off() added as
         GIT_CONFIG_KEY_n entries, linked_env(), and with safe, CALLER_GIT_SAFE as well, for a git the loop
@@ -3260,12 +3270,20 @@ class Loop:
     def index_copy(self, tree, scratch):
         """The absolute path of a copy of tree's index in scratch, for a caller's command's git: the same staged
         files, so git status says what it would, and none of what it writes reaches the loop's own git."""
-        copy = Path(scratch).resolve() / "index"
+        # A new file of its own name, made with O_EXCL, so never one something else put there first, or a link.
+        fd, copy = tempfile.mkstemp(prefix="index-", dir=str(Path(scratch).resolve()))
         try:
-            shutil.copyfile(str(worktree_git_dir(tree, self.repo) / "index"), str(copy))
+            data = (worktree_git_dir(tree, self.repo) / "index").read_bytes()
         except OSError:
-            pass  # no index yet: its git makes one in scratch
-        return str(copy)
+            data = None
+        with os.fdopen(fd, "wb") as out:
+            if data is not None:
+                out.write(data)
+        if data is None:
+            # No index yet, and an empty file isn't one: its git makes it, through a lock file it renames into
+            # place, which replaces a link there rather than writing through it.
+            os.unlink(copy)
+        return copy
 
     def caller_command(self, command, tree, env, timeout, partial):
         """own_command() for a caller project (#639): held to its own folders, reads and writes, with a temp
@@ -3511,7 +3529,7 @@ class Loop:
                                           run)) if builder else (lambda run: run())
         if number is None:  # never kept for a session retro either: see stream()
             return hold(lambda: self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                                        env=env_for_agents(os.environ, self.cfg.get("agent_env") or ())))
+                                        env=self.agents_env(cwd)))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
@@ -3646,7 +3664,7 @@ class Loop:
                                     text=True, encoding="utf-8", errors="replace", **apart,
                                     # The old name too: a project's hook from before the rename reads it,
                                     # and off only ever records less.
-                                    env=env_for_agents(os.environ, self.cfg.get("agent_env") or ()))
+                                    env=self.agents_env(cwd))
         except FileNotFoundError:
             self.record_usage(number, step, round_no, None, model)
             return 127, "command not found: {}".format(cmd[0])
@@ -4906,6 +4924,16 @@ class Loop:
             state, _, head = out.strip().partition(" ")
             if state not in ("MERGED", "CLOSED"):
                 continue
+            if self.caller():
+                # git worktree remove checks the worktree with a status of its own that looks inside submodules,
+                # and from the index (#640).
+                found = self.nested_git(path)
+                why = None if found or self.caller_worktree(path) is False else self.index_problem(
+                    path, self.caller_git_env(None, cwd=path))
+                if found or why:
+                    self.mark_tampered(GitTampered("an earlier run", found + (["the index " + why] if why else []))
+                                       .reason(), number)
+                    continue
             code, out = self.git("status", "--porcelain", cwd=path)
             if code != 0:
                 self.log_once("ERROR", "could not check the worktree for changes: " + out.strip()[:200], number)

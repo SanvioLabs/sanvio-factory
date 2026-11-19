@@ -898,6 +898,18 @@ class Confined(unittest.TestCase):
                 self.assertIsNone(self.call("Write", file_path=str(path)))
         self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "sub" / ".git" / "config")))
 
+    def test_a_file_tool_writes_no_file_with_a_second_hard_link(self):
+        outside = self.tree.parent / "outside-tool"
+        outside.write_text("original\n")
+        os.link(str(outside), str(self.tree / "notes"))
+        for tool in ("Write", "Edit", "MultiEdit"):
+            with self.subTest(tool=tool):
+                self.assertRefused(self.call(tool, file_path=str(self.tree / "notes")), "hard link")
+        self.assertIsNone(self.call("Read", file_path=str(self.tree / "notes")))
+        (self.tree / "plain").write_text("x")
+        self.assertIsNone(self.call("Write", file_path=str(self.tree / "plain")))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "notes")))
+
     def test_credentials_are_still_refused_inside(self):
         self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
         self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")
