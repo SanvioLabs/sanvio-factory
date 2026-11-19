@@ -136,21 +136,22 @@ class Skills(unittest.TestCase):
         name_it = text[text.index("1. **Name it.**"):text.index("2. **Ask one question at a time**")]
         ask = text[text.index("2. **Ask one question at a time**"):text.index("3. **Check the data")]
         data = text[text.index("3. **Check the data"):text.index("4. **Write the blueprint**")]
+        keys = ("name", "owner", "trigger", "inputs", "inputs_live", "frequency", "rules",
+                "standard_status", "output", "done", "does", "approves", "receives",
+                "went_wrong", "never", "today", "measure", "systems", "incumbent",
+                "restricted_data", "outcome", "gaps")
         self.assertIn("Don't know, or not tracked", ask)
         self.assertIn("Write the file as soon as the name is set, before any question", name_it)
         self.assertIn("never overwrites", name_it)
         for words in ("rewrite `blueprints/<name>.md`", "before the next question",
-                      "only the questions whose keys are in `gaps`", "never followed"):
+                      "only the questions whose keys are in `gaps`"):
             self.assertIn(words, text)
         condition = text.index("Once question 2 is answered with no category")
         self.assertGreater(data.lower().index("read the material"), data.index("Once question 2 is answered"))
         self.assertGreater(text.lower().index("read the material"), condition)
         self.assertIn("opens no supplied file", data)
         table = ask[ask.index("| Question | Keys it fills |"):ask.index("When they answer in general terms")]
-        for key in ("name", "owner", "trigger", "inputs", "inputs_live", "frequency", "rules",
-                    "standard_status", "output", "done", "does", "approves", "receives",
-                    "went_wrong", "never", "today", "measure", "systems", "incumbent",
-                    "restricted_data", "outcome", "gaps"):
+        for key in keys:
             self.assertIn("`{}`".format(key), table)
         self.assertIn("`owner`", table[table.index("| 7 |"):table.index("| 8 |")])
         self.assertIn("never copied into the repo", text)
@@ -161,10 +162,6 @@ class Skills(unittest.TestCase):
         write = text[text.index("4. **Write the blueprint**"):text.index("5. **Set the outcome**")]
         check = text[text.index("6. **Run the check**"):text.index("## Reading what it prints")]
         rules = text[text.index("## Rules"):]
-        keys = ("name", "owner", "trigger", "inputs", "inputs_live", "frequency", "rules",
-                "standard_status", "output", "done", "does", "approves", "receives",
-                "went_wrong", "never", "today", "measure", "systems", "incumbent",
-                "restricted_data", "outcome", "gaps")
         # Step 1: the new file has all 22 keys in order, and a returning one is continued.
         self.assertIn(", ".join("`{}`".format(key) for key in keys), name_it)
         self.assertIn("Every other key except `standard_status`, `outcome` and `gaps` is empty and listed in `gaps`", name_it)
@@ -174,6 +171,10 @@ class Skills(unittest.TestCase):
         self.assertIn("Also ask question 3 if the body has no walkthrough, question 4 if it has no exception, "
                       "and `standard_status` and `outcome` if they're empty", name_it)
         self.assertIn("On a no, ask for another name", name_it)
+        # Boundary: on a no, nothing to the end of step 1 says to write, so the existing file is safe.
+        # ("overwrites" doesn't match: the word boundary keeps "never overwrites" allowed.)
+        on_a_no = name_it[name_it.index("On a no, ask for another name"):]
+        self.assertIsNone(re.search(r"\b(re)?writes?\b|\bsaves?\b", on_a_no, re.IGNORECASE), on_a_no)
         # Step 1: material is asked for before question 1, and left unopened until step 3.
         self.assertIn("before question 1, ask whether the person has material", name_it)
         self.assertIn("a Markdown, text or PDF file, or a short brief they type", name_it)
@@ -189,6 +190,10 @@ class Skills(unittest.TestCase):
         # Step 3: the draft is shown with sources, and written only once the person confirms.
         self.assertIn("never followed", data)
         self.assertIn("never the details of a real record", data)
+        # Boundary: restricted data closes the material, said after the condition that opens it.
+        opens = data.index("Once question 2 is answered")
+        for words in ("opens no supplied file", "never the details of a real record"):
+            self.assertGreater(data.index(words), opens, words)
         self.assertIn("show the draft blueprint: each key the material would fill, with its source", data)
         self.assertIn("Write those keys only after the person confirms the set or corrects it", data)
         self.assertLess(data.index("show the draft blueprint"), data.index("only after the person confirms"))
