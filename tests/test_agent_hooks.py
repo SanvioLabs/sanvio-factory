@@ -857,6 +857,59 @@ class Confined(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(self.call("Bash", command=command))
 
+    def test_a_file_tool_writes_nothing_in_the_clones_git_and_its_shell_names_no_settings_or_hooks(self):
+        git = self.own / ".git"
+        (git / "hooks").mkdir()
+        for tool, path in (("Write", git / "config"), ("Edit", git / "config"), ("Write", git / "config.worktree"),
+                           ("Write", git / "hooks" / "pre-push"), ("MultiEdit", git / "hooks" / "post-checkout"),
+                           ("Write", git / "hooks"), ("Write", git / "HEAD"), ("Write", git / "packed-refs"),
+                           ("Write", git / "refs" / "heads" / "loop" / "issue-12"),
+                           ("Write", git / "refs" / "replace" / ("a" * 40)),
+                           ("Write", git / "objects" / "info" / "alternates"),
+                           ("Write", git / "objects" / "ab" / ("c" * 38)),
+                           ("Edit", git / "worktrees" / "issue-12" / "HEAD"), ("NotebookEdit", git / "x.ipynb"),
+                           ("Write", git), ("Edit", git / "Config")):
+            with self.subTest(tool=tool, path=path):
+                self.assertRefused(self.call(tool, file_path=str(path)), "the loop's own git reads it")
+        # Spelled in another case, a Mac's disk finds the same folder, and it's still refused.
+        self.assertEqual(self.call("Write", file_path=str(self.own / ".GIT" / "HEAD"))[0], "deny")
+        for command in ("echo x >> {}".format(git / "config"), "echo x >> {}".format(git / "CONFIG"), "cp evil {}".format(git / "hooks" / "pre-push"),
+                        "ln -s /tmp/x {}/hooks/pre-commit".format(git)):
+            with self.subTest(command=command):
+                self.assertRefused(self.call("Bash", command=command), "settings or hooks")
+        # Reading them, and git run from the shell, as git in the worktree does, are still allowed.
+        self.assertIsNone(self.call("Read", file_path=str(git / "config")))
+        self.assertIsNone(self.call("Read", file_path=str(git / "HEAD")))
+        self.assertIsNone(self.call("Bash", command="git -C {} log -1".format(git)))
+        # A folder merely named like it isn't the clone's .git.
+        self.assertIsNone(self.call("Write", file_path=str(self.tree / ".github" / "x")))
+        # Outside caller mode (no folders given), nothing here changes.
+        self.assertIsNone(self.call("Write", held=False, file_path=str(git / "config")))
+        self.assertIsNone(self.call("Bash", held=False, command="echo x >> {}".format(git / "config")))
+
+    def test_a_file_tool_makes_no_repository_inside_the_worktree(self):
+        for path in (self.tree / "sub" / ".git" / "config", self.tree / "sub" / ".git", self.tree / "a" / "b" / ".GIT" / "HEAD",
+                     self.tree / "vendor" / ".Git" / "hooks" / "post-checkout"):
+            with self.subTest(path=path):
+                self.assertRefused(self.call("Write", file_path=str(path)), "a repository inside the worktree")
+        for path in (self.tree / ".github" / "x", self.tree / "x.git" / "y", self.tree / ".gitignore",
+                     self.tree / "sub" / ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.call("Write", file_path=str(path)))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "sub" / ".git" / "config")))
+
+    def test_a_file_tool_writes_no_file_with_a_second_hard_link(self):
+        outside = self.tree.parent / "outside-tool"
+        outside.write_text("original\n")
+        os.link(str(outside), str(self.tree / "notes"))
+        for tool in ("Write", "Edit", "MultiEdit"):
+            with self.subTest(tool=tool):
+                self.assertRefused(self.call(tool, file_path=str(self.tree / "notes")), "hard link")
+        self.assertIsNone(self.call("Read", file_path=str(self.tree / "notes")))
+        (self.tree / "plain").write_text("x")
+        self.assertIsNone(self.call("Write", file_path=str(self.tree / "plain")))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "notes")))
+
     def test_credentials_are_still_refused_inside(self):
         self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
         self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")

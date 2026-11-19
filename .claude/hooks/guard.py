@@ -50,7 +50,10 @@ Wired in .claude/settings.json as a PreToolUse hook. Six jobs:
    refused, and so is a shell command naming an absolute, ~ or .. path
    outside them and outside the system and tool folders SYSTEM_PATHS lists.
    Claude Code's sandbox and deny rules, which the loop also sets, are what
-   hold it; this is the backstop. Unset, nothing here changes.
+   hold it; this is the backstop. Inside them, its file tools write nothing
+   in the clone's .git, and its shell names none of .git/config,
+   config.worktree or hooks/, which the loop's own git reads.
+   Unset, nothing here changes.
 
 A call this hook can't check, because its input is unreadable or the hook has a bug, goes through with a
 warning in a person's session. In a headless run, and in an agent scripts/loop.py started
@@ -67,6 +70,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 import tempfile
 import traceback
@@ -606,6 +610,14 @@ CONFINED_OUTSIDE = ("This build is held to its own worktree: no file outside it 
                     "searched, listed or written. Work inside the worktree.")
 CONFINED_SHELL = ("{} is outside this build's worktree, and the build is held to it. Name "
                   "paths inside the worktree, and system tools by name.")
+CONFINED_GIT = ("This build may not change the clone's {}: the loop's own git reads it, outside any sandbox. "
+                "Change the worktree's files and the loop commits them; leave everything in .git to the loop.")
+CONFINED_NESTED = ("{} would be a repository inside the worktree, and the loop's own git, outside any sandbox, would "
+                   "read its config when it looked inside a submodule. A held build makes no .git there.")
+CONFINED_LINKED = ("{} has another hard link, which can be a file outside the worktree. A held build writes no file "
+                   "with more than one: write a new file instead.")
+CONFINED_GIT_SHELL = ("{} is the clone's git settings or hooks, which the loop's own git reads outside any sandbox. "
+                      "A held build's shell doesn't name them.")
 # What a held build's shell may still name outside its folders: system and tool install paths it reads to run
 # at all, temp, and the device files a command writes to. Each a folder with all it holds, or a file. Nothing
 # here holds a project, a token or the factory's data. The home folder only through the tool homes below it.
@@ -640,6 +652,76 @@ def confined_folders(args):
             raise ValueError("guard.py takes only --confine <folder>")
         folders.append(os.path.realpath(os.path.expanduser(rest.pop(0))))
     return folders or None
+
+
+def held_git_part(full, folders):
+    """The part of a held .git folder a resolved path lands on that the loop's own git takes settings or commands
+    from, as .git/config, .git/config.worktree or .git/hooks/, or None. Only a held folder named .git counts:
+    scripts/loop.py holds a caller's build to the clone's .git, which git in the worktree reads (#640)."""
+    full = full.casefold()  # a Mac's disk ignores case: .git/Config is .git/config
+    for folder in folders:
+        if os.path.basename(folder.rstrip(os.sep)) != ".git":
+            continue
+        folder = folder.casefold()
+        for name in ("config", "config.worktree"):
+            if full == os.path.join(folder, name):
+                return ".git/" + name
+        hooks = os.path.join(folder, "hooks")
+        if full == hooks or full.startswith(hooks + os.sep):
+            return ".git/hooks/"
+    return None
+
+
+def in_held_git(full, folders):
+    """Where in a held .git folder a resolved path lands, as .git/<rest>, or None. A held build's file tools write
+    nothing there: git's refs, objects, alternates and replace refs are what the loop's own git reads and pushes,
+    and the build changes the worktree, which the loop commits (#640). Reading is still allowed."""
+    for folder in folders:
+        if os.path.basename(folder.rstrip(os.sep)) != ".git":
+            continue
+        # A Mac's disk ignores case, so .git/Config is .git/config.
+        here, folder = full.casefold(), folder.rstrip(os.sep).casefold()
+        if here == folder or here.startswith(folder + os.sep):
+            rest = os.path.relpath(here, folder)
+            return ".git" if rest == "." else ".git/" + rest.replace(os.sep, "/")
+    return None
+
+
+def nested_git(full, folders):
+    """The path below a held folder that isn't itself a .git, relative to it, where a resolved path has a .git
+    part, in any case, or None: a .git inside the worktree, which the loop's own git would read (#640)."""
+    for folder in folders:
+        folder = folder.rstrip(os.sep)
+        if os.path.basename(folder).casefold() == ".git":
+            continue
+        here, base = full.casefold(), folder.casefold()
+        if here.startswith(base + os.sep):
+            rest = os.path.relpath(full, folder)
+            if any(part.casefold() == ".git" for part in rest.split(os.sep)):
+                return rest.replace(os.sep, "/")
+    return None
+
+
+def hard_linked(path):
+    """Whether path is a file with another hard link: realpath can't see one, and a write through it lands in
+    every name the file has, one outside the worktree included (#640)."""
+    try:
+        found = os.lstat(os.path.expanduser(path))
+    except OSError:
+        return False
+    return stat.S_ISREG(found.st_mode) and found.st_nlink > 1
+
+
+def shell_held_git(command, cwd, folders):
+    """The first path a held build's shell command names on held_git_part(), or None: absolute, ~ or .. paths, as
+    shell_outside() reads them. git config with no path names none, so the loop hashes the files as well."""
+    text = URL.sub(" ", HOME_VAR.sub("~", command))
+    for found in SHELL_PATH.finditer(text):
+        word = found.group(1)
+        full = os.path.realpath(os.path.join(cwd, os.path.expanduser(word)))
+        if held_git_part(full, folders):
+            return word
+    return None
 
 
 def within(full, folders):
@@ -773,6 +855,15 @@ def decide(event, held=None):
     if held is not None and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if confined_outside(tool, data, cwd, held):
             return ("deny", CONFINED_OUTSIDE)
+        path = data.get("file_path") or data.get("notebook_path") or ""
+        part = in_held_git(resolved(path, cwd), held) if path and tool in FILE_TOOLS and tool != "Read" else None
+        if part:
+            return ("deny", CONFINED_GIT.format(part))
+        nested = nested_git(resolved(path, cwd), held) if path and tool in FILE_TOOLS and tool != "Read" else None
+        if nested:
+            return ("deny", CONFINED_NESTED.format(nested))
+        if path and tool in FILE_TOOLS and tool != "Read" and hard_linked(os.path.join(cwd or "", path)):
+            return ("deny", CONFINED_LINKED.format(path))
 
     if headless and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if headless_outside(tool, data, cwd):
@@ -793,6 +884,9 @@ def decide(event, held=None):
             outside = shell_outside(command, cwd, held)
             if outside:
                 return ("deny", CONFINED_SHELL.format(outside))
+            named = shell_held_git(command, cwd, held)
+            if named:
+                return ("deny", CONFINED_GIT_SHELL.format(named))
         changed = machines_write(command)
         if changed:
             return machines_verdict(changed, headless)
