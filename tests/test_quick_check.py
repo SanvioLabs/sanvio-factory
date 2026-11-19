@@ -57,6 +57,12 @@ class QuickCheck(unittest.TestCase):
 
 
 class Parts(unittest.TestCase):
+    def test_the_quick_list_is_these_modules_in_this_order(self):
+        self.assertEqual(quick_check.MODULES, (
+            "test_check_setup", "test_skills", "test_steering", "test_tickets", "test_link_files", "test_gate",
+            "test_pre_commit", "test_plugins", "test_mod_versions", "test_changelog", "test_names",
+            "test_old_names", "test_check_blueprint"))
+
     def test_each_module_is_a_test_file(self):
         for module in quick_check.MODULES:
             with self.subTest(module=module):

@@ -137,6 +137,10 @@ def check_gate(root):
             "git status to see what changed.")
 
 
+# How long `gh repo view` may take. It and CLAUDE_TIMEOUT both run in the session-start hook, inside its timeout.
+GH_TIMEOUT = 15
+
+
 def check_company_repo(company):
     """company/ is its own clone: ask GitHub whether the repo it pushes to is private."""
     origin = git(company, "remote", "get-url", "origin")
@@ -155,7 +159,7 @@ def check_company_repo(company):
                 "checked".format(shown), "Install gh, or check by hand: " + command)
     try:
         result = subprocess.run(["gh", "repo", "view", ref, "--json", "visibility", "-q", ".visibility"],
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True, timeout=GH_TIMEOUT)
         visibility = result.stdout.strip().upper() if result.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
         visibility = ""
@@ -371,8 +375,9 @@ def check_old_names(root, environ=None):
     return ("PASS", "names: nothing here uses a name from before Sanvio Factory", None)
 
 
-# How long `claude plugin list` may take before the check gives up on it.
-CLAUDE_TIMEOUT = 15
+# How long `claude plugin list` may take before the check gives up on it. With GH_TIMEOUT it has to leave room
+# inside the session-start hook's 30 seconds, or the hook is killed and its setup message is lost.
+CLAUDE_TIMEOUT = 10
 # A mod this repo ships has its marketplace source here, and its version in that folder's plugin.json.
 MOD_SOURCE = "./examples/mods/"
 # A plugin or marketplace name that can go into a command to copy as it is.
@@ -395,22 +400,28 @@ def version_tuple(text):
         return (-1,)
 
 
-def shown_version(text):
+def shown(text):
+    """A name or version from a file or from claude, safe to print: no unprintable character, at most 40 long."""
     return marked(str(text))[:40]
 
 
 def plugin_switches(path, marketplace):
-    """{mod name: True or False} for the enabledPlugins entries of a settings file that name the marketplace."""
+    """({mod name: True or False}, [names that can't go in a command]) for the enabledPlugins entries of a
+    settings file that name the marketplace. A name that isn't plain isn't checked, and is said so."""
     data = read_json(path)
     plugins = data.get("enabledPlugins") if isinstance(data, dict) else None
     if not isinstance(plugins, dict):
-        return {}
-    switches = {}
+        return {}, []
+    switches, unplain = {}, []
     for key, value in plugins.items():
         name, _, market = str(key).rpartition("@")
-        if market == marketplace and PLAIN_NAME.fullmatch(name) and isinstance(value, bool):
+        if market != marketplace:
+            continue
+        if not PLAIN_NAME.fullmatch(name):
+            unplain.append(shown(name))
+        elif isinstance(value, bool):
             switches[name] = value
-    return switches
+    return switches, unplain
 
 
 def same_folder(path, root):
@@ -468,18 +479,20 @@ def check_mods(root, which=shutil.which):
     for plugin in market.get("plugins") or []:
         if isinstance(plugin, dict) and isinstance(plugin.get("name"), str):
             sources[plugin["name"]] = plugin.get("source")
-    local = plugin_switches(root / ".claude" / "settings.local.json", marketplace)
+    local, unplain_local = plugin_switches(root / ".claude" / "settings.local.json", marketplace)
+    switches, unplain = plugin_switches(root / ".claude" / "settings.json", marketplace)
+    unplain = sorted(set(unplain + unplain_local))
     switched_off = sorted(name for name, on in local.items() if on is False)
-    wanted = sorted(name for name, on in plugin_switches(root / ".claude" / "settings.json", marketplace).items()
-                    if on and name not in switched_off)
+    wanted = sorted(name for name, on in switches.items() if on and name not in switched_off)
     off_note = "; switched off for you: " + ", ".join(switched_off) if switched_off else ""
-    if not wanted:
-        return ("PASS", "mods: .claude/settings.json turns on no mod from {}{}".format(marketplace, off_note), None)
-    entries, reason = listed_plugins(root, which)
-    if reason:
-        return ("WARN", "mods: couldn't check whether the mods are installed and current: " + reason,
-                "Check by hand: claude plugin list")
-    good, missing, disabled, older, fixes = [], [], [], [], []
+    good, missing, disabled, older, uncompared, fixes, by_hand = [], [], [], [], [], [], []
+    if unplain:
+        by_hand.append("Check enabledPlugins in .claude/settings.json and .claude/settings.local.json by hand.")
+    if wanted:
+        entries, reason = listed_plugins(root, which)
+        if reason:
+            return ("WARN", "mods: couldn't check whether the mods are installed and current: " + reason,
+                    "Check by hand: claude plugin list")
     for name in wanted:
         plugin_id = "{}@{}".format(name, marketplace)
         found = [entry for entry in entries if installed_here(entry, plugin_id, root)]
@@ -494,18 +507,20 @@ def check_mods(root, which=shutil.which):
             continue
         have = max((entry.get("version") for entry in on), key=version_tuple)
         source = sources.get(name)
-        if isinstance(source, str) and source.startswith(MOD_SOURCE):
-            manifest = read_json(root / "examples" / "mods" / name / ".claude-plugin" / "plugin.json")
-            ours = manifest.get("version") if isinstance(manifest, dict) else None
-            if isinstance(ours, str) and version_tuple(ours) != (-1,) and version_tuple(have) < version_tuple(ours):
-                older.append("{} {} (this repo has {})".format(name, shown_version(have), shown_version(ours)))
-                fixes.append("claude plugin update {}".format(plugin_id))
-                continue
-            good.append("{} {}".format(name, shown_version(have)))
+        if not (isinstance(source, str) and source.startswith(MOD_SOURCE)):
+            good.append(name)  # not shipped in examples/mods/, such as Stelliad: installed and on is all there is
+            continue
+        manifest_path = "examples/mods/{}/.claude-plugin/plugin.json".format(name)
+        manifest = read_json(root / manifest_path)
+        ours = manifest.get("version") if isinstance(manifest, dict) else None
+        if not isinstance(ours, str) or version_tuple(ours) == (-1,):
+            uncompared.append(name)
+            by_hand.append("Check the version in {}.".format(manifest_path))
+        elif version_tuple(have) < version_tuple(ours):
+            older.append("{} {} (this repo has {})".format(name, shown(have), shown(ours)))
+            fixes.append("claude plugin update {}".format(plugin_id))
         else:
-            good.append(name)
-    if not fixes:
-        return ("PASS", "mods: installed, on and current: {}{}".format(", ".join(good), off_note), None)
+            good.append("{} {}".format(name, shown(have)))
     said = []
     if missing:
         said.append("not installed: " + ", ".join(missing))
@@ -513,8 +528,19 @@ def check_mods(root, which=shutil.which):
         said.append("installed but turned off: " + ", ".join(disabled))
     if older:
         said.append("older than this repo's: " + ", ".join(older))
-    return ("WARN", "mods: " + "; ".join(said) + off_note,
-            "Run " + "; ".join(fixes) + ", then start a new Claude Code session.")
+    if uncompared:
+        said.append("version not compared, as this repo's copy has no version that parses: " + ", ".join(uncompared))
+    if unplain:
+        said.append("not checked, as the name can't go in a command: " + ", ".join(unplain))
+    if not said:
+        if not good:
+            return ("PASS", "mods: .claude/settings.json turns on no mod from {}{}".format(marketplace, off_note),
+                    None)
+        return ("PASS", "mods: installed, on and current: {}{}".format(", ".join(good), off_note), None)
+    note = []
+    if fixes:
+        note.append("Run " + "; ".join(fixes) + ", then start a new Claude Code session.")
+    return ("WARN", "mods: " + "; ".join(said) + off_note, " ".join(note + by_hand))
 
 
 def run(root, home=None):

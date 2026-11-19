@@ -956,6 +956,17 @@ class Confined(unittest.TestCase):
                          ("deny", guard.UNATTENDED_UNCHECKED))
 
 
+def without_claude(folder, env=None):
+    """env with a claude that exits 1 first on PATH, in folder, so the setup check a session start runs in this
+    repo says it couldn't check the mods at once, and never runs the real claude (#658)."""
+    env = dict(os.environ if env is None else env)
+    stand_in = Path(folder) / "claude"
+    stand_in.write_text("#!/bin/sh\nexit 1\n")
+    stand_in.chmod(0o755)
+    env["PATH"] = str(folder) + os.pathsep + env.get("PATH", "")
+    return env
+
+
 class SessionStart(unittest.TestCase):
     def test_all_passing_says_nothing(self):
         self.assertIsNone(session_start.report([("PASS", "python 3.12", None)]))
@@ -1010,10 +1021,12 @@ class SessionStart(unittest.TestCase):
                           payload["hookSpecificOutput"]["additionalContext"])
 
     def test_the_hook_runs_and_prints_json_or_nothing(self):
-        out = subprocess.run([sys.executable, str(HOOKS / "session_start.py")],
-                             capture_output=True, text=True, check=True).stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            out = subprocess.run([sys.executable, str(HOOKS / "session_start.py")], env=without_claude(tmp),
+                                 capture_output=True, text=True, check=True, timeout=60).stdout
         if out:
             self.assertIn("systemMessage", json.loads(out))
+            self.assertIn("mods: couldn't check", out)
 
 
 @unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Claude Code runs a hook's command with bash")
@@ -1033,7 +1046,10 @@ class OutsideTheClone(unittest.TestCase):
                        for hook in block["hooks"] if script in hook["command"]})
 
     def run_hook(self, command, folder, stdin="{}"):
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(folder), SANVIO_USAGE_LOG="off", SANVIO_RETRO="off")
+        stand_in = Path(self.elsewhere) / "bin"
+        stand_in.mkdir(exist_ok=True)
+        env = without_claude(stand_in, dict(os.environ, CLAUDE_PROJECT_DIR=str(folder), SANVIO_USAGE_LOG="off",
+                                            SANVIO_RETRO="off"))
         return subprocess.run(["bash", "-c", command], cwd=str(folder), input=stdin, env=env, capture_output=True,
                               text=True, timeout=60)
 

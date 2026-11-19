@@ -484,11 +484,14 @@ class Mods(unittest.TestCase):
         path.write_text(json.dumps(list(entries)))
         self.stand_in('exec /bin/cat "{}"'.format(path))
 
-    def entry(self, name, version="1.2.0", scope="user", enabled=True, project=None, market=None):
+    def entry(self, name, version="1.2.0", scope="user", enabled=True, project=None, market=None,
+              folder_version=None):
         found = {"id": "{}@{}".format(name, market or self.market), "version": version, "scope": scope,
                  "enabled": enabled, "installPath": "{}/{}".format(self.SENTINEL, name)}
         if project is not None:
             found["projectPath"] = str(project)
+        if folder_version is not None:
+            found["folderVersion"] = folder_version
         return found
 
     def check(self):
@@ -519,6 +522,56 @@ class Mods(unittest.TestCase):
         # 1.10.0 is newer than 1.2.0, though it sorts before it as text.
         self.listed(self.entry("lens", version="1.10.0"), self.entry("stelliad"))
         self.assertEqual(self.check()[0], "PASS")
+
+    def test_folder_version_is_never_read(self):
+        self.listed(self.entry("lens", version="1.1.9", folder_version="1.2.0"), self.entry("stelliad"))
+        self.assertIn("claude plugin update lens@market", self.check()[2])
+        self.listed(self.entry("lens", version="1.2.0", folder_version="0.1.0"), self.entry("stelliad"))
+        self.assertEqual(self.check()[0], "PASS")
+
+    def test_a_repo_version_that_doesnt_parse_or_is_missing_is_said_and_not_passed(self):
+        manifest = "examples/mods/lens/.claude-plugin/plugin.json"
+        for written in ({"name": "lens", "version": "next"}, {"name": "lens"}, None):
+            with self.subTest(written=written):
+                if written is None:
+                    (self.root / manifest).unlink()
+                else:
+                    self.write(manifest, written)
+                self.listed(self.entry("lens", version="0.0.1"), self.entry("stelliad"))
+                status, line, fix = self.check()
+                self.assertEqual(status, "WARN")
+                self.assertIn("version not compared, as this repo's copy has no version that parses: lens", line)
+                self.assertIn(manifest, fix)
+                self.assertNotIn("claude plugin update", fix)
+
+    def test_a_name_that_cant_go_in_a_command_is_named_and_not_checked(self):
+        self.write(".claude/settings.json", {"enabledPlugins": {
+            "lens@market": True, "stelliad@market": True, "bad name;rm\n@market": True}})
+        self.listed(self.entry("lens"), self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("not checked, as the name can't go in a command: bad name;rm?", line)
+        self.assertIn("by hand", fix)
+        self.assertNotIn("\n", line + fix)
+        self.assertNotIn("claude plugin", fix)
+
+    def test_a_name_that_cant_go_in_a_command_warns_without_asking_claude(self):
+        self.write(".claude/settings.json", {"enabledPlugins": {"bad name@market": True}})
+        self.listed()
+        status, line, _ = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("bad name", line)
+        self.assertFalse((self.tmp / "claude.args").exists())
+
+    def test_the_outside_calls_fit_inside_the_session_start_hook(self):
+        # The hook runs check_setup.run(): gh and claude can each take their whole timeout, and a hook that's
+        # killed loses its setup message, so both together leave this many seconds to spare.
+        margin = 5
+        hooks = json.loads((ROOT / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+        timeouts = [hook["timeout"] for block in hooks for hook in block["hooks"]
+                    if "session_start.py" in hook["command"]]
+        self.assertEqual(len(timeouts), 1)
+        self.assertLessEqual(check_setup.GH_TIMEOUT + check_setup.CLAUDE_TIMEOUT + margin, timeouts[0])
 
     def test_a_version_that_doesnt_parse_counts_as_older(self):
         self.listed(self.entry("lens", version="next"), self.entry("stelliad"))
