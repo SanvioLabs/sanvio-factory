@@ -137,6 +137,10 @@ def check_gate(root):
             "git status to see what changed.")
 
 
+# How long `gh repo view` may take. It and CLAUDE_TIMEOUT both run in the session-start hook, inside its timeout.
+GH_TIMEOUT = 15
+
+
 def check_company_repo(company):
     """company/ is its own clone: ask GitHub whether the repo it pushes to is private."""
     origin = git(company, "remote", "get-url", "origin")
@@ -155,7 +159,7 @@ def check_company_repo(company):
                 "checked".format(shown), "Install gh, or check by hand: " + command)
     try:
         result = subprocess.run(["gh", "repo", "view", ref, "--json", "visibility", "-q", ".visibility"],
-                                capture_output=True, text=True, timeout=15)
+                                capture_output=True, text=True, timeout=GH_TIMEOUT)
         visibility = result.stdout.strip().upper() if result.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
         visibility = ""
@@ -371,10 +375,176 @@ def check_old_names(root, environ=None):
     return ("PASS", "names: nothing here uses a name from before Sanvio Factory", None)
 
 
+# How long `claude plugin list` may take before the check gives up on it. With GH_TIMEOUT it has to leave room
+# inside the session-start hook's 30 seconds, or the hook is killed and its setup message is lost.
+CLAUDE_TIMEOUT = 10
+# A mod this repo ships has its marketplace source here, and its version in that folder's plugin.json.
+MOD_SOURCE = "./examples/mods/"
+# A plugin or marketplace name that can go into a command to copy as it is.
+PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def read_json(path):
+    """A JSON file's contents, or None when it's missing or isn't JSON."""
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def version_tuple(text):
+    """1.10.0 as (1, 10, 0), so 1.10.0 is newer than 1.2.0. One that doesn't parse is older than any that does."""
+    try:
+        return tuple(int(part) for part in str(text).strip().split("."))
+    except ValueError:
+        return (-1,)
+
+
+def shown(text):
+    """A name or version from a file or from claude, safe to print: no unprintable character, at most 40 long."""
+    return marked(str(text))[:40]
+
+
+def plugin_switches(path, marketplace):
+    """({mod name: True or False}, [names that can't go in a command]) for the enabledPlugins entries of a
+    settings file that name the marketplace. A name that isn't plain isn't checked, and is said so."""
+    data = read_json(path)
+    plugins = data.get("enabledPlugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, dict):
+        return {}, []
+    switches, unplain = {}, []
+    for key, value in plugins.items():
+        name, _, market = str(key).rpartition("@")
+        if market != marketplace:
+            continue
+        if not PLAIN_NAME.fullmatch(name):
+            unplain.append(shown(name))
+        elif isinstance(value, bool):
+            switches[name] = value
+    return switches, unplain
+
+
+def same_folder(path, root):
+    try:
+        return isinstance(path, str) and Path(path).resolve() == Path(root).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
+def installed_here(entry, plugin_id, root):
+    """Whether one `claude plugin list` entry is this plugin, installed for every project or for this checkout."""
+    if not isinstance(entry, dict) or entry.get("id") != plugin_id:
+        return False
+    scope = entry.get("scope")
+    if scope == "user":
+        return True
+    return scope in ("local", "project") and same_folder(entry.get("projectPath"), root)
+
+
+def listed_plugins(root, which):
+    """The entries `claude plugin list --json` prints, or the reason it couldn't be read."""
+    claude = which("claude")
+    if not claude:
+        return None, "claude isn't on PATH"
+    try:
+        result = subprocess.run([claude, "plugin", "list", "--json"], capture_output=True, text=True,
+                                timeout=CLAUDE_TIMEOUT, cwd=str(root))
+    except subprocess.TimeoutExpired:
+        return None, "claude plugin list took longer than {} seconds".format(CLAUDE_TIMEOUT)
+    except OSError:
+        return None, "claude couldn't be started"
+    if result.returncode != 0:
+        return None, "claude plugin list exited {}".format(result.returncode)
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return None, "claude plugin list didn't print JSON"
+    if not isinstance(data, list):
+        return None, "claude plugin list didn't print a list of plugins"
+    return data, None
+
+
+def check_mods(root, which=shutil.which):
+    """Each mod .claude/settings.json turns on is installed for this checkout, on, and no older than the copy
+    in examples/mods/. Prints only names and versions from `claude plugin list`, never a path."""
+    root = Path(root)
+    market = read_json(root / ".claude-plugin" / "marketplace.json")
+    marketplace = market.get("name") if isinstance(market, dict) else None
+    if not isinstance(marketplace, str) or not PLAIN_NAME.fullmatch(marketplace):
+        return ("WARN", "mods: couldn't check, as .claude-plugin/marketplace.json has no plain name",
+                "Restore .claude-plugin/marketplace.json from Sanvio Factory.")
+    sources = {}
+    for plugin in market.get("plugins") or []:
+        if isinstance(plugin, dict) and isinstance(plugin.get("name"), str):
+            sources[plugin["name"]] = plugin.get("source")
+    local, unplain_local = plugin_switches(root / ".claude" / "settings.local.json", marketplace)
+    switches, unplain = plugin_switches(root / ".claude" / "settings.json", marketplace)
+    unplain = sorted(set(unplain + unplain_local))
+    switched_off = sorted(name for name, on in local.items() if on is False)
+    wanted = sorted(name for name, on in switches.items() if on and name not in switched_off)
+    off_note = "; switched off for you: " + ", ".join(switched_off) if switched_off else ""
+    good, missing, disabled, older, uncompared, fixes, by_hand = [], [], [], [], [], [], []
+    if unplain:
+        by_hand.append("Check enabledPlugins in .claude/settings.json and .claude/settings.local.json by hand.")
+    if wanted:
+        entries, reason = listed_plugins(root, which)
+        if reason:
+            return ("WARN", "mods: couldn't check whether the mods are installed and current: " + reason,
+                    "Check by hand: claude plugin list")
+    for name in wanted:
+        plugin_id = "{}@{}".format(name, marketplace)
+        found = [entry for entry in entries if installed_here(entry, plugin_id, root)]
+        on = [entry for entry in found if entry.get("enabled") is not False]
+        if not found:
+            missing.append(name)
+            fixes.append("claude plugin install {} --scope local".format(plugin_id))
+            continue
+        if not on:
+            disabled.append(name)
+            fixes.append("claude plugin enable {}".format(plugin_id))
+            continue
+        have = max((entry.get("version") for entry in on), key=version_tuple)
+        source = sources.get(name)
+        if not (isinstance(source, str) and source.startswith(MOD_SOURCE)):
+            good.append(name)  # not shipped in examples/mods/, such as Stelliad: installed and on is all there is
+            continue
+        manifest_path = "examples/mods/{}/.claude-plugin/plugin.json".format(name)
+        manifest = read_json(root / manifest_path)
+        ours = manifest.get("version") if isinstance(manifest, dict) else None
+        if not isinstance(ours, str) or version_tuple(ours) == (-1,):
+            uncompared.append(name)
+            by_hand.append("Check the version in {}.".format(manifest_path))
+        elif version_tuple(have) < version_tuple(ours):
+            older.append("{} {} (this repo has {})".format(name, shown(have), shown(ours)))
+            fixes.append("claude plugin update {}".format(plugin_id))
+        else:
+            good.append("{} {}".format(name, shown(have)))
+    said = []
+    if missing:
+        said.append("not installed: " + ", ".join(missing))
+    if disabled:
+        said.append("installed but turned off: " + ", ".join(disabled))
+    if older:
+        said.append("older than this repo's: " + ", ".join(older))
+    if uncompared:
+        said.append("version not compared, as this repo's copy has no version that parses: " + ", ".join(uncompared))
+    if unplain:
+        said.append("not checked, as the name can't go in a command: " + ", ".join(unplain))
+    if not said:
+        if not good:
+            return ("PASS", "mods: .claude/settings.json turns on no mod from {}{}".format(marketplace, off_note),
+                    None)
+        return ("PASS", "mods: installed, on and current: {}{}".format(", ".join(good), off_note), None)
+    note = []
+    if fixes:
+        note.append("Run " + "; ".join(fixes) + ", then start a new Claude Code session.")
+    return ("WARN", "mods: " + "; ".join(said) + off_note, " ".join(note + by_hand))
+
+
 def run(root, home=None):
     return [check_python(), check_hooks(root), check_links(root), check_gate(root),
             check_company(root), check_shadowed_skills(root, home), check_security_levels(root),
-            check_mcp(root), check_remote(root), check_old_names(root)]
+            check_mcp(root), check_mods(root), check_remote(root), check_old_names(root)]
 
 
 def main(argv):
