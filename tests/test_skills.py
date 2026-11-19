@@ -948,6 +948,25 @@ class OrientationSetupStepTest(unittest.TestCase):
                       "Claude Desktop's chat, outside the Code tab, can't run this skill"):
             self.assertIn(words, surface)
 
+    def test_step_1_maps_the_entrypoint_value_to_a_surface(self):
+        surface = self.part("**Which surface.**", "**Checks.**")
+        for words in ("A value of `cli` points at the CLI", "names an editor", "at an IDE extension",
+                      "names the desktop app at the Code tab", "unknown", "the read is refused"):
+            self.assertIn(words, surface)
+
+    def test_step_1_runs_both_checks_and_passes_their_lines_through(self):
+        checks = self.part("**Checks.**", "**GitHub login.**")
+        for words in ("Run both and pass their lines through as printed", "python3 scripts/check_setup.py",
+                      "python3 scripts/quick_check.py"):
+            self.assertIn(words, checks)
+        self.assertLess(checks.index("python3 scripts/check_setup.py"),
+                        checks.index("python3 scripts/quick_check.py"))
+
+    def test_step_1_says_the_full_suite_runs_in_ci_on_every_pull_request(self):
+        checks = self.part("**Checks.**", "**GitHub login.**")
+        self.assertIn("Say the full test suite runs in CI on every pull request", checks)
+        self.assertNotIn("unittest discover", checks)
+
     def test_step_1_logs_in_check_says_only_pass_or_fail(self):
         login = self.part("**GitHub login.**", "**Remote.**")
         for words in ("Only when `gh` is installed and `origin` is on GitHub",
@@ -1019,7 +1038,7 @@ class OrientationSetupStepTest(unittest.TestCase):
         rules = self.section("## Rules for this skill", "## Steps")
         self.assertNotIn("Never run a fix the setup check names", rules)
         for words in ("git checkout", "never commit", "Never add, log in to or configure a connector",
-                      "printenv", "gh auth token"):
+                      "printenv", "a bare `env`", "gh auth token", "never show the output of `gh auth status`"):
             self.assertIn(words, rules)
 
     def test_step_7_still_names_the_full_suite(self):
@@ -1038,7 +1057,7 @@ class OrientationSetupStepTest(unittest.TestCase):
         text = self.SKILL.read_text()
         self.assertIn("## Output", text)
         output = " ".join(text[text.index("## Output"):].split())
-        self.assertIn("Your steps", output)
+        self.assertIn("The open steps on step 1's Your steps checklist, each with where to do it", output)
         self.assertNotIn("Any FAIL or WARN from step 1", output)
 
 
