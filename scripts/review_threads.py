@@ -6,13 +6,15 @@ Usage, from the Actions workspace, as .github/workflows/review-pr.yml runs it:
 
 It reads $RUNNER_TEMP/report.json through review_report.check(), against the schema beside this file in the
 factory checkout, and $RUNNER_TEMP/diff.patch, the diff the prompt was built from. The environment says what to
-do: REVIEW_THREADS ("true" to manage threads), FAIL_ON ("blocks" or "never"), and REPO, PR, HEAD_SHA and GH_TOKEN
-for the GitHub calls, which all go through gh.
+do: REVIEW_THREADS ("true" to manage threads), FAIL_ON ("blocks" or "never"), AGENT_NAME (the agent whose
+report this is, review-pr when unset), and REPO, PR, HEAD_SHA and GH_TOKEN for the GitHub calls, which all go
+through gh.
 
 Threads: one per finding whose severity is blocks, on its line when that line is in the diff, else on its file,
 else on the first changed file, with the finding's own place in the body. Nits get none. Each thread's first
 comment starts with a marker holding a fingerprint of the finding's rule, file and summary, so a later run finds
-it again instead of opening a second. When a later run no longer reports the finding, the thread gets a reply and
+it again instead of opening a second. Each named agent runs as its own review job, so the marker also names the
+agent, except review-pr's, which keeps the marker it always had, and a run touches only its own agent's threads. When a later run no longer reports the finding, the thread gets a reply and
 is resolved; when it's reported again, a thread this workflow resolved is reopened. A thread a person resolved
 stays resolved, and a thread whose first comment isn't this workflow's is never touched. A run opens at most
 MAX_NEW threads. A report that can't be read opens and resolves nothing.
@@ -39,8 +41,11 @@ MAX_NEW = 25
 BOT_LOGINS = ("github-actions", "github-actions[bot]")
 MARKER = "<!-- review-pr-thread:{} -->"
 RESOLVED_MARKER = "<!-- review-pr-resolved:{} -->"
-THREAD = re.compile(r"\A<!-- review-pr-thread:([0-9a-f]{16}) -->")
-RESOLVED = re.compile(r"\A<!-- review-pr-resolved:([0-9a-f]{16}) -->")
+# The agent's name, then the fingerprint; review-pr's markers carry no name, as before agents could be named.
+THREAD = re.compile(r"\A<!-- review-pr-thread:(?:([a-z0-9-]+):)?([0-9a-f]{16}) -->")
+RESOLVED = re.compile(r"\A<!-- review-pr-resolved:(?:([a-z0-9-]+):)?([0-9a-f]{16}) -->")
+DEFAULT_AGENT = "review-pr"
+AGENT = re.compile(r"[a-z0-9-]+")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 TRAILER = "Posted by the review-pr workflow. A person decides what happens to this pull request."
 FAIL_ON = ("blocks", "never")
@@ -182,6 +187,22 @@ def place(finding, files):
     return (first, None) if first is not None else None
 
 
+def marker(agent, fp):
+    """The first line of a thread an agent opens for the finding fp."""
+    return MARKER.format(fp if agent == DEFAULT_AGENT else "{}:{}".format(agent, fp))
+
+
+def resolved_marker(agent, fp):
+    """The first line of the reply with which an agent resolves its thread for fp."""
+    return RESOLVED_MARKER.format(fp if agent == DEFAULT_AGENT else "{}:{}".format(agent, fp))
+
+
+def parsed(pattern, text):
+    """(agent, fingerprint) from a marker at the start of text, or None."""
+    match = pattern.match(text or "")
+    return (match.group(1) or DEFAULT_AGENT, match.group(2)) if match else None
+
+
 def where(finding):
     text = review_report.clean(finding["file"])
     if "line" in finding:
@@ -189,14 +210,16 @@ def where(finding):
     return text
 
 
-def body(finding, fp, path, line, shown=False):
-    """The thread's first comment: the marker, then the finding as one line built from its cleaned fields.
-    `shown` says the diff does show the finding's line, and the thread is on its file only because GitHub
+def body(finding, fp, path, line, shown=False, agent=DEFAULT_AGENT):
+    """The thread's first comment: the agent's marker, then the finding as one line built from its cleaned
+    fields. `shown` says the diff does show the finding's line, and the thread is on its file only because GitHub
     refused the line."""
     rule = review_report.clean(finding["rule"]).strip()
-    lines = [MARKER.format(fp), "",
+    lines = [marker(agent, fp), "",
              "**{}** {}{}: {}".format(review_report.clean(finding["severity"]), where(finding),
                                        " ({})".format(rule) if rule else "", review_report.clean(finding["summary"]))]
+    if agent != DEFAULT_AGENT:
+        lines += ["", "From the {} agent.".format(agent)]
     if path != finding["file"] or ("line" in finding and line != finding["line"] and not shown):
         lines += ["", "The finding is at {}, which this diff doesn't show, so its thread is on {}.".format(
             where(finding), review_report.clean(path))]
@@ -204,22 +227,23 @@ def body(finding, fp, path, line, shown=False):
     return "\n".join(lines) + "\n"
 
 
-def ours(thread):
-    """The fingerprint of a thread this workflow opened, or None for anyone else's."""
+def ours(thread, agent=DEFAULT_AGENT):
+    """The fingerprint of a thread this workflow opened for agent, or None for anyone else's, another agent's
+    among them."""
     if thread.get("author") not in BOT_LOGINS:
         return None
-    match = THREAD.match(thread.get("body") or "")
-    return match.group(1) if match else None
+    found = parsed(THREAD, thread.get("body"))
+    return found[1] if found and found[0] == agent else None
 
 
-def resolved_by_us(thread, fp):
-    """True when this workflow resolved the thread. resolvedBy may come back empty for a bot, so a last comment
-    that is this workflow's resolving reply counts too; anyone else named in resolvedBy is a person."""
+def resolved_by_us(thread, fp, agent=DEFAULT_AGENT):
+    """True when this agent's run resolved the thread. resolvedBy may come back empty for a bot, so a last
+    comment that is this agent's resolving reply counts too. Another agent's run never resolves this agent's
+    thread, so a bot named in resolvedBy is this workflow; anyone else is a person."""
     who = thread.get("resolved_by")
     if who is not None:
         return who in BOT_LOGINS
-    match = RESOLVED.match(thread.get("last_body") or "")
-    return thread.get("last_author") in BOT_LOGINS and bool(match) and match.group(1) == fp
+    return thread.get("last_author") in BOT_LOGINS and parsed(RESOLVED, thread.get("last_body")) == (agent, fp)
 
 
 def blocking(report):
@@ -231,15 +255,15 @@ def blocking(report):
     return out
 
 
-def sync(report, threads, diff, gh, head_sha="", warn=print):
-    """Open, resolve and reopen threads to match the report. Returns what it did, as counts."""
+def sync(report, threads, diff, gh, head_sha="", warn=print, agent=DEFAULT_AGENT):
+    """Open, resolve and reopen agent's threads to match its report. Returns what it did, as counts."""
     done = {"opened": 0, "resolved": 0, "reopened": 0, "skipped": 0}
     if report is None:
         return done
     wanted = blocking(report)
     mine = {}
     for thread in threads:
-        fp = ours(thread)
+        fp = ours(thread, agent)
         if fp is not None:
             mine.setdefault(fp, thread)
     sha = " on {}".format(head_sha[:12]) if head_sha else ""
@@ -254,7 +278,7 @@ def sync(report, threads, diff, gh, head_sha="", warn=print):
 
     for fp, thread in mine.items():
         if fp in wanted:
-            if thread["resolved"] and resolved_by_us(thread, fp):
+            if thread["resolved"] and resolved_by_us(thread, fp, agent):
                 # Reopen first: a reply left after a failed reopen would hide the resolving marker for good.
                 if attempt(gh.reopen, thread["id"]):
                     done["reopened"] += 1
@@ -262,7 +286,7 @@ def sync(report, threads, diff, gh, head_sha="", warn=print):
                         sha, TRAILER))
         elif not thread["resolved"]:
             text = "{}\n\nThis finding is no longer reported{}, so the thread is resolved.\n\n{}\n".format(
-                RESOLVED_MARKER.format(fp), sha, TRAILER)
+                resolved_marker(agent, fp), sha, TRAILER)
             if attempt(gh.reply, thread["comment_id"], text) and attempt(gh.resolve, thread["id"]):
                 done["resolved"] += 1
     files = changed_lines(diff)
@@ -274,9 +298,9 @@ def sync(report, threads, diff, gh, head_sha="", warn=print):
             done["skipped"] += 1
             continue
         path, line = spot
-        opened = attempt(gh.open_thread, body(finding, fp, path, line), path, line)
+        opened = attempt(gh.open_thread, body(finding, fp, path, line, agent=agent), path, line)
         if not opened and line is not None:  # the line can move between the diff and the head commit
-            opened = attempt(gh.open_thread, body(finding, fp, path, None, shown=True), path, None)
+            opened = attempt(gh.open_thread, body(finding, fp, path, None, shown=True, agent=agent), path, None)
         if opened:
             done["opened"] += 1
     if done["skipped"]:
@@ -304,6 +328,11 @@ def main(environ=None, gh=None, out=print):
     if fail_on not in FAIL_ON:
         out("::error::fail-on is {!r}, and has to be blocks or never.".format(fail_on))
         return 1
+    agent = environ.get("AGENT_NAME") or DEFAULT_AGENT
+    if not AGENT.fullmatch(agent):
+        out("::error::AGENT_NAME is {!r}, which isn't an agent's name: lowercase letters, digits and hyphens.".format(
+            agent))
+        return 1
     temp = Path(environ.get("RUNNER_TEMP", "."))
     report, why = read_report(temp)
     threads_on = environ.get("REVIEW_THREADS") == "true"
@@ -322,7 +351,7 @@ def main(environ=None, gh=None, out=print):
         except (GitHubError, ValueError) as error:
             out("::warning::The review threads couldn't be read, so none is opened or resolved: {}".format(error))
         else:
-            done = sync(report, threads, diff, gh, head_sha, warn=out)
+            done = sync(report, threads, diff, gh, head_sha, warn=out, agent=agent)
             out("Review threads: {opened} opened, {resolved} resolved, {reopened} reopened.".format(**done))
     if fail_on == "never":
         return 0

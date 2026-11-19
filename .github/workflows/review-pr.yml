@@ -1,41 +1,64 @@
-# Review a product repo's pull request with this harness's review-pr skill,
-# and post the report as one comment on that pull request. Product repos call
-# it with `uses:`; it runs on workflow_call alone, so it never runs on this
-# repo's own pushes or pull requests. examples/ci/README.md has the caller to
-# copy, the deploy key and the secrets it needs.
+# Review a product repo's pull request with this harness's review agents, and
+# post each agent's report as its own comment on that pull request. Product
+# repos call it with `uses:`; it runs on workflow_call alone, so it never runs
+# on this repo's own pushes or pull requests. examples/ci/README.md has the
+# caller to copy, the deploy key and the secrets it needs.
 #
-# What it does: it checks out three folders side by side. harness/ holds only
-# this repo's AGENTS.md, steering/, skills/, agents/ and standards/, and the
-# review-rubric.json and five scripts the report, the grade and the threads need, at its
-# default branch, read with a read-only deploy key, so every
-# product repo reviews against the same skills and rules, and the log names
-# the harness commit it used. base/ is the product repo at the pull request's
-# base, where the project's own rules are read. head/ is the pull request,
-# whose changed files the agent reads. head/'s AGENTS.md, CLAUDE.md and
-# CLAUDE.local.md files, at any depth, its .claude/ folders and its symlinks
-# are deleted first, so the pull request can't rewrite the rules it's held to;
-# a change to any of them still reaches the agent through the diff.
+# It runs as three jobs. agents goes first: it skips a fork's or a draft's pull
+# request, one with no Claude credential, or one whose changed files all match
+# skip-paths, fails one with no deploy key, and turns the agents input into a
+# list. Each name in it is a skill in skills/ or
+# an agent in agents/, read from the harness; a name that's neither fails the
+# run and lists the valid ones. The default is review-pr alone, which reviews
+# as this workflow always has. review then runs once for each agent, side by
+# side, checks that agent's report against its schema, and posts it as one
+# comment. grade runs once they've all finished, reads each agent's comment for
+# this commit back, and puts one grade, from the worst verdict among them, on
+# each. A skip in agents writes no run output, so neither job after it runs and
+# the run still passes.
+#
+# What review does: it checks out three folders side by side. harness/ holds
+# only this repo's AGENTS.md, steering/, skills/, agents/ and standards/, and
+# the review-rubric.json and five scripts the report, the grade and the
+# threads need, at its default branch, read with a read-only deploy key, so every product repo reviews
+# against the same skills and rules, and the log names the harness commit it
+# used. base/ is the product repo at the pull request's base, where the
+# project's own rules are read. head/ is the pull request, whose changed files
+# the agent reads. head/'s AGENTS.md, CLAUDE.md and CLAUDE.local.md files, at
+# any depth, its .claude/ folders and its symlinks are deleted first, so the
+# pull request can't rewrite the rules it's held to; a change to any of them
+# still reaches the agent through the diff.
 #
 # Claude runs `claude -p` with Read, Grep and Glob only, confined to those
-# three folders, with no shell, no MCP servers and no settings or hooks
-# loaded. Its report is one JSON object, never posted as written: after a
-# check that it doesn't contain a key, scripts/review_report.py checks it
-# against harness/skills/review-pr/report.schema.json and writes the comment
-# from its fields, each flattened to one line with its HTML, images and
-# mentions defused. A report that doesn't match posts no findings, only a line
-# saying it couldn't be read. Only the last two steps post: the comment, and,
-# when the caller turns on review-threads, a review thread per blocking
-# finding, which scripts/review_threads.py writes from the same checked report.
-# With fail-on: blocks, the last step also fails the check while the report
-# holds a blocking finding. Neither step ever approves, requests changes or
-# merges: a person decides what happens to the pull request. With both inputs
-# at their defaults, the last step doesn't run.
+# three folders, with no MCP servers and no settings or hooks loaded, and no
+# shell. An agent whose front matter has a `ci-shell:` line also gets the
+# commands it names there, and only those; none in this repo has one yet. Its
+# report is one JSON object, never posted as written: after a check that it
+# doesn't contain a key, scripts/review_report.py checks it against
+# harness/skills/review-pr/report.schema.json and writes the comment from its
+# fields, each flattened to one line with its HTML, images and mentions
+# defused. A report that doesn't match posts no findings, only a line saying it
+# couldn't be read. Only the post step, the threads step after it and the
+# grade's last step write. When the caller turns on review-threads, each
+# agent's review job also opens a review thread per blocking finding in its own
+# report, which scripts/review_threads.py writes from the same checked report;
+# with fail-on: blocks, that step fails the agent's own check while its report
+# holds a blocking finding. With both inputs at their defaults, it doesn't run.
+# None of them ever approves, requests changes or merges: a person decides what
+# happens to the pull request.
 #
-# The comment's last line carries a grade out of 10, as the loop's reviews do.
+# Each comment's last line carries a grade out of 10, as the loop's reviews do.
 # It's advisory: it comes from this repo's review-rubric.json, through
-# scripts/loop.py, from the report's verdict and the pull request's other
-# checks, and it sets no status, approves nothing and merges nothing. The
-# grade-wait-minutes input says how long it waits for those checks to finish.
+# scripts/loop.py, from the worst of the agents' verdicts and the pull
+# request's other checks, and it sets no status, approves nothing and merges
+# nothing. Each verdict is the one scripts/review_report.py wrote from that
+# agent's checked report. An agent whose job failed, or whose comment for this
+# commit can't be found, counts as unreadable. The grade-wait-minutes input says
+# how long it waits for those checks to finish.
+#
+# The skip-paths input takes shell globs, one a line: when every file the pull
+# request changes matches one, the agents job skips with a notice after it
+# checks out the head, and the run still passes.
 #
 # The secrets: ANTHROPIC_API_KEY, which has to be scoped to a workspace in the
 # Anthropic Console, or CLAUDE_CODE_OAUTH_TOKEN in its place, a token from
@@ -44,8 +67,8 @@
 # write access left off. All three are optional below so that a missing one
 # gets this workflow's own message. With neither Claude credential the review
 # skips with a notice; with both, the CLI uses the API key. A missing deploy
-# key fails the run and posts nothing. Only the credential check and the
-# harness checkout see the deploy key, and only the key check and the review
+# key fails the run and posts nothing. Only the credential check and the three
+# harness checkouts see the deploy key, and only the key check and the review
 # see the Claude credentials. That
 # boundary holds inside this file only: the caller lives in the product repo,
 # so anyone who can push a branch there can change it to print both keys.
@@ -56,14 +79,15 @@
 #
 # Why the permissions are so small: the agent reads diff text that anyone who
 # can open a pull request can write, so treat it as untrusted input. The agent
-# gets no GitHub token. The job's token can read the repo and write to pull
+# gets no GitHub token. The jobs' token can read the repo and write to pull
 # requests. The grade step uses it to try to read the pull request's check
 # runs. Whether these permissions allow that hasn't been tried on a live pull
 # request yet: if the read is refused, the grade says pending and the run's
-# summary says why. Only the last two steps use it to write: to post the
-# comment, and to open, answer, resolve and reopen the review threads.
-# A called workflow can't get more than its caller grants, and this one asks
-# for no more than this. Keep it that way: don't add a permission.
+# summary says why. Only the post step, the threads step and the grade's last
+# step use it to write: to post and edit the comments, and to open, answer,
+# resolve and reopen the review threads. A called workflow can't get more than
+# its caller grants, and this one asks for no more than this. Keep it that
+# way: don't add a permission.
 #
 # The Claude Code CLI is pinned to an exact version, because a change in how
 # it reads its permission rules changes what the agent can reach. Move the pin
@@ -77,18 +101,28 @@ on:
         description: "This factory repo, as owner/name. A called workflow can't read its own repo's name."
         required: true
         type: string
+      agents:
+        description: "Comma-separated review agents to run, each a skill in skills/ or an agent in agents/."
+        required: false
+        default: review-pr
+        type: string
       grade-wait-minutes:
         description: "Minutes the grade waits for the pull request's other checks to finish, at most 15."
         required: false
         default: 10
         type: number
+      skip-paths:
+        description: "Shell glob patterns, one a line. When every file the pull request changes matches one, the review skips with a notice and its check passes."
+        required: false
+        default: ''
+        type: string
       review-threads:
         description: "Open a review thread on each blocking finding, and resolve it once a later run no longer reports it."
         required: false
         default: false
         type: boolean
       fail-on:
-        description: "blocks fails this check while the report holds a blocking finding; never, the default, always passes it."
+        description: "blocks fails an agent's check while its report holds a blocking finding; never, the default, always passes it."
         required: false
         default: "never"
         type: string
@@ -108,10 +142,14 @@ permissions:
   pull-requests: write
 
 jobs:
-  review:
-    name: review
+  agents:
+    name: agents
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      names: ${{ steps.resolve.outputs.names }}
+      run: ${{ steps.resolve.outputs.run }}
     steps:
       - name: Skip a pull request from a fork
         id: scope
@@ -157,10 +195,166 @@ jobs:
             exit 1
           fi
 
+      # The default branch, not a pinned ref, as the review's own checkout.
+      - name: Check out the harness's skills and agents
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.factory-repo }}
+          ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}
+          path: harness
+          persist-credentials: false
+          sparse-checkout: |
+            /skills/
+            /agents/
+          sparse-checkout-cone-mode: false
+
+      # The head alone, for skip-paths to list what changed. Nothing in it is
+      # run or read as rules here; the review job checks it out again.
+      - name: Check out the pull request's head to list its files
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The changed files come from git, so this step needs no token. Both
+      # sides of a rename count, so code moved into a skipped path is still
+      # reviewed, and a pull request that changes nothing is never skipped.
+      # In [[ == ]], * crosses /, so docs/* matches docs/api/a.md too.
+      - name: Skip when only skip-paths files changed
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        env:
+          SKIP_PATHS: ${{ inputs.skip-paths }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          patterns=()
+          while read -r pattern; do
+            if [ -n "$pattern" ]; then
+              patterns+=("$pattern")
+            fi
+          done <<< "$SKIP_PATHS"
+          if [ "${#patterns[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          changed=$(git -C head -c core.quotePath=false diff --name-only --no-renames "$BASE_SHA...HEAD")
+          count=0
+          while IFS= read -r file; do
+            if [ -z "$file" ]; then
+              continue
+            fi
+            count=$((count + 1))
+            matched=false
+            for pattern in "${patterns[@]}"; do
+              if [[ $file == $pattern ]]; then
+                matched=true
+                break
+              fi
+            done
+            if [ "$matched" = false ]; then
+              echo "A changed file matches none of skip-paths, so the review runs."
+              exit 0
+            fi
+          done <<< "$changed"
+          if [ "$count" -eq 0 ]; then
+            exit 0
+          fi
+          list=$(printf '%s, ' "${patterns[@]}")
+          echo "REVIEW_SKIPPED=true" >> "$GITHUB_ENV"
+          echo "::notice::Every file this pull request changes matches skip-paths (${list%, }), so the review skips."
+
+      # A name is a skill first, then an agent, and the file it names is the
+      # one the review follows. Only a ci-shell: line in the file's front
+      # matter adds to Read, Grep and Glob, and each command it names has to
+      # be plain words, so a name or a command can't widen the tool list.
+      # Nothing is written to the outputs until every name has been checked.
+      - name: Resolve the agents
+        id: resolve
+        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
+        env:
+          AGENTS: ${{ inputs.agents }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          NAME = re.compile(r"[a-z0-9-]+")
+          COMMAND = re.compile(r"[a-z0-9 ._-]+")
+          harness = Path("harness")
+          found = {path.parent.name for path in harness.glob("skills/*/SKILL.md")}
+          found |= {path.stem for path in harness.glob("agents/*.md")}
+          valid = ", ".join(sorted(name for name in found if NAME.fullmatch(name)))
+
+
+          def fail(message):
+              print("::error::" + message)
+              sys.exit(1)
+
+
+          def shell(path):
+              """The commands the ci-shell: line in the file's front matter names, or none."""
+              lines = path.read_text().split("\n")
+              if lines[0].strip() != "---" or "---" not in [line.strip() for line in lines[1:]]:
+                  return []
+              commands = []
+              for line in lines[1:]:
+                  if line.strip() == "---":
+                      break
+                  if line.startswith("ci-shell:"):
+                      for command in line[len("ci-shell:"):].split(","):
+                          command = command.strip()
+                          if not command:
+                              continue
+                          if not COMMAND.fullmatch(command):
+                              fail("{} has a ci-shell: command that isn't plain words: {!r}".format(path, command))
+                          if command not in commands:
+                              commands.append(command)
+              return commands
+
+
+          names = []
+          for name in os.environ.get("AGENTS", "").split(","):
+              name = name.strip()
+              if name and name not in names:
+                  names.append(name)
+          if not names:
+              fail("The agents input names no agent. Valid names: " + valid)
+          matrix = []
+          for name in names:
+              if not NAME.fullmatch(name):
+                  fail("{!r} isn't a skill's or an agent's name. Valid names: {}".format(name, valid))
+              skill, agent = harness / "skills" / name / "SKILL.md", harness / "agents" / (name + ".md")
+              path = skill if skill.is_file() else agent if agent.is_file() else None
+              if path is None:
+                  fail("No skill or agent named {}. Valid names: {}".format(name, valid))
+              tools = ["Read", "Grep", "Glob"] + ["Bash({}:*)".format(command) for command in shell(path)]
+              matrix.append({"name": name, "file": path.as_posix(), "tools": ",".join(tools)})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("matrix={}\n".format(json.dumps(matrix)))
+              out.write("names={}\n".format(",".join(names)))
+              out.write("run=true\n")
+          for each in matrix:
+              print("{}: {}, with {}".format(each["name"], each["file"], each["tools"]))
+          EOF
+
+  review:
+    name: ${{ matrix.agent.name }}
+    needs: agents
+    if: needs.agents.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: ${{ fromJSON(needs.agents.outputs.matrix) }}
+    steps:
       # The default branch, not a pinned ref: one copy of the rules, followed
       # by every repo that calls this.
       - name: Check out the harness
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.factory-repo }}
@@ -183,7 +377,6 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Say which harness commit reviews
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           FACTORY_REPO: ${{ inputs.factory-repo }}
         run: |
@@ -198,7 +391,6 @@ jobs:
           fi
 
       - name: Check out the pull request's base
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -206,7 +398,6 @@ jobs:
           persist-credentials: false
 
       - name: Check out the pull request's head
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: head
@@ -220,27 +411,25 @@ jobs:
       # can point the agent's Read outside the workspace, and one named
       # CLAUDE.md isn't a file for the second find.
       - name: Remove the pull request's own rules
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         run: |
           find head -path head/.git -prune -o -type l -exec rm -f {} +
           find head -path head/.git -prune -o -type f \( -name AGENTS.md -o -name CLAUDE.md -o -name CLAUDE.local.md \) -exec rm -f {} +
           find head -path head/.git -prune -o -type d -name .claude -prune -exec rm -rf {} +
 
       - name: Install the Claude Code CLI
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         run: npm install -g @anthropic-ai/claude-code@2.1.296
 
       # The agent has no shell, so this step gets the diff and the commits
-      # with git and puts them in the prompt, holding no key.
+      # with git and puts them in the prompt, holding no key. The agent's file
+      # comes from the agents job, through env: like everything else here.
       - name: "Run the review-pr skill: build the prompt"
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          AGENT_FILE: ${{ matrix.agent.file }}
         run: |
-          # The base commit goes in through printf, so the heredoc can be quoted
-          # and nothing in its body is ever expanded.
-          printf 'Follow harness/skills/review-pr/SKILL.md for the change between %s\n' \
-            "$BASE_SHA" > "$RUNNER_TEMP/prompt.md"
+          # The agent's file and the base commit go in through printf, so the
+          # heredoc can be quoted and nothing in its body is ever expanded.
+          printf 'Follow %s for the change between %s\n' "$AGENT_FILE" "$BASE_SHA" > "$RUNNER_TEMP/prompt.md"
           cat >> "$RUNNER_TEMP/prompt.md" <<'EOF'
           and the pull request's head. This directory holds three folders:
 
@@ -317,16 +506,17 @@ jobs:
       # either credential: a backstop for one written out as it is, not a
       # guarantee against an encoded one, which is why the confinement matters
       # more. Each is checked only when set, since an empty pattern matches
-      # every report.
+      # every report. The tools are the agents job's: Read, Grep and Glob,
+      # and the commands a ci-shell: line names.
       - name: Run the review-pr skill on Claude
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          AGENT_TOOLS: ${{ matrix.agent.tools }}
         run: |
           cd "$GITHUB_WORKSPACE"
           set +e
-          claude -p --max-turns 30 --restricted --strict-mcp-config --tools Read,Grep,Glob \
+          claude -p --max-turns 30 --restricted --strict-mcp-config --tools "$AGENT_TOOLS" \
             < "$RUNNER_TEMP/prompt.md" > "$RUNNER_TEMP/report.json"
           code=$?
           set -e
@@ -356,49 +546,41 @@ jobs:
       # both from harness/, never base/ or head/, and writes report.md from
       # the fields alone. A report that doesn't match gets one line saying it
       # couldn't be read, and no findings. The step holds no secret and no token.
+      # Every agent's report is held to the same schema.
       - name: Check the report against its schema
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         run: |
           python3 harness/scripts/review_report.py
-
-      # The grade is advisory, and the loop's own: scripts/loop.py turns the
-      # report's verdict and the pull request's other checks into a number
-      # with the factory's review-rubric.json. The verdict comes from
-      # report.json through the same schema check as the step before, so an
-      # unreadable report grades as unreadable. All of it is read from
-      # harness/, never base/ or head/. The token only reads check runs here,
-      # and the step holds no secret. It always exits 0, so the review posts
-      # whatever the grade does.
-      - name: Grade the review
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}
-          OWN_CHECK_RUN_ID: ${{ job.check_run_id }}
-        run: |
-          python3 harness/scripts/review_grade.py \
-            || echo "::warning::The grade step failed, so the comment carries no grade."
 
       # GitHub fetches every image in a comment the moment it's shown, so an
       # image whose address the diff steered the agent to write would carry
       # what it read off the runner. report.md is built from the report's
       # fields with images and tags already escaped; images and media tags are
-      # broken again here, as a backstop, so they show as text and fetch nothing.
+      # broken again here, as a backstop, so they show as text and fetch nothing. Each agent has its own
+      # marker, and this edits only the bot's comment whose first line is
+      # exactly that marker. review-pr keeps the marker it always had, so a
+      # pull request reviewed before still has one comment, edited in place.
+      # The head line tells the grade job which commit the report is for.
       - name: Post the report as one comment
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AGENT_NAME: ${{ matrix.agent.name }}
         run: |
           set -o pipefail
           test -s "$RUNNER_TEMP/report.md"
           perl -pi -e 's/!\[/! [/g; s/<(?=\s*\/?\s*(?:img|image|picture|source|video|audio|svg|iframe|object|embed|link|meta|base)\b)/&lt;/gi' \
             "$RUNNER_TEMP/report.md"
+          if [ "$AGENT_NAME" = review-pr ]; then
+            marker="<!-- review-pr-report -->"
+          else
+            marker="<!-- review-pr-report:$AGENT_NAME -->"
+          fi
           {
-            echo "<!-- review-pr-report -->"
+            echo "$marker"
+            echo "<!-- head: $HEAD_SHA -->"
+            echo "**Agent:** $AGENT_NAME"
             echo
             if [ "$STANDARDS_LOADED" = false ]; then
               echo "No team standards were loaded: the harness's standards/ folder is missing or empty, so this review holds the change to the repo's own rules only."
@@ -407,13 +589,11 @@ jobs:
             cat "$RUNNER_TEMP/report.md"
             echo
             echo "---"
-            # The grade step's line, or nothing when it couldn't write one.
-            grade=$(cat "$RUNNER_TEMP/grade.txt" 2>/dev/null || true)
-            echo "Posted by the review-pr workflow. ${grade:+$grade }A person decides what happens to this pull request."
+            echo "Posted by the review-pr workflow. A person decides what happens to this pull request."
           } > "$RUNNER_TEMP/comment.md"
           id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- review-pr-report -->"))) | .id' \
-            | tail -n 1)
+            --jq '.[] | [(.id | tostring), .user.login, (.body | split("\n") | .[0] | rtrimstr("\r"))] | @tsv' \
+            | awk -F '\t' -v marker="$marker" '$2 == "github-actions[bot]" && $3 == marker { id = $1 } END { print id }')
           if [ -n "$id" ]; then
             gh api --method PATCH "repos/$REPO/issues/comments/$id" \
               -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
@@ -424,19 +604,142 @@ jobs:
       # Opt-in: with review-threads false and fail-on never, the defaults, this
       # step doesn't run. It comes after the comment, so a GitHub call that
       # fails here leaves the comment posted. scripts/review_threads.py reads
-      # report.json through the same schema check as the comment, from
-      # harness/ alone, and writes every thread itself from the fields, so the
-      # model writes none of them. It touches only the threads this workflow
-      # opened, never a person's, and the check result comes from the report,
-      # never from a GitHub call. It holds no secret, only the job's token.
+      # this agent's report.json through the same schema check as the comment,
+      # from harness/ alone, and writes every thread itself from the fields, so
+      # the model writes none of them. Each thread's marker names the agent, so
+      # one agent's run touches only the threads it opened: never another
+      # agent's, never a person's. With fail-on: blocks it fails this agent's
+      # own check, and the result comes from the report, never from a GitHub
+      # call. It holds no secret, only the job's token.
       - name: Open a thread per blocking finding
-        if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true' && (inputs.review-threads || inputs.fail-on != 'never')
+        if: inputs.review-threads || inputs.fail-on != 'never'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AGENT_NAME: ${{ matrix.agent.name }}
           REVIEW_THREADS: ${{ inputs.review-threads }}
           FAIL_ON: ${{ inputs.fail-on }}
         run: |
           python3 harness/scripts/review_threads.py
+
+  grade:
+    name: grade
+    needs: [agents, review]
+    if: ${{ !cancelled() && needs.agents.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the harness's grading files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.factory-repo }}
+          ssh-key: ${{ secrets.FACTORY_DEPLOY_KEY }}
+          path: harness
+          persist-credentials: false
+          sparse-checkout: |
+            /review-rubric.json
+            /skills/review-pr/report.schema.json
+            /scripts/loop.py
+            /scripts/names.py
+            /scripts/review_grade.py
+            /scripts/review_report.py
+          sparse-checkout-cone-mode: false
+
+      # The reports travel in the posted comments, so the grade needs no
+      # artifact. A comment counts only when it's the bot's, its first line is
+      # the agent's own marker and its second names this commit, so a report
+      # for an older push is never graded as this one. Each report is its
+      # comment cut at its last rule, above the line the next step rewrites.
+      # An agent with no such comment has no report, and grades unreadable.
+      - name: Fetch each agent's report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AGENT_NAMES: ${{ needs.agents.outputs.names }}
+        run: |
+          python3 - <<'EOF'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          for folder in ("reports", "comments"):
+              (temp / folder).mkdir(exist_ok=True)
+          done = subprocess.run(["gh", "api", "--paginate", "repos/{}/issues/{}/comments".format(
+              os.environ["REPO"], os.environ["PR"]), "--jq", ".[] | @json"], capture_output=True, text=True)
+          if done.returncode != 0:
+              print("::warning::The comments couldn't be read, so every agent grades unreadable: {}".format(
+                  (done.stderr.strip().splitlines() or ["nothing"])[0]))
+          comments = [json.loads(line) for line in done.stdout.splitlines() if line.strip()] if done.returncode == 0 else []
+          head = "<!-- head: {} -->".format(os.environ["HEAD_SHA"])
+          rule = "\n---\n"
+          for name in os.environ.get("AGENT_NAMES", "").split(","):
+              if not re.fullmatch(r"[a-z0-9-]+", name):
+                  continue
+              marker = "<!-- review-pr-report -->" if name == "review-pr" else "<!-- review-pr-report:{} -->".format(name)
+              found = None
+              for comment in comments:
+                  body = (comment.get("body") or "").replace("\r\n", "\n")
+                  lines = body.split("\n")
+                  if ((comment.get("user") or {}).get("login") == "github-actions[bot]" and lines[0] == marker
+                          and len(lines) > 1 and lines[1] == head and rule in body):
+                      found = (comment["id"], body)
+              if found is None:
+                  print("::warning::{} has no comment for this commit, so it grades unreadable.".format(name))
+                  continue
+              number, body = found
+              cut = body.rindex(rule)
+              (temp / "reports" / (name + ".md")).write_text(body[:cut] + "\n")
+              (temp / "comments" / (name + ".md")).write_text(body[:cut + len(rule)])
+              (temp / "comments" / (name + ".id")).write_text("{}\n".format(number))
+              print("{}: comment {}".format(name, number))
+          EOF
+
+      # The grade is advisory, and the loop's own: scripts/loop.py turns the
+      # worst of the reports' verdicts and the pull request's other checks into
+      # a number with the factory's review-rubric.json, all three read from
+      # harness/, never base/ or head/. Each verdict is the line
+      # scripts/review_report.py wrote under that agent's checked report, read
+      # back by review_report.py itself, so an unreadable report grades as
+      # unreadable. A listed agent with no report counts as unreadable. The token only reads check runs here, and the step holds no
+      # secret. It always exits 0, so the comments keep their reports whatever
+      # the grade does.
+      - name: Grade the review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GRADE_WAIT_MINUTES: ${{ inputs.grade-wait-minutes }}
+          OWN_CHECK_RUN_ID: ${{ job.check_run_id }}
+          AGENT_NAMES: ${{ needs.agents.outputs.names }}
+        run: |
+          python3 harness/scripts/review_grade.py \
+            || echo "::warning::The grade step failed, so the comments carry no grade."
+
+      - name: Put the grade on each agent's comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -o pipefail
+          grade=$(cat "$RUNNER_TEMP/grade.txt" 2>/dev/null || true)
+          if [ -z "$grade" ]; then
+            echo "No grade was written, so the comments stay as they were posted."
+            exit 0
+          fi
+          for kept in "$RUNNER_TEMP"/comments/*.md; do
+            [ -f "$kept" ] || continue
+            id=$(cat "${kept%.md}.id")
+            {
+              cat "$kept"
+              echo "Posted by the review-pr workflow. $grade A person decides what happens to this pull request."
+            } > "$RUNNER_TEMP/graded.md"
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" \
+              -F body=@"$RUNNER_TEMP/graded.md" > /dev/null
+          done

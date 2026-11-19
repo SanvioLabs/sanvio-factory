@@ -74,6 +74,9 @@ jobs:
     uses: your-org/factory/.github/workflows/review-pr.yml@main
     with:
       factory-repo: your-org/factory
+      skip-paths: |
+        docs/**
+        package-lock.json
       review-threads: false
       fail-on: never
     secrets:
@@ -106,11 +109,41 @@ So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
 such as Dependabot's. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
 
+To run more review agents than the review-pr skill, add
+`agents: review-pr,security-reviewer`, say, under `with:`. Each name is a skill
+in the factory's [`skills/`](../../skills/) or an agent in its [`agents/`](../../agents/), and a name that's
+neither fails the run and lists the valid names. Each agent runs as its own
+job beside the others, with Read, Grep and Glob, and posts its own comment
+under its name, which the next push edits. The default, `review-pr` alone,
+reviews as before, in the comment it already edits. An agent gets a shell only
+when its file's front matter has a `ci-shell:` line, such as
+`ci-shell: npm audit, pip-audit`, and then only for the commands it names. No
+agent in the factory has one yet, so `security-reviewer` lists the audits it
+couldn't run under Not checked. Once every agent's job has finished, one grade,
+from the worst verdict among them, goes on every agent's comment. An agent
+whose job failed counts as unreadable. Each agent is one more unattended model
+run on your Claude credential, with the pull request's text in its prompt, so
+name only the agents whose reports someone will read.
+
+`skip-paths` is optional: leave it out and every pull request is reviewed. It
+takes shell glob patterns, one a line, matched against each changed file's path
+from the repo's root, and `*` crosses `/`, so `docs/*` matches `docs/api/a.md`
+too. A pull request skips with a notice only when every file it changes
+matches a pattern. Both sides of a rename count, so moving code into a skipped folder
+is still reviewed, and one file that matches nothing reviews the whole diff.
+Keep the patterns narrow: `*.md` would skip a change to a project's own `AGENTS.md`, which is
+a change to the rules. Don't reach for a `paths-ignore` filter on the caller
+instead. Once the review is a required check, GitHub leaves a required check
+pending when a path filter keeps its workflow from running, so the pull
+request can't merge. Skipping inside the job keeps the check green.
+
 `review-threads` and `fail-on` are off as shown, and then the run posts the
 same comment and passes or fails as before. `review-threads: true` also opens
 a review thread on each blocking finding, at most 25 a run, and resolves it
-once a later run no longer reports the finding. `fail-on: blocks` fails the
-review's check while the report holds a blocking finding, or can't be read.
+once a later run no longer reports the finding. `fail-on: blocks` fails
+each agent's own check while its report holds a blocking finding, or can't
+be read. Each agent's threads are its own, named in their marker, so one
+agent's run never resolves another's.
 Both come from the checked report, through
 [`scripts/review_threads.py`](../../scripts/review_threads.py), never from the model's text, and neither
 approves or merges anything. [Your factory in CI](../../docs/factory-in-ci.md#review-threads-and-a-failing-check)
@@ -254,10 +287,10 @@ it on an open pull request first with `python3 scripts/loop.py grade <n>
 new rubric.
 
 The grade waits up to 10 minutes for the pull request's other checks to
-finish. It leaves out only the review's own job, so a test job beside it in
-the caller's workflow counts. To wait a different time, add
+finish. It leaves out only its own grade job, so a test job beside it in
+the caller's workflow counts, and so does a review agent's job that failed. To wait a different time, add
 `grade-wait-minutes: 5`, say, under `with:` in the caller. It waits at most 15
-minutes, so the review still posts inside the job's 30. A check still running
+minutes, so the grade still lands inside its job's 30. A check still running
 when the wait ends leaves the grade pending, and nothing grades it later: the
 next push or a re-run grades it again. If GitHub refuses to list the checks
 (HTTP 403, a token without `checks: read`, as on a private repo), the grade is

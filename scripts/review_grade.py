@@ -5,19 +5,26 @@ checks, through the factory's review-rubric.json.
 Usage, from the Actions workspace, as .github/workflows/review-pr.yml runs it:
     python3 harness/scripts/review_grade.py
 
-The verdict is the one in $RUNNER_TEMP/report.json, read by review_report.load() against the schema at
-skills/review-pr/report.schema.json in the factory checkout this file sits in. A report that isn't JSON, or
-doesn't match the schema, grades as unreadable. The rubric is the review-rubric.json at the root of that same
-checkout. Neither is ever read from base/ or head/, which the pull request's repo controls. The checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the review's own job
-($OWN_CHECK_RUN_ID, from job.check_run_id), so a sibling job in the same run still counts. Without that id, as
+Each report is a file in $RUNNER_TEMP/reports/, <agent>.md, one for each review agent that ran: the report
+scripts/review_report.py rendered from that agent's checked JSON, as its comment carries it. Its verdict is the
+one review_report.rendered_verdict() reads off the verdict line render() wrote. Where that folder holds none,
+the verdict is the one in $RUNNER_TEMP/report.json, read by review_report.load() against the schema at
+skills/review-pr/report.schema.json. A report that isn't JSON or doesn't match the schema, or a rendered one
+without that line, grades as unreadable. The one graded is the worst of them, by WORST_FIRST. An agent
+$AGENT_NAMES lists (comma-separated) that has no report counts as unreadable, so an agent that failed can't
+raise the grade. The rubric is the review-rubric.json at the root of the factory checkout this file sits in.
+Neither the schema nor the rubric is ever read from base/ or head/, which the pull request's repo controls. The
+checks are the check runs on $HEAD_SHA in $REPO, read with gh, leaving out the grade's own job
+($OWN_CHECK_RUN_ID, from job.check_run_id), so a sibling job in the same run still counts, a review agent's
+failed job included. Without that id, as
 on GitHub Enterprise Server, it leaves out every check run from this workflow run ($GITHUB_RUN_ID) instead.
 While one is still running it reads them again every 30 seconds ($GRADE_POLL_SECONDS), for up to
-$GRADE_WAIT_MINUTES minutes (default 10, at most 15, so the review still posts inside the job's 30 minutes). A
+$GRADE_WAIT_MINUTES minutes (default 10, at most 15, so the grade still lands inside the job's 30 minutes). A
 read GitHub refuses (HTTP 403, a token without checks: read) is final: it grades pending at once, saying so.
 
 It writes "Verdict: <verdict>. Grade <n>/10: <why>." to $RUNNER_TEMP/grade.txt and to the step summary. The
-grade is advisory: it sets no status, approves nothing and merges nothing. It always exits 0, so the review
-is posted whatever happens here.
+grade is advisory: it sets no status, approves nothing and merges nothing. It always exits 0, so the reviews
+keep their comments whatever happens here.
 
 The grade itself is loop.py's, and the report's reading review_report.py's, both imported from beside this
 file, so there is one copy of how a report is read and one of how a verdict and the checks become a number.
@@ -33,9 +40,46 @@ HERE = Path(__file__).resolve().parent
 # Each check run on the commit, one per line: its status, its conclusion or '', its page, which names the
 # workflow run it belongs to, its id, and its name, which a ladder rubric's rungs name.
 RUNS_JQ = '.check_runs[] | [.status, (.conclusion // ""), .html_url, (.id | tostring), .name] | @tsv'
-MAX_WAIT_MINUTES = 15  # the job's timeout is 30 minutes, and the review posts after this step
+MAX_WAIT_MINUTES = 15  # the job's timeout is 30 minutes, and the comments are rewritten after this step
 NOT_LATER = ("Nothing grades this review later: it stays pending until the workflow runs again on a new push "
              "or a re-run.")
+# The verdicts from worst to best. One that isn't here counts as the worst.
+WORST_FIRST = ("unreadable", "changes needed", "ready with nits", "ready")
+
+
+def worst(verdicts):
+    """The worst of the verdicts by WORST_FIRST: unreadable for one it doesn't know, or for none at all."""
+    ranks = [WORST_FIRST.index(verdict) if verdict in WORST_FIRST else 0 for verdict in verdicts]
+    return WORST_FIRST[min(ranks)] if ranks else "unreadable"
+
+
+def verdict_of(environ, review_report):
+    """The worst verdict among the rendered reports in $RUNNER_TEMP/reports/, or of report.json, through the
+    schema, when there are none there, with unreadable for each agent $AGENT_NAMES lists that has no report."""
+    temp = Path(environ.get("RUNNER_TEMP", "."))
+    try:
+        rules = review_report.schema()
+    except (OSError, ValueError):  # no readable schema: nothing to check a verdict against
+        rules = None
+    reports = {}
+    for path in sorted((temp / "reports").glob("*.md")):
+        try:
+            reports[path.stem] = path.read_text()
+        except OSError:
+            reports[path.stem] = ""
+    if rules is None:
+        verdicts = ["unreadable"]
+    elif reports:
+        verdicts = [review_report.rendered_verdict(text, rules) for text in reports.values()]
+    else:
+        try:
+            report = review_report.load((temp / "report.json").read_text(), rules)
+        except (OSError, ValueError):  # no report, or not text: nothing to take a verdict from
+            report = None
+        verdicts = [report["verdict"] if report is not None else "unreadable"]
+    names = [name.strip() for name in environ.get("AGENT_NAMES", "").split(",") if name.strip()]
+    verdicts += ["unreadable" for name in names if name not in reports]
+    return worst(verdicts)
 
 
 def number(environ, name, default):
@@ -96,12 +140,7 @@ def grade(environ):
     import loop  # here, inside main's try, so a broken loop.py still lets the review post
     import review_report
 
-    try:
-        text = (Path(environ.get("RUNNER_TEMP", ".")) / "report.json").read_text()
-        report = review_report.load(text, review_report.schema())
-    except (OSError, ValueError):  # no report, or no readable schema: nothing to take a verdict from
-        report = None
-    verdict = report["verdict"] if report is not None else "unreadable"
+    verdict = verdict_of(environ, review_report)
     rubric, why = loop.load_rubric(loop.ROOT / loop.DEFAULTS["review_rubric"])
     poll = number(environ, "GRADE_POLL_SECONDS", 30)
     deadline = time.monotonic() + wait_minutes(environ) * 60

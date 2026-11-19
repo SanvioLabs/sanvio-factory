@@ -75,8 +75,8 @@ Set it up in this order. Each step links to its detail in
    [The caller](../examples/ci/README.md#the-caller)
 6. **Open a test pull request** in one product repo (the next section has
    what to put in it). The workflow posts one comment on it, and a second push
-   edits that comment rather than adding another. Until step 7, the comment's
-   first line says no team standards were loaded. The run's log names the
+   edits that comment rather than adding another. Until step 7, the comment
+   says under its agent's name that no team standards were loaded. The run's log names the
    harness commit it reviewed with.
 7. **Add your team's standards**, if you have them written down, as Markdown
    files in a `standards/` folder at the factory repo's root. A finding then
@@ -137,8 +137,19 @@ them against the skill on your machine, which spends model tokens.
   couldn't be read, so no findings are posted.`, and grades as unreadable.
 - The caller is another matter. It lives in the product repo, so a pull request
   can edit it, as step 5 says.
+- More agents run only when the caller names them, as
+  `agents: review-pr,security-reviewer` under `with:`, each a skill in the
+  factory's [`skills/`](../skills/) or an agent in its [`agents/`](../agents/). Each runs as its own
+  job and posts its own comment, and one grade, from the worst verdict, goes
+  on each. An agent gets a shell only from a `ci-shell:` line in its front
+  matter, for the commands it names, and none has one yet. Each is one more
+  unattended model run with the pull request's text in its prompt.
+  [The caller](../examples/ci/README.md#the-caller) has the detail.
 - A pull request from a fork skips with a notice, since a fork gets no secrets.
   So does one with no `ANTHROPIC_API_KEY`, such as Dependabot's.
+- A pull request whose changed files all match the caller's `skip-paths`
+  skips with a notice, and its check passes. [`examples/ci/README.md`](../examples/ci/README.md)
+  (*The caller*) says how the patterns match.
 
 ### The grade
 
@@ -157,7 +168,7 @@ The comment's last line gives the verdict and a grade out of 10, such as
   try it on an open pull request with `python3 scripts/loop.py grade <n>
   --verdict "ready"` first.
 - **How long it waits:** up to 10 minutes for the pull request's other checks,
-  leaving out every job in the caller's own workflow run. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
+  leaving out only the grade's own job, so a review agent's failed job counts. Add `grade-wait-minutes` under `with:` in the caller to change that. The job
   stops at 30 minutes, so keep it under about 15. A check still running at the
   end leaves the grade pending until the next push or a re-run.
 - **What it does:** nothing but say it. It sets no status, approves nothing
@@ -177,9 +188,12 @@ comment and its check passes or fails as before.
   resolved, and it's reopened if the finding comes back. A thread a person
   resolved stays resolved, a thread someone else opened is never touched, and
   a run whose report can't be read opens and resolves nothing. A run opens at
-  most 25 new threads.
-- **`fail-on: blocks`** fails the review's check, with an error naming how
-  many blocking findings are open, while the report holds one. A report that
+  most 25 new threads. With more than one agent in `agents`, each agent's job
+  manages its own threads, its name in their marker, so one agent's run never
+  resolves a thread another agent opened.
+- **`fail-on: blocks`** fails an agent's review check, the job named after
+  the agent, with an error naming how many blocking findings are open, while
+  that agent's report holds one. A report that
   can't be read fails it too. `fail-on: never`, the default, always passes it.
 
 Both come from the report after
@@ -193,11 +207,11 @@ resolution before merging* in the product repo's branch ruleset, and
 can't merge past until the next run stops reporting it or a person resolves
 its thread. A person resolving it is a decision, and it holds: the next run
 leaves that thread resolved. To make a blocking finding fail a required
-check instead, set `fail-on: blocks` and require the review's check in the
-same ruleset. Either way the workflow approves nothing, requests no changes
+check instead, set `fail-on: blocks` and require each agent's review check in
+the same ruleset. Either way the workflow approves nothing, requests no changes
 and merges nothing: a person still decides, through the rules they set. A
-review that skips, for a fork, a draft or a missing Claude key, passes its
-check whatever `fail-on` says, so a required check doesn't stop those pull
+review that skips, for a fork, a draft, a missing Claude key or `skip-paths`,
+runs no agent's job and passes whatever `fail-on` says, so a required check doesn't stop those pull
 requests on its own.
 
 ## The loop on a runner

@@ -271,6 +271,76 @@ class PeopleDecide(unittest.TestCase):
             self.assertEqual([c for c in gh.calls if c[0] != "threads"], [], body)
 
 
+class PerAgent(unittest.TestCase):
+    """Each named agent runs as its own review job, so each marks its threads with its name and touches only
+    those: one agent's run never resolves a thread another agent opened (#646 on #648's jobs)."""
+
+    def test_review_pr_keeps_the_marker_it_always_had(self):
+        fp = review_threads.fingerprint(finding())
+        self.assertEqual(review_threads.marker("review-pr", fp), review_threads.MARKER.format(fp))
+        self.assertEqual(review_threads.resolved_marker("review-pr", fp), review_threads.RESOLVED_MARKER.format(fp))
+
+    def test_another_agent_marks_its_threads_with_its_name(self):
+        fp = review_threads.fingerprint(finding())
+        gh = FakeGitHub()
+        review_threads.sync(report(finding()), [], DIFF, gh, "abc123", warn=[].append, agent="security-reviewer")
+        (_, body, _, _), = gh.named("open")
+        self.assertTrue(body.startswith("<!-- review-pr-thread:security-reviewer:{} -->\n".format(fp)), body)
+        self.assertIn("security-reviewer", body.split("\n", 2)[2])
+
+    def test_one_agent_never_resolves_a_thread_another_agent_opened(self):
+        fp = review_threads.fingerprint(finding())
+        theirs = thread(fp, body=review_threads.marker("security-reviewer", fp) + "\n\nfinding\n")
+        gh = FakeGitHub([theirs])
+        review_threads.sync(report(), [theirs], DIFF, gh, "abc123", warn=[].append, agent="review-pr")
+        self.assertEqual(gh.calls, [])
+        mine = thread(fp)
+        gh = FakeGitHub([mine])
+        review_threads.sync(report(), [mine], DIFF, gh, "abc123", warn=[].append, agent="security-reviewer")
+        self.assertEqual(gh.calls, [])
+
+    def test_an_agent_reuses_its_own_thread_and_resolves_it_with_its_own_marker(self):
+        fp = review_threads.fingerprint(finding())
+        own = thread(fp, body=review_threads.marker("security-reviewer", fp) + "\n\nfinding\n")
+        gh = FakeGitHub([own])
+        done = review_threads.sync(report(finding()), [own], DIFF, gh, "abc123", warn=[].append,
+                                   agent="security-reviewer")
+        self.assertEqual(done["opened"], 0)
+        gh = FakeGitHub([own])
+        review_threads.sync(report(), [own], DIFF, gh, "abc123", warn=[].append, agent="security-reviewer")
+        (_, _, reply), = gh.named("reply")
+        self.assertTrue(reply.startswith(review_threads.resolved_marker("security-reviewer", fp)))
+        self.assertEqual(len(gh.named("resolve")), 1)
+
+    def test_an_agent_reopens_only_what_it_resolved(self):
+        fp = review_threads.fingerprint(finding())
+        last = review_threads.resolved_marker("review-pr", fp) + "\n\nno longer reported\n"
+        by_review_pr = thread(fp, resolved=True, body=review_threads.marker("security-reviewer", fp) + "\n\nx\n",
+                              last_body=last)
+        gh = FakeGitHub([by_review_pr])
+        review_threads.sync(report(finding()), [by_review_pr], DIFF, gh, "abc123", warn=[].append,
+                            agent="security-reviewer")
+        self.assertEqual(gh.named("reopen"), [])
+
+    def test_main_takes_the_agent_from_agent_name_and_refuses_one_that_isnt_a_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "report.json").write_text(json.dumps(report(finding())))
+            (Path(tmp) / "diff.patch").write_text(DIFF)
+            gh, out = FakeGitHub(), []
+            code = review_threads.main({"RUNNER_TEMP": tmp, "FAIL_ON": "never", "REVIEW_THREADS": "true",
+                                        "HEAD_SHA": "abc123", "AGENT_NAME": "security-reviewer"}, gh=gh,
+                                       out=out.append)
+            self.assertEqual(code, 0, out)
+            (_, body, _, _), = gh.named("open")
+            self.assertIn("review-pr-thread:security-reviewer:", body)
+            gh, out = FakeGitHub(), []
+            code = review_threads.main({"RUNNER_TEMP": tmp, "FAIL_ON": "never", "REVIEW_THREADS": "true",
+                                        "HEAD_SHA": "abc123", "AGENT_NAME": "Not A Name"}, gh=gh, out=out.append)
+            self.assertEqual(code, 1)
+            self.assertEqual(gh.calls, [])
+            self.assertTrue(any(line.startswith("::error::") and "AGENT_NAME" in line for line in out), out)
+
+
 class Cap(unittest.TestCase):
     def test_thirty_blocking_findings_open_twenty_five_threads(self):
         findings = [finding(summary="Problem {}.".format(n)) for n in range(30)]
@@ -450,20 +520,29 @@ class RealGitHub(unittest.TestCase):
 
 
 class WorkflowStep(unittest.TestCase):
-    steps = single.ReviewPrWorkflow.steps
-    step = single.ReviewPrWorkflow.step
-
     def setUp(self):
         self.text = WORKFLOW.read_text()
         self.code = single.code(self.text)
 
-    def test_it_is_the_last_step_and_runs_only_when_asked(self):
-        names = [name for name, _ in self.steps()]
+    def review_steps(self):
+        """The steps of the review job, which runs once per agent (#648)."""
+        return single.job_steps(single.jobs(self.code)["review"])
+
+    def step(self, name):
+        """The one step named `name` in the review job, cut at the job's end."""
+        found = [text for each, text in self.review_steps() if each == name]
+        self.assertEqual(len(found), 1, "no single step named " + name)
+        return found[0]
+
+    def test_it_is_the_last_step_of_each_agents_review_job_and_runs_only_when_asked(self):
+        # #648 split the review into one job per agent, gated as a whole on the agents job, so the step
+        # follows that agent's comment, and its own condition is the two inputs alone.
+        names = [name for name, _ in self.review_steps()]
         self.assertEqual(names[-1], STEP)
         self.assertEqual(names[-2], POST)
+        self.assertEqual([name for name, _ in single.job_steps(single.jobs(self.code)["grade"])].count(STEP), 0)
         if_line = [line.strip() for line in self.step(STEP).splitlines() if line.strip().startswith("if:")]
-        self.assertEqual(if_line, ["if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true' "
-                                   "&& (inputs.review-threads || inputs.fail-on != 'never')"])
+        self.assertEqual(if_line, ["if: inputs.review-threads || inputs.fail-on != 'never'"])
 
     def test_its_inputs_default_to_off(self):
         on = self.code.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
@@ -478,7 +557,8 @@ class WorkflowStep(unittest.TestCase):
         self.assertEqual(sorted(line.strip() for line in env.splitlines() if line.strip()), sorted([
             "GH_TOKEN: ${{ github.token }}", "REPO: ${{ github.repository }}",
             "PR: ${{ github.event.pull_request.number }}", "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
-            "REVIEW_THREADS: ${{ inputs.review-threads }}", "FAIL_ON: ${{ inputs.fail-on }}"]))
+            "REVIEW_THREADS: ${{ inputs.review-threads }}", "FAIL_ON: ${{ inputs.fail-on }}",
+            "AGENT_NAME: ${{ matrix.agent.name }}"]))
         run = text.split("run: |", 1)[1]
         self.assertNotIn("${{", run)
         self.assertEqual(run.split(), ["python3", "harness/scripts/review_threads.py"])
@@ -489,11 +569,12 @@ class WorkflowStep(unittest.TestCase):
         self.assertNotIn("review_threads", post)
         self.assertNotIn("inputs.", post)
         env = post.split("env:\n", 1)[1].split("run: |", 1)[0]
+        # The post step as #648 left it: no input of #646's reaches it.
         self.assertEqual(sorted(line.strip() for line in env.splitlines() if line.strip()), sorted([
             "GH_TOKEN: ${{ github.token }}", "REPO: ${{ github.repository }}",
-            "PR: ${{ github.event.pull_request.number }}"]))
-        self.assertRegex(post, r"(?m)^        if: steps\.scope\.outputs\.review == 'true' && "
-                               r"env\.REVIEW_SKIPPED != 'true'$")
+            "PR: ${{ github.event.pull_request.number }}", "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+            "AGENT_NAME: ${{ matrix.agent.name }}"]))
+        self.assertNotRegex(post, r"(?m)^        if:")
 
     def test_the_script_is_in_the_sparse_checkout(self):
         self.assertIn("            /scripts/review_threads.py\n", self.step("Check out the harness"))

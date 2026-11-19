@@ -29,6 +29,8 @@ TYPES = {"object": dict, "array": list, "string": str, "integer": int, "number":
 UNREADABLE = "The review's report couldn't be read, so no findings are posted."
 NOT_RUN = ("This review didn't run the tests: it has no shell, and the tests run in the pull request's "
            "other checks.")
+# The last line of a rendered report, which a grade in another job reads back (rendered_verdict).
+VERDICT_LINE = "Verdict: {}"
 FENCE = re.compile(r"\A```json[ \t]*\n(.*)\n```\Z", re.S)
 # Every @ in a run before a name, so @@name leaves no @; ASCII word characters only, so é@name loses its @ too.
 MENTION = re.compile(r"(?<!\w)@+(?=\w)", re.ASCII)
@@ -136,8 +138,21 @@ def render(report):
                                                 " ({})".format(rule) if rule else "", clean(finding["summary"])))
     if not findings:
         lines.append("No findings.")
-    lines += ["", "Verdict: {}".format(clean(report["verdict"]))]
+    lines += ["", VERDICT_LINE.format(clean(report["verdict"]))]
     return "\n".join(lines) + "\n"
+
+
+def rendered_verdict(text, schema):
+    """The verdict render() wrote on a report's last line, read back from that report as a comment carries it,
+    for a grade in another job than the check: one of the schema's verdicts, on a line exactly as render()
+    writes it, or unreadable. A finding can't forge the line, since clean() keeps each finding on its own
+    "- " line, and UNREADABLE, or a last line of anything else, reads as unreadable."""
+    lines = [line.strip() for line in text.replace("\r\n", "\n").split("\n") if line.strip()]
+    allowed = ((schema.get("properties") or {}).get("verdict") or {}).get("enum") or ()
+    for verdict in allowed:
+        if lines and isinstance(verdict, str) and lines[-1] == VERDICT_LINE.format(verdict):
+            return verdict
+    return "unreadable"
 
 
 def schema():

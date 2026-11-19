@@ -44,15 +44,69 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-18: A review thread per blocking finding
 
-The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes two new inputs, both off by default: with `review-threads: false` and `fail-on: never` it posts the same comment and its check result is unchanged. `review-threads: true` adds a last step, [`scripts/review_threads.py`](scripts/review_threads.py), that opens a review thread on each `blocks` finding in the checked report, on its line, its file or the first changed file, at most 25 a run, finds it again on the next push by a hidden marker, resolves it with a reply once the finding is no longer reported, and reopens it if the finding comes back. A thread a person resolved, or someone else opened, is never touched, and an unreadable report opens and resolves nothing. `fail-on: blocks` fails the check, with an error naming how many blocking findings are open, while the report holds one or can't be read. The threads and the result come from the validated report, never the model's text, and nothing approves, requests changes or merges. [`docs/factory-in-ci.md`](docs/factory-in-ci.md) has a new *Review threads and a failing check* section on pairing it with *Require conversation resolution before merging*.
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes two new inputs, both off by default: with `review-threads: false` and `fail-on: never` it posts the same comment and its check result is unchanged. `review-threads: true` adds a last step to each agent's review job, [`scripts/review_threads.py`](scripts/review_threads.py), that opens a review thread on each `blocks` finding in the checked report, on its line, its file or the first changed file, at most 25 a run, finds it again on the next push by a hidden marker naming the agent, so one agent's run never touches another's threads, resolves it with a reply once the finding is no longer reported, and reopens it if the finding comes back. A thread a person resolved, or someone else opened, is never touched, and an unreadable report opens and resolves nothing. `fail-on: blocks` fails that agent's check, with an error naming how many blocking findings are open, while its report holds one or can't be read. The threads and the result come from the validated report, never the model's text, and nothing approves, requests changes or merges. [`docs/factory-in-ci.md`](docs/factory-in-ci.md) has a new *Review threads and a failing check* section on pairing it with *Require conversation resolution before merging*.
 
-**Needs:** 2026-11-18: The CI review's report is checked against a schema
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Named review agents run as their own CI jobs
 
 **Controls:** AC-5
 
 Files: [`scripts/review_threads.py`](scripts/review_threads.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_threads.py`](tests/test_review_threads.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing; set `review-threads` or `fail-on` under `with:` in a product repo's caller to opt in.
+
+## 2026-11-18: A caller's commands are held to their own folders
+
+A caller project's `test_command`, `setup_command` and `generate_command` now write only inside the issue's worktree, a temp folder the loop makes for each run and removes after, the `index` in git's own folder for that worktree, and what a new `caller_write_allow` lists, empty by default. They read nothing under your home folder, the factory, the loop's checkouts, `/Users`, `/Volumes` or the system's temp folders but the caller's clone, that worktree, the run's temp folder and what a new `caller_read_allow` lists, by default the tool folders version managers and uv keep interpreters in. `TMPDIR` and the uv, pip, npm and XDG caches point into the run's temp folder. Whatever the two lists say, the caller's own state folder, the clone's `.git/config`, `hooks/`, `info/` and `modules/`, and the files git follows to find a worktree's repository stay out of reach, so a command can't hand the loop's own git a config it chose. They also run with nothing on stdin and no terminal, can't open the loop's pane by name, can't reach the keychain or the clipboard, can't connect to a unix socket but DNS's and their own, so not to tmux, an ssh agent or Docker, and can't start work outside the sandbox with `open`, `launchctl` or Apple events; whatever they leave running is killed when they end. Each route was checked live on a Mac but Apple events, whose rule is in place unchecked, since a live check would have macOS ask for permission. Still open: the network, a child that starts its own session with `setsid`, and any macOS service the sandbox doesn't name, as [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md)'s `caller` row says. The loop also writes `test-output.txt`, `setup-output.txt`, `update-output.txt`, `diff.patch` and the setup marker by putting a new file in place, so a link planted there is replaced, not written through. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-18: A caller's build loads none of its own settings; 2026-11-17: A caller's commands are the factory's
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing for a project that isn't a caller. A caller's tests that need a terminal, the keychain or a socket outside their own folders now fail; that's the change. For a caller project whose commands need a tool outside the default folders, add its folder to `caller_read_allow`, and anything they must write outside the worktree to `caller_write_allow`, in its entry under `"projects"` in the factory's `loop.json`.
+
+## 2026-11-18: Named review agents run as their own CI jobs
+
+The reusable review workflow takes an `agents` input, a comma-separated list of skills in [`skills/`](skills/) and agents in [`agents/`](agents/), `review-pr` by default. It now runs as three jobs. `agents` makes the skip and key checks, as the one job did before, `skip-paths`'s among them, and resolves the list against the factory's default branch: a name that's neither a skill nor an agent fails the run, naming every valid one. `review` runs each agent as its own job, with Read, Grep and Glob, checks its JSON report against the schema and posts its own comment, rendered from that report, which carries its marker, the commit it reviewed and an `**Agent:**` line. `grade` reads each agent's comment for that commit back, takes each verdict from the line the schema check rendered, and puts one grade, from the worst verdict, on every one. An agent whose job failed counts as unreadable. Only a `ci-shell:` line in an agent's front matter gives it a shell, for the commands it names. No agent has one yet, so `security-reviewer` runs in CI with no shell. The default keeps the comment marker it had, so an open pull request's review comment is still edited in place.
+
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Skip the CI review when only skip-paths files changed; 2026-11-10: Graded CI review; 2026-11-15: A review rubric can define each grade
+
+**Controls:** AC-5
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`scripts/review_grade.py`](scripts/review_grade.py), [`scripts/review_report.py`](scripts/review_report.py), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`tests/test_review_pr_grade.py`](tests/test_review_pr_grade.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; pass agents: review-pr,security-reviewer to run more
+
+## 2026-11-18: Run a workflow by name
+
+New: `/run-workflow <name> [--as chat|loop|schedule]` runs one workflow from [`workflows/`](workflows/). It first runs `python3 scripts/workflows.py show <name> --as <mode>`, which prints the workflow's manifest with its paths relative to the harness root, or exits 1 with the reason when the workflow isn't there, its `runs` don't list that mode, it's `retired`, or it's run `--as schedule` and its `restricted_data` isn't `none`. Then the skill follows the workflow's own skill to draft into its output, runs its gate with one round of fixes, has its reviewer read the draft, and stops at the approval lines, naming who decides. It never sends, never changes an input and never fills in an approval. `python3 scripts/workflows.py list` prints each workflow's name, owner, status and runs. [`workflows/README.md`](workflows/README.md) has a new *Starting a workflow* section.
+
+**Needs:** 2026-11-16: Check a workflow folder with one command; 2026-11-16: Build a workflow from a blueprint
+
+**Controls:** AC-5
+
+Files: [`scripts/workflows.py`](scripts/workflows.py), [`skills/run-workflow/SKILL.md`](skills/run-workflow/SKILL.md), [`tests/test_workflows_script.py`](tests/test_workflows_script.py), [`workflows/README.md`](workflows/README.md), [`AGENTS.md`](AGENTS.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-18: Blueprint interview questions come with options and a recommendation
+
+The blueprint-workflow skill now asks each interview question through `AskUserQuestion`, one per call, with two to four options drawn from what the session knows about the work, the likeliest marked ` (Recommended)`, and Other left open; a tool without it asks the same question in plain text with numbered options. The blueprint records what the person picked or wrote in their own words, never a recommended option they didn't pick, and a skipped question stays empty and named in `gaps`.
+
+**Needs:** 2026-11-16: Interview the person who does a workflow
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-18: Skip the CI review when only skip-paths files changed
+
+The reusable review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes a new optional input, `skip-paths`: shell glob patterns, one a line. When every file a pull request changes matches one, the review skips with a notice after the head checkout and its check still passes, so it can stay a required check. Both sides of a rename count, a pull request that changes nothing is reviewed, and one file that matches nothing reviews the whole diff. The step reads the changed files with git and holds no secret and no token. [`examples/ci/README.md`](examples/ci/README.md) (*The caller*) has an example and says why a `paths-ignore` filter on the caller would leave a required check pending.
+
+Files: [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_pr_workflow.py`](tests/test_review_pr_workflow.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing changes without it. To skip some paths, add `skip-paths:` under `with:` in each product repo's caller, as the README's example does.
 
 ## 2026-11-18: The CI review's report is checked against a schema
 
