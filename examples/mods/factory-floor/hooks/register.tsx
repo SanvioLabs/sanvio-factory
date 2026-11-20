@@ -7,7 +7,8 @@ import type { Down, Lists, Tagged, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
 import { MIN_COLUMNS } from './crew-logic'
 import { pollRemote, remoteNow, resetRemote } from './remote'
-import type { Mode, Row, Seen, Tab, View } from '../types'
+import { TESTS_DIR, parseRun, runDot, runEnded, runFiles, runLine, runRows, runTitle, runsShown } from './runs'
+import type { Mode, Row, Seen, Tab, TestRun, View } from '../types'
 
 // Not /loop: that's Claude Code's own command for running a prompt on a schedule. It sits beside /factory-dashboard.
 const COMMAND = 'factory-floor'
@@ -42,6 +43,9 @@ let saves = 0
 // What the last read found of other machines beside their loops: those that are down, and the lines
 // saying which machines.json skips. Not an atom, like drawnView: refresh compares it and asks for the redraw.
 let remoteShown: { down: Down[]; refusals: string[] } = { down: [], refusals: [] }
+// The test suite runs the last read found in .sanvio/tests/, or null before the first read since the pane
+// opened or the List was last drawn, so that read raises no notice. Not an atom, like remoteShown.
+let runsSeen: TestRun[] | null = null
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -81,11 +85,12 @@ type Job = { seen: Seen; row: Row; tag: string | null }
 
 // What the List has to show. For one loop, its three tabs. Under All loops, only an Active tab, holding
 // every loop's active issues with their tags, and a row for each machine that's down, its `extra`.
+// The Tests section's rows under the list count among them too, `tests` of them.
 type InView = { l: Lists; all: Tagged[] | null; extra: number }
-function inView(picked: string | null, seen: Seen | null, loops: Seen[], now: number): InView {
-  if (picked !== ALL) return { l: lists(seen?.status ?? null, now), all: null, extra: 0 }
+function inView(picked: string | null, seen: Seen | null, loops: Seen[], now: number, tests = 0): InView {
+  if (picked !== ALL) return { l: lists(seen?.status ?? null, now), all: null, extra: tests }
   const all = allActive(loops)
-  return { l: { queue: [], active: all.map(t => t.row), finished: [] }, all, extra: remoteShown.down.length }
+  return { l: { queue: [], active: all.map(t => t.row), finished: [] }, all, extra: remoteShown.down.length + tests }
 }
 
 const EMPTY: Record<Tab, string> = {
@@ -108,7 +113,8 @@ function current(view: View | null, shown: InView, bodyRows?: number): View {
 // either end it doesn't.
 async function move($: EngineInterface, by: number, bodyRows?: number): Promise<boolean> {
   const seen = await read($, seenAtom)
-  const shown = inView(await read($, pickedAtom), seen, (await read($, loopsAtom)) ?? [], Date.now())
+  const tests = runRows(runsShown(runsSeen ?? [], await clockNow($)))
+  const shown = inView(await read($, pickedAtom), seen, (await read($, loopsAtom)) ?? [], Date.now(), tests)
   const { l, extra } = shown
   const now = current(await read($, viewAtom), shown, bodyRows)
   const next = page(l[now.tab], now.start + by, pageSize(now.tab, bodyRows, extra)).start
@@ -180,6 +186,16 @@ async function look($: EngineInterface, root: string, project?: string): Promise
   }
 }
 
+// The test suite runs in .sanvio/tests/: the newest files only, each one that parses. Read only, like look.
+async function readRuns($: EngineInterface, root: string): Promise<TestRun[]> {
+  const dir = `${root}/${TESTS_DIR}`
+  const entries = await $.fs.list(dir).catch(() => [])
+  const runs = await Promise.all(
+    runFiles(entries).map(async name => parseRun(name.slice(0, -'.json'.length), await $.fs.read(`${dir}/${name}`).catch(() => null))),
+  )
+  return runs.filter((r): r is TestRun => r !== null)
+}
+
 // Look at every loop and show the picked one. Each loop is compared with its own last look: against
 // the one on screen, every switch would look like a change, and a loop off screen would never tell.
 // Other machines' loops come after this one's, as their last background read left them: nothing here
@@ -191,6 +207,11 @@ async function refresh($: EngineInterface): Promise<void> {
   const names = await projectNames(entries, name => $.fs.exists(`${root}/${loopDir(name)}/status.json`))
   const factory = await look($, root)
   const remote = remoteNow()
+  // A run that has ended since the last read says so whichever loop is on screen.
+  const runs = await readRuns($, root)
+  const sameRuns = runsSeen !== null && JSON.stringify(runs) === JSON.stringify(runsSeen)
+  for (const line of runEnded(runsSeen, runs)) $.ui.toast(line)
+  runsSeen = runs
   const loops = [factory, ...(await Promise.all(names.map(name => look($, root, name)))), ...remote.loops]
   const extras = { down: remote.down, refusals: remote.refusals }
   const was = (await read($, loopsAtom)) ?? []
@@ -224,7 +245,7 @@ async function refresh($: EngineInterface): Promise<void> {
   if (stored !== pick) await update($, pickedAtom, () => pick)
   const sameExtras = JSON.stringify(extras) === JSON.stringify(remoteShown)
   const leftAll = stored === ALL && pick !== ALL
-  if (!leftAll && sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops) && sameExtras) return
+  if (!leftAll && sameSeen(before, shown) && JSON.stringify(was) === JSON.stringify(loops) && sameExtras && sameRuns) return
   remoteShown = extras
   // Another loop opens on its busiest tab, as it does when pressed, and All loops on its Active tab.
   if ((stored === ALL ? ALL : before ? loopValue(before) : '') !== pick) await update($, viewAtom, () => null)
@@ -237,7 +258,7 @@ async function refresh($: EngineInterface): Promise<void> {
   if (drawnView !== 'crew') $.ui.invalidate('ui.render')
 }
 
-// The engine's time, which the remote reads keep theirs by, for how long ago a machine that's down last
+// The engine's time, which the remote reads and the Tests section keep theirs by, for how long ago a machine that's down last
 // answered. The wall clock when the engine's can't be read.
 async function clockNow($: EngineInterface): Promise<number> {
   try {
@@ -293,6 +314,7 @@ function startPolling($: EngineInterface): void {
         stopPolling = null
         resetRemote()
         remoteShown = { down: [], refusals: [] }
+        runsSeen = null
         return
       }
       beat = !beat
@@ -308,16 +330,23 @@ function startPolling($: EngineInterface): void {
       // loop's job counts.
       const seen = await read($, seenAtom)
       const drawn = (await read($, pickedAtom)) === ALL ? ((await read($, loopsAtom)) ?? []) : seen ? [seen] : []
-      if (drawnView !== 'crew' && (drawn.some(isPulsing) || (isRead && drawn.some(l => l.isLocked)))) $.ui.invalidate('ui.render')
+      // A test run's dot pulses and its clock moves too, and a run that stops writing turns red at a read.
+      const runNow = runsSeen?.some(r => r.state === 'running') ? await clockNow($) : 0
+      const isRunPulsing = !!runsSeen?.some(r => runDot(r, runNow).isPulsing)
+      const hasRunning = !!runsSeen?.some(r => r.state === 'running')
+      if (drawnView !== 'crew' && (drawn.some(isPulsing) || isRunPulsing || (isRead && (hasRunning || drawn.some(l => l.isLocked))))) $.ui.invalidate('ui.render')
     })().catch(() => {})
   })
   stopPolling = () => timer.cancel()
 }
 
 // While the Crew is drawn the List reads nothing: its tick looks for the pane twice a second.
+// The runs are read again from the List's next read, as if for the first time, so a run that ended while
+// the Crew was drawn raises no notice.
 function stopList(): void {
   stopPolling?.()
   stopPolling = null
+  runsSeen = null
 }
 
 // The Crew button: the loop the List has on screen, or All loops, in the Crew's lanes. The Crew reads it
@@ -363,6 +392,7 @@ async function openPane($: EngineInterface): Promise<{ text: string; isOpen: boo
     // Other machines are read again from the poll's first read, as if for the first time.
     resetRemote()
     remoteShown = { down: [], refusals: [] }
+    runsSeen = null
     await update($, modeAtom, () => 'list')
     await update($, pickedAtom, () => null)
     const focus = await readFocus($, root)
@@ -502,7 +532,10 @@ export const register: Register = on => {
         <Text {...COLORS[top.right.tone]}>{top.right.text.slice(1)}</Text>
       </Box>
     )
-    const shownNow = inView(picked, seen, loops, now)
+    // The Tests section, on the engine's clock, which is what the runs' liveness is read against.
+    const runNow = await clockNow($)
+    const runs = runsShown(runsSeen ?? [], runNow)
+    const shownNow = inView(picked, seen, loops, now, runRows(runs))
     const { l, all, extra } = shownNow
     const view = current(await read($, viewAtom), shownNow, bodyRows)
     const queue = page(l.queue, view.start, pageSize('queue', bodyRows, extra))
@@ -680,6 +713,27 @@ export const register: Register = on => {
           <Button key="down" plain label={`▼ ${below} more`} dimColor onPress={() => move($, 1, bodyRows)} />
         ) : (
           <Text> </Text>
+        )}
+        {/* Each test suite run scripts/run_tests.py has recorded, under the list, whichever loop is picked. */}
+        {runs.length > 0 && (
+          <Box key="tests" flexDirection="column" marginTop={1}>
+            <Text bold>Tests</Text>
+            {runs.map(run => {
+              const mark = runDot(run, runNow)
+              const line = runLine(run, runNow)
+              return (
+                <Box key={`test-${run.id}`} flexDirection="column">
+                  <Box flexDirection="row" columnGap={1}>
+                    <Text {...(mark.isPulsing ? PULSE[beat ? 'bright' : 'dim'] : COLORS[mark.tone])}>●</Text>
+                    <Text bold>{fit(runTitle(run), inner)}</Text>
+                  </Box>
+                  <Box key={`test-line-${run.id}`} marginLeft={2}>
+                    <Text {...COLORS[line.tone]}>{fit(line.text, inner)}</Text>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
         )}
       </Box>
     )

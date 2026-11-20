@@ -54,6 +54,16 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** if the loop now stops with an `agent_env` or `sandbox_commands` `ERROR`, fix that value in the factory's `loop.json`. If it warns about a provider setting your agents need, add its name to `agent_env`.
 
+## 2026-11-20: factory-floor shows test suite runs
+
+Factory-floor's List view has a **Tests** section under the list, whichever loop is picked, showing each test suite run [`scripts/run_tests.py`](scripts/run_tests.py) has recorded in `.sanvio/tests/`: its worktree and branch, then for a run still going a pulsing dot, its clock, how many tests have run out of how many and how many failed, and for the three that ended most recently, whether they passed, failed or were stopped. A run that stopped writing for a minute shows red and **stopped**. While the List is drawn, a run the pane saw running raises a notice when it ends. The Crew view and other machines don't show runs.
+
+**Needs:** 2026-11-20: A status file for each test suite run
+
+Files: [`examples/mods/factory-floor/hooks/runs.ts`](examples/mods/factory-floor/hooks/runs.ts), [`examples/mods/factory-floor/hooks/runs.test.ts`](examples/mods/factory-floor/hooks/runs.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** run the suite with `python3 scripts/run_tests.py` to see it in the pane. Reload Claude Code's plugins, or start a new session, to take the new version of the mod.
+
 ## 2026-11-20: A status file for each test suite run
 
 `python3 scripts/run_tests.py` runs the tests as `python3 -m unittest discover -s tests` does, with unittest's output and exit code, and names in unittest's form run only those. While it runs it keeps `.sanvio/tests/<run id>.json` in the main clone current: where it ran, the branch, how many tests have run and failed out of how many, refreshed at least every 10 seconds, and how it ended. A run in a linked worktree writes to the main clone's folder too. The files hold paths, a branch name and counts, never test output, and each start removes those over 30 days old. If the file can't be written the tests run anyway, with one line saying so. Factory-floor doesn't show these runs yet. The loop's `test_command` and CI are unchanged. [`steering/building-and-testing.md`](steering/building-and-testing.md) now says to run the full suite through it.
