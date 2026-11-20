@@ -19,8 +19,8 @@
 #
 # What review does: it checks out three folders side by side. harness/ holds
 # only this repo's AGENTS.md, steering/, skills/, agents/ and standards/, and
-# the review-rubric.json and four scripts the report and the grade need, at its
-# default branch, read with a read-only deploy key, so every product repo reviews
+# the review-rubric.json and five scripts the report, the grade and the
+# threads need, at its default branch, read with a read-only deploy key, so every product repo reviews
 # against the same skills and rules, and the log names the harness commit it
 # used. base/ is the product repo at the pull request's base, where the
 # project's own rules are read. head/ is the pull request, whose changed files
@@ -38,9 +38,14 @@
 # harness/skills/review-pr/report.schema.json and writes the comment from its
 # fields, each flattened to one line with its HTML, images and mentions
 # defused. A report that doesn't match posts no findings, only a line saying it
-# couldn't be read. Only the post step and the grade's last step write, and
-# they never approve, request changes or merge: a person decides what happens
-# to the pull request.
+# couldn't be read. Only the post step, the threads step after it and the
+# grade's last step write. When the caller turns on review-threads, each
+# agent's review job also opens a review thread per blocking finding in its own
+# report, which scripts/review_threads.py writes from the same checked report;
+# with fail-on: blocks, that step fails the agent's own check while its report
+# holds a blocking finding. With both inputs at their defaults, it doesn't run.
+# None of them ever approves, requests changes or merges: a person decides what
+# happens to the pull request.
 #
 # Each comment's last line carries a grade out of 10, as the loop's reviews do.
 # It's advisory: it comes from this repo's review-rubric.json, through
@@ -91,8 +96,9 @@
 # requests. The grade step uses it to try to read the pull request's check
 # runs. Whether these permissions allow that hasn't been tried on a live pull
 # request yet: if the read is refused, the grade says pending and the run's
-# summary says why. Only the post step and the grade's last step use it to
-# write, to post and edit the comments. id-token: write is there for the
+# summary says why. Only the post step, the threads step and the grade's last
+# step use it to write: to post and edit the comments, and to open, answer,
+# resolve and reopen the review threads. id-token: write is there for the
 # Bedrock path alone, and only on the review job: it lets that job ask GitHub
 # for an OIDC token, which the AWS step trades for the role's session. It
 # grants nothing on GitHub, and without aws-role-arn no step asks for one. A
@@ -136,6 +142,16 @@ on:
         description: "The AWS region the review calls Bedrock in. Needed with aws-role-arn, and it has no default."
         required: false
         default: ''
+        type: string
+      review-threads:
+        description: "Open a review thread on each blocking finding, and resolve it once a later run no longer reports it."
+        required: false
+        default: false
+        type: boolean
+      fail-on:
+        description: "blocks fails an agent's check while its report holds a blocking finding; never, the default, always passes it."
+        required: false
+        default: "never"
         type: string
     secrets:
       ANTHROPIC_API_KEY:
@@ -396,6 +412,7 @@ jobs:
             /scripts/names.py
             /scripts/review_grade.py
             /scripts/review_report.py
+            /scripts/review_threads.py
           sparse-checkout-cone-mode: false
 
       - name: Say which harness commit reviews
@@ -657,6 +674,29 @@ jobs:
           else
             gh pr comment "$PR" --repo "$REPO" --body-file "$RUNNER_TEMP/comment.md"
           fi
+
+      # Opt-in: with review-threads false and fail-on never, the defaults, this
+      # step doesn't run. It comes after the comment, so a GitHub call that
+      # fails here leaves the comment posted. scripts/review_threads.py reads
+      # this agent's report.json through the same schema check as the comment,
+      # from harness/ alone, and writes every thread itself from the fields, so
+      # the model writes none of them. Each thread's marker names the agent, so
+      # one agent's run touches only the threads it opened: never another
+      # agent's, never a person's. With fail-on: blocks it fails this agent's
+      # own check, and the result comes from the report, never from a GitHub
+      # call. It holds no secret, only the job's token.
+      - name: Open a thread per blocking finding
+        if: inputs.review-threads || inputs.fail-on != 'never'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AGENT_NAME: ${{ matrix.agent.name }}
+          REVIEW_THREADS: ${{ inputs.review-threads }}
+          FAIL_ON: ${{ inputs.fail-on }}
+        run: |
+          python3 harness/scripts/review_threads.py
 
   grade:
     name: grade

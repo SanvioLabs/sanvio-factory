@@ -26,8 +26,12 @@ You draft. They say yes or no. Nothing gets written without a yes.
   is built at the root.
 - Never rewrite [`AGENTS.md`](../../AGENTS.md) wholesale. Add to it. The existing rules and the
   Skills, Agents and Examples tables stay.
-- Never run a fix the setup check names, never run `git checkout`, and never
-  commit. Name the command and let the person run it.
+- Never run `git checkout`, and never commit. The only fixes step 1 runs are
+  setting an unset `core.hooksPath` and installing or updating a mod at local
+  scope, each only on its own yes. Name every other fix and let the person do
+  it.
+- Never run `printenv`, a bare `env` or `gh auth token`, and never show the
+  output of `gh auth status`.
 - Never add, log in to or configure a connector or MCP server, and never ask
   for, read or print a token, key or password. Name the setup step in their
   tool and let them do it.
@@ -43,24 +47,93 @@ You draft. They say yes or no. Nothing gets written without a yes.
 
 ### 1. Check the clone
 
-Read-only. Run both and report what they print:
+A guided setup. It checks the clone, runs the two fixes it's allowed to on a
+yes, and ends with a checklist of what's left for the person.
+
+**Started below the root.** If your working directory isn't the harness root,
+say so first: the skills, agents and guards didn't load. Ask them to restart
+at the root, and stop there.
+
+**Which surface.** Ask one multiple-choice question: which are they using?
+
+- Claude Desktop's Code tab
+- the Claude Code CLI
+- an IDE extension
+- another tool
+
+To mark one `(Recommended)`, read only `echo "$CLAUDE_CODE_ENTRYPOINT"`, and
+nothing else from the environment. A value of `cli` points at the CLI, one that
+names an editor such as VS Code or JetBrains at an IDE extension, and one that
+names the desktop app at the Code tab. If it's empty, unknown, or the read is
+refused, mark nothing. Never assume a surface without their answer. Say that
+Claude Desktop's chat, outside the Code tab, can't run this skill.
+
+**Checks.** Run both and pass their lines through as printed:
 
 ```bash
 python3 scripts/check_setup.py
-python3 -m unittest discover -s tests
+python3 scripts/quick_check.py
 ```
 
 `check_setup.py` prints one `PASS`, `WARN` or `FAIL` line per item with the fix
 under it: Python version, whether the hook is switched on, whether the
 [`CLAUDE.md`](../../CLAUDE.md), [`.claude/skills`](../../.claude/skills) and Kiro links work, whether the example in
 [`examples/proposal/`](../../examples/proposal/) passes its gate, whether a company record exists yet,
-whether a personal skill is hiding one of the repo's, and where `origin`
-points. Pass its lines through as printed. For the tests, one line: passed, or the names that failed.
+whether a personal skill is hiding one of the repo's, where `origin` points,
+and whether the mods are installed and current. `quick_check.py` prints PASS or
+FAIL for the setup check, the link check and the tests that cover a copy's
+setup and updates. Say the full test suite runs in CI on every pull request.
+
+**GitHub login.** Only when `gh` is installed and `origin` is on GitHub, run:
+
+```bash
+gh auth status >/dev/null 2>&1; echo $?
+```
+
+Say only whether it passed. On a failure, add `gh auth login`, in a terminal,
+to the checklist. The visibility check is in the remote bullet below.
+
+**Remote.** Only when `origin` is set, run this with the Bash tool's timeout
+at 15000 ms:
+
+```bash
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=15" git ls-remote --exit-code origin HEAD >/dev/null 2>&1; echo $?
+```
+
+Exit 0 means reachable, and 2 means reachable but empty. Anything else means it
+can't be reached, and the fix goes on the checklist. Show a remote only in the
+form `check_setup.py` prints it.
+
+**Mods.** Read the `mods` line. Before offering anything, run
+`claude plugin marketplace list`.
+
+- For each mod listed as "not installed", offer
+  `claude plugin install <name>@<marketplace> --scope local`. For each listed
+  as "older than this repo's", offer
+  `claude plugin update <name>@<marketplace>`. The marketplace name is the one
+  in the line's own fix. Run each only on its own yes, then add
+  `/reload-plugins`, in the Claude Code message box, to the checklist.
+- If the line says "couldn't check", if `claude` isn't on `PATH`, or if the
+  marketplace isn't listed, put the install on the checklist instead. On an IDE
+  extension, that's `claude plugin install <name>@<marketplace> --scope local`
+  in a terminal at the harness root, then `/reload-plugins`. On the other
+  surfaces, it's `/plugin marketplace add ./` then
+  `/plugin install <name>@<marketplace>` in the Claude Code message box.
+- A mod that's installed but turned off goes on the checklist. Don't turn it on.
+
+**Hooks.** If `core.hooksPath` is unset, every check in the hook silently does
+nothing. Offer `git config core.hooksPath .githooks` and run it only on a yes.
+If it's set to another folder, don't offer it: put the decision on the
+checklist, and say the hooks in that folder would stop running if they change
+it.
+
+**When a command fails.** Report its exit status and the one fix the person
+needs. The fix goes on the checklist, and the rest of step 1 carries on. Never
+show what `gh auth status` prints, and never list the environment or print a
+token, whatever the command (Rules has the commands).
 
 Say these out loud when they show up:
 
-- **Hook FAIL.** Every check in the hook silently does nothing until they run
-  the fix. Don't run it for them.
 - **Remote WARN on the public Sanvio Factory.** Everything in `company/` is
   gitignored, so the company record and the data map stay on their machine
   either way. Their own job's files (the five layers) are tracked, though, and
@@ -68,17 +141,14 @@ Say these out loud when they show up:
   that's *Use this template* with the visibility set to private. If `gh` is
   installed and `origin` is on GitHub, run
   `gh repo view --json visibility -q .visibility` and say what it returns.
-- **Gate or tests FAIL.** On a clean clone of `main` these pass, so suggest
-  `git status` to look for local changes.
+- **Gate or quick check FAIL.** On a clean clone of `main` these pass, so
+  suggest `git status` to look for local changes.
 - **Skills WARN.** A skill in their personal `~/.claude/skills` has the same
   name as one here, and in Claude Code the personal copy wins, so the repo's
   never runs. Offer to compare the two. If the personal one is better, the fix
   is to bring it into [`skills/`](../) (through [`skills/review-skill/`](../review-skill/) if someone else
   wrote it) and then rename or remove the personal copy. Don't touch anything
   in their home directory yourself.
-- **Started below the root.** If your working directory isn't the harness
-  root, say so first: the skills, agents and guards didn't load. Ask them to
-  restart at the root, and stop there.
 
 Then list any files in [`skills/`](../), [`gates/`](../../gates/) and [`agents/`](../../agents/) beyond the ones this
 repo ships (the skills `orientation`, `learn`, `review-pr`, `review-tests`,
@@ -86,6 +156,10 @@ repo ships (the skills `orientation`, `learn`, `review-pr`, `review-tests`,
 `company/COMPANY.md`
 and `company/DATA.md` exist. Those are from an earlier run and show where the
 person left off. Read them, and skip the questions they've already answered.
+
+End step 1 with **Your steps**: a checklist of only what's left for the person,
+each item naming where they do it: a terminal, the Claude Code message box,
+the Code tab in Claude Desktop, or a GitHub page. If nothing's left, say so.
 
 A FAIL doesn't stop the walk. Go on to step 2.
 
@@ -378,7 +452,7 @@ Last, in one message:
 - For each gate added, the one command that checks it:
   `python3 gates/<job-name>_gate.py <path to an output>`. If no gate was
   added, say so
-- Any FAIL or WARN from step 1 still open, with its fix
+- The open steps on step 1's Your steps checklist, each with where to do it
 - In Claude Code, whether the harness lens is showing, and `/lens` for the
   session so far
 - The steps and layers skipped, so they know what's left if they run this
