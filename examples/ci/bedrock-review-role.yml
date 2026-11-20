@@ -9,8 +9,9 @@
 # sts.amazonaws.com and whose subject names exactly:
 #   - the product repo, ProductRepo
 #   - a pull_request event
-#   - the factory's .github/workflows/review-pr.yml at FactoryRef, the
-#     factory's main unless you change it
+#   - the factory's .github/workflows/review-pr-bedrock.yml at FactoryRef,
+#     the factory's main unless you change it. A caller pinned to a commit
+#     needs FactoryRef set to that commit
 # Both are matched with StringEquals, with no wildcard, so a push, another
 # workflow in the product repo, another branch of the factory or another
 # repo's token can't assume it.
@@ -22,13 +23,17 @@
 # expects with the one in the run's token before widening anything.
 #
 # What it allows: invoking Anthropic's models on Bedrock, directly or through
-# an inference profile, in any region. No other model, no other Bedrock
-# action and no other AWS service.
+# an inference profile, only in the regions BedrockRegions lists, so that's
+# where a review's code can go. A cross-region inference profile calls the
+# model in each region it routes to, so a profile that routes outside the
+# list is refused. No other model, no other Bedrock action and no other AWS
+# service. A session lasts at most an hour, MaxSessionDuration; the
+# workflow's own session asks for 15 minutes.
 #
 # The OIDC provider is a parameter, not made here: an account holds one
 # provider for that URL, and other roles may already use it.
 AWSTemplateFormatVersion: "2010-09-09"
-Description: The role the factory's review-pr workflow assumes through GitHub OIDC to invoke Anthropic models on Amazon Bedrock.
+Description: The role the factory's review-pr-bedrock workflow assumes through GitHub OIDC to invoke Anthropic models on Amazon Bedrock.
 
 Parameters:
   ProductRepo:
@@ -46,12 +51,16 @@ Parameters:
   GitHubOidcProviderArn:
     Type: String
     Description: The ARN of this account's IAM OIDC provider for https://token.actions.githubusercontent.com.
+  BedrockRegions:
+    Type: CommaDelimitedList
+    Description: Every AWS region a review's code may be sent to, such as us-east-1. It has no default, since that's the team's decision. Include each region an inference profile the caller's aws-model names routes to.
 
 Resources:
   ReviewRole:
     Type: AWS::IAM::Role
     Properties:
-      Description: !Sub "Assumed by the review-pr workflow of ${FactoryRepo} on pull requests in ${ProductRepo}, to invoke Anthropic models on Bedrock."
+      Description: !Sub "Assumed by the review-pr-bedrock workflow of ${FactoryRepo} on pull requests in ${ProductRepo}, to invoke Anthropic models on Bedrock."
+      MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -62,7 +71,7 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": sts.amazonaws.com
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${ProductRepo}:pull_request:job_workflow_ref:${FactoryRepo}/.github/workflows/review-pr.yml@${FactoryRef}"
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${ProductRepo}:pull_request:job_workflow_ref:${FactoryRepo}/.github/workflows/review-pr-bedrock.yml@${FactoryRef}"
       Policies:
         - PolicyName: invoke-anthropic-models
           PolicyDocument:
@@ -75,6 +84,9 @@ Resources:
                 Resource:
                   - "arn:aws:bedrock:*::foundation-model/anthropic.*"
                   - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*anthropic.*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestedRegion": !Ref BedrockRegions
 
 Outputs:
   RoleArn:

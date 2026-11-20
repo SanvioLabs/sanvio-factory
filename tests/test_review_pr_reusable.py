@@ -36,15 +36,9 @@ RESOLVE = "Resolve the agents"
 GRADE_HARNESS = "Check out the harness's grading files"
 FETCH = "Fetch each agent's report"
 REGRADE = "Put the grade on each agent's comment"
-ASSUME = "Assume the review role on AWS"
-CLEAR = "Clear the AWS credentials"
 THREADS = "Open a thread per blocking finding"
 CHECKOUTS = (AGENTS_HARNESS, HARNESS, GRADE_HARNESS)
 DRAFT_NOTICE = "::notice::This pull request is a draft, so the review skips until it's marked ready for review."
-# id-token: write is for the Bedrock path, on the review job alone, which runs Claude. Every caller grants it,
-# since a called workflow can't get more than its caller grants.
-PERMISSIONS = ["contents: read", "id-token: write", "pull-requests: write"]
-WORKFLOW_PERMISSIONS = ["contents: read", "pull-requests: write"]
 SCHEMA_TEXT = (ROOT / "skills" / "review-pr" / "report.schema.json").read_text()
 UNREADABLE = "The review's report couldn't be read, so no findings are posted."
 
@@ -130,15 +124,9 @@ class ReusableReviewWorkflow(unittest.TestCase):
         for old in ("harness-repo", "HARNESS_DEPLOY_KEY", "HARNESS_REPO"):
             self.assertNotIn(old, self.text)
 
-    def test_permissions_are_read_contents_write_comments_and_the_oidc_token_only(self):
-        # #647 on #648's jobs: the OIDC token only where Claude runs, the review job.
-        self.assertEqual(sorted(single.block(self.code, "permissions")), WORKFLOW_PERMISSIONS)
-        self.assertEqual(len(re.findall(r"^\s*permissions:", self.code, re.M)), 2)
-        review = self.job_head("review")
-        self.assertEqual(sorted(line.strip() for line in review.split("    permissions:\n", 1)[1].split("\n    strategy:")[0]
-                                .splitlines() if line.strip() and not line.strip().startswith("#")), PERMISSIONS)
-        for job in ("agents", "grade"):
-            self.assertNotIn("permissions:", self.job_head(job), job)
+    def test_permissions_are_read_contents_and_write_comments_only(self):
+        self.assertEqual(sorted(single.block(self.code, "permissions")), ["contents: read", "pull-requests: write"])
+        self.assertEqual(len(re.findall(r"^\s*permissions:", self.code, re.M)), 1)
         self.assertNotIn("write-all", self.text)
 
     def test_claude_runs_restricted_with_the_agents_job_s_tools(self):
@@ -242,8 +230,8 @@ class ReusableReviewWorkflow(unittest.TestCase):
         orders = {
             "agents": ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL,
                        AGENTS_HARNESS, AGENTS_HEAD, SKIP, RESOLVE],
-            "review": [HARNESS, HARNESS_SHA, BASE, HEAD, RULES, "Install the Claude Code CLI", PROMPT, ASSUME, CLAUDE,
-                       CLEAR, SCHEMA, POST, THREADS],
+            "review": [HARNESS, HARNESS_SHA, BASE, HEAD, RULES, "Install the Claude Code CLI", PROMPT, CLAUDE,
+                       SCHEMA, POST, THREADS],
             "grade": [GRADE_HARNESS, FETCH, GRADE, REGRADE],
         }
         for job, order in orders.items():
@@ -910,7 +898,7 @@ class GradeTheReview(unittest.TestCase):
         self.assertIn("timeout-minutes: 30", self.code)
 
     def test_the_grade_sets_no_status_and_approves_or_merges_nothing(self):
-        self.assertEqual(sorted(single.block(self.code, "permissions")), WORKFLOW_PERMISSIONS)
+        self.assertEqual(sorted(single.block(self.code, "permissions")), ["contents: read", "pull-requests: write"])
         self.assertNotIn("statuses", self.code)
         for name in (GRADE, POST, FETCH, REGRADE):
             for word in ("statuses", "approve", "merge"):
@@ -941,7 +929,7 @@ class CallerReadme(unittest.TestCase):
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")
-        self.assertEqual(len(blocks), 2, "two ```yaml blocks, the key caller and the Bedrock caller")
+        self.assertEqual(len(blocks), 2, "two ```yaml blocks, the caller and the Bedrock caller")
         caller = blocks[0]
         self.assertIn("uses: your-org/factory/.github/workflows/review-pr.yml@main", caller)
         self.assertIn("factory-repo: your-org/factory", caller)
@@ -954,34 +942,8 @@ class CallerReadme(unittest.TestCase):
 
     def test_the_caller_asks_for_the_same_permissions(self):
         caller = fenced(self.text, "yaml")[0]
-        self.assertEqual(sorted(single.block(caller, "permissions")), PERMISSIONS)
+        self.assertEqual(sorted(single.block(caller, "permissions")), ["contents: read", "pull-requests: write"])
         self.assertIn("group: review-pr-${{ github.event.pull_request.number }}", caller)
-
-    def test_the_bedrock_caller_passes_the_role_and_only_the_deploy_key(self):
-        key, bedrock = fenced(self.text, "yaml")
-        self.assertIn("id-token: write", bedrock)
-        self.assertEqual(sorted(single.block(bedrock, "permissions")), PERMISSIONS)
-        self.assertNotIn("ANTHROPIC_API_KEY", bedrock)
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", bedrock)
-        for line in ("aws-role-arn: arn:aws:iam::123456789012:role/factory-review", "aws-region: us-east-1",
-                     "factory-repo: your-org/factory", "FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}"):
-            self.assertIn(line, bedrock)
-        self.assertEqual(re.findall(r"secrets\.(\w+)", bedrock), ["FACTORY_DEPLOY_KEY"])
-        on = lambda text: text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]  # noqa: E731
-        self.assertEqual(on(bedrock), on(key))
-        concurrency = lambda text: text.split("\nconcurrency:\n", 1)[1].split("\njobs:", 1)[0]  # noqa: E731
-        self.assertEqual(concurrency(bedrock), concurrency(key))
-
-    def test_the_bedrock_section_says_how_to_set_it_up(self):
-        self.assertIn("\n### On Amazon Bedrock\n", self.text)
-        caller = self.text.split("\n## The caller\n", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("\n### On Amazon Bedrock\n", caller, "the Bedrock section sits under The caller")
-        section = " ".join(caller.split("\n### On Amazon Bedrock\n", 1)[1].split())
-        for words in ("bedrock-review-role.yml", "aws cloudformation deploy",
-                      "gh api --method PUT repos/your-org/product/actions/oidc/customization/sub",
-                      '"include_claim_keys": ["repo", "context", "job_workflow_ref"]',
-                      "Approved tools", "steering/data-and-tools.md", "first"):
-            self.assertIn(words, section)
 
     def test_the_key_is_read_only(self):
         credential = self.text.split("## The credential", 1)[1].split("## The caller", 1)[0]

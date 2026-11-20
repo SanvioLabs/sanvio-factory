@@ -64,7 +64,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write
 
 concurrency:
   group: review-pr-${{ github.event.pull_request.number }}
@@ -97,12 +96,6 @@ to repos whose writers you'd trust to read the harness.
 `factory-repo` has to be given because a called workflow can't read its own
 repo's name. A wrong value fails at the checkout and posts nothing.
 
-`id-token: write` is for [the Bedrock path](#on-amazon-bedrock) alone, and
-every caller needs it, Bedrock or not: the factory's workflow asks for it, and
-a called workflow that asks for more than its caller grants fails before it
-starts. It grants nothing on GitHub, and with no `aws-role-arn` no step asks
-for a token.
-
 `@main` follows the factory's default branch, which is the point: one copy of
 the review that every repo picks up. Pinning to a commit
 (`review-pr.yml@<sha>`) is the stricter choice, since nothing in the
@@ -113,7 +106,7 @@ says what to set on the factory's repo so that branch is safe to follow.
 
 A pull request from a fork skips with a notice, since a fork gets no secrets.
 So does one with neither `ANTHROPIC_API_KEY` nor `CLAUDE_CODE_OAUTH_TOKEN`,
-such as Dependabot's, when the caller gives no `aws-role-arn`. One with no
+such as Dependabot's. One with no
 `FACTORY_DEPLOY_KEY` fails and says so.
 
 To run more review agents than the review-pr skill, add
@@ -159,9 +152,13 @@ says how to pair them with your branch rules.
 ### On Amazon Bedrock
 
 To have Claude review on Amazon Bedrock in your own AWS account, with no
-Anthropic key, use this caller instead. The job swaps its GitHub OIDC token
-for a 15-minute session on an AWS role, so no AWS key is stored anywhere.
-Swap the role's ARN for the one your stack prints, below.
+Anthropic key, call the factory's
+[`.github/workflows/review-pr-bedrock.yml`](../../.github/workflows/review-pr-bedrock.yml) instead. The review job swaps its
+GitHub OIDC token for a 15-minute session on an AWS role, so no AWS key is
+stored anywhere. It's made from [`review-pr.yml`](../../.github/workflows/review-pr.yml) by
+[`scripts/bedrock_workflow.py`](../../scripts/bedrock_workflow.py), so both review the same way, and only this caller
+grants `id-token: write`: a caller with a Claude key changes nothing. Swap the
+role's ARN, the region and the model for yours:
 
 ```yaml
 name: Review pull request
@@ -173,7 +170,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write
 
 concurrency:
   group: review-pr-${{ github.event.pull_request.number }}
@@ -181,22 +177,60 @@ concurrency:
 
 jobs:
   review:
-    uses: your-org/factory/.github/workflows/review-pr.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: your-org/factory/.github/workflows/review-pr-bedrock.yml@main
     with:
       factory-repo: your-org/factory
       aws-role-arn: arn:aws:iam::123456789012:role/factory-review
       aws-region: us-east-1
+      aws-model: your-bedrock-model-id
     secrets:
       FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
 ```
 
-`aws-region` is where Bedrock runs the review, and so where the pull request's
-code is sent. It has no default: a caller that gives the role without a region
-fails and says so. With `aws-role-arn` given, the review runs on Bedrock even
-if a Claude key is passed too. With more than one agent in `agents`, each
-agent's job assumes the role for its own review. The session's values are
-emptied from that job as soon as its review ends, so the schema check and the
-post never see them, and the grade runs as a job of its own without them.
+`id-token: write` is granted on the review job only, so no other job you add
+to this file gets it. All three AWS inputs are required. `aws-model` is pinned
+so Claude Code's own default, which can be a cross-region profile, is never
+used: give the ID of a model, or an inference profile, your account can
+call in that region. `factory-repo` has to name the repo the workflow runs from, or the
+review stops.
+
+What holds the role to this workflow:
+
+- **The harness is this workflow's own commit.** Before anything else, the
+  review job reads its OIDC token's `job_workflow_ref` and `job_workflow_sha`,
+  and checks out the harness from that repo at that commit. A branch in the
+  product repo that changes the caller can still point `factory-repo` at
+  another repo, but then the review stops, and nothing it names runs where the
+  token can be minted.
+- **Agents get Read, Grep and Glob only.** An agent file with a `ci-shell:`
+  line stops the run, since the AWS session is in the review's environment.
+- **Where the code can go is the role's `BedrockRegions`.** The role allows
+  Bedrock only in the regions you list, so a caller that changes `aws-region`,
+  or a model whose inference profile routes elsewhere, is refused.
+
+What doesn't hold: any step in the review job can ask GitHub for the OIDC
+token and assume the role itself, for up to the role's hour, not only the
+action's 15 minutes. That's why the harness is pinned, the CLI installs with
+every package script off but its own installer, and the CLI runs without the
+values that ask for a token. `base/`, whatever branch the pull request
+targets, loses its links before the agent reads it, as `head/` does, so
+neither can point the agent at the job's environment.
+
+The factory's own `main` now reaches every product account that deployed the
+role: a merge there runs, in each product repo's next review, with that
+account's Bedrock. Keep the protection under [Protecting the factory
+repo](#protecting-the-factory-repo) on, and keep `auto_merge` off for changes
+to the factory's workflows. A caller pinned to a commit takes the harness
+from that commit, not from `main`, and needs the role's `FactoryRef` set to
+it. The session's values are
+emptied from the job when the review ends, so the schema check, the post and
+the threads never see them, and the grade runs as a job of its own without
+them. Dependabot's pull requests get no Actions secrets, so with no deploy key
+they skip with a notice.
 
 Before the first pull request, in this order:
 
@@ -204,21 +238,25 @@ Before the first pull request, in this order:
    [`steering/data-and-tools.md`](../../steering/data-and-tools.md), with its plan and the date you checked it, before a
    customer's code goes to it. That's the company's decision, not the
    workflow's. The account also needs access to Anthropic's models on Bedrock
-   in that region.
+   in each region you list. If the account logs Bedrock invocations, the
+   review's prompts land there too: say where, for how long, and who can read
+   them, in that entry.
 2. **Deploy the role** from [`examples/ci/bedrock-review-role.yml`](bedrock-review-role.yml), once for each
    product repo. It trusts only a pull request in that repo running the
-   factory's [`.github/workflows/review-pr.yml`](../../.github/workflows/review-pr.yml) at `refs/heads/main` (the `FactoryRef`
-   parameter), and allows only calls to Anthropic's models. It takes the
-   account's GitHub OIDC provider as a parameter, since an account holds only
-   one for that address. If the account has none, an AWS admin adds one for
-   `https://token.actions.githubusercontent.com` with the audience
-   `sts.amazonaws.com`.
+   factory's `review-pr-bedrock.yml` at `refs/heads/main` (the `FactoryRef`
+   parameter; a caller pinned to a commit needs `FactoryRef` set to that
+   commit), and allows only calls to Anthropic's models in `BedrockRegions`.
+   It takes the account's GitHub OIDC provider as a parameter, since an
+   account holds only one for that address. If the account has none, an AWS
+   admin adds one for `https://token.actions.githubusercontent.com` with the
+   audience `sts.amazonaws.com`.
 
    ```
    aws cloudformation deploy --stack-name factory-review-product \
      --template-file examples/ci/bedrock-review-role.yml \
      --capabilities CAPABILITY_IAM \
      --parameter-overrides ProductRepo=your-org/product FactoryRepo=your-org/factory \
+       BedrockRegions=us-east-1 \
        GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
    ```
 
@@ -233,16 +271,26 @@ Before the first pull request, in this order:
      | gh api --method PUT repos/your-org/product/actions/oidc/customization/sub --input -
    ```
 
-   It changes the subject for every workflow in that repo, so any other AWS
-   role that trusts one of them by its subject needs its condition updated.
+   It changes the subject for every workflow in that repo: each gains
+   `:job_workflow_ref:<workflow>@<ref>` at its end. First list every IAM role
+   that trusts the provider for `repo:your-org/product:`. One matched with
+   `StringEquals` stops matching, so that repo's other OIDC deploys fail until
+   you add the `job_workflow_ref` part to its condition; never widen it to a
+   wildcard instead. One matched with `StringLike` and a `*` before its end,
+   such as `refs/heads/*main`, can start matching branches it didn't: change
+   it to `StringEquals` before you run this.
 
-Three things haven't been tried on a live run yet, so check them on the first
-one. That the subject GitHub sends matches the one the template expects,
-`repo:your-org/product:pull_request:job_workflow_ref:your-org/factory/.github/workflows/review-pr.yml@refs/heads/main`:
-if the role can't be assumed, compare the two before widening the trust.
-That `job_workflow_ref` names the factory's workflow, not the caller. And that
-a caller with a Claude key still starts once `id-token: write` is in its
-permissions.
+Four things haven't been tried on a live run yet, so check them on the first
+one:
+
+- The subject GitHub sends matches the one the template expects,
+  `repo:your-org/product:pull_request:job_workflow_ref:your-org/factory/.github/workflows/review-pr-bedrock.yml@refs/heads/main`.
+  If the role can't be assumed, compare the two before widening the trust.
+- `job_workflow_ref` and `job_workflow_sha` in the review job's token name the
+  factory's workflow and its commit, not the caller's.
+- The model ID you give runs in that region under the role.
+- A model through a cross-region profile is refused when a region it routes
+  to isn't in `BedrockRegions`.
 
 ## The secret
 

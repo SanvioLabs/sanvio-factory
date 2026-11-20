@@ -12,7 +12,7 @@ factory itself.
 
 Start with checks, then add the review. The loop is optional.
 
-To run the review on Amazon Bedrock in your own AWS account instead of with an Anthropic key, [On Amazon Bedrock](../examples/ci/README.md#on-amazon-bedrock) has the caller, the role's template and the setup.
+To run the review on Amazon Bedrock in your own AWS account instead of with an Anthropic key, call [`.github/workflows/review-pr-bedrock.yml`](../.github/workflows/review-pr-bedrock.yml) instead: [On Amazon Bedrock](../examples/ci/README.md#on-amazon-bedrock) has the caller, the role's template and the setup. A caller with an Anthropic key changes nothing.
 
 None of the three merges. The factory never merges unless you turn on
 `auto_merge` in its `loop.json`, and even then only `loop.py review`, the
