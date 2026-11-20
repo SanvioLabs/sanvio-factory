@@ -429,6 +429,13 @@ export function duration(ms: number): string {
   return `${Math.floor(m / 60)}h ${pad(m % 60)}m`
 }
 
+// When something started, in local time: 14:22 on the day it's read, Nov 19 14:22 on any other.
+export function startedWhen(from: number, now: number): string {
+  const at = new Date(from)
+  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`
+  return at.toDateString() === new Date(now).toDateString() ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`
+}
+
 // What a job has used, over every run: 840k tokens · ~$3.40. The cost is Claude Code's estimate at API
 // prices and shows only beside tokens. Null when the row has none, as from an older loop.py.
 export function usage(row: Row): string | null {
@@ -453,9 +460,7 @@ export function modelName(row: Row): string | null {
 export function clock(row: Row, isRunning: boolean, now: number): string | null {
   const from = row.started ? Date.parse(row.started) : Number.NaN
   if (!Number.isFinite(from)) return null
-  const at = new Date(from)
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`
-  const when = at.toDateString() === new Date(now).toDateString() ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`
+  const when = startedWhen(from, now)
   const end = row.updated ? Date.parse(row.updated) : Number.NaN
   let line = `started ${when}`
   if (dot(row, isRunning).isPulsing) line += ` · running ${duration(now - from)}`
