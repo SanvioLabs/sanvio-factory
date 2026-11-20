@@ -60,7 +60,7 @@ row names.
 | `harness-lens` | This session's own hook events and the factory's local files | So you can see which part of the harness just acted |
 | `github-status` | This repo's actions, pull requests and issues on GitHub, through `gh` and your login | So a running check or a waiting pull request shows without a browser tab |
 | `factory-dashboard` | The local logs and `.loop/` records, through [`scripts/dashboard_data.py`](../scripts/dashboard_data.py), which asks GitHub for merged pull requests through `gh` | The factory's numbers in one pane |
-| `factory-floor` | The loop's `.loop/` records, including each issue's pull request link, which it opens in your browser when you click it, and, over SSH, the `.loop/` files of the machines listed in `.sanvio/factory-floor/machines.json`. **Watch** on another machine's issue checks over SSH that its tmux session is there, then copies an SSH command that attaches to it read-only, for you to run | So you can watch the loop work |
+| `factory-floor` | The loop's `.loop/` records, including each issue's pull request link, which it opens in your browser when you click it, and, over SSH, the `.loop/` files of the machines listed in `.sanvio/factory-floor/machines.json`, and the test suite runs [`scripts/run_tests.py`](../scripts/run_tests.py) records in `.sanvio/tests/`. **Watch** on another machine's issue checks over SSH that its tmux session is there, then copies an SSH command that attaches to it read-only, for you to run | So you can watch the loop work |
 | `stelliad` | Nothing until one of its skills runs. It's pinned to one reviewed commit in [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | Its `create-ticket` and `create-spec` skills write the issues the loop takes |
 
 `claude plugin disable <name>@sanvio-factory --scope local` switches one off
@@ -113,6 +113,7 @@ the problem afterwards.
 | Your usage log, `.sanvio/usage/<user>.jsonl` | 90 days | [`.claude/hooks/usage_log.py`](../.claude/hooks/usage_log.py), at each session start, log on or off |
 | The loop's `.loop/issue-N/` folders | 90 days after their last file changed, once `.loop/status.json` no longer lists the issue | [`scripts/loop.py`](../scripts/loop.py), each time a run starts |
 | Session retro copies, `local-data/retro/` | 30 days, or once read | [`.claude/hooks/session_retro.py`](../.claude/hooks/session_retro.py) |
+| Test run status files, `.sanvio/tests/` | 30 days after their last update | [`scripts/run_tests.py`](../scripts/run_tests.py), each time a run starts |
 
 Each usage-log line carries the hash of the line before it, so an edit, a
 removal or an insertion shows in the usage report and the dashboard as "changed

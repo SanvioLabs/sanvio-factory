@@ -44,13 +44,47 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-20: Let named paths through the command sandbox
 
-A new machine key, `sandbox_allow`, lets a project's `test_command`, `generate_command` and `setup_command` read and write the paths it names. Every other path the sandbox denies stays denied. Each entry is one of the sandbox's names, matched exactly, such as `.npmrc` or `company`. For a private npm registry, `"projects": {"app": {"sandbox_allow": [".npmrc"]}}` lets `npm ci` read `~/.npmrc`. A `.config/` name is let through under `XDG_CONFIG_HOME` too, and `GH_CONFIG_DIR` stays denied. It's empty by default and only the factory's `loop.json` sets it: a project's own `loop.json` that sets it is refused. A value that isn't a list of names, or a name the sandbox doesn't deny, stops `run` with one `ERROR` line before any issue is taken. With the sandbox on, the loop logs one `WARN` line at start naming each path let through. It doesn't apply to caller projects.
+A new machine key, `sandbox_allow`, lets a project's `test_command`, `generate_command` and `setup_command` read and write the paths it names. Every other path the sandbox denies stays denied. Each entry is one of the sandbox's names, matched exactly, such as `.npmrc` or `company`. For a private npm registry, `"projects": {"app": {"sandbox_allow": [".npmrc"]}}` lets `npm ci` read `~/.npmrc`. A `.config/` name is let through under `XDG_CONFIG_HOME` too, and `GH_CONFIG_DIR` stays denied. It's empty by default and only the factory's `loop.json` sets it: a project's own `loop.json` that sets it is refused. A value that isn't a list of names, or a name the sandbox doesn't deny, stops `run`, `review` and `review --pr` with one `ERROR` line before anything is taken, and the three commands let nothing through under it. With the sandbox on, the loop logs one `WARN` line at start naming each path let through. It doesn't apply to caller projects, and a caller's loop with it set logs one `WARN` line saying so. Letting a path through is the factory owner's decision, as turning the sandbox off is.
 
-**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-13: The sandbox denies more and can't be stepped around
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-13: The sandbox denies more and can't be stepped around; 2026-11-20: The loop refuses a misread sandbox_commands or agent_env
 
-Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`CHANGELOG.md`](CHANGELOG.md).
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`steering/decisions.md`](steering/decisions.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing, unless a project's commands need `~/.npmrc` or another denied path: add `"sandbox_allow": [".npmrc"]` under its `"projects"` entry in the factory's `loop.json`.
+
+## 2026-11-20: The loop refuses a misread sandbox_commands or agent_env
+
+`run`, the `review` watcher and `review --pr` now check `loop.json` before they take anything. A `sandbox_commands` that isn't `true` or `false`, such as `"true"` or `1`, or an `agent_env` that isn't a list of strings, such as `"AWS_PROFILE"`, stops them with one `ERROR` line ending "so nothing is taken". Before, only `run` checked `sandbox_commands`, and a misread `agent_env` passed no variables without saying so. `test_command`, `generate_command` and `setup_command` also refuse to run on their own under such a `sandbox_commands`. When `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_PROFILE`, `GOOGLE_APPLICATION_CREDENTIALS` or a `CLAUDE_CODE_*_TOKENS` limit is set where the loop starts but `agent_env` doesn't list it, the loop logs one `WARN` naming each one, never its value, since no agent gets it. `stop` still works with a bad value.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-17: A caller's commands are the factory's; 2026-11-18: A caller's commands are held to their own folders
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if the loop now stops with an `agent_env` or `sandbox_commands` `ERROR`, fix that value in the factory's `loop.json`. If it warns about a provider setting your agents need, add its name to `agent_env`.
+
+## 2026-11-20: factory-floor shows test suite runs
+
+Factory-floor's List view has a **Tests** section under the list, whichever loop is picked, showing each test suite run [`scripts/run_tests.py`](scripts/run_tests.py) has recorded in `.sanvio/tests/`: its worktree and branch, then for a run still going a pulsing dot, its clock, how many tests have run out of how many and how many failed, and for the three that ended most recently, whether they passed, failed or were stopped. A run that stopped writing for a minute shows red and **stopped**. While the List is drawn, a run the pane saw running raises a notice when it ends. The Crew view and other machines don't show runs.
+
+**Needs:** 2026-11-20: A status file for each test suite run
+
+Files: [`examples/mods/factory-floor/hooks/runs.ts`](examples/mods/factory-floor/hooks/runs.ts), [`examples/mods/factory-floor/hooks/runs.test.ts`](examples/mods/factory-floor/hooks/runs.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** run the suite with `python3 scripts/run_tests.py` to see it in the pane. Reload Claude Code's plugins, or start a new session, to take the new version of the mod.
+
+## 2026-11-20: A status file for each test suite run
+
+`python3 scripts/run_tests.py` runs the tests as `python3 -m unittest discover -s tests` does, with unittest's output and exit code, and names in unittest's form run only those. While it runs it keeps `.sanvio/tests/<run id>.json` in the main clone current: where it ran, the branch, how many tests have run and failed out of how many, refreshed at least every 10 seconds, and how it ended. A run in a linked worktree writes to the main clone's folder too. The files hold paths, a branch name and counts, never test output, and each start removes those over 30 days old. If the file can't be written the tests run anyway, with one line saying so. Factory-floor doesn't show these runs yet. The loop's `test_command` and CI are unchanged. [`steering/building-and-testing.md`](steering/building-and-testing.md) now says to run the full suite through it.
+
+**Controls:** SA-9
+
+Files: [`scripts/run_tests.py`](scripts/run_tests.py), [`tests/test_run_tests.py`](tests/test_run_tests.py), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** nothing. Run the full suite with `python3 scripts/run_tests.py` from now on, so the run can be shown.
 
 ## 2026-11-20: The CI review runs on Amazon Bedrock through OIDC
 

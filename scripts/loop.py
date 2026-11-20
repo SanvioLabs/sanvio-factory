@@ -1649,6 +1649,34 @@ def env_for_agents(environ, keep=()):
     return env
 
 
+# Settings an agent's model provider reads, which SECRET_ENV strips: set where the loop starts and left out of
+# agent_env, an agent on Bedrock, Vertex or a raised output limit starts without them and fails or falls back.
+PROVIDER_ENV = re.compile(r"^(AWS_REGION|AWS_DEFAULT_REGION|AWS_PROFILE|GOOGLE_APPLICATION_CREDENTIALS|"
+                          r"CLAUDE_CODE_\w+_TOKENS)$")
+
+
+def dropped_provider_env(environ, keep=()):
+    """The sorted names of the provider settings set in environ that env_for_agents(environ, keep) leaves out.
+    Names only: no value leaves here, so the WARN that lists them can't print one."""
+    passed = env_for_agents(environ, keep)
+    return sorted(name for name in environ if PROVIDER_ENV.match(name) and name not in passed)
+
+
+def start_problem(cfg):
+    """Why loop.json's sandbox_commands, agent_env or sandbox_allow can't be acted on, as one ERROR's text, or
+    None. A missing key is its default's value, as load_config gives it. An empty agent_env is fine."""
+    sandbox = cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"])
+    if not isinstance(sandbox, bool):
+        return "sandbox_commands in loop.json: {} isn't true or false".format(repr(sandbox)[:100])
+    keep = cfg.get("agent_env", DEFAULTS["agent_env"])
+    if not (isinstance(keep, list) and all(isinstance(name, str) for name in keep)):
+        return "agent_env in loop.json: {} isn't a list of strings".format(repr(keep)[:100])
+    why = sandbox_allow_problem(cfg)
+    if why:
+        return "sandbox_allow in loop.json: {}".format(why)[:300]
+    return None
+
+
 def pick(issues, me, cfg, only=None):
     """The lowest-numbered issue the loop may take, or None. With only=N, that issue alone."""
     for issue in ready(issues, me, cfg):
@@ -3091,8 +3119,12 @@ class Loop:
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
         sandbox_profile denies but what sandbox_allow lets through, with sandbox_env's git settings, so git
         neither stops on the denied ~/.gitconfig nor warns about ~/.config/git. For a caller project it's also
-        denied every path caller_denied() names, as its build and tester agents are. Anything else runs it as before: only true
-        turns the sandbox on, and work() refuses a caller where it's off."""
+        denied every path caller_denied() names, as its build and tester agents are. Anything else runs it as
+        before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands
+        that isn't true or false runs nothing, and a sandbox_allow that isn't a list of denied names lets
+        nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway."""
+        if not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
+            return 126, "refused: sandbox_commands in loop.json isn't true or false"
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
         if self.sandboxed() and self.caller():
             # #640: what the loop's own git reads next is checked before and after.
@@ -3100,7 +3132,8 @@ class Loop:
                                  lambda: self.caller_command(command, tree, env, timeout, partial))
         if self.sandboxed():
             # sandbox_allow's names are let through here only: a caller's profile above never reads it.
-            profile = sandbox_profile(Path.home(), self.root, allow=self.cfg.get("sandbox_allow") or ())
+            allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
+            profile = sandbox_profile(Path.home(), self.root, allow=allow)
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         if self.caller():
@@ -5236,9 +5269,13 @@ class Loop:
             elif self.cfg.get("sandbox_commands") is True and not self.sandboxed():
                 self.log("WARN", SANDBOX_PROBE_WARN.format(error=self.sandbox_error))
             # Only where the sandbox applies: off, the WARN above already says every file can be read, and a
-            # bad value gets work()'s ERROR instead.
+            # bad value gets start_checks()'s ERROR instead. A caller's commands keep every denial, which a
+            # top-level sandbox_allow could make look otherwise, so it's told so rather than refused.
             allow = self.cfg.get("sandbox_allow")
-            if sandbox_allow_problem(self.cfg) is None and allow and not self.caller() and self.sandboxed():
+            if sandbox_allow_problem(self.cfg) is None and allow and self.caller():
+                self.log("WARN", "sandbox_allow in the factory's loop.json doesn't apply to a caller project: "
+                         "its commands keep every denial")
+            elif sandbox_allow_problem(self.cfg) is None and allow and self.sandboxed():
                 shown = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
                 self.log("WARN", "sandbox_allow in the factory's loop.json lets test_command, generate_command "
                          "and setup_command read and write: " + ", ".join(shown))
@@ -5255,7 +5292,7 @@ class Loop:
                 self.deadline = time.time() + seconds
                 self.log("UNTIL", "{} (--for {})".format(
                     datetime.fromtimestamp(self.deadline).strftime("%Y-%m-%d %H:%M"), self.for_text))
-            code = work()
+            code = self.start_checks() or work()
             if self.stopped():
                 self.log("STOPPED", "stop file found")
                 (self.dir / "STOP").unlink()
@@ -5266,6 +5303,21 @@ class Loop:
             (self.dir / "watch.command").unlink(missing_ok=True)
             (self.dir / "lock").unlink(missing_ok=True)
         return code or 0
+
+    def start_checks(self):
+        """Before run, the review watcher or review --pr takes anything: 1 with one ERROR line when
+        sandbox_commands or agent_env can't be acted on, else None, with one WARN line naming each provider
+        setting set here that no agent would get. Names only, never a value."""
+        found = start_problem(self.cfg)
+        if found:
+            self.log("ERROR", "{}, so nothing is taken".format(found))
+            return 1
+        dropped = dropped_provider_env(os.environ, self.cfg.get("agent_env") or ())
+        if dropped:
+            one = len(dropped) == 1
+            self.log("WARN", "{} {} set here but not passed to agents; list {} in agent_env in loop.json".format(
+                ", ".join(dropped), "is" if one else "are", "it" if one else "them"))
+        return None
 
     def run(self, once=False, only=None, dry_run=False, until=None):
         return self.locked(lambda: self.work(once, only, dry_run), until)
@@ -5293,14 +5345,6 @@ class Loop:
         if not isinstance(self.cfg.get("allow_lockfile_changes", False), bool):
             self.log("ERROR", "allow_lockfile_changes in loop.json: {} isn't true or false, "
                      "so no issue is taken".format(repr(self.cfg["allow_lockfile_changes"])[:100]))
-            return 1
-        if not isinstance(self.cfg.get("sandbox_commands", False), bool):
-            self.log("ERROR", "sandbox_commands in loop.json: {} isn't true or false, "
-                     "so no issue is taken".format(repr(self.cfg["sandbox_commands"])[:100]))
-            return 1
-        why = sandbox_allow_problem(self.cfg)
-        if why:
-            self.log("ERROR", "sandbox_allow in loop.json: {}, so no issue is taken".format(why)[:300])
             return 1
         limit, why = budget(self.cfg)
         if why:
@@ -5529,6 +5573,8 @@ class Loop:
         the loop's files but its log."""
         self.only_pr, self.busy = int(pr), False
         self.started_with = fingerprint()
+        if self.start_checks():
+            return 1
         if not self.auto_merge_ok():
             return 1
         if not file_locks():

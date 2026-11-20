@@ -17,7 +17,7 @@ Where this page and the linked file disagree, the linked file wins.
 | Editing a gate to make work pass | Nobody: it isn't done. Changing a gate is a person's deliberate change | [`AGENTS.md`](../AGENTS.md), *Done means the gate passes*; [`gates.md`](gates.md) |
 | Writing a new rule from a lesson | The person, a yes to the rule as shown | [`skills/learn/SKILL.md`](../skills/learn/SKILL.md) |
 | Turning off the usage log | The person running the session, unless an administrator's managed setting keeps it on | [`data-and-tools.md`](data-and-tools.md) |
-| Turning off the loop's command sandbox | The factory's owner, in the factory's `loop.json` | [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), `sandbox_commands` |
+| Turning off the loop's command sandbox, or letting a path through it with `sandbox_allow` | The factory's owner, in the factory's `loop.json` | [`HOW-IT-WORKS.md`](../HOW-IT-WORKS.md), `sandbox_commands` |
 | Adding an AI tool or MCP server | Whoever agrees it with the customer, before any customer information reaches it | [`data-and-tools.md`](data-and-tools.md), *Approved tools* |
 | Deploying to production | A person, a yes to that one deploy | [`deploying.md`](deploying.md), *Every deploy* |
 | Deleting or overwriting data, test data included | A person, asked first | [`deploying.md`](deploying.md), *Never* |
