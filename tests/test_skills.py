@@ -898,6 +898,91 @@ class FactoryUpdatesApplies(unittest.TestCase):
                         output[-200:])
 
 
+class FactoryUpdatesMods(unittest.TestCase):
+    """factory-updates step 11 installs and updates the copy's mods after step 10, each command on its own yes,
+    at local scope from this copy's marketplace, and never turns a mod on or off or removes one."""
+
+    SKILL = ROOT / "skills" / "factory-updates" / "SKILL.md"
+
+    def raw(self):
+        return self.SKILL.read_text()
+
+    def text(self):
+        return " ".join(self.raw().split())
+
+    def step(self):
+        text = self.text()
+        begin = text.index("11. **Install and update the mods.**")
+        return text[begin:text.index("## Rules", begin)]
+
+    def plugin_lines(self):
+        return [line for line in self.raw().splitlines() if "claude plugin" in line]
+
+    def test_the_step_comes_after_step_10(self):
+        text = self.text()
+        self.assertLess(text.index("10. **Apply"), text.index("11. **Install and update the mods.**"))
+
+    def test_the_step_names_its_commands(self):
+        step = self.step()
+        for words in ("claude plugin marketplace update <marketplace>",
+                      "claude plugin install <name>@<marketplace> --scope local",
+                      "claude plugin update <name>@<marketplace>", "/reload-plugins"):
+            self.assertIn(words, step)
+        installs = [line for line in self.plugin_lines() if "claude plugin install" in line]
+        self.assertTrue(installs, "the skill names no install")
+        for line in installs:
+            self.assertIn("--scope local", line)
+
+    def test_the_marketplace_name_command_prints_the_name(self):
+        command = re.search(r"^\s*(python3 -c '[^']*marketplace\.json[^']*')\s*$", self.raw(), re.M)
+        self.assertTrue(command, "step 11 gives no command that reads the marketplace's name")
+        done = subprocess.run(["bash", "-c", command.group(1)], cwd=ROOT, capture_output=True, text=True)
+        name = check_setup.read_json(ROOT / ".claude-plugin" / "marketplace.json")["name"]
+        self.assertEqual(done.stdout.strip(), name, done.stderr)
+
+    def test_the_check_runs_first_and_last(self):
+        step = self.step()
+        runs = [m.start() for m in re.finditer(re.escape("python3 scripts/check_setup.py"), step)]
+        self.assertGreaterEqual(len(runs), 2, "step 11 runs the setup check fewer than twice")
+        self.assertLess(runs[0], step.index("claude plugin marketplace update"))
+        self.assertGreater(runs[-1], step.rindex("claude plugin"))
+
+    def test_each_command_asks_and_a_failure_stops_the_rest(self):
+        step = self.step()
+        for words in ("not installed", "older", "runs only on its own yes",
+                      "Any command that fails stops the commands after it:",
+                      "say which one failed and name each command that didn't run."):
+            self.assertIn(words, step)
+
+    def test_it_never_widens_scope_or_changes_what_is_on(self):
+        raw = self.raw()
+        self.assertIsNone(re.search(r"--scope (user|project)\b", raw))
+        self.assertIsNone(re.search(r"claude plugin (enable|disable|uninstall)\b", raw))
+        for line in self.plugin_lines():
+            self.assertNotIn("$clone", line)
+            if re.search(r"claude plugin \w", line):
+                self.assertNotIn("--force", line)
+        self.assertIn("A mod it names as installed but turned off: say so, and leave it off.", self.step())
+
+    def test_step_9_no_longer_says_a_mod_has_no_switch(self):
+        self.assertNotIn("`factory-dashboard` has none", self.text())
+
+    def test_each_part_of_the_skill_says_it_installs_and_updates_mods(self):
+        text = self.text()
+        intro = text[:text.index("## Steps")]
+        self.assertIn("Then it installs and updates the mods this copy switches on, each on its own yes.", intro)
+        description = frontmatter(self.raw()).get("description", "")
+        self.assertIn("Then installs and updates the mods this copy switches on, each command on its own yes.",
+                      description)
+        step_10 = text[text.index("10. **Apply"):text.index("11. **Install and update the mods.**")]
+        self.assertIn("step 11 installs and updates this copy's mods, each command on its own yes.", step_10)
+        rules = text[text.index("## Rules"):text.index("## Output")]
+        self.assertIn("Installing and updating mods in step 11: each `claude plugin` command runs only on its own "
+                      "yes, installs only with `--scope local`", rules)
+        output = text[text.index("## Output"):]
+        self.assertIn("11 installs and updates mods after this answer, each command on its own yes", output)
+
+
 class UpgradeGuideStaysUpstream(unittest.TestCase):
     """The upgrade guide's links point at Sanvio Factory's own files, so it's read on GitHub, and
     factory-updates gives its address in place of a copy. Checked only in Sanvio Factory's own repo:
