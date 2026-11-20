@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-20: The loop refuses a misread sandbox_commands or agent_env
+
+`run`, the `review` watcher and `review --pr` now check `loop.json` before they take anything. A `sandbox_commands` that isn't `true` or `false`, such as `"true"` or `1`, or an `agent_env` that isn't a list of strings, such as `"AWS_PROFILE"`, stops them with one `ERROR` line ending "so nothing is taken". Before, only `run` checked `sandbox_commands`, and a misread `agent_env` passed no variables without saying so. `test_command`, `generate_command` and `setup_command` also refuse to run on their own under such a `sandbox_commands`. When `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_PROFILE`, `GOOGLE_APPLICATION_CREDENTIALS` or a `CLAUDE_CODE_*_TOKENS` limit is set where the loop starts but `agent_env` doesn't list it, the loop logs one `WARN` naming each one, never its value, since no agent gets it. `stop` still works with a bad value.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-17: A caller's commands are the factory's; 2026-11-18: A caller's commands are held to their own folders
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if the loop now stops with an `agent_env` or `sandbox_commands` `ERROR`, fix that value in the factory's `loop.json`. If it warns about a provider setting your agents need, add its name to `agent_env`.
+
 ## 2026-11-20: factory-floor shows test suite runs
 
 Factory-floor's List view has a **Tests** section under the list, whichever loop is picked, showing each test suite run [`scripts/run_tests.py`](scripts/run_tests.py) has recorded in `.sanvio/tests/`: its worktree and branch, then for a run still going a pulsing dot, its clock, how many tests have run out of how many and how many failed, and for the three that ended most recently, whether they passed, failed or were stopped. A run that stopped writing for a minute shows red and **stopped**. While the List is drawn, a run the pane saw running raises a notice when it ends. The Crew view and other machines don't show runs.
