@@ -1,20 +1,21 @@
 ---
 name: factory-updates
-description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory and changes nothing here. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates", "factory updates", "check the factory", or "what's new in Sanvio Factory".
+description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory, then applies what the person chose on a new branch in this copy, each step on its own yes, and writes the `starter:` line. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates", "factory updates", "check the factory", or "what's new in Sanvio Factory".
 license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
 # Factory updates
 
-This skill reads the public Sanvio Factory and changes nothing in this copy.
-It used to be called `starter-updates`, and before that `check-starter`.
+This skill reads the public Sanvio Factory, then applies what the person chose
+in this copy, each step on its own yes. It used to be called `starter-updates`, and before that `check-starter`.
 
 A copy taken from Sanvio Factory drifts: Sanvio Factory keeps shipping, and
 the copy adapts its own files. This skill lists what upstream has shipped since
 the copy was taken, asks which of upstream's capabilities the copy wants that
 it doesn't have and which updates it wants to what it has, says which of those
-commits touch a file the copy changed, and recommends what to do with each. The
-person decides and runs every command that changes a file here.
+commits touch a file the copy changed, and recommends what to do with each.
+Then, on a new branch, it applies each choice on its own yes and writes the
+`starter:` line, so the next run starts from there.
 
 ## Steps
 
@@ -346,8 +347,9 @@ person decides and runs every command that changes a file here.
      command for that one file. Each commit it lists that isn't part of that
      change rides along when the file is taken. Name each one under the file,
      by its [`CHANGELOG.md`](../../CHANGELOG.md) entry name, or by its subject if it has none, as
-     `also brings: <name>`. Don't leave the file out for it: the person
-     decides.
+     `also brings: <name>`. Step 10 copies the file only when each of them
+     is **take**, or **ask** with its own yes; otherwise it holds the file
+     back and names the commit.
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      upstream: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
@@ -356,22 +358,99 @@ person decides and runs every command that changes a file here.
      [`.claude/settings.json`](../../.claude/settings.json)'s hooks for it and a current
      [`.claude/hooks/guard.py`](../../.claude/hooks/guard.py), which it imports.
 
-10. **Name the new baseline.** Once they've taken what they want, tell them to
-   add `starter: <sha>` to the header of [`CHANGELOG.md`](../../CHANGELOG.md), above the first
-   entry, with the newest commit they're now level with. Next time, step 3
-   reads it.
+10. **Apply what they chose.** Each part below asks first, and runs only on a
+   yes to that one part. A no, or a part that fails, stops everything after
+   it: say which part stopped and name each part that didn't run. Never run a
+   part again with `--force`, `--no-verify` or any other flag that skips a
+   check. Every command here runs in this copy, from the harness root.
+
+   1. **Start clean.** This lists any change not yet committed:
+
+      ```bash
+      git status --porcelain
+      ```
+
+      If it prints anything, stop. Name the changed files, and give step 9's
+      commands for the person to run themselves.
+   2. **Make a branch.** On a yes, make a new branch from the current one,
+      named for the upstream commit it applies:
+
+      ```bash
+      git switch -c "factory-update-$(git -C "$clone" rev-parse --short origin/main)"
+      ```
+
+      `$clone` is the scratch clone from step 2. If it isn't set any more,
+      set it again with step 2's `clone=` line first; it only reads the clone.
+      If a branch of that name exists, the switch fails and this stops: an
+      update branch is never reused or overwritten. On a no, stop and give
+      step 9's commands for the person to run themselves.
+   3. **Copy the files.** On a yes, run step 9's `mkdir -p`, `cp` and `cp -R`
+      commands. They aren't repeated here. A file is copied only when every
+      commit since the baseline that touches it, by step 4's one-file command,
+      is **take**, or is **ask** and got its own yes after you showed the
+      line step 7 quotes. A **skip**, or a **take X first** whose X isn't
+      taken, holds the file back: name the commit that held it. An adapted
+      file (**merge by hand**) and [`CHANGELOG.md`](../../CHANGELOG.md)'s upstream entries are never
+      copied: show step 9's diff and leave the merge to the person.
+   4. **Run the quick check.** On a yes, run it in this copy, never in the
+      scratch clone, and show its output:
+
+      ```bash
+      python3 scripts/quick_check.py
+      ```
+
+      On any FAIL, stop before committing and name what failed.
+   5. **Write the new baseline.** Name every commit at or before the sha you'd
+      propose that wasn't applied: held back, left to merge by hand, said no
+      to or undecided. Propose the newest sha with none of those before it,
+      or the person's own sha with that list shown. On a yes, write
+      `starter: <sha>` above the first entry of [`CHANGELOG.md`](../../CHANGELOG.md), replacing any
+      `starter:` line already there. Next time, step 3 reads it.
+   6. **Commit.** On a yes, stage only the files copied in part 3, plus
+      [`CHANGELOG.md`](../../CHANGELOG.md) if part 5 wrote the `starter:` line, and commit:
+
+      ```bash
+      git add -- <each copied file> CHANGELOG.md
+      git commit -m "Take Sanvio Factory updates to <sha>"
+      ```
+
+      Leave [`CHANGELOG.md`](../../CHANGELOG.md) off the `git add` line only when part 5 wrote no
+      `starter:` line. If the pre-commit hook blocks it, show what the hook
+      named and stop.
+   7. **Push.** Check where `origin` fetches from and pushes to:
+
+      ```bash
+      git remote get-url origin
+      git remote get-url --push origin
+      ```
+
+      If there's no `origin`, or either URL matches `STARTER` in
+      [`scripts/check_setup.py`](../../scripts/check_setup.py), refuse the push and say why: this skill
+      never pushes to Sanvio Factory. Match with `STARTER` itself, never by
+      eye: it ignores case and allows a trailing `.git` or `/`. For each URL,
+      this prints `upstream` when it matches:
+
+      ```bash
+      python3 -c 'import sys; sys.path.insert(0, "scripts"); from check_setup import STARTER; print("upstream" if STARTER.search(sys.argv[1]) else "not upstream")' "<url>"
+      ```
+
+      Otherwise, on a yes, push the update branch to `origin`, never forced:
+
+      ```bash
+      git push -u origin "$(git branch --show-current)"
+      ```
+
+   8. **Merge only when asked.** Never merge the update branch unless the
+      person asks for that merge, and then only on a yes to it.
 
 ## Rules
 
-- Never pull, merge, check out, copy or commit in this copy, and never offer
-  to. A yes in step 6 gets a command named, never the action taken. Name the
-  command and let the person run it. The git commands in steps 2 to 6 run
-  inside the scratch clone, which is the only place this skill changes anything.
+- Copying, checking out a branch, committing, writing the `starter:` line,
+  pushing and merging happen in this copy only on the person's yes to that one
+  step, and never push to Sanvio Factory or with force.
 - Never run anything from the scratch clone: no script, hook, test or install.
   It's read with git and copied from, nothing else. That covers the table in
   step 6, which is read as data.
-- Never write the `starter:` line yourself. The person adds it once they've
-  taken what they meant to.
 - Every commit on the list is in the answer, and the count you give is the
   list's length. To be brief, shorten each line, never drop a commit.
 - Asked what this copy's own remote has that it doesn't, that's
@@ -395,5 +474,7 @@ any note from step 7, any **take X first**, "probably needs X" and "probably
 needs X (nearby lines)", its **Do:**
 line, and any adapted files it touches. Leave
 out a name or **Do:** line it doesn't have. Then any competing build with its direction
-and `Go:` line, the commands to take each file under no table path, and the
-`starter:` line to add. End there: the next step is theirs to run.
+and `Go:` line, and the commands to take each file under no table path. End
+with step 10's results: each part that ran and what it showed, the part that
+stopped it and why, the parts it didn't run, and the branch, the commit, the
+`starter:` line and the push where they were made.
