@@ -63,7 +63,9 @@ breaks. One that passes whatever the code does is decoration.
 
 ## Done
 
-- The full suite passes, not just the new test. Show the output.
+- The full suite passes, not just the new test. Run it with
+  `python3 scripts/run_tests.py`, so a pane can show the run while it goes, and
+  show the output.
 - [`skills/review-pr/`](../skills/review-pr/) has read the change before a human does.
 - A human merges.
 

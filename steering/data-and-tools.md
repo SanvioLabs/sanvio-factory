@@ -113,6 +113,7 @@ the problem afterwards.
 | Your usage log, `.sanvio/usage/<user>.jsonl` | 90 days | [`.claude/hooks/usage_log.py`](../.claude/hooks/usage_log.py), at each session start, log on or off |
 | The loop's `.loop/issue-N/` folders | 90 days after their last file changed, once `.loop/status.json` no longer lists the issue | [`scripts/loop.py`](../scripts/loop.py), each time a run starts |
 | Session retro copies, `local-data/retro/` | 30 days, or once read | [`.claude/hooks/session_retro.py`](../.claude/hooks/session_retro.py) |
+| Test run status files, `.sanvio/tests/` | 30 days after their last update | [`scripts/run_tests.py`](../scripts/run_tests.py), each time a run starts |
 
 Each usage-log line carries the hash of the line before it, so an edit, a
 removal or an insertion shows in the usage report and the dashboard as "changed
