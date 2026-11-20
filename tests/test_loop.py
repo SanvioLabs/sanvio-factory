@@ -75,6 +75,13 @@ def polls_then_stop(loop_dir, last, first=None):
     return sleep
 
 
+def without_provider_env(test):
+    """Take every provider setting loop.PROVIDER_ENV names out of os.environ until test ends, so a shell with
+    AWS_PROFILE set doesn't add the loop's WARN about it to a log a test reads whole."""
+    for name in [n for n in os.environ if loop.PROVIDER_ENV.match(n)]:
+        test.addCleanup(os.environ.__setitem__, name, os.environ.pop(name))
+
+
 def no_loop_sleep(msg):
     """Fail if loop.py itself sleeps. Swaps only loop's `time`, so subprocess keeps the real sleep."""
     return mock.patch.object(loop, "time", mock.Mock(wraps=time, sleep=mock.Mock(side_effect=AssertionError(msg))))
@@ -1221,6 +1228,7 @@ class TestAPass(unittest.TestCase):
         self.addCleanup(patcher.stop)
         (self.state / "issues.json").write_text(json.dumps([issue(12)]))
         (self.state / "verdict").write_text("PASS")
+        without_provider_env(self)
         os.environ["LOOP_TEST_STATE"] = str(self.state)
         self.old_path = os.environ["PATH"]
         os.environ["PATH"] = str(bin_dir) + os.pathsep + self.old_path
@@ -4574,9 +4582,80 @@ class TestAPass(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
             code = loop.Loop(self.work, self.cfg).run(once=True)
         self.assertEqual(code, 1)
-        self.assertIn("ERROR sandbox_commands in loop.json: 'yes' isn't true or false, so no issue is taken",
+        self.assertIn("ERROR sandbox_commands in loop.json: 'yes' isn't true or false, so nothing is taken",
                       (self.work / ".loop" / "loop.log").read_text())
         self.assertFalse((self.state / "agents-started").exists())
+
+    # -- start-up checks of sandbox_commands and agent_env (#685) ------------
+
+    def test_agent_env_that_isnt_a_list_of_strings_is_one_error_with_no_agent_run(self):
+        for value, shown in (("AWS_PROFILE", "'AWS_PROFILE'"), (["A", 3], "['A', 3]")):
+            with self.subTest(agent_env=value):
+                self.tearDown()
+                self.setUp()
+                self.cfg["agent_env"] = value
+                self.assertEqual(self.go(), 1)
+                errors = [l.split(" - ", 1)[1] for l in self.lines() if l.split()[2] == "ERROR"]
+                self.assertEqual(errors, ["ERROR agent_env in loop.json: {} isn't a list of strings, so nothing "
+                                          "is taken".format(shown)])
+                self.assertFalse((self.state / "agents-started").exists())
+
+    def test_good_sandbox_commands_and_agent_env_start_with_no_error(self):
+        for key, value in (("sandbox_commands", True), ("sandbox_commands", False), ("agent_env", []),
+                           ("agent_env", ["X"])):
+            with self.subTest(**{key: value}):
+                self.tearDown()
+                self.setUp()
+                self.cfg[key] = value
+                self.assertEqual(self.go(), 0)
+                self.assertFalse([l for l in self.lines() if l.split()[2] == "ERROR"], self.lines())
+                self.assertTrue((self.state / "agents-started").exists())
+
+    def test_own_command_runs_nothing_for_a_sandbox_commands_that_isnt_a_bool(self):
+        runner = loop.Loop(self.work, dict(self.cfg, sandbox_commands="true"))
+        with mock.patch.object(runner, "sh") as sh:
+            self.assertEqual(runner.own_command("touch ran", self.work),
+                             (126, "refused: sandbox_commands in loop.json isn't true or false"))
+        sh.assert_not_called()
+        self.assertFalse((self.work / "ran").exists())
+
+    def warnings(self):
+        """The WARN lines about provider settings no agent gets."""
+        return [l.split(" - ", 1)[1] for l in self.lines()
+                if l.split()[2] == "WARN" and "not passed to agents" in l]
+
+    def test_provider_settings_no_agent_gets_are_named_in_one_warning_without_their_values(self):
+        env = {"AWS_REGION": "eu-west-9", "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64321", "GITHUB_TOKEN": TOKEN}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(self.go(), 0)
+        self.assertEqual(self.warnings(), ["WARN AWS_REGION, CLAUDE_CODE_MAX_OUTPUT_TOKENS are set here but not passed "
+                                           "to agents; list them in agent_env in loop.json"])
+        log = (self.work / ".loop" / "loop.log").read_text()
+        for value in env.values():
+            self.assertNotIn(value, log)
+        self.assertNotIn("GITHUB_TOKEN", log)  # dropped too, but not a provider setting
+        self.assertTrue((self.state / "agents-started").exists())
+
+    def test_a_provider_setting_listed_in_agent_env_isnt_named(self):
+        self.cfg["agent_env"] = ["AWS_REGION"]
+        with mock.patch.dict(os.environ, {"AWS_REGION": "eu-west-9", "AWS_PROFILE": "dev"}):
+            self.go()
+        self.assertEqual(self.warnings(), ["WARN AWS_PROFILE is set here but not passed to agents; list it in "
+                                           "agent_env in loop.json"])
+
+    def test_no_warning_when_no_provider_setting_is_set(self):
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.warnings(), [])
+
+    def test_stop_still_works_with_a_bad_sandbox_commands_or_agent_env(self):
+        real = loop.Loop
+        for key, value in (("sandbox_commands", "yes"), ("agent_env", "AWS_PROFILE")):
+            cfg = dict(self.cfg, **{key: value})
+            with self.subTest(**{key: value}), mock.patch.object(loop, "Loop", lambda: real(self.work, cfg)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(loop.main(["stop"]), 0)
+            self.assertTrue((self.work / ".loop" / "STOP").exists())
+            (self.work / ".loop" / "STOP").unlink()
 
     # -- tests written first -------------------------------------------------
 
@@ -7370,6 +7449,7 @@ class ReviewFixture:
         patcher = mock.patch.object(loop, "sandbox_available", return_value=False)
         patcher.start()
         self.addCleanup(patcher.stop)
+        without_provider_env(self)
         os.environ["LOOP_TEST_STATE"] = str(self.state)
         self.old_path = os.environ["PATH"]
         os.environ["PATH"] = str(self.bin) + os.pathsep + self.old_path
@@ -7732,6 +7812,25 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.assertFalse((self.state / "gh-calls").exists() and self.calls(), self.calls() if
                          (self.state / "gh-calls").exists() else [])
         self.assertEqual(self.agents_started(), 0)
+
+    def test_a_sandbox_commands_that_isnt_a_bool_stops_the_watcher_and_review_pr_with_no_agent_run(self):
+        for value in ("true", 1):
+            for how in ("watcher", "--pr"):
+                with self.subTest(sandbox_commands=value, how=how):
+                    self.tearDown()
+                    self.setUp()
+                    sha = self.push(7, "seven.txt")
+                    self.list_prs(self.pr(7, sha))
+                    self.view_pr(7, sha)
+                    self.cfg["sandbox_commands"] = value
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        runner = loop.Loop(self.work, self.cfg)
+                        code = runner.review(once=True) if how == "watcher" else runner.review(pr=7)
+                    self.assertEqual(code, 1)
+                    self.assertIn("ERROR sandbox_commands in loop.json: {!r} isn't true or false, so nothing is "
+                                  "taken".format(value), "\n".join(self.lines()))
+                    self.assertEqual(self.agents_started(), 0)
+                    self.assertEqual(self.comments(), [])
 
     def test_a_credential_in_origin_s_url_is_never_printed(self):
         # Before T068 the refusal printed the URL as git has it, token and all (review after Phase 11).
