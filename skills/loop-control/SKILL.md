@@ -152,7 +152,7 @@ the harness root as above. Name the tmux session after the project,
    command. Don't write one up. Its `loop.json` may set only `test_command`,
    `test_timeout`, `base`, `ready_label`, `blocked_label`, `generate_command`
    and `setup_command`. Every other key
-   (`agent`, `max_workers`, `allow_lockfile_changes`, `sandbox_commands`, ...) is the machine's: it
+   (`agent`, `max_workers`, `allow_lockfile_changes`, `sandbox_commands`, `sandbox_allow`, ...) is the machine's: it
    goes in the factory's `loop.json`, for one project under `"projects"`, such
    as `"projects": {"app": {"agent": "claude", "max_workers": 2}}`.
    A caller project (`"caller": true` in its entry) is the exception: its
