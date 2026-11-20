@@ -463,7 +463,8 @@ updates the mods this copy switches on, each on its own yes.
 
       If the line says it couldn't check, show why and stop. If it names no
       mod as not installed and none as older, say so, name any it shows as
-      turned off, and stop: that line is the final one.
+      turned off, switched off for you, not compared or not checked, as
+      sub-step 4 says for each, and stop: that line is the final one.
    2. **Find the marketplace's name.** This prints it:
 
       ```bash
@@ -495,6 +496,21 @@ updates the mods this copy switches on, each on its own yes.
       A mod it names as installed but turned off: say so, and leave it off.
       This step never turns a mod on or off, never removes one, and never
       edits [`.claude/settings.json`](../../.claude/settings.json).
+      For a mod that's installed but turned off, the `mods` line suggests
+      `claude plugin enable <name>@<marketplace>`. That suggestion is the person's
+      to run: the skill never offers or runs `claude plugin enable` or `claude plugin disable`.
+
+      A mod it names under "version not compared, as this repo's copy has no
+      version that parses": name it, say this repo's copy has no version that
+      parses, point at checking the version in
+      `examples/mods/<name>/.claude-plugin/plugin.json`, and run nothing for
+      it.
+
+      A mod it names under "not checked, as the name can't go in a command":
+      name it, say it wasn't checked, and run nothing for it.
+
+      A mod it names as switched off for you: name it, and leave it alone, as
+      with a mod that's installed but turned off.
    5. **Load them.** After any install or update, tell the person to run
       `/reload-plugins` in the Claude Code message box, or to restart Claude
       Code if that doesn't load it.

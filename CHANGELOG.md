@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: factory-updates says what to do with every mods state, and never offers enable
+
+factory-updates' step 11 now says what to do with each state the setup check's `mods` line reports. It names mods it couldn't compare or check, and runs nothing for them. It leaves mods switched off for you alone. It tells you the line's `claude plugin enable` suggestion is yours to run: the skill never offers or runs `claude plugin enable` or `claude plugin disable`.
+
+**Needs:** 2026-11-19: factory-updates installs and updates your mods, each on its own yes
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-19: factory-updates installs and updates your mods, each on its own yes
 
 After applying what you chose, factory-updates now reads the setup check's `mods` line and offers to refresh the marketplace, install each mod that isn't installed at local scope, and update each one that's older, each command only on your yes, then tells you to run `/reload-plugins` and shows the `mods` line again. It never turns a mod on or off or removes one.

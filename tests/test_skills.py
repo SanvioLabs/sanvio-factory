@@ -957,12 +957,60 @@ class FactoryUpdatesMods(unittest.TestCase):
     def test_it_never_widens_scope_or_changes_what_is_on(self):
         raw = self.raw()
         self.assertIsNone(re.search(r"--scope (user|project)\b", raw))
-        self.assertIsNone(re.search(r"claude plugin (enable|disable|uninstall)\b", raw))
+        self.assertIsNone(re.search(r"claude plugin uninstall\b", raw))
         for line in self.plugin_lines():
             self.assertNotIn("$clone", line)
             if re.search(r"claude plugin \w", line):
                 self.assertNotIn("--force", line)
         self.assertIn("A mod it names as installed but turned off: say so, and leave it off.", self.step())
+
+    def test_the_enable_suggestion_is_the_persons(self):
+        step = self.step()
+        self.assertIn("the person's to run", step)
+        self.assertIn("never offers or runs `claude plugin enable` or `claude plugin disable`", step)
+
+    def test_no_line_offers_enable_or_disable(self):
+        in_fence = False
+        for line in self.raw().splitlines():
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if re.search(r"claude plugin (enable|disable)\b", line):
+                self.assertFalse(in_fence, "a fenced block offers enable or disable: " + line)
+                self.assertTrue("never" in line or "person's" in line,
+                                "a line names enable or disable without saying it's never run: " + line)
+
+    def test_each_other_state_is_named_and_left_alone(self):
+        step = self.step()
+        uncompared = "version not compared, as this repo's copy has no version that parses"
+        unchecked = "not checked, as the name can't go in a command"
+        switched_off = "switched off for you"
+        source = (ROOT / "scripts" / "check_setup.py").read_text()
+        for state in (uncompared, unchecked, switched_off):
+            self.assertIn(state, step)
+            self.assertIn(state, source, "check_setup.py's mods line no longer says: " + state)
+        self.assertIn('A mod it names under "' + uncompared + '": name it, say this repo\'s copy has no version '
+                      "that parses, point at checking the version in "
+                      "`examples/mods/<name>/.claude-plugin/plugin.json`, and run nothing for it.", step)
+        self.assertIn('A mod it names under "' + unchecked + '": name it, say it wasn\'t checked, and run '
+                      "nothing for it.", step)
+        self.assertIn("A mod it names as " + switched_off + ": name it, and leave it alone, as with a mod "
+                      "that's installed but turned off.", step)
+        first = step[step.index("1. **Read the `mods` line.**"):step.index("2. **Find the marketplace's name.**")]
+        for named in ("turned off", switched_off, "not compared", "not checked"):
+            self.assertIn(named, first, "sub-step 1 stops without naming: " + named)
+
+    def test_the_install_and_the_update_still_run_each_on_its_own_yes(self):
+        step = self.step()
+        self.assertIn("On a yes to each command, run one of these for each mod the `mods` line names.", step)
+        self.assertRegex(step, r"A mod it names as not installed: ```bash claude plugin install "
+                               r"<name>@<marketplace> --scope local ```")
+        self.assertRegex(step, r"A mod it names as older than this repo's: ```bash claude plugin update "
+                               r"<name>@<marketplace> ```")
+        for line in self.plugin_lines():
+            if re.search(r"claude plugin (install|update)\b", line):
+                self.assertNotIn("switched off for you", line)
+                self.assertNotIn("turned off", line)
 
     def test_step_9_no_longer_says_a_mod_has_no_switch(self):
         self.assertNotIn("`factory-dashboard` has none", self.text())
@@ -978,9 +1026,13 @@ class FactoryUpdatesMods(unittest.TestCase):
         self.assertIn("step 11 installs and updates this copy's mods, each command on its own yes.", step_10)
         rules = text[text.index("## Rules"):text.index("## Output")]
         self.assertIn("Installing and updating mods in step 11: each `claude plugin` command runs only on its own "
-                      "yes, installs only with `--scope local`", rules)
+                      "yes, installs only with `--scope local`, and uses this copy's marketplace, never the "
+                      "scratch clone.", rules)
         output = text[text.index("## Output"):]
         self.assertIn("11 installs and updates mods after this answer, each command on its own yes", output)
+        for words in ("each `claude plugin` command that ran and what it showed",
+                      "any command that failed and the ones that didn't run", "the final `mods` line"):
+            self.assertIn(words, output)
 
 
 class UpgradeGuideStaysUpstream(unittest.TestCase):
