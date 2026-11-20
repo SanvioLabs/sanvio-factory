@@ -162,6 +162,37 @@ not, also pops up a short notice, so you hear about it without reading the pane.
 A project's starts with its name (`app: #14 has a pull request`), the factory's
 with `Loop:`.
 
+## Tests
+
+Under the list, whichever loop is picked, All loops included, a **Tests**
+section shows each test suite run that [`scripts/run_tests.py`](../../../scripts/run_tests.py) has recorded.
+A run started with `python3 -m unittest` directly records nothing, so it
+doesn't show.
+
+```
+Tests
+● m657 · loop/issue-647
+  started 12:46 · running 11m 52s · 1204 of 3005 · 0 failed
+● i681 · i681
+  started 11:02 · 3005 passed in 16m 36s
+● p655
+  started Nov 19 17:40 · 2 failed of 3005
+```
+
+Each run's title is its worktree's folder and its branch, with no branch on a
+detached head. Runs still going come first, newest first, with a pulsing dot
+and a clock, then the three that ended most recently: green for a pass, red
+for failures. A run stopped with Ctrl-C shows **stopped at** how far it got. A
+run whose file hasn't been written for a minute has died, since the runner
+writes at least every 10 seconds, so it shows red and **stopped**. With no runs
+recorded there's no section. On the terminal its rows come out of the list's,
+so fewer jobs fit.
+
+When a run the pane saw running ends, a notice says so: `Tests on m657: 3005
+passed`, `Tests on m657: 2 failed` or `Tests on m657: stopped`. Only while the
+List is drawn: the Crew view reads no runs, so a run that ends then says
+nothing, and nor does one that dies without ending.
+
 ## Crew view
 
 Press **Crew** and the same pane shows the loop on screen as lanes: one for
@@ -344,7 +375,8 @@ and not at all while it's closed, it reads `.loop/status.json`, which the loop
 rewrites at every step, and checks `.loop/STOP` and `.loop/lock`, with
 `kill -0` on the process the lock names. It lists `.loop/projects/` and does the
 same in each project's folder, so a project's `.loop/projects/<name>/` stands in
-for `.loop/` in every path above. The Crew view also reads each drawn issue's
+for `.loop/` in every path above. The List also lists `.sanvio/tests/` and
+reads its newest 20 `.json` files, for the Tests section. The Crew view also reads each drawn issue's
 `.loop/issue-N/usage.json` for its spend.
 
 The one file it writes is the session's focus, `.sanvio/project/<id>`, and only
