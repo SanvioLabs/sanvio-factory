@@ -970,5 +970,179 @@ class OrientationDataSourcesTest(unittest.TestCase):
         self.assertIn("mark the source `unconfirmed`", step)
 
 
+class OrientationSetupStepTest(unittest.TestCase):
+    """Orientation's step 1 is a guided setup that ends with the person's own checklist."""
+
+    SKILL = ROOT / "skills" / "orientation" / "SKILL.md"
+    SURFACES = ("Claude Desktop's Code tab", "the Claude Code CLI", "an IDE extension", "another tool")
+
+    def section(self, start, end):
+        text = self.SKILL.read_text()
+        self.assertIn(start, text, "orientation has no {}".format(start))
+        begin = text.index(start)
+        self.assertIn(end, text[begin:], "orientation has no {} after {}".format(end, start))
+        return " ".join(text[begin:text.index(end, begin)].split())
+
+    def step_1(self):
+        return self.section("### 1.", "### 2.")
+
+    def test_step_1_checks_login_remote_and_quick_check(self):
+        step = self.step_1()
+        for words in ("gh auth status", "git ls-remote", "python3 scripts/quick_check.py"):
+            self.assertIn(words, step)
+
+    def test_step_1_installs_mods_locally_and_reloads(self):
+        step = self.step_1()
+        for words in ("--scope local", "/reload-plugins"):
+            self.assertIn(words, step)
+
+    def test_step_1_asks_which_surface_with_a_recommended_option(self):
+        step = self.step_1()
+        for words in self.SURFACES + ("(Recommended)",):
+            self.assertIn(words, step)
+
+    def test_step_1_ends_with_the_persons_checklist(self):
+        self.assertIn("Your steps", self.step_1())
+
+    def part(self, label, next_label):
+        """The text of one bold-labelled part of step 1, up to the next label."""
+        step = self.step_1()
+        self.assertIn(label, step, "step 1 has no {}".format(label))
+        begin = step.index(label)
+        self.assertIn(next_label, step[begin:], "step 1 has no {} after {}".format(next_label, label))
+        return step[begin:step.index(next_label, begin)]
+
+    def test_step_1_starts_with_the_below_the_root_check(self):
+        step = self.step_1()
+        self.assertIn("**Started below the root.**", step)
+        first = step.index("**Started below the root.**")
+        for label in ("**Which surface.**", "**Checks.**", "**GitHub login.**", "**Remote.**",
+                      "**Mods.**", "**Hooks.**", "**When a command fails.**"):
+            self.assertIn(label, step)
+            self.assertLess(first, step.index(label), "{} comes before the below-the-root check".format(label))
+        below = self.part("**Started below the root.**", "**Which surface.**")
+        for words in ("harness root", "restart", "stop there"):
+            self.assertIn(words, below)
+
+    def test_step_1_reads_only_the_entrypoint_variable_to_recommend_a_surface(self):
+        surface = self.part("**Which surface.**", "**Checks.**")
+        for words in ('`echo "$CLAUDE_CODE_ENTRYPOINT"`', "read only", "nothing else from the environment",
+                      "If it's empty", "mark nothing", "Never assume a surface without their answer",
+                      "Claude Desktop's chat, outside the Code tab, can't run this skill"):
+            self.assertIn(words, surface)
+
+    def test_step_1_maps_the_entrypoint_value_to_a_surface(self):
+        surface = self.part("**Which surface.**", "**Checks.**")
+        for words in ("A value of `cli` points at the CLI", "names an editor", "at an IDE extension",
+                      "names the desktop app at the Code tab", "unknown", "the read is refused"):
+            self.assertIn(words, surface)
+
+    def test_step_1_runs_both_checks_and_passes_their_lines_through(self):
+        checks = self.part("**Checks.**", "**GitHub login.**")
+        for words in ("Run both and pass their lines through as printed", "python3 scripts/check_setup.py",
+                      "python3 scripts/quick_check.py"):
+            self.assertIn(words, checks)
+        self.assertLess(checks.index("python3 scripts/check_setup.py"),
+                        checks.index("python3 scripts/quick_check.py"))
+
+    def test_step_1_says_the_full_suite_runs_in_ci_on_every_pull_request(self):
+        checks = self.part("**Checks.**", "**GitHub login.**")
+        self.assertIn("Say the full test suite runs in CI on every pull request", checks)
+        self.assertNotIn("unittest discover", checks)
+
+    def test_step_1_logs_in_check_says_only_pass_or_fail(self):
+        login = self.part("**GitHub login.**", "**Remote.**")
+        for words in ("Only when `gh` is installed and `origin` is on GitHub",
+                      "gh auth status >/dev/null 2>&1; echo $?", "Say only whether it passed",
+                      "`gh auth login`", "in a terminal", "checklist"):
+            self.assertIn(words, login)
+        self.assertIn("gh repo view --json visibility -q .visibility", self.step_1())
+
+    def test_step_1_checks_the_remote_with_a_time_limit_and_no_prompts(self):
+        remote = self.part("**Remote.**", "**Mods.**")
+        for words in ("Only when `origin` is set", "15000 ms", "GIT_TERMINAL_PROMPT=0", "BatchMode=yes",
+                      "ConnectTimeout=15", "git ls-remote --exit-code origin HEAD",
+                      "Exit 0 means reachable", "2 means reachable but empty",
+                      "Anything else means it can't be reached", "the fix goes on the checklist",
+                      "in the form `check_setup.py` prints it"):
+            self.assertIn(words, remote)
+
+    def test_step_1_offers_mods_only_on_a_yes_and_falls_back_to_the_checklist(self):
+        mods = self.part("**Mods.**", "**Hooks.**")
+        for words in ("Before offering anything", "`claude plugin marketplace list`",
+                      "`claude plugin install <name>@<marketplace> --scope local`",
+                      "`claude plugin update <name>@<marketplace>`", "Run each only on its own yes",
+                      "couldn't check", "`claude` isn't on `PATH`", "the marketplace isn't listed",
+                      "put the install on the checklist instead", "On an IDE extension",
+                      "in a terminal at the harness root", "`/plugin marketplace add ./`",
+                      "`/plugin install <name>@<marketplace>` in the Claude Code message box",
+                      "installed but turned off goes on the checklist", "Don't turn it on"):
+            self.assertIn(words, mods)
+        self.assertLess(mods.index("`claude plugin marketplace list`"),
+                        mods.index("`claude plugin install <name>@<marketplace> --scope local`"))
+
+    def test_step_1_sets_the_hooks_folder_only_when_unset_and_on_a_yes(self):
+        hooks = self.part("**Hooks.**", "**When a command fails.**")
+        for words in ("If `core.hooksPath` is unset", "Offer `git config core.hooksPath .githooks`",
+                      "run it only on a yes", "If it's set to another folder, don't offer it",
+                      "put the decision on the checklist", "the hooks in that folder would stop running"):
+            self.assertIn(words, hooks)
+        self.assertLess(hooks.index("If `core.hooksPath` is unset"), hooks.index("Offer `git config"))
+
+    def test_step_1_reports_a_failure_by_exit_status_and_carries_on(self):
+        failing = self.part("**When a command fails.**", "Say these out loud")
+        for words in ("exit status", "the one fix the person needs", "The fix goes on the checklist",
+                      "the rest of step 1 carries on", "Never show what `gh auth status` prints"):
+            self.assertIn(words, failing)
+
+    def test_step_1_keeps_the_warnings_and_the_earlier_run_files(self):
+        step = self.step_1()
+        for words in ("**Remote WARN on the public Sanvio Factory.**", "**Skills WARN.**",
+                      "**Gate or quick check FAIL.**", "Those are from an earlier run",
+                      "skip the questions they've already answered"):
+            self.assertIn(words, step)
+        for words in ("Hook FAIL", "Gate or tests FAIL"):
+            self.assertNotIn(words, step)
+
+    def test_step_1_checklist_names_where_each_step_is_done(self):
+        step = self.step_1()
+        self.assertIn("End step 1 with **Your steps**", step)
+        checklist = step[step.index("End step 1 with **Your steps**"):]
+        for words in ("only what's left for the person", "a terminal", "the Claude Code message box",
+                      "the Code tab in Claude Desktop", "a GitHub page", "If nothing's left, say so"):
+            self.assertIn(words, checklist)
+
+    def test_step_1_runs_no_full_suite_and_prints_no_credential(self):
+        step = self.step_1()
+        for words in ("python3 -m unittest discover -s tests", "printenv", "gh auth token"):
+            self.assertNotIn(words, step)
+
+    def test_the_rules_allow_only_the_two_fixes_and_still_forbid_the_rest(self):
+        rules = self.section("## Rules for this skill", "## Steps")
+        self.assertNotIn("Never run a fix the setup check names", rules)
+        for words in ("git checkout", "never commit", "Never add, log in to or configure a connector",
+                      "printenv", "a bare `env`", "gh auth token", "never show the output of `gh auth status`"):
+            self.assertIn(words, rules)
+
+    def test_step_7_still_names_the_full_suite(self):
+        self.assertIn("python3 -m unittest discover -s tests", self.section("### 7.", "### 8."))
+
+    def test_the_eight_steps_are_there_in_order(self):
+        text = self.SKILL.read_text()
+        places = []
+        for number in range(1, 9):
+            heading = "### {}.".format(number)
+            self.assertIn(heading, text)
+            places.append(text.index(heading))
+        self.assertEqual(places, sorted(places))
+
+    def test_the_output_lists_the_open_checklist_steps(self):
+        text = self.SKILL.read_text()
+        self.assertIn("## Output", text)
+        output = " ".join(text[text.index("## Output"):].split())
+        self.assertIn("The open steps on step 1's Your steps checklist, each with where to do it", output)
+        self.assertNotIn("Any FAIL or WARN from step 1", output)
+
+
 if __name__ == "__main__":
     unittest.main()

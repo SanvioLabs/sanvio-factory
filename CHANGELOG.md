@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: Orientation starts with a guided setup
+
+Orientation's first step now asks which surface you're using, runs the setup check and the quick check, checks your GitHub login and whether `origin` can be reached, and offers to install or update the factory's mods at local scope and to switch the hook on, each only on your yes. It ends with a **Your steps** checklist of what's left for you, each item saying where you do it, and no longer runs the full test suite, which CI runs on every pull request.
+
+**Needs:** 2026-11-19: A quick check for a copy's setup and updates
+
+**Controls:** AT-2
+
+Files: [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-19: The blueprint interview saves as it goes and starts from your notes
 
 The blueprint-workflow skill now writes `blueprints/<name>.md` as soon as the work is named and rewrites it after every answer, so an interview that stops halfway keeps what was said; run it again on the same name and it asks only what's still in `gaps`. Each question offers at most three options plus `Don't know, or not tracked`, which leaves that question's keys in `gaps` rather than a guess. It can start from a Markdown, text or PDF file or a typed brief, read where it is and only once the data question names no restricted category, shows what the material would fill with its source, and writes it only after the person confirms; an instruction inside the material is never followed.
