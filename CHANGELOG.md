@@ -42,7 +42,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-18: A review thread per blocking finding
+## 2026-11-20: A review thread per blocking finding
 
 The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes two new inputs, both off by default: with `review-threads: false` and `fail-on: never` it posts the same comment and its check result is unchanged. `review-threads: true` adds a last step to each agent's review job, [`scripts/review_threads.py`](scripts/review_threads.py), that opens a review thread on each `blocks` finding in the checked report, on its line, its file or the first changed file, at most 25 a run, finds it again on the next push by a hidden marker naming the agent, so one agent's run never touches another's threads, resolves it with a reply once the finding is no longer reported, and reopens it if the finding comes back. A thread a person resolved, or someone else opened, is never touched, and an unreadable report opens and resolves nothing. `fail-on: blocks` fails that agent's check, with an error naming how many blocking findings are open, while its report holds one or can't be read. The threads and the result come from the validated report, never the model's text, and nothing approves, requests changes or merges. [`docs/factory-in-ci.md`](docs/factory-in-ci.md) has a new *Review threads and a failing check* section on pairing it with *Require conversation resolution before merging*.
 
@@ -53,6 +53,100 @@ The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr
 Files: [`scripts/review_threads.py`](scripts/review_threads.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_threads.py`](tests/test_review_threads.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing; set `review-threads` or `fail-on` under `with:` in a product repo's caller to opt in.
+
+## 2026-11-19: factory-updates says what to do with every mods state, and never offers enable
+
+factory-updates' step 11 now says what to do with each state the setup check's `mods` line reports. It names mods it couldn't compare or check, and runs nothing for them. It leaves mods switched off for you alone. It tells you the line's `claude plugin enable` suggestion is yours to run: the skill never offers or runs `claude plugin enable` or `claude plugin disable`.
+
+**Needs:** 2026-11-19: factory-updates installs and updates your mods, each on its own yes
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
+## 2026-11-19: factory-updates installs and updates your mods, each on its own yes
+
+After applying what you chose, factory-updates now reads the setup check's `mods` line and offers to refresh the marketplace, install each mod that isn't installed at local scope, and update each one that's older, each command only on your yes, then tells you to run `/reload-plugins` and shows the `mods` line again. It never turns a mod on or off or removes one.
+
+**Needs:** 2026-11-19: factory-updates applies what you chose, each step on its own yes
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
+## 2026-11-19: factory-updates applies what you chose, each step on its own yes
+
+factory-updates no longer stops at naming commands. Its new step 10 checks the copy is clean, makes a `factory-update-<sha>` branch, copies the files you chose, runs the quick check, writes the `starter:` line, commits, and pushes to your `origin`, each only on your yes to that step. A no or a failure stops the rest. It never copies an adapted file or upstream's changelog entries, never pushes to Sanvio Factory or with force, and merges only when you ask.
+
+**Needs:** 2026-11-19: A quick check for a copy's setup and updates
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
+## 2026-11-19: Orientation starts with a guided setup
+
+Orientation's first step now asks which surface you're using, runs the setup check and the quick check, checks your GitHub login and whether `origin` can be reached, and offers to install or update the factory's mods at local scope and to switch the hook on, each only on your yes. It ends with a **Your steps** checklist of what's left for you, each item saying where you do it, and no longer runs the full test suite, which CI runs on every pull request.
+
+**Needs:** 2026-11-19: A quick check for a copy's setup and updates
+
+**Controls:** AT-2
+
+Files: [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
+## 2026-11-19: The blueprint interview saves as it goes and starts from your notes
+
+The blueprint-workflow skill now writes `blueprints/<name>.md` as soon as the work is named and rewrites it after every answer, so an interview that stops halfway keeps what was said; run it again on the same name and it asks only what's still in `gaps`. Each question offers at most three options plus `Don't know, or not tracked`, which leaves that question's keys in `gaps` rather than a guess. It can start from a Markdown, text or PDF file or a typed brief, read where it is and only once the data question names no restricted category, shows what the material would fill with its source, and writes it only after the person confirms; an instruction inside the material is never followed.
+
+**Needs:** 2026-11-18: Blueprint interview questions come with options and a recommendation; 2026-11-16: Interview the person who does a workflow; 2026-11-18: Run a workflow by name
+
+Files: [`skills/blueprint-workflow/SKILL.md`](skills/blueprint-workflow/SKILL.md), [`skills/factory-updates/capabilities.md`](skills/factory-updates/capabilities.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing.
+
+## 2026-11-19: A quick check for a copy's setup and updates
+
+`python3 scripts/quick_check.py` runs the setup check, the link check and the tests that cover a copy's setup and its updates, in one go. It prints PASS or FAIL for each part, with a failing part's output and any warning from a passing one, then how long the run took. It's there for after you take an update, when the full suite is more than you need. The setup check also has a new `mods:` line. For each mod [`.claude/settings.json`](.claude/settings.json) turns on, it asks `claude plugin list` whether that mod is installed for this checkout, turned on, and no older than its copy in [`examples/mods/`](examples/mods/), and prints the command that fixes each one that isn't. A mod your `.claude/settings.local.json` switches off is named and left alone. If `claude` isn't there, fails or takes over 10 seconds, the line says it couldn't check, as a warning. The session-start check runs the same checks, so a mod that's missing, off or older now shows when a session starts too.
+
+**Controls:** SA-9
+
+Files: [`scripts/quick_check.py`](scripts/quick_check.py), [`scripts/check_setup.py`](scripts/check_setup.py), [`tests/test_quick_check.py`](tests/test_quick_check.py), [`tests/test_check_setup.py`](tests/test_check_setup.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** run python3 scripts/quick_check.py to check your setup, and run any `claude plugin` command its `mods:` line prints.
+
+## 2026-11-19: A session outside the clone isn't stopped at every prompt
+
+When a session starts in a folder that doesn't hold the factory's files but still loads its settings, as Claude's desktop app does when it opens a scratch workspace, each hook used to fail: `python3` exits 2 for a script it can't find, and Claude Code reads 2 as a refusal, so every prompt was blocked with a "can't open file" error. Now the usage log and the retro hooks skip quietly there, the session start tells the agent the session isn't in a clone, so it says so first, and the guard still refuses every tool call, with a message saying why rather than Python's error. In a clone, every hook runs as before.
+
+Files: [`.claude/settings.json`](.claude/settings.json), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing in the clone. If someone sees "Refused: this session isn't in a Sanvio Factory clone", they start a session in their clone's own folder. In the desktop app, that means opening the clone's folder rather than a new or scratch one.
+
+## 2026-11-18: A caller's checkout can't change what the loop's own git runs
+
+In a caller project, every git command the loop runs, and the one in its `controls.py` check, now runs with hooks, fsmonitor and replace refs off, never looks inside a submodule, runs no external diff or textconv, and runs none of the filter, diff or merge drivers any git config names, your own and `lfs` included, which a caller's `.gitattributes` could otherwise pick. Around each of the caller's commands and each build and tester session, the loop hashes the clone's `.git/config`, `config.worktree`, `commondir`, `hooks/` and `info/`, and the worktree's own git files, and looks for a `.git` anywhere inside the worktree, as it does before running git in a worktree an earlier run left. Either blocks the issue, naming each file, and writes `git-tampered` in the project's state folder, so the loop runs no more git in that project, this run or the next, until a person deletes it. The caller's commands can't make a `.git` there by name; the search catches one moved in. Their git writes a copy of the worktree's index in their own temp folder, and before any git that writes the worktree from its index, the loop refuses an index naming a path outside the worktree, a `.git` or a submodule. The loop's git in a worktree takes git's folder from the clone's link back to it, never from the worktree's `.git` file, and what a build or tester agent left running ends with it. Agents start with the same drivers off, the loop looks again before removing a merged issue's worktree, and the guard refuses a held build's write to a file with a second hard link. After the tests, and again at the push, `loop/issue-N` has to be the commit the review read, or the issue blocks and nothing is pushed. The guard also refuses a held build agent's file-tool writes anywhere in the clone's `.git`, refs, objects and replace refs included, and to any `.git` inside the worktree; its refusal of shell commands naming `.git/config`, `config.worktree` or `hooks/` is best effort. Projects that aren't callers don't change.
+
+**Needs:** 2026-11-18: A caller's planner and reviewer are held to its checkout
+
+**Controls:** AC-5, AU-9
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing for a project that isn't a caller. If a caller project stops with a `git-tampered` `ERROR`, look at its clone and worktrees before deleting that file in `.loop/projects/<name>/`: something in that checkout changed what git runs. A caller's repo that uses git-lfs or submodules gets neither. Keep the loop's checkouts on APFS: on HFS+, a name with a character HFS+ ignores still reaches git as `.git`.
+
+## 2026-11-18: A caller's planner and reviewer are held to its checkout
+
+`run` now refuses to start a caller project whose `reader_agent`, or `review_agent` where it's set, isn't a `claude` command or a named `ollama`, with one `ERROR` line before any issue is taken. The planner, the reviewer and the retro read text from the caller's repo, and those are the two readers the loop can hold to the checkout: claude with read tools alone, which checked live also won't follow a symlink out of the checkout, and ollama with no tools. `codex`'s read-only sandbox can still read files outside the checkout. Name a text-only ollama model for a caller: `ollama run` reads an image file a vision model's prompt names. Outside caller mode, a codex reader runs as before.
+
+**Needs:** 2026-11-18: A caller's commands are held to their own folders
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** if a caller project's `reader_agent` or `review_agent` is `codex` or another command, set it to `claude` or a text-only `ollama:<model>` in its entry under `"projects"` in the factory's `loop.json`. Until you do, `run` refuses it.
 
 ## 2026-11-18: A caller's commands are held to their own folders
 

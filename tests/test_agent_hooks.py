@@ -857,6 +857,59 @@ class Confined(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(self.call("Bash", command=command))
 
+    def test_a_file_tool_writes_nothing_in_the_clones_git_and_its_shell_names_no_settings_or_hooks(self):
+        git = self.own / ".git"
+        (git / "hooks").mkdir()
+        for tool, path in (("Write", git / "config"), ("Edit", git / "config"), ("Write", git / "config.worktree"),
+                           ("Write", git / "hooks" / "pre-push"), ("MultiEdit", git / "hooks" / "post-checkout"),
+                           ("Write", git / "hooks"), ("Write", git / "HEAD"), ("Write", git / "packed-refs"),
+                           ("Write", git / "refs" / "heads" / "loop" / "issue-12"),
+                           ("Write", git / "refs" / "replace" / ("a" * 40)),
+                           ("Write", git / "objects" / "info" / "alternates"),
+                           ("Write", git / "objects" / "ab" / ("c" * 38)),
+                           ("Edit", git / "worktrees" / "issue-12" / "HEAD"), ("NotebookEdit", git / "x.ipynb"),
+                           ("Write", git), ("Edit", git / "Config")):
+            with self.subTest(tool=tool, path=path):
+                self.assertRefused(self.call(tool, file_path=str(path)), "the loop's own git reads it")
+        # Spelled in another case, a Mac's disk finds the same folder, and it's still refused.
+        self.assertEqual(self.call("Write", file_path=str(self.own / ".GIT" / "HEAD"))[0], "deny")
+        for command in ("echo x >> {}".format(git / "config"), "echo x >> {}".format(git / "CONFIG"), "cp evil {}".format(git / "hooks" / "pre-push"),
+                        "ln -s /tmp/x {}/hooks/pre-commit".format(git)):
+            with self.subTest(command=command):
+                self.assertRefused(self.call("Bash", command=command), "settings or hooks")
+        # Reading them, and git run from the shell, as git in the worktree does, are still allowed.
+        self.assertIsNone(self.call("Read", file_path=str(git / "config")))
+        self.assertIsNone(self.call("Read", file_path=str(git / "HEAD")))
+        self.assertIsNone(self.call("Bash", command="git -C {} log -1".format(git)))
+        # A folder merely named like it isn't the clone's .git.
+        self.assertIsNone(self.call("Write", file_path=str(self.tree / ".github" / "x")))
+        # Outside caller mode (no folders given), nothing here changes.
+        self.assertIsNone(self.call("Write", held=False, file_path=str(git / "config")))
+        self.assertIsNone(self.call("Bash", held=False, command="echo x >> {}".format(git / "config")))
+
+    def test_a_file_tool_makes_no_repository_inside_the_worktree(self):
+        for path in (self.tree / "sub" / ".git" / "config", self.tree / "sub" / ".git", self.tree / "a" / "b" / ".GIT" / "HEAD",
+                     self.tree / "vendor" / ".Git" / "hooks" / "post-checkout"):
+            with self.subTest(path=path):
+                self.assertRefused(self.call("Write", file_path=str(path)), "a repository inside the worktree")
+        for path in (self.tree / ".github" / "x", self.tree / "x.git" / "y", self.tree / ".gitignore",
+                     self.tree / "sub" / ".gitattributes"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.call("Write", file_path=str(path)))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "sub" / ".git" / "config")))
+
+    def test_a_file_tool_writes_no_file_with_a_second_hard_link(self):
+        outside = self.tree.parent / "outside-tool"
+        outside.write_text("original\n")
+        os.link(str(outside), str(self.tree / "notes"))
+        for tool in ("Write", "Edit", "MultiEdit"):
+            with self.subTest(tool=tool):
+                self.assertRefused(self.call(tool, file_path=str(self.tree / "notes")), "hard link")
+        self.assertIsNone(self.call("Read", file_path=str(self.tree / "notes")))
+        (self.tree / "plain").write_text("x")
+        self.assertIsNone(self.call("Write", file_path=str(self.tree / "plain")))
+        self.assertIsNone(self.call("Write", held=False, file_path=str(self.tree / "notes")))
+
     def test_credentials_are_still_refused_inside(self):
         self.assertEqual(self.call("Read", file_path=str(self.tree / ".env"))[0], "deny")
         self.assertEqual(self.call("Bash", command="cat .env")[0], "deny")
@@ -901,6 +954,17 @@ class Confined(unittest.TestCase):
         out = self.hook(["--confine"], event)
         self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
                          ("deny", guard.UNATTENDED_UNCHECKED))
+
+
+def without_claude(folder, env=None):
+    """env with a claude that exits 1 first on PATH, in folder, so the setup check a session start runs in this
+    repo says it couldn't check the mods at once, and never runs the real claude (#658)."""
+    env = dict(os.environ if env is None else env)
+    stand_in = Path(folder) / "claude"
+    stand_in.write_text("#!/bin/sh\nexit 1\n")
+    stand_in.chmod(0o755)
+    env["PATH"] = str(folder) + os.pathsep + env.get("PATH", "")
+    return env
 
 
 class SessionStart(unittest.TestCase):
@@ -957,10 +1021,77 @@ class SessionStart(unittest.TestCase):
                           payload["hookSpecificOutput"]["additionalContext"])
 
     def test_the_hook_runs_and_prints_json_or_nothing(self):
-        out = subprocess.run([sys.executable, str(HOOKS / "session_start.py")],
-                             capture_output=True, text=True, check=True).stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            out = subprocess.run([sys.executable, str(HOOKS / "session_start.py")], env=without_claude(tmp),
+                                 capture_output=True, text=True, check=True, timeout=60).stdout
         if out:
             self.assertIn("systemMessage", json.loads(out))
+            self.assertIn("mods: couldn't check", out)
+
+
+@unittest.skipIf(os.name == "nt" or not shutil.which("bash"), "Claude Code runs a hook's command with bash")
+class OutsideTheClone(unittest.TestCase):
+    """A session can start in a folder with none of the factory's files while its .claude/settings.json still
+    loads, as Claude's desktop app does when it opens a scratch workspace. python3 exits 2 for a script it can't
+    find, and Claude Code reads 2 as "block": every prompt was refused. Now a logger skips, the session start says
+    where the session is, and the guard still refuses each tool call, saying why."""
+
+    def setUp(self):
+        self.elsewhere = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.elsewhere, ignore_errors=True)
+        self.hooks = json.loads((ROOT / ".claude" / "settings.json").read_text())["hooks"]
+
+    def commands(self, script):
+        return sorted({hook["command"] for blocks in self.hooks.values() for block in blocks
+                       for hook in block["hooks"] if script in hook["command"]})
+
+    def run_hook(self, command, folder, stdin="{}"):
+        stand_in = Path(self.elsewhere) / "bin"
+        stand_in.mkdir(exist_ok=True)
+        env = without_claude(stand_in, dict(os.environ, CLAUDE_PROJECT_DIR=str(folder), SANVIO_USAGE_LOG="off",
+                                            SANVIO_RETRO="off"))
+        return subprocess.run(["bash", "-c", command], cwd=str(folder), input=stdin, env=env, capture_output=True,
+                              text=True, timeout=60)
+
+    def test_every_hook_command_names_a_script_the_tests_know(self):
+        named = {re.search(r"hooks/(\w+)\.py", hook["command"]).group(1) for blocks in self.hooks.values()
+                 for block in blocks for hook in block["hooks"]}
+        self.assertEqual(named, {"guard", "usage_log", "session_start", "session_retro"})
+
+    def test_the_loggers_skip_where_their_script_isnt(self):
+        for script in ("usage_log.py", "session_retro.py"):
+            for command in self.commands(script):
+                with self.subTest(command=command):
+                    done = self.run_hook(command, self.elsewhere)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(done.stderr, "")
+
+    def test_the_session_start_says_the_session_isnt_in_a_clone(self):
+        for command in self.commands("session_start.py"):
+            done = self.run_hook(command, self.elsewhere)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("isn't a Sanvio Factory clone", done.stdout)
+            self.assertIn(self.elsewhere, done.stdout)
+
+    def test_the_guard_still_refuses_every_tool_call_and_says_why(self):
+        for command in self.commands("guard.py"):
+            done = self.run_hook(command, self.elsewhere, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": "README.md"}}))
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("isn't in a Sanvio Factory clone", done.stderr)
+
+    def test_in_the_clone_each_command_runs_its_script(self):
+        secret = "." + "env"  # spelled in parts, so the guard reading this file's own edits doesn't stop on it
+        for command in self.commands("guard.py"):
+            done = self.run_hook(command, ROOT, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": str(ROOT / "README.md")}, "cwd": str(ROOT)}))
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertNotIn("isn't in a Sanvio Factory clone", done.stderr)
+            done = self.run_hook(command, ROOT, json.dumps({"tool_name": "Read", "tool_input": {
+                "file_path": str(ROOT / secret)}, "cwd": str(ROOT)}))
+            self.assertIn("deny", done.stdout)
+        for command in self.commands("session_start.py"):
+            self.assertNotIn("isn't a Sanvio Factory clone", self.run_hook(command, ROOT).stdout)
 
 
 if __name__ == "__main__":

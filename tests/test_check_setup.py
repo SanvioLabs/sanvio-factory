@@ -1,4 +1,6 @@
 """Run with: python3 -m unittest discover -s tests"""
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -7,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -67,6 +70,7 @@ class SetupCheck(unittest.TestCase):
         self.assertIn("SANVIO_RETRO", fix)
 
     def test_the_check_runs_with_the_others(self):
+        self.fake_gh()  # no claude on PATH, so the mods check never runs the real one
         self.assertIn("names:", " ".join(line for _, line, _ in check_setup.run(self.root)))
 
     def test_python_39_passes_and_38_fails(self):
@@ -405,6 +409,7 @@ class SetupCheck(unittest.TestCase):
         (home / ".claude").mkdir(parents=True)
         (home / ".claude" / "settings.json").write_text(json.dumps({"mcpServers": {"homeonly": {}}}))
         (home / ".claude.json").write_text(json.dumps({"mcpServers": {"homeuser": {}}}))
+        self.fake_gh()
         lines = [line for _, line, _ in check_setup.run(self.root, home) if line.startswith("mcp:")]
         self.assertEqual(len(lines), 1)
         self.assertNotIn("homeonly", lines[0])
@@ -419,6 +424,7 @@ class SetupCheck(unittest.TestCase):
         self.assertNotIn("github", line)
 
     def test_the_mcp_check_runs_with_the_others(self):
+        self.fake_gh()
         self.assertTrue(any(line.startswith("mcp:") for _, line, _ in check_setup.run(self.root)))
 
     def test_projects_are_never_committed_but_stay_searchable(self):
@@ -430,6 +436,254 @@ class SetupCheck(unittest.TestCase):
         searchable = (ROOT / ".ignore").read_text()
         self.assertIn("!/projects/", searchable)
         self.assertIn("!/company/", searchable)
+
+
+class Mods(unittest.TestCase):
+    """check_mods against a stand-in claude, on a PATH that holds only git and the stand-in."""
+    SENTINEL = "/SENTINEL-install-path"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.root = self.tmp / "copy"
+        self.root.mkdir()
+        self.env = os.environ.copy()
+        self.addCleanup(self.restore_env)
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        (self.bin / "git").symlink_to(shutil.which("git"))
+        os.environ["PATH"] = str(self.bin)
+        self.write_root("market")
+
+    def restore_env(self):
+        os.environ.clear()
+        os.environ.update(self.env)
+
+    def write(self, relative, data):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
+    def write_root(self, market):
+        self.market = market
+        self.write(".claude-plugin/marketplace.json", {"name": market, "plugins": [
+            {"name": "lens", "source": "./examples/mods/lens"},
+            {"name": "stelliad", "source": {"source": "github", "repo": "o/r", "sha": "0" * 40}}]})
+        self.write(".claude/settings.json", {"enabledPlugins": {
+            "lens@" + market: True, "stelliad@" + market: True, "other@elsewhere": True}})
+        self.write("examples/mods/lens/.claude-plugin/plugin.json", {"name": "lens", "version": "1.2.0"})
+
+    def stand_in(self, script):
+        claude = self.bin / "claude"
+        claude.write_text('#!/bin/sh\necho "$@" >> "{}"\n{}\n'.format(self.tmp / "claude.args", script))
+        claude.chmod(0o755)
+
+    def listed(self, *entries):
+        path = self.tmp / "plugins.json"
+        path.write_text(json.dumps(list(entries)))
+        self.stand_in('exec /bin/cat "{}"'.format(path))
+
+    def entry(self, name, version="1.2.0", scope="user", enabled=True, project=None, market=None,
+              folder_version=None):
+        found = {"id": "{}@{}".format(name, market or self.market), "version": version, "scope": scope,
+                 "enabled": enabled, "installPath": "{}/{}".format(self.SENTINEL, name)}
+        if project is not None:
+            found["projectPath"] = str(project)
+        if folder_version is not None:
+            found["folderVersion"] = folder_version
+        return found
+
+    def check(self):
+        return check_setup.check_mods(self.root)
+
+    def test_every_mod_installed_on_and_current_passes(self):
+        self.listed(self.entry("lens"), self.entry("stelliad", version="3.0.0"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "PASS")
+        self.assertIn("lens 1.2.0", line)
+        self.assertIn("stelliad", line)
+        self.assertIsNone(fix)
+        self.assertEqual((self.tmp / "claude.args").read_text().strip(), "plugin list --json")
+
+    def test_a_mod_not_installed_warns_with_the_install_command(self):
+        self.listed(self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("not installed: lens", line)
+        self.assertIn("claude plugin install lens@market --scope local", fix)
+
+    def test_an_older_mod_warns_with_the_update_command_and_a_newer_one_passes(self):
+        self.listed(self.entry("lens", version="1.1.9"), self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("lens 1.1.9 (this repo has 1.2.0)", line)
+        self.assertIn("claude plugin update lens@market", fix)
+        # 1.10.0 is newer than 1.2.0, though it sorts before it as text.
+        self.listed(self.entry("lens", version="1.10.0"), self.entry("stelliad"))
+        self.assertEqual(self.check()[0], "PASS")
+
+    def test_folder_version_is_never_read(self):
+        self.listed(self.entry("lens", version="1.1.9", folder_version="1.2.0"), self.entry("stelliad"))
+        self.assertIn("claude plugin update lens@market", self.check()[2])
+        self.listed(self.entry("lens", version="1.2.0", folder_version="0.1.0"), self.entry("stelliad"))
+        self.assertEqual(self.check()[0], "PASS")
+
+    def test_a_repo_version_that_doesnt_parse_or_is_missing_is_said_and_not_passed(self):
+        manifest = "examples/mods/lens/.claude-plugin/plugin.json"
+        for written in ({"name": "lens", "version": "next"}, {"name": "lens"}, None):
+            with self.subTest(written=written):
+                if written is None:
+                    (self.root / manifest).unlink()
+                else:
+                    self.write(manifest, written)
+                self.listed(self.entry("lens", version="0.0.1"), self.entry("stelliad"))
+                status, line, fix = self.check()
+                self.assertEqual(status, "WARN")
+                self.assertIn("version not compared, as this repo's copy has no version that parses: lens", line)
+                self.assertIn(manifest, fix)
+                self.assertNotIn("claude plugin update", fix)
+
+    def test_a_name_that_cant_go_in_a_command_is_named_and_not_checked(self):
+        self.write(".claude/settings.json", {"enabledPlugins": {
+            "lens@market": True, "stelliad@market": True, "bad name;rm\n@market": True}})
+        self.listed(self.entry("lens"), self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("not checked, as the name can't go in a command: bad name;rm?", line)
+        self.assertIn("by hand", fix)
+        self.assertNotIn("\n", line + fix)
+        self.assertNotIn("claude plugin", fix)
+
+    def test_a_name_that_cant_go_in_a_command_warns_without_asking_claude(self):
+        self.write(".claude/settings.json", {"enabledPlugins": {"bad name@market": True}})
+        self.listed()
+        status, line, _ = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("bad name", line)
+        self.assertFalse((self.tmp / "claude.args").exists())
+
+    def test_the_outside_calls_fit_inside_the_session_start_hook(self):
+        # The hook runs check_setup.run(): gh and claude can each take their whole timeout, and a hook that's
+        # killed loses its setup message, so both together leave this many seconds to spare.
+        margin = 5
+        hooks = json.loads((ROOT / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+        timeouts = [hook["timeout"] for block in hooks for hook in block["hooks"]
+                    if "session_start.py" in hook["command"]]
+        self.assertEqual(len(timeouts), 1)
+        self.assertLessEqual(check_setup.GH_TIMEOUT + check_setup.CLAUDE_TIMEOUT + margin, timeouts[0])
+
+    def test_a_version_that_doesnt_parse_counts_as_older(self):
+        self.listed(self.entry("lens", version="next"), self.entry("stelliad"))
+        status, _, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("claude plugin update lens@market", fix)
+
+    def test_a_turned_off_mod_warns_with_the_enable_command_and_not_install(self):
+        self.listed(self.entry("lens", enabled=False), self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("turned off: lens", line)
+        self.assertIn("claude plugin enable lens@market", fix)
+        self.assertNotIn("install", fix)
+
+    def test_an_entry_that_is_on_beats_one_that_is_off(self):
+        self.listed(self.entry("lens", enabled=False), self.entry("lens", scope="local", project=self.root),
+                    self.entry("stelliad"))
+        self.assertEqual(self.check()[0], "PASS")
+
+    def test_an_install_for_another_project_doesnt_count(self):
+        elsewhere = self.tmp / "another-project"
+        elsewhere.mkdir()
+        self.listed(self.entry("lens", scope="local", project=elsewhere),
+                    self.entry("lens", scope="project", project=elsewhere), self.entry("stelliad"))
+        status, _, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("claude plugin install lens@market --scope local", fix)
+
+    def test_an_install_for_this_checkout_through_a_link_counts(self):
+        link = self.tmp / "link"
+        link.symlink_to(self.root)
+        for scope in ("local", "project"):
+            with self.subTest(scope=scope):
+                self.listed(self.entry("lens", scope=scope, project=link), self.entry("stelliad"))
+                self.assertEqual(self.check()[0], "PASS")
+
+    def test_a_mod_switched_off_for_you_is_named_and_doesnt_warn(self):
+        self.write(".claude/settings.local.json", {"enabledPlugins": {"lens@market": False}})
+        self.listed(self.entry("stelliad"))
+        status, line, fix = self.check()
+        self.assertEqual(status, "PASS")
+        self.assertIn("switched off for you: lens", line)
+        self.assertIsNone(fix)
+
+    def test_a_switched_off_mod_stays_out_of_a_warning(self):
+        self.write(".claude/settings.local.json", {"enabledPlugins": {"lens@market": False}})
+        self.listed()
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("not installed: stelliad", line)
+        self.assertNotIn("lens@market", fix)
+
+    def test_stelliad_passes_at_any_version(self):
+        for version in ("0.0.1", "99.0.0", "weird"):
+            with self.subTest(version=version):
+                self.listed(self.entry("lens"), self.entry("stelliad", version=version))
+                self.assertEqual(self.check()[0], "PASS")
+
+    def assert_couldnt_check(self):
+        status, line, fix = self.check()
+        self.assertEqual(status, "WARN")
+        self.assertIn("couldn't check", line)
+        self.assertIn("claude plugin list", fix)
+
+    def test_no_claude_warns(self):
+        self.assert_couldnt_check()
+
+    def test_claude_failing_warns(self):
+        self.stand_in("exit 1")
+        self.assert_couldnt_check()
+
+    def test_output_that_isnt_json_warns(self):
+        self.stand_in("echo 'Installed plugins:'")
+        self.assert_couldnt_check()
+
+    def test_json_that_isnt_a_list_warns(self):
+        self.stand_in("echo '{\"plugins\": []}'")
+        self.assert_couldnt_check()
+
+    def test_a_list_that_takes_too_long_warns(self):
+        self.stand_in("exec /bin/sleep 5")
+        with mock.patch.object(check_setup, "CLAUDE_TIMEOUT", 0.5):
+            self.assert_couldnt_check()
+
+    def test_a_check_that_couldnt_run_doesnt_change_the_exit_status(self):
+        self.stand_in("exit 1")
+        out = io.StringIO()
+        with mock.patch.object(check_setup, "run", lambda root, home=None: [check_setup.check_mods(self.root)]), \
+                contextlib.redirect_stdout(out):
+            code = check_setup.main([])
+        self.assertEqual(code, 0)
+        self.assertIn("WARN mods: couldn't check", out.getvalue())
+
+    def test_paths_from_the_list_are_never_printed(self):
+        elsewhere = self.entry("lens", scope="local", project="/SENTINEL-project-path")
+        for entries in ([self.entry("lens"), self.entry("stelliad"), elsewhere],
+                        [self.entry("stelliad"), elsewhere]):
+            with self.subTest(count=len(entries)):
+                self.listed(*entries)
+                _, line, fix = self.check()
+                self.assertNotIn("SENTINEL", line + (fix or ""))
+
+    def test_a_renamed_marketplace_shows_in_the_commands(self):
+        self.write_root("acme-tools")
+        self.listed(self.entry("lens", version="1.0.0"))
+        _, _, fix = self.check()
+        self.assertIn("claude plugin update lens@acme-tools", fix)
+        self.assertIn("claude plugin install stelliad@acme-tools --scope local", fix)
+
+    def test_it_runs_with_the_others(self):
+        self.assertTrue(any(line.startswith("mods:") for _, line, _ in check_setup.run(self.root)))
 
 
 def run_script(*args):
