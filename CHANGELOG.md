@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-19: factory-updates installs and updates your mods, each on its own yes
+
+After applying what you chose, factory-updates now reads the setup check's `mods` line and offers to refresh the marketplace, install each mod that isn't installed at local scope, and update each one that's older, each command only on your yes, then tells you to run `/reload-plugins` and shows the `mods` line again. It never turns a mod on or off or removes one.
+
+**Needs:** 2026-11-19: factory-updates applies what you chose, each step on its own yes
+
+Files: [`skills/factory-updates/SKILL.md`](skills/factory-updates/SKILL.md), [`tests/test_skills.py`](tests/test_skills.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing
+
 ## 2026-11-19: factory-updates applies what you chose, each step on its own yes
 
 factory-updates no longer stops at naming commands. Its new step 10 checks the copy is clean, makes a `factory-update-<sha>` branch, copies the files you chose, runs the quick check, writes the `starter:` line, commits, and pushes to your `origin`, each only on your yes to that step. A no or a failure stops the rest. It never copies an adapted file or upstream's changelog entries, never pushes to Sanvio Factory or with force, and merges only when you ask.

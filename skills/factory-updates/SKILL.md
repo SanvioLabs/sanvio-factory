@@ -1,6 +1,6 @@
 ---
 name: factory-updates
-description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory, then applies what the person chose on a new branch in this copy, each step on its own yes, and writes the `starter:` line. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates", "factory updates", "check the factory", or "what's new in Sanvio Factory".
+description: Say what the public Sanvio Factory has added since this copy was taken from it, ask one question at a time which capabilities this copy lacks and which updates to what it has are worth bringing over, then list every commit, flag each one that touches a file this copy adapted, and recommend take, merge by hand, skip or ask for each. Reads a scratch clone of Sanvio Factory, then applies what the person chose on a new branch in this copy, each step on its own yes, and writes the `starter:` line. Then installs and updates the mods this copy switches on, each command on its own yes. Use when someone asks "check the starter", "starter updates", "what's new in the starter", "what has the starter added", "should we take the starter's changes", or "check for Sanvio Factory updates", "factory updates", "check the factory", or "what's new in Sanvio Factory".
 license: MIT. From Sanvio Factory by Sanvio Labs, https://github.com/SanvioLabs/sanvio-factory
 ---
 
@@ -15,7 +15,8 @@ the copy was taken, asks which of upstream's capabilities the copy wants that
 it doesn't have and which updates it wants to what it has, says which of those
 commits touch a file the copy changed, and recommends what to do with each.
 Then, on a new branch, it applies each choice on its own yes and writes the
-`starter:` line, so the next run starts from there.
+`starter:` line, so the next run starts from there. Then it installs and
+updates the mods this copy switches on, each on its own yes.
 
 ## Steps
 
@@ -353,8 +354,8 @@ Then, on a new branch, it applies each choice on its own yes and writes the
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      upstream: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
-     [`.claude/settings.json`](../../.claude/settings.json) if it has one (`factory-dashboard` has none and
-     installs with `/plugin install`), and for [`.claude/hooks/usage_log.py`](../../.claude/hooks/usage_log.py),
+     [`.claude/settings.json`](../../.claude/settings.json) (every mod that file switches on has an
+     `enabledPlugins` line, and step 11 installs it), and for [`.claude/hooks/usage_log.py`](../../.claude/hooks/usage_log.py),
      [`.claude/settings.json`](../../.claude/settings.json)'s hooks for it and a current
      [`.claude/hooks/guard.py`](../../.claude/hooks/guard.py), which it imports.
 
@@ -362,7 +363,9 @@ Then, on a new branch, it applies each choice on its own yes and writes the
    yes to that one part. A no, or a part that fails, stops everything after
    it: say which part stopped and name each part that didn't run. Never run a
    part again with `--force`, `--no-verify` or any other flag that skips a
-   check. Every command here runs in this copy, from the harness root.
+   check. Every command here runs in this copy, from the harness root. Once
+   this step ends, however it ends, step 11 installs and updates this copy's
+   mods, each command on its own yes.
 
    1. **Start clean.** This lists any change not yet committed:
 
@@ -443,6 +446,63 @@ Then, on a new branch, it applies each choice on its own yes and writes the
    8. **Merge only when asked.** Never merge the update branch unless the
       person asks for that merge, and then only on a yes to it.
 
+11. **Install and update the mods.** Offer this once step 10 ends, however it
+   ended, including when it stopped or the person said no. Every command here
+   runs in this copy, from the harness root, and never in the scratch clone.
+   Each `claude plugin` command asks first and runs only on its own yes. Any
+   command that fails stops the commands after it: say which one failed and
+   name each command that didn't run. Never run one again with `--force` or
+   any other flag that skips a check.
+
+   1. **Read the `mods` line.** This only reads, so it needs no yes. Run it
+      and show its `mods` line:
+
+      ```bash
+      python3 scripts/check_setup.py
+      ```
+
+      If the line says it couldn't check, show why and stop. If it names no
+      mod as not installed and none as older, say so, name any it shows as
+      turned off, and stop: that line is the final one.
+   2. **Find the marketplace's name.** This prints it:
+
+      ```bash
+      python3 -c 'import json; print(json.load(open(".claude-plugin/marketplace.json"))["name"])'
+      ```
+
+      `<marketplace>` below is what it prints.
+   3. **Refresh the marketplace.** On a yes, run:
+
+      ```bash
+      claude plugin marketplace update <marketplace>
+      ```
+
+      If it fails, stop, and point at `/orientation`, which sets the
+      marketplace up.
+   4. **Install and update.** On a yes to each command, run one of these for
+      each mod the `mods` line names. A mod it names as not installed:
+
+      ```bash
+      claude plugin install <name>@<marketplace> --scope local
+      ```
+
+      A mod it names as older than this repo's:
+
+      ```bash
+      claude plugin update <name>@<marketplace>
+      ```
+
+      A mod it names as installed but turned off: say so, and leave it off.
+      This step never turns a mod on or off, never removes one, and never
+      edits [`.claude/settings.json`](../../.claude/settings.json).
+   5. **Load them.** After any install or update, tell the person to run
+      `/reload-plugins` in the Claude Code message box, or to restart Claude
+      Code if that doesn't load it.
+   6. **Check again.** Run `python3 scripts/check_setup.py` again and show its
+      `mods` line, naming each mod still not installed or still older. A mod
+      still older right after its update means reload, then check again, not
+      a failure.
+
 ## Rules
 
 - Copying, checking out a branch, committing, writing the `starter:` line,
@@ -455,6 +515,9 @@ Then, on a new branch, it applies each choice on its own yes and writes the
   list's length. To be brief, shorten each line, never drop a commit.
 - Asked what this copy's own remote has that it doesn't, that's
   [`whats-new`](../whats-new/SKILL.md), not this skill.
+- Installing and updating mods in step 11: each `claude plugin` command runs
+  only on its own yes, installs only with `--scope local`, and uses this
+  copy's marketplace, never the scratch clone.
 
 ## Output
 
@@ -474,7 +537,10 @@ any note from step 7, any **take X first**, "probably needs X" and "probably
 needs X (nearby lines)", its **Do:**
 line, and any adapted files it touches. Leave
 out a name or **Do:** line it doesn't have. Then any competing build with its direction
-and `Go:` line, and the commands to take each file under no table path. End
-with step 10's results: each part that ran and what it showed, the part that
+and `Go:` line, and the commands to take each file under no table path. Step
+11 installs and updates mods after this answer, each command on its own yes,
+and reports on its own: each `claude plugin` command that ran and what it
+showed, any command that failed and the ones that didn't run, and the final
+`mods` line. End with step 10's results: each part that ran and what it showed, the part that
 stopped it and why, the parts it didn't run, and the branch, the commit, the
 `starter:` line and the push where they were made.
