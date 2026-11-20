@@ -66,8 +66,10 @@ def children(text, key):
 
 
 def fenced(text, language):
-    """The bodies of the ```language fences in a Markdown file."""
-    return re.findall(r"^```{}\n(.*?)^```".format(re.escape(language)), text, re.M | re.S)
+    """The bodies of the ```language fences in a Markdown file, a fence indented inside a list item included,
+    each dedented to its fence."""
+    found = re.findall(r"^( *)```{}\n(.*?)^\1```".format(re.escape(language)), text, re.M | re.S)
+    return [textwrap.dedent(body) if indent else body for indent, body in found]
 
 
 def sparse(step):
@@ -929,7 +931,7 @@ class CallerReadme(unittest.TestCase):
 
     def test_the_caller_calls_the_workflow_and_passes_both_secrets(self):
         blocks = fenced(self.text, "yaml")
-        self.assertEqual(len(blocks), 1, "one ```yaml block, the caller")
+        self.assertEqual(len(blocks), 2, "two ```yaml blocks, the caller and the Bedrock caller")
         caller = blocks[0]
         self.assertIn("uses: your-org/factory/.github/workflows/review-pr.yml@main", caller)
         self.assertIn("factory-repo: your-org/factory", caller)

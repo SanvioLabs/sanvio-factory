@@ -149,6 +149,184 @@ Both come from the checked report, through
 approves or merges anything. [Your factory in CI](../../docs/factory-in-ci.md#review-threads-and-a-failing-check)
 says how to pair them with your branch rules.
 
+### On Amazon Bedrock
+
+To have Claude review on Amazon Bedrock in your own AWS account, with no
+Anthropic key, call the factory's
+[`.github/workflows/review-pr-bedrock.yml`](../../.github/workflows/review-pr-bedrock.yml) instead of [`review-pr.yml`](../../.github/workflows/review-pr.yml). It's
+made from [`review-pr.yml`](../../.github/workflows/review-pr.yml) by [`scripts/bedrock_workflow.py`](../../scripts/bedrock_workflow.py), so both review the
+same way, and only a Bedrock caller grants `id-token: write`: a caller with a
+Claude key changes nothing.
+
+**It hasn't run against AWS yet.** It's built and tested to the design below,
+but no review has run on Bedrock through it. The first run is the check: the
+last step below says what to look at.
+
+How it works: each agent's review job trades its GitHub OIDC token for a
+session on an AWS role in your account, so no AWS key is stored anywhere, and
+runs Claude on Bedrock with the model you name. Every call is billed to that
+account at that model's rate, Claude Code's background calls included, once
+per agent per push.
+
+Set it up in this order. Steps 1 and 2 are the same as for the key caller.
+
+1. **Make the deploy key** and add its public half to your factory's repo, as
+   under [The credential](#the-credential).
+2. **Add it to the product repo as `FACTORY_DEPLOY_KEY`**, as under
+   [The secret](#the-secret). A Bedrock caller needs no other secret. For a
+   private factory repo, allow Actions access as under
+   [A private factory repo](#a-private-factory-repo).
+3. **Put Bedrock on the Approved tools table** in
+   [`steering/data-and-tools.md`](../../steering/data-and-tools.md), with its plan and the date you checked it, before a
+   customer's code goes to it. That's the company's decision, not the
+   workflow's. The account needs access to Anthropic's models on Bedrock in
+   each region the review may use. If the account logs Bedrock invocations,
+   the review's prompts land there too: say where, for how long, and who can
+   read them, in that entry.
+4. **Choose the model and its regions.** A model reached through a
+   cross-region inference profile, such as `us.anthropic...`, is sent to any
+   of that profile's destination regions, and which ones depends on the region
+   you call it from. List them from the region you'll call, and use every one
+   in step 5:
+
+   ```
+   aws bedrock get-inference-profile --region us-east-1 \
+     --inference-profile-identifier <profile-id> --query 'models[].modelArn'
+   ```
+
+   Each ARN's region is a destination. Don't go by the profile's prefix:
+   AWS says the regions can differ by source region.
+5. **Deploy the role** from [`examples/ci/bedrock-review-role.yml`](bedrock-review-role.yml), once for each
+   product repo, with `BedrockRegions` set to the regions from step 4. It
+   trusts only a pull request in that repo running the factory's
+   `review-pr-bedrock.yml` at `FactoryRef`, `refs/heads/main` unless you pin
+   (see [Protecting the factory repo](#protecting-the-factory-repo)), and allows only calls to
+   Anthropic's models in those regions. It takes the account's GitHub OIDC
+   provider as a parameter, since an account holds only one for that address.
+   If the account has none, an AWS admin adds one for
+   `https://token.actions.githubusercontent.com` with the audience
+   `sts.amazonaws.com`.
+
+   ```
+   aws cloudformation deploy --stack-name factory-review-product \
+     --template-file examples/ci/bedrock-review-role.yml \
+     --capabilities CAPABILITY_IAM \
+     --parameter-overrides ProductRepo=your-org/product FactoryRepo=your-org/factory \
+       BedrockRegions=us-east-1,us-east-2,us-west-2 \
+       GitHubOidcProviderArn=arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
+   ```
+
+   The stack's `RoleArn` output is the caller's `aws-role-arn`.
+6. **Check what the next step changes, before you run it.** It changes the
+   OIDC subject GitHub sends for every workflow in the product repo: each
+   gains `:job_workflow_ref:<workflow>@<ref>` at its end. In every AWS account,
+   and in any other cloud or Vault that trusts this repo's GitHub tokens, list
+   what trusts a subject starting `repo:your-org/product:`.
+   - One matched with `StringEquals` stops matching, so that repo's other OIDC
+     deploys fail until you add the `job_workflow_ref` part to its condition.
+     Never widen it to a wildcard instead.
+   - One matched with `StringLike` and a `*` before its end, such as
+     `refs/heads/*main`, can start matching branches it didn't. Change it to
+     `StringEquals` first.
+7. **Put the workflow in the product repo's OIDC subject.** This needs admin
+   on the product repo:
+
+   ```
+   echo '{"use_default": false, "include_claim_keys": ["repo", "context", "job_workflow_ref"]}' \
+     | gh api --method PUT repos/your-org/product/actions/oidc/customization/sub --input -
+   ```
+
+8. **Add the caller** to the product repo as a workflow file,
+   `.github/workflows/review.yml` say, with your role's ARN, region and model:
+
+   ```yaml
+   name: Review pull request
+
+   on:
+     pull_request:
+       types: [opened, synchronize, reopened, ready_for_review]
+
+   permissions:
+     contents: read
+     pull-requests: write
+
+   concurrency:
+     group: review-pr-${{ github.event.pull_request.number }}
+     cancel-in-progress: true
+
+   jobs:
+     review:
+       permissions:
+         contents: read
+         pull-requests: write
+         id-token: write
+       uses: your-org/factory/.github/workflows/review-pr-bedrock.yml@main
+       with:
+         factory-repo: your-org/factory
+         aws-role-arn: arn:aws:iam::123456789012:role/factory-review
+         aws-region: us-east-1
+         aws-model: your-bedrock-model-id
+       secrets:
+         FACTORY_DEPLOY_KEY: ${{ secrets.FACTORY_DEPLOY_KEY }}
+   ```
+
+   `id-token: write` is granted on this job only, so no other job you add to
+   the file gets it. `aws-model` is the model ID or inference profile from
+   step 4. `factory-repo` has to name the repo the workflow runs from, or the
+   review stops.
+9. **Open a pull request and check the first run.** Four things there haven't
+   been seen working yet:
+   - **The role is assumed.** The step *Assume the review role on AWS*
+     passes. If it fails with `Not authorized to perform
+     sts:AssumeRoleWithWebIdentity`, compare the `sub:` line that *Check this
+     is the factory's own workflow* prints with the role's condition,
+     `repo:your-org/product:pull_request:job_workflow_ref:your-org/factory/.github/workflows/review-pr-bedrock.yml@refs/heads/main`,
+     before changing anything.
+   - **The token names the factory's workflow.** That same step prints
+     `This workflow: your-org/factory at <sha>`. GitHub documents
+     `job_workflow_ref` and `job_workflow_sha` as the called workflow and its
+     commit; this line is where you see it.
+   - **The model runs.** The review step finishes, under 30 minutes. An
+     `AccessDeniedException` naming a region means a destination region is
+     missing from `BedrockRegions`; one naming the model means the account
+     lacks access to it there.
+   - **Regions hold.** Once it works, try a profile with a destination outside
+     `BedrockRegions` on a test pull request: the review step should fail with
+     `AccessDeniedException`.
+
+What holds the role to this workflow, by design and checked by the tests but
+not yet on a live run:
+
+- **The harness is this workflow's own commit.** Before anything else, the
+  review job reads its OIDC token and checks out the harness from the repo and
+  commit the token names. A branch in the product repo that changes the
+  caller can still point `factory-repo` at another repo, but then the review
+  stops, and nothing it names runs where the token can be minted.
+- **Agents get Read, Grep and Glob only.** An agent file with a `ci-shell:`
+  line stops the run, since the AWS session is in the review's environment.
+- **The code goes only to `BedrockRegions`.** The role allows Bedrock calls
+  only in the regions you list, so a caller that changes `aws-region`, or a
+  profile that routes elsewhere, should be refused. The last first-run check
+  is where you see it.
+
+What doesn't hold: any step in the review job can ask GitHub for the OIDC
+token and assume the role itself, for up to the role's hour. That's why the
+harness is pinned, the CLI installs with every package script off but its own
+installer, and the CLI runs without the values that ask for a token. `base/`,
+whatever branch the pull request targets, loses its links before the agent
+reads it, as `head/` does, so neither can point the agent at the job's
+environment. The session lasts 30 minutes, the job's limit, and is emptied
+when the review ends, so the schema check, the post and the threads never see
+it, and the grade runs as a job of its own without it. Dependabot's pull
+requests get no Actions secrets, so with no deploy key they skip with a
+notice.
+
+To stop using Bedrock: swap the caller back to the key caller above, put the
+product repo's subject back with
+`echo '{"use_default": true}' | gh api --method PUT repos/your-org/product/actions/oidc/customization/sub --input -`,
+undo any role condition you changed in step 6, and remove the role with
+`aws cloudformation delete-stack --stack-name factory-review-product`.
+
 ## The secret
 
 In the product repo, or once for the organisation, add the private half as an
@@ -160,6 +338,9 @@ holding the key:
 - the organisation, for the repos you name: `gh secret set FACTORY_DEPLOY_KEY --org your-org --repos product-a,product-b < review-pr-deploy-key`
 
 Then delete both key files. GitHub holds the only copies it needs.
+
+A [Bedrock caller](#on-amazon-bedrock) needs this secret alone. The rest of this section is for
+the key caller.
 
 The Anthropic key has to be scoped to a workspace (create it inside a
 workspace in the Anthropic Console). An organisation-level key fails with
@@ -204,6 +385,14 @@ A product repo holding secrets it can't afford to lose to anyone who can write t
 your factory should pin the caller to a commit (`review-pr.yml@<sha>`) and move the pin
 after reading the factory's changes. The pin stops the workflow's steps
 changing under it, while the skill and the rules still come from `main`.
+
+The Bedrock review differs. The factory's `main` can assume every product
+account's review role that trusts it: keep `auto_merge` off for changes to the
+factory's workflows. A caller pinned to a commit
+(`review-pr-bedrock.yml@<sha>`) needs the role's `FactoryRef` set to that
+40-character commit, since that's what GitHub puts in the token, so each move
+of the pin is also a stack update. Its review job then checks out the harness
+at that commit; the agents and grade jobs still read `main`.
 
 The deploy key, like the Anthropic key, belongs only in repos whose writers
 you'd trust to read the harness. To rotate it, add a new deploy key and update
