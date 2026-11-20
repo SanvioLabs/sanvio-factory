@@ -36,6 +36,7 @@ RESOLVE = "Resolve the agents"
 GRADE_HARNESS = "Check out the harness's grading files"
 FETCH = "Fetch each agent's report"
 REGRADE = "Put the grade on each agent's comment"
+THREADS = "Open a thread per blocking finding"
 CHECKOUTS = (AGENTS_HARNESS, HARNESS, GRADE_HARNESS)
 DRAFT_NOTICE = "::notice::This pull request is a draft, so the review skips until it's marked ready for review."
 SCHEMA_TEXT = (ROOT / "skills" / "review-pr" / "report.schema.json").read_text()
@@ -230,7 +231,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
             "agents": ["Skip a pull request from a fork", DRAFT, "Skip when Claude has no key", CREDENTIAL,
                        AGENTS_HARNESS, AGENTS_HEAD, SKIP, RESOLVE],
             "review": [HARNESS, HARNESS_SHA, BASE, HEAD, RULES, "Install the Claude Code CLI", PROMPT, CLAUDE,
-                       SCHEMA, POST],
+                       SCHEMA, POST, THREADS],
             "grade": [GRADE_HARNESS, FETCH, GRADE, REGRADE],
         }
         for job, order in orders.items():
@@ -387,7 +388,7 @@ class ReusableReviewWorkflow(unittest.TestCase):
         self.assertEqual(sparse(self.step(HARNESS)), [
             "/AGENTS.md", "/steering/", "/skills/", "/agents/", "/standards/", "/.github/workflows/review-pr.yml",
             "/review-rubric.json", "/scripts/loop.py", "/scripts/names.py", "/scripts/review_grade.py",
-            "/scripts/review_report.py"])
+            "/scripts/review_report.py", "/scripts/review_threads.py"])
         self.assertEqual(sparse(self.step(AGENTS_HARNESS)), ["/skills/", "/agents/"])
         self.assertEqual(sparse(self.step(GRADE_HARNESS)), [
             "/review-rubric.json", "/skills/review-pr/report.schema.json", "/scripts/loop.py", "/scripts/names.py",

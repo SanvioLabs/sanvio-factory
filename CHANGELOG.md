@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-20: A review thread per blocking finding
+
+The CI review in [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml) takes two new inputs, both off by default: with `review-threads: false` and `fail-on: never` it posts the same comment and its check result is unchanged. `review-threads: true` adds a last step to each agent's review job, [`scripts/review_threads.py`](scripts/review_threads.py), that opens a review thread on each `blocks` finding in the checked report, on its line, its file or the first changed file, at most 25 a run, finds it again on the next push by a hidden marker naming the agent, so one agent's run never touches another's threads, resolves it with a reply once the finding is no longer reported, and reopens it if the finding comes back. A thread a person resolved, or someone else opened, is never touched, and an unreadable report opens and resolves nothing. `fail-on: blocks` fails that agent's check, with an error naming how many blocking findings are open, while its report holds one or can't be read. The threads and the result come from the validated report, never the model's text, and nothing approves, requests changes or merges. [`docs/factory-in-ci.md`](docs/factory-in-ci.md) has a new *Review threads and a failing check* section on pairing it with *Require conversation resolution before merging*.
+
+**Needs:** 2026-11-18: The CI review's report is checked against a schema; 2026-11-18: Named review agents run as their own CI jobs
+
+**Controls:** AC-5
+
+Files: [`scripts/review_threads.py`](scripts/review_threads.py), [`.github/workflows/review-pr.yml`](.github/workflows/review-pr.yml), [`examples/ci/README.md`](examples/ci/README.md), [`docs/factory-in-ci.md`](docs/factory-in-ci.md), [`tests/test_review_threads.py`](tests/test_review_threads.py), [`tests/test_review_pr_reusable.py`](tests/test_review_pr_reusable.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing; set `review-threads` or `fail-on` under `with:` in a product repo's caller to opt in.
+
 ## 2026-11-19: factory-updates says what to do with every mods state, and never offers enable
 
 factory-updates' step 11 now says what to do with each state the setup check's `mods` line reports. It names mods it couldn't compare or check, and runs nothing for them. It leaves mods switched off for you alone. It tells you the line's `claude plugin enable` suggestion is yours to run: the skill never offers or runs `claude plugin enable` or `claude plugin disable`.
