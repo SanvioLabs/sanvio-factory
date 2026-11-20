@@ -50,7 +50,7 @@ A new machine key, `sandbox_allow`, lets a project's `test_command`, `generate_c
 
 **Controls:** AC-5
 
-Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`steering/decisions.md`](steering/decisions.md), [`CHANGELOG.md`](CHANGELOG.md).
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`steering/decisions.md`](steering/decisions.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
 
 **Do:** nothing, unless a project's commands need `~/.npmrc` or another denied path: add `"sandbox_allow": [".npmrc"]` under its `"projects"` entry in the factory's `loop.json`.
 
