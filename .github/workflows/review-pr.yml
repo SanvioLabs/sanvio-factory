@@ -4,6 +4,12 @@
 # on this repo's own pushes or pull requests. examples/ci/README.md has the
 # caller to copy, the deploy key and the secrets it needs.
 #
+# review-pr-bedrock.yml, the review on Amazon Bedrock, is made from this file
+# by scripts/bedrock_workflow.py: run it after any edit here. A step added to
+# the review job also runs in the Bedrock review's job, which can ask for an
+# AWS session, so tests/test_review_pr_bedrock.py pins that job's steps: decide
+# whether the step belongs there before adding it to the test.
+#
 # It runs as three jobs. agents goes first: it skips a fork's or a draft's pull
 # request, one with no Claude credential, or one whose changed files all match
 # skip-paths, fails one with no deploy key, and turns the agents input into a

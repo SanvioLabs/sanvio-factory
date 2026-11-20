@@ -12,9 +12,9 @@
 #   - the factory's .github/workflows/review-pr-bedrock.yml at FactoryRef,
 #     the factory's main unless you change it. A caller pinned to a commit
 #     needs FactoryRef set to that commit
-# Both are matched with StringEquals, with no wildcard, so a push, another
-# workflow in the product repo, another branch of the factory or another
-# repo's token can't assume it.
+# The subject and the audience are matched with StringEquals, with no
+# wildcard, so by design a push, another workflow in the product repo,
+# another branch of the factory or another repo's token can't assume it.
 #
 # GitHub's subject only carries the workflow once the product repo's OIDC
 # subject is customised to include job_workflow_ref, which the README's gh api
@@ -25,10 +25,11 @@
 # What it allows: invoking Anthropic's models on Bedrock, directly or through
 # an inference profile, only in the regions BedrockRegions lists, so that's
 # where a review's code can go. A cross-region inference profile calls the
-# model in each region it routes to, so a profile that routes outside the
-# list is refused. No other model, no other Bedrock action and no other AWS
-# service. A session lasts at most an hour, MaxSessionDuration; the
-# workflow's own session asks for 15 minutes.
+# model in each region it routes to, and AWS asks for the call to be allowed
+# in each, so a profile that routes outside the list should be refused; the
+# README's first-run checks include seeing it. No other model, no other
+# Bedrock action and no other AWS service. A session lasts at most an hour,
+# MaxSessionDuration; the workflow's own session asks for 30 minutes.
 #
 # The OIDC provider is a parameter, not made here: an account holds one
 # provider for that URL, and other roles may already use it.
@@ -42,12 +43,12 @@ Parameters:
     AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
   FactoryRepo:
     Type: String
-    Description: The factory repo that holds .github/workflows/review-pr.yml, as owner/name.
+    Description: The factory repo that holds .github/workflows/review-pr-bedrock.yml, as owner/name.
     AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
   FactoryRef:
     Type: String
     Default: refs/heads/main
-    Description: The factory ref the caller's uses line names, as a full ref.
+    Description: What the caller's uses line names after the @. A branch as a full ref, refs/heads/main by default, or a pinned commit as its 40-character SHA.
   GitHubOidcProviderArn:
     Type: String
     Description: The ARN of this account's IAM OIDC provider for https://token.actions.githubusercontent.com.

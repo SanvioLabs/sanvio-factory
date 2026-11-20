@@ -25,7 +25,6 @@ SOURCE = ROOT / ".github" / "workflows" / "review-pr.yml"
 BEDROCK = ROOT / ".github" / "workflows" / "review-pr-bedrock.yml"
 TEMPLATE = ROOT / "examples" / "ci" / "bedrock-review-role.yml"
 README = ROOT / "examples" / "ci" / "README.md"
-AWS_ACTION_SHA = "e1253824e5c10ff9df46874f81ed3ec929e19cfd"
 OWN = "Check this is the factory's own workflow"
 HOLD = "Hold the agent to this harness"
 ASSUME = "Assume the review role on AWS"
@@ -45,8 +44,8 @@ def jwt(claims):
 
 
 def yaml_blocks(text):
-    """The bodies of the ```yaml fences in a Markdown file."""
-    return re.findall(r"^```yaml\n(.*?)^```", text, re.M | re.S)
+    """The bodies of the ```yaml fences in a Markdown file, a fence indented inside a list item included."""
+    return [textwrap.dedent(body) for _, body in re.findall(r"^( *)```yaml\n(.*?)^\1```", text, re.M | re.S)]
 
 
 class FakeOidc:
@@ -78,21 +77,43 @@ class FakeOidc:
 
 class TheGeneratedWorkflow(unittest.TestCase):
     def test_the_committed_file_is_what_the_script_makes(self):
-        self.assertEqual(BEDROCK.read_text(), bedrock_workflow.build(SOURCE.read_text()),
+        self.assertEqual(BEDROCK.read_text(), bedrock_workflow.build(SOURCE.read_text(), BEDROCK.read_text()),
                          "run python3 scripts/bedrock_workflow.py")
         done = subprocess.run([sys.executable, str(ROOT / "scripts" / "bedrock_workflow.py"), "--check"],
                               capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
-    def test_an_anchor_gone_from_review_pr_stops_the_build(self):
-        for number, (anchor, _) in enumerate(bedrock_workflow.EDITS, 1):
+    def test_an_anchor_gone_from_review_pr_stops_the_build_and_says_why(self):
+        source = SOURCE.read_text()
+        values = bedrock_workflow.pins(source)
+        for number, (why, anchor, _) in enumerate(bedrock_workflow.EDITS, 1):
+            for placeholder, value in values.items():
+                anchor = anchor.replace(placeholder, value)
             with self.subTest(edit=number):
-                with self.assertRaisesRegex(ValueError, r"edit {} of".format(number)):
-                    bedrock_workflow.build(SOURCE.read_text().replace(anchor, ""))
+                with self.assertRaises(ValueError) as caught:
+                    bedrock_workflow.build(source.replace(anchor, ""))
+                said = str(caught.exception)
+                # The CLI's version is read from the anchor edit 9 makes, so losing it trips that read first.
+                if "versions of the Claude Code CLI" not in said:
+                    self.assertIn("Edit {} of {} ({})".format(number, len(bedrock_workflow.EDITS), why), said)
+                self.assertIn("scripts/bedrock_workflow.py", str(caught.exception))
 
-    def test_it_says_its_generated_and_from_what(self):
+    def test_a_dependabot_bump_to_either_file_regenerates_to_the_same_thing(self):
+        source, current = SOURCE.read_text(), BEDROCK.read_text()
+        old_checkout = bedrock_workflow.CHECKOUT.search(source).group(1)
+        new_checkout = "actions/checkout@" + "b" * 40 + " # v9.9.9"
+        bumped = bedrock_workflow.build(source.replace(old_checkout, new_checkout), current.replace(old_checkout, new_checkout))
+        self.assertEqual(bumped, current.replace(old_checkout, new_checkout))
+        old_aws = bedrock_workflow.AWS.search(current).group(1)
+        new_aws = "aws-actions/configure-aws-credentials@" + "c" * 40 + " # v9.9.9"
+        self.assertEqual(bedrock_workflow.build(source, current.replace(old_aws, new_aws)), current.replace(old_aws, new_aws))
+
+    def test_it_says_its_generated_and_review_pr_yml_says_so_too(self):
         first = BEDROCK.read_text().splitlines()[0]
         self.assertIn("GENERATED from review-pr.yml by scripts/bedrock_workflow.py", first)
+        header = SOURCE.read_text().split("\nname:", 1)[0]
+        self.assertIn("review-pr-bedrock.yml, the review on Amazon Bedrock, is made from this file", " ".join(header.replace("#", "").split()))
+        self.assertNotIn("ANTHROPIC_API_KEY", BEDROCK.read_text().split("\nname:", 1)[0])
 
 
 class WhoGetsTheToken(unittest.TestCase):
@@ -140,6 +161,29 @@ class TheReviewJob(unittest.TestCase):
         self.assertEqual(len(found), 1, "no single step named " + name)
         return found[0]
 
+    STEPS = [OWN, "Check out the harness", "Say which harness commit reviews", HOLD,
+             "Check out the pull request's base", "Check out the pull request's head",
+             "Remove the pull request's own rules", "Install the Claude Code CLI",
+             "Run the review-pr skill: build the prompt", ASSUME, REVIEW, CLEAR,
+             "Check the report against its schema", "Post the report as one comment",
+             "Open a thread per blocking finding"]
+
+    def test_every_step_in_the_job_that_can_ask_for_a_session_is_one_decided_on(self):
+        # A step review-pr.yml adds to its review job runs here too, where it can mint the token. Decide, then
+        # add it here (the CTO review of #657).
+        self.assertEqual(self.names, self.STEPS)
+        uses = [re.search(r"uses: ([\w./-]+)@", text) for _, text in self.steps]
+        self.assertEqual(sorted({match.group(1) for match in uses if match}),
+                         ["actions/checkout", "aws-actions/configure-aws-credentials"])
+
+    def test_the_agent_is_told_this_workflow_is_running_the_review(self):
+        harness = self.step("Check out the harness")
+        self.assertIn("/.github/workflows/review-pr-bedrock.yml", harness)
+        self.assertNotIn("/.github/workflows/review-pr.yml", harness)
+        prompt = self.step("Run the review-pr skill: build the prompt")
+        self.assertIn("harness/.github/workflows/review-pr-bedrock.yml is the workflow running", prompt)
+        self.assertNotIn("workflows/review-pr.yml", prompt)
+
     def test_its_first_step_is_the_identity_check_and_the_harness_is_what_it_names(self):
         self.assertEqual(self.names[:4], [OWN, "Check out the harness", "Say which harness commit reviews", HOLD])
         checkout = self.step("Check out the harness")
@@ -167,6 +211,7 @@ class TheReviewJob(unittest.TestCase):
                 done, out = self.own({"job_workflow_ref": ref, "job_workflow_sha": SHA}, repo)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual(out, "repo={}\nsha={}\n".format(ref.split("/.github/")[0], SHA))
+                self.assertIn("job_workflow_ref: " + ref, done.stdout)
                 self.assertNotIn("signature", done.stdout + done.stderr)
 
     def test_the_identity_check_stops_anything_else(self):
@@ -224,11 +269,13 @@ class TheReviewJob(unittest.TestCase):
         at = self.names.index(REVIEW)
         self.assertEqual(self.names[at - 1:at + 2], [ASSUME, REVIEW, CLEAR])
         assume = self.step(ASSUME)
-        pins = re.findall(r"uses: aws-actions/configure-aws-credentials@([0-9a-f]{40}) # v6\.3\.0$", assume, re.M)
-        self.assertEqual(pins, [AWS_ACTION_SHA])
+        pins = re.findall(r"uses: aws-actions/configure-aws-credentials@([0-9a-f]{40}) # v[0-9.]+$", assume, re.M)
+        self.assertEqual(len(pins), 1, assume)
         self.assertNotIn("secrets.", assume)
+        # As long as the job may run, so a long review doesn't outlive its session (the reviews of #657).
+        self.assertIn("timeout-minutes: 30", single.jobs(self.code)["review"])
         for line in ("role-to-assume: ${{ inputs.aws-role-arn }}", "aws-region: ${{ inputs.aws-region }}",
-                     "role-duration-seconds: 900"):
+                     "role-duration-seconds: 1800"):
             self.assertIn(line, assume)
         self.assertNotIn("if:", assume)
         clear = self.step(CLEAR)

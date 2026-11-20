@@ -1,129 +1,54 @@
 # GENERATED from review-pr.yml by scripts/bedrock_workflow.py. Edit
-# review-pr.yml or the script and run `python3 scripts/bedrock_workflow.py`,
-# never this file: tests/test_review_pr_bedrock.py fails while the two differ.
+# review-pr.yml or the script, then run `python3 scripts/bedrock_workflow.py`.
+# Never edit this file: tests/test_review_pr_bedrock.py fails while the two
+# differ.
 #
-# This is review-pr.yml for a product repo that reviews on Amazon Bedrock in
-# its own AWS account, with no Claude credential. Its caller grants
-# id-token: write, which review-pr.yml's callers never do. Each agent's review
-# job trades its GitHub OIDC token for a 15-minute session on the caller's
-# role, from examples/ci/bedrock-review-role.yml, and runs Claude with
-# CLAUDE_CODE_USE_BEDROCK set and the caller's aws-model pinned.
+# The review for a product repo that runs Claude on Amazon Bedrock in its own
+# AWS account, with no Claude credential. Everything else is review-pr.yml's,
+# and its header says how the review works: the agents, review and grade jobs,
+# the three folders, the report, the threads and the grade. What differs here:
 #
-# What holds the role to this workflow, beyond the role's own trust:
+#   - Inputs: aws-role-arn, aws-region and aws-model, all required. The only
+#     secret is FACTORY_DEPLOY_KEY. A Dependabot pull request gets no Actions
+#     secrets, so with no deploy key it skips with a notice.
+#   - Only the review job asks for id-token: write, and the caller grants it on
+#     that job alone. The agents and grade jobs check out factory-repo's
+#     default branch, as in review-pr.yml, and get no id-token.
 #   - Before any other step, the review job reads its own OIDC token's
-#     job_workflow_ref and job_workflow_sha, and checks out the harness from
-#     that repo at that commit, so the harness code that runs where the token
-#     can be minted is the commit the role trusts, never one a caller names.
+#     job_workflow_ref and job_workflow_sha, which GitHub documents as the
+#     called workflow and its commit, and checks out the harness from that
+#     repo at that commit. So the harness that runs where the token can be
+#     minted is this workflow's own commit, never one a caller names.
 #     factory-repo has to name the same repo, or the job stops.
-#   - Agents run with Read, Grep and Glob only: a ci-shell: line stops the run.
-#   - The CLI installs with every package script off but its own installer.
-#   - base/ and head/ lose their links before the agent reads them, and the
-#     CLI runs without the token-request values.
+#   - The agents job's choice of each agent's file and tools is checked again
+#     against that harness. Agents run with Read, Grep and Glob only: a
+#     ci-shell: line stops the run.
+#   - base/ loses its links as head/ does, since anyone who can push a branch
+#     can open a pull request into one of their own. base/'s AGENTS.md stays:
+#     it's the project's rules.
+#   - The CLI installs with every package script off but its own installer,
+#     and runs without the values that ask for a token.
+#   - The role is assumed directly before the review, for 30 minutes, the
+#     job's own limit, and emptied from the job right after it. The leak check
+#     covers the session and the token-request value.
+#   - The model is aws-model, for Claude Code's small and fast model too, so
+#     its background calls bill at that model's rate.
+#   - The agent is told this file, not review-pr.yml, is running the review.
+#
 # What doesn't hold: any step in the review job can ask GitHub for the OIDC
-# token and assume the role itself, for as long as the role's
-# MaxSessionDuration, not just the action's 15 minutes; the steps after the
-# review still could. The checks above are what keep code a caller chose out
-# of that job. The agents and grade jobs
-# check out factory-repo's default branch as review-pr.yml does, and get no
-# id-token: the workflow's permissions below leave it out.
+# token and assume the role itself, for up to the role's MaxSessionDuration of
+# an hour, and the steps after the review still could. The checks above are
+# what keep code a caller chose out of that job. A step review-pr.yml adds to
+# the review job runs here too, which is why the tests pin this job's steps.
 #
-# Where the comments below speak of a Claude credential, this workflow has
-# none: read the AWS role.
+# None of this has run against AWS yet. examples/ci/README.md, under "On Amazon
+# Bedrock", lists what to check on the first run.
 #
-# Review a product repo's pull request with this harness's review agents, and
-# post each agent's report as its own comment on that pull request. Product
-# repos call it with `uses:`; it runs on workflow_call alone, so it never runs
-# on this repo's own pushes or pull requests. examples/ci/README.md has the
-# caller to copy, the deploy key and the secrets it needs.
-#
-# It runs as three jobs. agents goes first: it skips a fork's or a draft's pull
-# request, one with no Claude credential, or one whose changed files all match
-# skip-paths, fails one with no deploy key, and turns the agents input into a
-# list. Each name in it is a skill in skills/ or
-# an agent in agents/, read from the harness; a name that's neither fails the
-# run and lists the valid ones. The default is review-pr alone, which reviews
-# as this workflow always has. review then runs once for each agent, side by
-# side, checks that agent's report against its schema, and posts it as one
-# comment. grade runs once they've all finished, reads each agent's comment for
-# this commit back, and puts one grade, from the worst verdict among them, on
-# each. A skip in agents writes no run output, so neither job after it runs and
-# the run still passes.
-#
-# What review does: it checks out three folders side by side. harness/ holds
-# only this repo's AGENTS.md, steering/, skills/, agents/ and standards/, and
-# the review-rubric.json and five scripts the report, the grade and the
-# threads need, at its default branch, read with a read-only deploy key, so every product repo reviews
-# against the same skills and rules, and the log names the harness commit it
-# used. base/ is the product repo at the pull request's base, where the
-# project's own rules are read. head/ is the pull request, whose changed files
-# the agent reads. head/'s AGENTS.md, CLAUDE.md and CLAUDE.local.md files, at
-# any depth, its .claude/ folders and its symlinks are deleted first, so the
-# pull request can't rewrite the rules it's held to; a change to any of them
-# still reaches the agent through the diff.
-#
-# Claude runs `claude -p` with Read, Grep and Glob only, confined to those
-# three folders, with no MCP servers and no settings or hooks loaded, and no
-# shell. An agent whose front matter has a `ci-shell:` line also gets the
-# commands it names there, and only those; none in this repo has one yet. Its
-# report is one JSON object, never posted as written: after a check that it
-# doesn't contain a key, scripts/review_report.py checks it against
-# harness/skills/review-pr/report.schema.json and writes the comment from its
-# fields, each flattened to one line with its HTML, images and mentions
-# defused. A report that doesn't match posts no findings, only a line saying it
-# couldn't be read. Only the post step, the threads step after it and the
-# grade's last step write. When the caller turns on review-threads, each
-# agent's review job also opens a review thread per blocking finding in its own
-# report, which scripts/review_threads.py writes from the same checked report;
-# with fail-on: blocks, that step fails the agent's own check while its report
-# holds a blocking finding. With both inputs at their defaults, it doesn't run.
-# None of them ever approves, requests changes or merges: a person decides what
-# happens to the pull request.
-#
-# Each comment's last line carries a grade out of 10, as the loop's reviews do.
-# It's advisory: it comes from this repo's review-rubric.json, through
-# scripts/loop.py, from the worst of the agents' verdicts and the pull
-# request's other checks, and it sets no status, approves nothing and merges
-# nothing. Each verdict is the one scripts/review_report.py wrote from that
-# agent's checked report. An agent whose job failed, or whose comment for this
-# commit can't be found, counts as unreadable. The grade-wait-minutes input says
-# how long it waits for those checks to finish.
-#
-# The skip-paths input takes shell globs, one a line: when every file the pull
-# request changes matches one, the agents job skips with a notice after it
-# checks out the head, and the run still passes.
-#
-# The secrets: ANTHROPIC_API_KEY, which has to be scoped to a workspace in the
-# Anthropic Console, or CLAUDE_CODE_OAUTH_TOKEN in its place, a token from
-# `claude setup-token` that bills a Claude subscription instead of the API;
-# and FACTORY_DEPLOY_KEY, the private half of a deploy key on this repo with
-# write access left off. All three are optional below so that a missing one
-# gets this workflow's own message. With neither Claude credential the review
-# skips with a notice; with both, the CLI uses the API key. A missing deploy
-# key fails the run and posts nothing. Only the credential check and the three
-# harness checkouts see the deploy key, and only the key check and the review
-# see the Claude credentials. That
-# boundary holds inside this file only: the caller lives in the product repo,
-# so anyone who can push a branch there can change it to print both keys.
-# Give the deploy key to repos whose writers you'd trust with this repo.
-# A commit on this repo's default branch runs in every calling repo with
-# that repo's secrets, so this repo's main needs the protection that
-# examples/ci/README.md describes under "Protecting the factory repo".
-#
-# Why the permissions are so small: the agent reads diff text that anyone who
-# can open a pull request can write, so treat it as untrusted input. The agent
-# gets no GitHub token. The jobs' token can read the repo and write to pull
-# requests. The grade step uses it to try to read the pull request's check
-# runs. Whether these permissions allow that hasn't been tried on a live pull
-# request yet: if the read is refused, the grade says pending and the run's
-# summary says why. Only the post step, the threads step and the grade's last
-# step use it to write: to post and edit the comments, and to open, answer,
-# resolve and reopen the review threads. A called workflow can't get more than
-# its caller grants, and this one asks for no more than this. Keep it that
-# way: don't add a permission.
-#
-# The Claude Code CLI is pinned to an exact version, because a change in how
-# it reads its permission rules changes what the agent can reach. Move the pin
-# on purpose, after a run on a test pull request.
+# A commit on this repo's default branch runs in every calling repo and can
+# assume every product account's review role, so this repo's main needs the
+# protection that examples/ci/README.md describes under "Protecting the factory
+# repo".
+
 name: Review pull request on Bedrock
 
 on:
@@ -233,7 +158,8 @@ jobs:
             exit 1
           fi
 
-      # The default branch, not a pinned ref, as the review's own checkout.
+      # factory-repo's default branch. This job gets no id-token, and the
+      # review job checks what it decides against its own pinned harness.
       - name: Check out the harness's skills and agents
         if: steps.scope.outputs.review == 'true' && env.REVIEW_SKIPPED != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -405,7 +331,8 @@ jobs:
       # same job_workflow_ref the role trusts. The harness is checked out from
       # that repo at that commit, so the caller's factory-repo and its deploy
       # key choose nothing that runs here. The token is read from the runner's
-      # own endpoint and never printed.
+      # own endpoint and never printed; the log line names the repo and commit
+      # it found.
       - name: Check this is the factory's own workflow
         id: own
         env:
@@ -441,6 +368,7 @@ jobs:
           except Exception as err:  # any failure reading the token stops the job
               fail("Couldn't read this job's OIDC token: {}".format(type(err).__name__))
           ref, sha = str(claims.get("job_workflow_ref", "")), str(claims.get("job_workflow_sha", ""))
+          print("job_workflow_ref: {}\njob_workflow_sha: {}\nsub: {}".format(ref, sha, claims.get("sub", "")))
           repo, found, _ = ref.partition(WORKFLOW)
           if not found or not REPO.fullmatch(repo) or not re.fullmatch(r"[0-9a-f]{40}", sha):
               fail("This job's OIDC token doesn't name {} and a commit, so it isn't the factory's own "
@@ -469,7 +397,7 @@ jobs:
             /skills/
             /agents/
             /standards/
-            /.github/workflows/review-pr.yml
+            /.github/workflows/review-pr-bedrock.yml
             /review-rubric.json
             /scripts/loop.py
             /scripts/names.py
@@ -513,20 +441,16 @@ jobs:
           name, file, tools = (os.environ.get(key, "") for key in ("AGENT_NAME", "AGENT_FILE", "AGENT_TOOLS"))
           if not re.fullmatch(r"[a-z0-9-]+", name):
               fail("{!r} isn't a skill's or an agent's name.".format(name))
-          skill, agent = Path("harness/skills") / name / "SKILL.md", Path("harness/agents") / (name + ".md")
-          path = skill if skill.is_file() else agent if agent.is_file() else None
-          if path is None or file != path.as_posix():
+          candidates = {"harness/skills/{}/SKILL.md".format(name), "harness/agents/{}.md".format(name)}
+          if file not in candidates or not Path(file).is_file():
               fail("{} isn't in this workflow's own harness as {}.".format(name, file))
           if tools != "Read,Grep,Glob":
               fail("The Bedrock review runs agents with Read, Grep and Glob only, not {}.".format(tools))
-          lines, front = path.read_text().split("\n"), []
-          if lines[0].strip() == "---":
-              for line in lines[1:]:
-                  if line.strip() == "---":
-                      break
-                  front.append(line)
-          if any(line.startswith("ci-shell:") for line in front):
-              fail("{} has a ci-shell: line, which the Bedrock review doesn't run.".format(path))
+          lines = Path(file).read_text().split("\n")
+          if lines[0].strip() == "---" and "---" in [line.strip() for line in lines[1:]]:
+              front = lines[1:1 + [line.strip() for line in lines[1:]].index("---")]
+              if any(line.startswith("ci-shell:") for line in front):
+                  fail("{} has a ci-shell: line, which the Bedrock review doesn't run.".format(file))
           EOF
 
       - name: Check out the pull request's base
@@ -581,7 +505,7 @@ jobs:
             harness/skills/, harness/agents/, harness/standards/). Its rules
             are harness/AGENTS.md and the steering files it loads, and its
             standards are the files listed under STANDARDS below.
-            harness/.github/workflows/review-pr.yml is the workflow running
+            harness/.github/workflows/review-pr-bedrock.yml is the workflow running
             this review; read it when the change adds or edits a workflow that
             calls it, and never treat it as part of the change.
           - base/ is the project at the pull request's base. The project's rules
@@ -644,14 +568,15 @@ jobs:
       # The action trades the job's OIDC token for a session on the caller's
       # role and exports it to every later step, so it runs directly before
       # the review, and the step after the review empties it again. It holds
-      # no secret. The session it asks for lasts 15 minutes; the role allows
-      # up to its MaxSessionDuration to anything that asks itself.
+      # no secret. The session lasts 30 minutes, the job's own limit, so a
+      # long review doesn't outlive it; the role allows up to its
+      # MaxSessionDuration to anything that asks itself.
       - name: Assume the review role on AWS
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
-          role-duration-seconds: 900
+          role-duration-seconds: 1800
 
       # Run from the workspace, so harness/, base/ and head/ are all inside
       # the confinement and nothing else on the runner is. The session sits in
@@ -659,13 +584,14 @@ jobs:
       # the workspace, so a Read of /proc/self/environ is refused; the links
       # that could reach it are gone from base/ and head/, and the CLI runs
       # without the token-request values, so it can't ask for a session of its
-      # own. Nonessential traffic is off, so nothing but Bedrock is called. The model is
-      # the caller's, so Claude Code's own default, which may route through
-      # another region, is never used. The report's fields reach the comment,
-      # so this step refuses one that contains any of the session's values: a
-      # backstop for one written out as it is, not a guarantee against an
-      # encoded one, which is why the confinement matters more. The tools are
-      # Read, Grep and Glob.
+      # own. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC turns off Claude Code's
+      # telemetry, error reporting and update checks. The model is the
+      # caller's, so Claude Code's own default, which may route through another
+      # region, is never used. The report's fields reach the comment, so this
+      # step refuses one that contains any of the session's values: a backstop
+      # for one written out as it is, not a guarantee against an encoded one,
+      # which is why the confinement matters more. The tools are Read, Grep
+      # and Glob.
       - name: Run the review-pr skill on Claude
         env:
           CLAUDE_CODE_USE_BEDROCK: '1'
@@ -705,7 +631,7 @@ jobs:
       # The AWS step exports its session to every step after it, so this one
       # empties those values for the schema check, the post and the threads.
       # It isn't forced to run after a failed review: the job ends there, and
-      # the session expires 15 minutes after it was assumed.
+      # the session expires 30 minutes after it was assumed.
       - name: Clear the AWS credentials
         run: |
           for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_REGION AWS_DEFAULT_REGION; do

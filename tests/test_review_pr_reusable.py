@@ -66,8 +66,10 @@ def children(text, key):
 
 
 def fenced(text, language):
-    """The bodies of the ```language fences in a Markdown file."""
-    return re.findall(r"^```{}\n(.*?)^```".format(re.escape(language)), text, re.M | re.S)
+    """The bodies of the ```language fences in a Markdown file, a fence indented inside a list item included,
+    each dedented to its fence."""
+    found = re.findall(r"^( *)```{}\n(.*?)^\1```".format(re.escape(language)), text, re.M | re.S)
+    return [textwrap.dedent(body) if indent else body for indent, body in found]
 
 
 def sparse(step):
