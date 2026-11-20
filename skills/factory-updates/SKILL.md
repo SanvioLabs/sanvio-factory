@@ -378,6 +378,8 @@ Then, on a new branch, it applies each choice on its own yes and writes the
       git switch -c "factory-update-$(git -C "$clone" rev-parse --short origin/main)"
       ```
 
+      `$clone` is the scratch clone from step 2. If it isn't set any more,
+      set it again with step 2's `clone=` line first; it only reads the clone.
       If a branch of that name exists, the switch fails and this stops: an
       update branch is never reused or overwritten. On a no, stop and give
       step 9's commands for the person to run themselves.
@@ -407,11 +409,13 @@ Then, on a new branch, it applies each choice on its own yes and writes the
       [`CHANGELOG.md`](../../CHANGELOG.md) if part 5 wrote the `starter:` line, and commit:
 
       ```bash
-      git add -- <each copied file>
+      git add -- <each copied file> CHANGELOG.md
       git commit -m "Take Sanvio Factory updates to <sha>"
       ```
 
-      If the pre-commit hook blocks it, show what the hook named and stop.
+      Leave [`CHANGELOG.md`](../../CHANGELOG.md) off the `git add` line only when part 5 wrote no
+      `starter:` line. If the pre-commit hook blocks it, show what the hook
+      named and stop.
    7. **Push.** Check where `origin` fetches from and pushes to:
 
       ```bash

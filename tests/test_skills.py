@@ -777,6 +777,106 @@ class FactoryUpdatesApplies(unittest.TestCase):
         for words in ("changes nothing in this copy", "changes nothing here"):
             self.assertNotIn(words, description)
 
+    PARTS = ("Start clean.", "Make a branch.", "Copy the files.", "Run the quick check.",
+             "Write the new baseline.", "Commit.", "Push.", "Merge only when asked.")
+
+    def part(self, number):
+        """Step 10's part `number`, up to the next part or the end of the step."""
+        step = self.step()
+        begin = step.index(f"{number}. **{self.PARTS[number - 1]}**")
+        end = step.index(f"{number + 1}. **{self.PARTS[number]}**") if number < len(self.PARTS) else len(step)
+        return step[begin:end]
+
+    def test_the_parts_come_in_order(self):
+        step = self.step()
+        places = [step.index(f"{n}. **{title}**") for n, title in enumerate(self.PARTS, 1)]
+        self.assertEqual(places, sorted(places))
+
+    def test_each_part_asks_first_and_a_no_or_a_failure_stops_the_rest(self):
+        step = self.step()
+        for words in ("Each part below asks first, and runs only on a yes to that one part.",
+                      "A no, or a part that fails, stops everything after it:",
+                      "say which part stopped and name each part that didn't run.",
+                      "Never run a part again with `--force`, `--no-verify` or any other flag that skips a check."):
+            self.assertIn(words, step)
+        for number in (2, 3, 4, 5, 6):
+            self.assertIn("On a yes", self.part(number), self.PARTS[number - 1])
+        self.assertIn("on a yes", self.part(7))
+        for line in self.raw().splitlines():
+            self.assertNotIn("--no-verify", line.replace("`--no-verify`", ""), line)
+
+    def test_a_dirty_copy_stops_before_anything_changes(self):
+        part = self.part(1)
+        for words in ("git status --porcelain", "If it prints anything, stop.", "Name the changed files",
+                      "give step 9's commands for the person to run themselves."):
+            self.assertIn(words, part)
+
+    def test_the_branch_is_new_and_never_reused(self):
+        part = self.part(2)
+        self.assertIn('git switch -c "factory-update-$(git -C "$clone" rev-parse --short origin/main)"', part)
+        for words in ("If a branch of that name exists, the switch fails and this stops:",
+                      "an update branch is never reused or overwritten.",
+                      "On a no, stop and give step 9's commands", "`$clone` is the scratch clone from step 2."):
+            self.assertIn(words, part)
+        for line in self.raw().splitlines():
+            self.assertIsNone(re.search(r"git (switch -C|checkout -B|branch -f)\b", line), line)
+
+    def test_only_what_was_chosen_is_copied(self):
+        part = self.part(3)
+        for words in ("A file is copied only when every commit since the baseline that touches it",
+                      "is **take**, or is **ask** and got its own yes after you showed the line step 7 quotes.",
+                      "A **skip**, or a **take X first** whose X isn't taken, holds the file back:",
+                      "name the commit that held it.",
+                      "An adapted file (**merge by hand**) and [`CHANGELOG.md`](../../CHANGELOG.md)'s upstream "
+                      "entries are never copied:", "show step 9's diff and leave the merge to the person."):
+            self.assertIn(words, part)
+
+    def test_the_starter_line_is_written_above_the_first_entry_and_replaces_any_old_one(self):
+        part = self.part(5)
+        for words in ("Name every commit at or before the sha you'd propose that wasn't applied",
+                      "Propose the newest sha with none of those before it",
+                      "On a yes, write `starter: <sha>` above the first entry of [`CHANGELOG.md`]",
+                      "replacing any `starter:` line already there."):
+            self.assertIn(words, part)
+
+    def test_the_commit_stages_only_the_copied_files_and_the_changelog(self):
+        part = self.part(6)
+        for words in ("stage only the files copied in part 3", "git add -- <each copied file> CHANGELOG.md",
+                      "If the pre-commit hook blocks it, show what the hook named and stop."):
+            self.assertIn(words, part)
+        for line in self.raw().splitlines():
+            self.assertIsNone(re.search(r"git (add (-A|--all|\.)|commit (-a|--all))(\s|$)", line), line)
+
+    def test_the_push_checks_both_urls_and_refuses_without_origin(self):
+        part = self.part(7)
+        for words in ("git remote get-url origin", "git remote get-url --push origin",
+                      "If there's no `origin`, or either URL matches `STARTER`", "refuse the push and say why"):
+            self.assertIn(words, part)
+        for url in ("https://github.com/SanvioLabs/sanvio-factory", "git@github.com:SanvioLabs/sanvio-factory.git"):
+            self.assertTrue(check_setup.STARTER.search(url), url)
+
+    def test_the_step_never_merges_on_its_own(self):
+        self.assertIsNone(re.search(r"git (merge|pull|rebase)\b", self.step()))
+
+    def test_the_old_hands_off_wording_is_gone(self):
+        text = self.text()
+        for words in ("person decides and runs every command", "the next step is theirs to run",
+                      "Never write the `starter:` line yourself", "Never pull, merge, check out, copy or commit"):
+            self.assertNotIn(words, text)
+
+    def test_the_intro_says_it_applies_each_choice_on_a_yes(self):
+        text = self.text()
+        intro = text[:text.index("## Steps")]
+        self.assertIn("it applies each choice on its own yes and writes the `starter:` line", intro)
+        description = frontmatter(self.raw()).get("description", "")
+        self.assertIn("applies what the person chose on a new branch in this copy, each step on its own yes", description)
+
+    def test_the_output_ends_with_step_10s_results(self):
+        output = self.text()[self.text().index("## Output"):].strip()
+        self.assertIn("End with step 10's results:", output)
+        self.assertTrue(output.endswith("the branch, the commit, the `starter:` line and the push where they were made."),
+                        output[-200:])
+
 
 class UpgradeGuideStaysUpstream(unittest.TestCase):
     """The upgrade guide's links point at Sanvio Factory's own files, so it's read on GitHub, and
