@@ -65,6 +65,24 @@ export type Seen = {
   machineIndex?: number
 }
 
+// One test suite run, from the file scripts/run_tests.py keeps in .sanvio/tests/, with the file's name,
+// less .json, as its id. Times are ISO 8601 with their offset. total is null until the suite has loaded.
+// exit_code and ended are there once the run has ended; 130 is a run stopped with Ctrl-C.
+export type TestRun = {
+  id: string
+  state: 'running' | 'passed' | 'failed'
+  worktree: string
+  branch: string
+  started: string
+  updated: string | null
+  ended: string | null
+  total: number | null
+  ran: number
+  failed: number
+  skipped: number
+  exit_code: number | null
+}
+
 // Which tab the pane shows, and the first job of its list in view. Null until the person picks a tab.
 export type Tab = 'queue' | 'active' | 'finished'
 export type View = { tab: Tab; start: number }

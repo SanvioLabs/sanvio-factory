@@ -52,6 +52,26 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing, unless a project's commands need `~/.npmrc` or another denied path: add `"sandbox_allow": [".npmrc"]` under its `"projects"` entry in the factory's `loop.json`.
 
+## 2026-11-20: factory-floor shows test suite runs
+
+Factory-floor's List view has a **Tests** section under the list, whichever loop is picked, showing each test suite run [`scripts/run_tests.py`](scripts/run_tests.py) has recorded in `.sanvio/tests/`: its worktree and branch, then for a run still going a pulsing dot, its clock, how many tests have run out of how many and how many failed, and for the three that ended most recently, whether they passed, failed or were stopped. A run that stopped writing for a minute shows red and **stopped**. While the List is drawn, a run the pane saw running raises a notice when it ends. The Crew view and other machines don't show runs.
+
+**Needs:** 2026-11-20: A status file for each test suite run
+
+Files: [`examples/mods/factory-floor/hooks/runs.ts`](examples/mods/factory-floor/hooks/runs.ts), [`examples/mods/factory-floor/hooks/runs.test.ts`](examples/mods/factory-floor/hooks/runs.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/types/index.d.ts`](examples/mods/factory-floor/types/index.d.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), [`examples/mods/factory-floor/README.md`](examples/mods/factory-floor/README.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** run the suite with `python3 scripts/run_tests.py` to see it in the pane. Reload Claude Code's plugins, or start a new session, to take the new version of the mod.
+
+## 2026-11-20: A status file for each test suite run
+
+`python3 scripts/run_tests.py` runs the tests as `python3 -m unittest discover -s tests` does, with unittest's output and exit code, and names in unittest's form run only those. While it runs it keeps `.sanvio/tests/<run id>.json` in the main clone current: where it ran, the branch, how many tests have run and failed out of how many, refreshed at least every 10 seconds, and how it ended. A run in a linked worktree writes to the main clone's folder too. The files hold paths, a branch name and counts, never test output, and each start removes those over 30 days old. If the file can't be written the tests run anyway, with one line saying so. Factory-floor doesn't show these runs yet. The loop's `test_command` and CI are unchanged. [`steering/building-and-testing.md`](steering/building-and-testing.md) now says to run the full suite through it.
+
+**Controls:** SA-9
+
+Files: [`scripts/run_tests.py`](scripts/run_tests.py), [`tests/test_run_tests.py`](tests/test_run_tests.py), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** nothing. Run the full suite with `python3 scripts/run_tests.py` from now on, so the run can be shown.
+
 ## 2026-11-20: The CI review runs on Amazon Bedrock through OIDC
 
 A product repo can now set up the review to run on Amazon Bedrock in its own AWS account, with no Anthropic key, by calling [`.github/workflows/review-pr-bedrock.yml`](.github/workflows/review-pr-bedrock.yml) with `aws-role-arn`, `aws-region` and `aws-model`. It hasn't run against AWS yet: [`examples/ci/README.md`](examples/ci/README.md)'s *On Amazon Bedrock* ends with what to check on the first run. Each agent's review job trades its GitHub OIDC token for a 30-minute session on that role and runs Claude on Bedrock with that model, billed to that account. It's its own workflow, made from [`review-pr.yml`](.github/workflows/review-pr.yml) by [`scripts/bedrock_workflow.py`](scripts/bedrock_workflow.py), so only a Bedrock caller grants `id-token: write`, and a caller with a Claude key changes nothing; `review-pr.yml` gains only a header note saying so. By design, before anything else runs, the review job reads its own token and checks out the harness from the repo and commit the token names, so a caller can't point the role's job at a harness of its own; agents get Read, Grep and Glob only; `base/` loses its links as `head/` does; and the CLI installs with every package script off but its own and runs without the values that ask for a token. Any step in that job can still mint the token and assume the role for up to an hour, as the workflow says. [`examples/ci/bedrock-review-role.yml`](examples/ci/bedrock-review-role.yml) is a CloudFormation template for the role: it trusts only `review-pr-bedrock.yml` at the factory's `FactoryRef`, run for one product repo's pull requests, matched exactly on the OIDC subject, and allows only invoking Anthropic's models in the regions its `BedrockRegions` lists. Bedrock isn't on the approved-tools table: adding it is the company's decision.
