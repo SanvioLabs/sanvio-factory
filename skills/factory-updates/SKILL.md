@@ -347,8 +347,9 @@ Then, on a new branch, it applies each choice on its own yes and writes the
      command for that one file. Each commit it lists that isn't part of that
      change rides along when the file is taken. Name each one under the file,
      by its [`CHANGELOG.md`](../../CHANGELOG.md) entry name, or by its subject if it has none, as
-     `also brings: <name>`. Don't leave the file out for it: the person
-     decides.
+     `also brings: <name>`. Step 10 copies the file only when each of them
+     is **take**, or **ask** with its own yes; otherwise it holds the file
+     back and names the commit.
    - **For anything taken,** name what `cp` doesn't bring, to merge by hand from
      upstream: a skill's or agent's row in [`AGENTS.md`](../../AGENTS.md), a mod's entry in
      [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json) and its `enabledPlugins` line in
@@ -424,10 +425,16 @@ Then, on a new branch, it applies each choice on its own yes and writes the
       ```
 
       If there's no `origin`, or either URL matches `STARTER` in
-      [`scripts/check_setup.py`](../../scripts/check_setup.py) (it ends in `SanvioLabs/sanvio-factory`, with or
-      without `.git`), refuse the push and say why: this skill never pushes to
-      Sanvio Factory. Otherwise, on a yes, push the update branch to `origin`,
-      never forced:
+      [`scripts/check_setup.py`](../../scripts/check_setup.py), refuse the push and say why: this skill
+      never pushes to Sanvio Factory. Match with `STARTER` itself, never by
+      eye: it ignores case and allows a trailing `.git` or `/`. For each URL,
+      this prints `upstream` when it matches:
+
+      ```bash
+      python3 -c 'import sys; sys.path.insert(0, "scripts"); from check_setup import STARTER; print("upstream" if STARTER.search(sys.argv[1]) else "not upstream")' "<url>"
+      ```
+
+      Otherwise, on a yes, push the update branch to `origin`, never forced:
 
       ```bash
       git push -u origin "$(git branch --show-current)"

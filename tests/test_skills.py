@@ -855,6 +855,26 @@ class FactoryUpdatesApplies(unittest.TestCase):
         for url in ("https://github.com/SanvioLabs/sanvio-factory", "git@github.com:SanvioLabs/sanvio-factory.git"):
             self.assertTrue(check_setup.STARTER.search(url), url)
 
+    def test_the_push_matches_with_starter_itself_not_by_eye(self):
+        # Review of #675: described by eye, a lowercase or trailing-slash origin read as not upstream.
+        part = self.part(7)
+        self.assertIn("Match with `STARTER` itself, never by eye", part)
+        command = re.search(r"(python3 -c '.*?STARTER.*?') \"<url>\"", part)
+        self.assertTrue(command, "part 7 gives no command that matches with STARTER")
+        for url, said in (("https://github.com/sanviolabs/sanvio-factory/", "upstream"),
+                          ("git@github.com:SanvioLabs/sanvio-factory.git", "upstream"),
+                          ("https://github.com/acme/our-factory.git", "not upstream")):
+            done = subprocess.run(["bash", "-c", '{} "$1"'.format(command.group(1)), "bash", url], cwd=ROOT,
+                                  capture_output=True, text=True)
+            self.assertEqual(done.stdout.strip(), said, (url, done.stderr))
+
+    def test_step_9_and_step_10_hold_a_file_back_the_same_way(self):
+        # Review of #675: step 9 said a commit riding along never keeps the file out, step 10 that it does.
+        text = self.text()
+        step_9 = text[text.index("9. **Name how"):text.index("10. **Apply")]
+        self.assertNotIn("Don't leave the file out for it", step_9)
+        self.assertIn("Step 10 copies the file only when each of them is **take**, or **ask** with its own yes", step_9)
+
     def test_the_step_never_merges_on_its_own(self):
         self.assertIsNone(re.search(r"git (merge|pull|rebase)\b", self.step()))
 
