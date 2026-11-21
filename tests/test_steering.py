@@ -197,7 +197,8 @@ class WhereToRunIt(unittest.TestCase):
         rows = [line for line in text.splitlines() if line.startswith("|")]
         body = [line for line in rows[1:] if not re.match(r"^\|[\s|:-]+\|$", line)]
         firsts = [row.split("|")[1].strip() for row in body]
-        self.assertEqual(firsts, ["Terminal", "VS Code extension", "Claude Desktop, Code tab", "Claude Desktop, chat"])
+        self.assertEqual(firsts, ["Terminal", "VS Code extension", "Claude Desktop, Code tab", "Claude Desktop, chat",
+                                  "Claude mobile app, following a session"])
 
 
 class WhereThingsLive(unittest.TestCase):

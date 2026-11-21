@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing unless you want it. To try it, set `"sandbox_strict": true` under `"projects"` for one project in the factory's `loop.json`. First, list in `sandbox_write_allow` the caches its commands write outside the worktree, for example `"sandbox_write_allow": ["~/.npm", "~/.cache/uv"]`. Leave `sandbox_network` at `"any"` until you know what its `setup_command` fetches.
 
+## 2026-11-21: Where to run it covers the mobile app
+
+[`README.md`](README.md)'s *Where to run it* table has a row for the Claude mobile app following a session: the conversation and text replies come through, but mod panes and the lines above the prompt stay on the computer running the session, so from the phone you ask the session for loop status.
+
+Files: [`README.md`](README.md), [`tests/test_steering.py`](tests/test_steering.py), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-21: A long name wraps in its own column on the dashboard
 
 In Claude Desktop and VS Code, a long name in one of [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/)'s tables, such as a pull request title under **Waiting on you**, now wraps inside its own column, and the figures stay beside its first line under their headers, in place of going on a line of their own under it. A pane that would leave the names fewer than 16 columns still puts the figures under the name. The terminal is unchanged. The dashboard is now 0.9.1.
