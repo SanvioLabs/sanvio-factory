@@ -17,6 +17,11 @@ import guard  # noqa: E402 (the import needs .claude/hooks/ on the path first)
 import session_start  # noqa: E402
 
 
+# A folder no repo holds, for a guard run as a person's session: the suite may itself run inside a loop
+# worktree an agent has marked unattended (#686), and a guard started there would read the marker.
+NO_REPO = tempfile.mkdtemp(prefix="guard-no-repo-")
+
+
 def call(tool, **tool_input):
     return guard.decide({"tool_name": tool, "tool_input": tool_input})
 
@@ -113,7 +118,7 @@ class Guard(unittest.TestCase):
 
     def test_garbage_input_lets_the_call_through_and_says_so(self):
         result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json",
-                                capture_output=True, text=True, env=interactive_env())
+                                capture_output=True, text=True, env=interactive_env(), cwd=NO_REPO)
         self.assertEqual(result.returncode, 0)
         self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"])
 
@@ -142,7 +147,7 @@ class Unattended(unittest.TestCase):
         for value in ("0", "", "yes"):
             env = dict(interactive_env(), SANVIO_UNATTENDED=value)
             result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json",
-                                    capture_output=True, text=True, env=env, timeout=30)
+                                    capture_output=True, text=True, env=env, timeout=30, cwd=NO_REPO)
             self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"], value)
 
     def test_it_adds_none_of_a_headless_runs_limits(self):
@@ -151,6 +156,101 @@ class Unattended(unittest.TestCase):
                 self.assertIsNone(guard.decide({"tool_name": "Bash", "tool_input": {"command": "git status"}}))
                 self.assertIsNone(guard.decide({"tool_name": "Read", "tool_input": {"file_path": "AGENTS.md"}}))
                 self.assertEqual(guard.decide({"tool_name": "Read", "tool_input": {"file_path": ".env"}})[0], "deny")
+
+
+class UnattendedMarker(unittest.TestCase):
+    """A loop agent's worktree carries a sanvio-unattended-* file in its own folder in .git while the agent runs
+    (#686). A session there that dropped SANVIO_UNATTENDED is still one nobody is watching, and no session
+    changes the file."""
+
+    def setUp(self):
+        self.top = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.top, ignore_errors=True)
+        self.admin = self.top / "clone" / ".git" / "worktrees" / "issue-7"
+        self.admin.mkdir(parents=True)
+        self.tree = self.top / "issue-7"
+        (self.tree / "src").mkdir(parents=True)
+        (self.tree / ".git").write_text("gitdir: {}\n".format(self.admin))
+        self.marker = self.admin / (guard.UNATTENDED_MARKER + "123-1")
+        quiet = {"SANVIO_UNATTENDED": "", "SANVIO_HEADLESS": "", "HARNESS_HEADLESS": ""}
+        patch = mock.patch.dict(os.environ, quiet)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def mark(self):
+        self.marker.write_text("x")
+
+    def unreadable(self, cwd):
+        result = subprocess.run([sys.executable, str(HOOKS / "guard.py")], input="not json", capture_output=True,
+                                text=True, env=interactive_env(), timeout=30, cwd=str(cwd))
+        self.assertEqual(result.returncode, 0)
+        return json.loads(result.stdout)
+
+    def test_the_marker_makes_a_session_without_the_variable_unattended(self):
+        self.mark()
+        for cwd in (self.tree, self.tree / "src"):
+            out = self.unreadable(cwd)["hookSpecificOutput"]
+            self.assertEqual((out["permissionDecision"], out["permissionDecisionReason"]),
+                             ("deny", guard.UNATTENDED_UNCHECKED), cwd)
+            self.assertTrue(guard.is_unattended(str(cwd)))
+
+    def test_without_the_marker_a_persons_session_is_unchanged(self):
+        self.assertIn("wasn't checked", self.unreadable(self.tree)["systemMessage"])
+        self.assertFalse(guard.is_unattended(str(self.tree)))
+        verdict = guard.decide({"tool_name": "Write", "cwd": str(self.tree),
+                                "tool_input": {"file_path": ".sanvio/factory-floor/machines.json", "content": "{}"}})
+        self.assertEqual(verdict[0], "ask")
+
+    def test_a_marker_in_another_worktree_doesnt_count(self):
+        other = self.top / "clone" / ".git" / "worktrees" / "issue-8"
+        other.mkdir()
+        (other / (guard.UNATTENDED_MARKER + "1-1")).write_text("x")
+        self.assertFalse(guard.is_unattended(str(self.tree)))
+        self.assertFalse(guard.is_unattended(str(self.top)))
+
+    def test_with_the_marker_a_factory_floor_change_is_refused(self):
+        self.mark()
+        verdict = guard.decide({"tool_name": "Write", "cwd": str(self.tree),
+                                "tool_input": {"file_path": ".sanvio/factory-floor/machines.json", "content": "{}"}})
+        self.assertEqual(verdict, ("deny", guard.MACHINES_UNATTENDED.format(".sanvio/factory-floor/machines.json")))
+
+    def test_no_session_changes_the_marker(self):
+        writes = [("Write", {"file_path": str(self.marker), "content": ""}),
+                  ("Edit", {"file_path": str(self.marker), "old_string": "x", "new_string": ""}),
+                  ("Bash", {"command": "rm {}".format(self.marker)}),
+                  ("Bash", {"command": "find .. -name 'sanvio-unattended-*' -delete"}),
+                  ("Bash", {"command": "mv ../clone/.git/worktrees/issue-7/SANVIO-UNATTENDED-123-1 x"})]
+        for tool, tool_input in writes:
+            verdict = guard.decide({"tool_name": tool, "cwd": str(self.tree), "tool_input": tool_input})
+            self.assertEqual(verdict[0] if verdict else None, "ask", (tool, tool_input))
+        self.mark()
+        for tool, tool_input in writes:
+            verdict = guard.decide({"tool_name": tool, "cwd": str(self.tree), "tool_input": tool_input})
+            self.assertEqual(verdict[0] if verdict else None, "deny", (tool, tool_input))
+            self.assertIn("Only the loop writes or removes it", verdict[1])
+        self.assertIsNone(guard.decide({"tool_name": "Read", "cwd": str(self.tree),
+                                        "tool_input": {"file_path": str(self.marker)}}))
+
+    def test_without_a_cwd_only_the_variable_counts(self):
+        self.mark()
+        self.assertFalse(guard.is_unattended())
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "1"}):
+            self.assertTrue(guard.is_unattended())
+
+    def test_a_real_git_worktree_is_found(self):
+        if shutil.which("git") is None:
+            self.skipTest("no git")
+        clone, tree = self.top / "real", self.top / "real-tree"
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+        subprocess.run(git + ["init", "-q", str(clone)], check=True)
+        subprocess.run(git + ["-C", str(clone), "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+        subprocess.run(git + ["-C", str(clone), "worktree", "add", "-q", "--detach", str(tree)], check=True)
+        admin = Path(guard.git_dir(str(tree)))
+        self.assertEqual(admin.parent.resolve(), (clone / ".git" / "worktrees").resolve())
+        self.assertFalse(guard.is_unattended(str(tree)))
+        (admin / (guard.UNATTENDED_MARKER + "9-1")).write_text("x")
+        self.assertTrue(guard.is_unattended(str(tree)))
+        self.assertFalse(guard.is_unattended(str(clone)))
 
 
 class TheLogs(unittest.TestCase):
@@ -419,7 +519,8 @@ class HeadlessRun(unittest.TestCase):
         result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30)
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
         env.pop("SANVIO_HEADLESS")
-        result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30)
+        result = subprocess.run(hook, input="not json", capture_output=True, text=True, env=env, timeout=30,
+                                cwd=NO_REPO)
         self.assertIn("wasn't checked", json.loads(result.stdout)["systemMessage"])
 
     def test_a_connector_is_refused_even_when_named_as_a_read(self):

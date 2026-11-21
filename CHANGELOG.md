@@ -50,6 +50,28 @@ Files: [`README.md`](README.md), [`tests/test_steering.py`](tests/test_steering.
 
 **Do:** nothing.
 
+## 2026-11-21: A long name wraps in its own column on the dashboard
+
+In Claude Desktop and VS Code, a long name in one of [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/)'s tables, such as a pull request title under **Waiting on you**, now wraps inside its own column, and the figures stay beside its first line under their headers, in place of going on a line of their own under it. A pane that would leave the names fewer than 16 columns still puts the figures under the name. The terminal is unchanged. The dashboard is now 0.9.1.
+
+**Needs:** 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
+
+Files: [`examples/mods/factory-dashboard/hooks/register.tsx`](examples/mods/factory-dashboard/hooks/register.tsx), [`examples/mods/factory-dashboard/hooks/pane.test.ts`](examples/mods/factory-dashboard/hooks/pane.test.ts), [`examples/mods/factory-dashboard/.claude-plugin/plugin.json`](examples/mods/factory-dashboard/.claude-plugin/plugin.json), [`examples/mods/factory-dashboard/README.md`](examples/mods/factory-dashboard/README.md), `CHANGELOG.md`.
+
+**Do:** `/reload-plugins`, or start a new session, to take the new version of the mod.
+
+## 2026-11-21: A loop agent can't switch off the guard's unattended check
+
+The guard used to know a loop agent only by `SANVIO_UNATTENDED=1`, which the agent could drop by starting a session of its own with `env -u`, and every tool call the guard couldn't check went back to being let through with a warning nobody reads. Now, while an agent runs in one of the loop's worktrees, the loop also keeps a `sanvio-unattended-*` file in that worktree's own folder in `.git`, and the guard treats a session there as unattended when it finds either sign. Any write, edit or shell command naming the file is refused in an unattended session and asked about in a person's. A person's session in the clone, or anywhere outside the loop's worktrees, is unchanged.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-11-14: Factory floor on other machines
+
+**Controls:** AC-5, AU-9
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/loop.py`](scripts/loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
+
+**Do:** nothing. If a loop you stopped with `kill` leaves a worktree's guard strict, remove that worktree, or delete its `sanvio-unattended-*` file in `.git/worktrees/` yourself.
+
 ## 2026-11-21: Name the skill before the script
 
 When someone asks how to do something, the agent now names the skill or workflow that does it before suggesting any script or command. [`steering/operating.md`](steering/operating.md)'s *Always* line also covers workflows, not only skills.
