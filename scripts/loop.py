@@ -116,6 +116,19 @@ DEFAULTS = {
     # own loop.json can't reach your credentials through it. Not for a caller project, whose profile is
     # caller_profile()'s.
     "sandbox_allow": [],
+    # Whether those three commands run deny-by-default for writes and the network as well: on a Mac with the
+    # sandbox on, they may write only their worktree, a temp folder of their own, git's folder for that worktree,
+    # what sandbox_allow lets through and sandbox_write_allow, and reach only what sandbox_network says. Only true
+    # turns it on. A machine key, like the next two, set for one project under "projects". Not for a caller
+    # project, whose profile is caller_profile()'s.
+    "sandbox_strict": False,
+    # What those commands may write besides that, under sandbox_strict: absolute or ~/ paths, a folder with all
+    # it holds or a file, such as the package caches they fill outside the worktree (~/.npm, ~/.cache/uv).
+    "sandbox_write_allow": [],
+    # What those commands may connect to under sandbox_strict: "any" leaves the network as it is, "local" allows
+    # loopback addresses alone, and "none" nothing, unix sockets included. sandbox-exec matches addresses, not
+    # domain names, so there's no list of domains here.
+    "sandbox_network": "any",
     # What a caller project's test_command, generate_command and setup_command may read under the home folder,
     # the factory and the loop's checkouts, besides their clone, worktree and the run's own temp folder: each an
     # absolute or ~ path, a folder with all it holds, or a file. The default is where version managers and uv
@@ -1265,7 +1278,7 @@ def sandbox_env(env, allow=()):
     return env
 
 
-def sandbox_profile(home, root, environ=None, extra=(), allow=()):
+def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, writable=(), network="any"):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
@@ -1286,9 +1299,28 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=()):
 
     extra is more paths to deny, such as caller_denied()'s for a caller project. Each takes root's base where it's
     under root, home where it's under home, so the factory or ~/.sanvio-loop can't be renamed aside to reach
-    what's under them, and its parent otherwise."""
+    what's under them, and its parent otherwise.
+
+    strict is sandbox_strict (#696). Off, the profile is the one above, whatever writable and network say. On,
+    after (allow default) come, in order: writing denied everywhere; writing allowed back on each path in
+    writable (resolved, a ~/ one under home) and on SANDBOX_DEVICES; then, for a network other than "any",
+    every outbound connection denied, unix sockets included, and for "local" loopback addresses allowed back.
+    Any value but "any" and "local" is treated as "none". The denials above come last, so no allow outranks
+    them: sandbox-exec takes the last rule that matches."""
     denied, folders = sandbox_denials(home, root, environ, extra, allow)
     rules = ["(version 1)(allow default)"]
+    if strict:
+        def real(path):
+            path = str(path)
+            return (Path(home) / path[2:] if path.startswith("~/") else Path(path)).resolve()
+
+        rules.append('(deny file-write* (subpath "/"))')
+        rules += ['(allow file-write* (subpath "{}"))'.format(sbpl(real(path))) for path in writable]
+        rules.append("(allow file-write* {})".format(" ".join(SANDBOX_DEVICES)))
+        if network != "any":
+            rules.append("(deny network-outbound)")
+        if network == "local":
+            rules.append('(allow network-outbound (remote ip "localhost:*"))')
     rules += ['(deny file-read* file-write* (subpath "{}"))'.format(sbpl(path)) for path in denied]
     rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(folder)) for folder in folders]
     return "\n".join(rules)
@@ -1351,6 +1383,25 @@ def sandbox_allow_problem(cfg):
         if name not in SANDBOX_HOME_DENIED and name not in SANDBOX_ROOT_DENIED:
             return ("{} isn't a path the sandbox denies: name it exactly as SANDBOX_HOME_DENIED or "
                     "SANDBOX_ROOT_DENIED in scripts/loop.py does, such as \".npmrc\"".format(repr(name)[:100]))
+    return None
+
+
+SANDBOX_NETWORKS = ("any", "local", "none")  # sandbox_network's values
+
+
+def sandbox_strict_problem(cfg):
+    """Why sandbox_strict, sandbox_write_allow or sandbox_network can't be used (#696), as one ERROR's text
+    starting with the key's name, or None. A missing key is its default's value."""
+    strict = cfg.get("sandbox_strict", DEFAULTS["sandbox_strict"])
+    if not isinstance(strict, bool):
+        return "sandbox_strict in loop.json: {} isn't true or false".format(repr(strict)[:100])
+    paths = cfg.get("sandbox_write_allow", DEFAULTS["sandbox_write_allow"])
+    if not (isinstance(paths, list) and all(isinstance(path, str) and (path.startswith("~/") or os.path.isabs(path))
+                                            for path in paths)):
+        return "sandbox_write_allow in loop.json: {} isn't a list of absolute or ~ paths".format(repr(paths)[:100])
+    network = cfg.get("sandbox_network", DEFAULTS["sandbox_network"])
+    if network not in SANDBOX_NETWORKS:
+        return "sandbox_network in loop.json: {} isn't \"any\", \"local\" or \"none\"".format(repr(network)[:100])
     return None
 
 
@@ -1678,8 +1729,9 @@ def dropped_provider_env(environ, keep=()):
 
 
 def start_problem(cfg):
-    """Why loop.json's sandbox_commands, agent_env or sandbox_allow can't be acted on, as one ERROR's text, or
-    None. A missing key is its default's value, as load_config gives it. An empty agent_env is fine."""
+    """Why loop.json's sandbox_commands, agent_env, sandbox_allow, sandbox_strict, sandbox_write_allow or
+    sandbox_network can't be acted on, as one ERROR's text, or None. A missing key is its default's value, as
+    load_config gives it. An empty agent_env is fine."""
     sandbox = cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"])
     if not isinstance(sandbox, bool):
         return "sandbox_commands in loop.json: {} isn't true or false".format(repr(sandbox)[:100])
@@ -1689,7 +1741,7 @@ def start_problem(cfg):
     why = sandbox_allow_problem(cfg)
     if why:
         return "sandbox_allow in loop.json: {}".format(why)[:300]
-    return None
+    return sandbox_strict_problem(cfg)
 
 
 def pick(issues, me, cfg, only=None):
@@ -3139,7 +3191,8 @@ class Loop:
         sandbox_allow changes neither its profile nor its git settings. Anything else runs it as
         before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands
         that isn't true or false runs nothing, and a sandbox_allow that isn't a list of denied names lets
-        nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway."""
+        nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway.
+        With sandbox_strict true, a sandboxed project that isn't a caller's runs through strict_command()."""
         if not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
             return 126, "refused: sandbox_commands in loop.json isn't true or false"
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
@@ -3150,6 +3203,8 @@ class Loop:
         if self.sandboxed():
             # sandbox_allow's names are let through here only: a caller's profile above never reads it.
             allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
+            if self.cfg.get("sandbox_strict") is True:
+                return self.strict_command(command, tree, env, timeout, partial, allow)
             profile = sandbox_profile(Path.home(), self.root, allow=allow)
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env, allow), partial=partial)
@@ -3413,6 +3468,29 @@ class Loop:
             env["GIT_INDEX_FILE"] = self.index_copy(tree, scratch)
             # held: no stdin, no terminal, and nothing it started still running when scratch is removed.
             return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial, held=True)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    def strict_command(self, command, tree, env, timeout, partial, allow):
+        """own_command() under sandbox_strict, for a project that isn't a caller's (#696): sandbox_profile()'s
+        denials, with writes held to tree, a temp folder of its own (TMPDIR), removed after, git's folder for
+        tree, each path sandbox_allow lets through, so it can still write them, and sandbox_write_allow; and the
+        network as sandbox_network says. A sandbox_write_allow the loop refuses at start makes nothing more
+        writable here, and a sandbox_network it refuses connects to nothing."""
+        home = Path.home()
+        extra = [] if sandbox_strict_problem(self.cfg) else list(self.cfg.get("sandbox_write_allow") or ())
+        let = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
+        xdg = os.environ.get("XDG_CONFIG_HOME") or ""
+        if os.path.isabs(xdg):
+            let += [str(Path(xdg) / name.split("/", 1)[1]) for name in allow if name.startswith(".config/")]
+        scratch = tempfile.mkdtemp(prefix="sanvio-strict-")
+        try:
+            writable = [tree, scratch, worktree_git_dir(tree, self.repo)] + let + extra
+            profile = sandbox_profile(home, self.root, allow=allow, strict=True, writable=writable,
+                                      network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]))
+            argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
+            env = dict(sandbox_env(env, allow), TMPDIR=scratch)
+            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -5335,6 +5413,19 @@ class Loop:
                 shown = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
                 self.log("WARN", "sandbox_allow in the factory's loop.json lets test_command, generate_command "
                          "and setup_command read and write: " + ", ".join(shown))
+            # sandbox_strict first, so sandboxed() isn't asked when it's off; a caller's profile is its own, and
+            # a bad value gets start_checks()'s ERROR instead.
+            strict = self.cfg.get("sandbox_strict") is True
+            if strict and not self.caller() and sandbox_strict_problem(self.cfg) is None:
+                if self.sandboxed():
+                    paths = self.cfg.get("sandbox_write_allow") or []
+                    where = "nothing" if not paths else ", ".join(paths)
+                    self.log("INFO", "sandbox_strict: test_command, generate_command and setup_command may write "
+                             "{} beyond the worktree, temp and git's folder, and sandbox_network is \"{}\"".format(
+                                 where, self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"])))
+                else:
+                    self.log("WARN", "sandbox_strict is true in the factory's loop.json, but nothing enforces it "
+                             "here, since test_command, generate_command and setup_command run without the sandbox")
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:
@@ -5362,7 +5453,7 @@ class Loop:
 
     def start_checks(self):
         """Before run, the review watcher or review --pr takes anything: 1 with one ERROR line when
-        sandbox_commands or agent_env can't be acted on, else None, with one WARN line naming each provider
+        start_problem() finds a key it can't act on, else None, with one WARN line naming each provider
         setting set here that no agent would get. Names only, never a value."""
         found = start_problem(self.cfg)
         if found:
