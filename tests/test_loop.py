@@ -5629,6 +5629,12 @@ class TestSandbox(unittest.TestCase):
             code, out = allowed.own_command("git config --global user.name", tree)
             self.assertEqual(code, 0, out)
             self.assertIn("Home", out)
+            # git config --global looks at ~/.gitconfig alone where it's there. Every other git command reads
+            # the whole chain, ~/.config/git/config first, which stays denied: git mustn't stop on it.
+            code, out = allowed.own_command("git init -q && git config user.name && git status", tree)
+            self.assertEqual(code, 0, out)
+            self.assertIn("Home", out)
+            self.assertNotIn("unable to access", out)
             # ~/.config/git stays denied, and with only .gitconfig allowed git reads nothing from it.
             self.assertNotIn("Xdg", out)
             code, out = lp.own_command("git config --global user.name", tree)
