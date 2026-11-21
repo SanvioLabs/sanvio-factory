@@ -1,8 +1,8 @@
 ---
 id: SPEC-004
-status: draft
+status: ready
 created: 2026-11-19
-updated: 2026-11-19
+updated: 2026-11-21
 owner: Pat
 ---
 
