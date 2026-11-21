@@ -1247,12 +1247,16 @@ def sandbox_env(env, allow=()):
     config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
     GIT_CONFIG_VALUE_n after any entries env's GIT_CONFIG_COUNT already holds, so git doesn't warn that it
     can't read its default ignore and attributes files. allow is the sandbox_allow names the profile lets
-    through: with ".gitconfig" in it GIT_CONFIG_GLOBAL is left as env has it, and with ".config/git" in it
+    through: with ".gitconfig" in it a GIT_CONFIG_GLOBAL env already has is left as it is, and otherwise
+    GIT_CONFIG_GLOBAL is ~/.gitconfig, so git doesn't also look for ~/.config/git/config, which it stops on
+    where reading it is refused, or left unset where ".config/git" is in allow too. With ".config/git" in it
     the SANDBOX_GIT_CONFIG entries aren't added and GIT_CONFIG_COUNT stays as env has it, so git reads what
     each lets through. An empty allow sets both."""
     env = dict(env)
     if ".gitconfig" not in allow:
         env["GIT_CONFIG_GLOBAL"] = os.devnull
+    elif "GIT_CONFIG_GLOBAL" not in env and ".config/git" not in allow:
+        env["GIT_CONFIG_GLOBAL"] = str(Path.home() / ".gitconfig")
     if ".config/git" in allow:
         return env
     count = env.get("GIT_CONFIG_COUNT", "")
@@ -3133,7 +3137,7 @@ class Loop:
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
         sandbox_profile denies but what sandbox_allow lets through, with sandbox_env's git settings, so git
         neither stops on the denied ~/.gitconfig nor warns about ~/.config/git. A sandbox_allow of .gitconfig
-        or .config/git drops the matching git setting, so git reads what it lets through. For a caller
+        or .config/git changes the matching git setting, so git reads what it lets through. For a caller
         project it's also denied every path caller_denied() names, as its build and tester agents are, and
         sandbox_allow changes neither its profile nor its git settings. Anything else runs it as
         before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands

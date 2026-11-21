@@ -5320,11 +5320,16 @@ class TestSandbox(unittest.TestCase):
                      GIT_CONFIG_KEY_2="core.attributesFile", GIT_CONFIG_VALUE_2="/dev/null")
         self.assertEqual(loop.sandbox_env(given, ()), today)
         self.assertEqual(loop.sandbox_env(given, ()), loop.sandbox_env(given))
-        for allow in ((), (".gitconfig",), (".config/git",), (".gitconfig", ".config/git")):
-            with self.subTest(allow=allow):
+        home = self.root / "home"
+        # With ~/.config/git still denied, .gitconfig alone points git at ~/.gitconfig, so git doesn't stop on
+        # ~/.config/git/config; with both allowed it's unset, and git reads either.
+        wanted = {(): "/dev/null", (".gitconfig",): str(home / ".gitconfig"),
+                  (".config/git",): "/dev/null", (".gitconfig", ".config/git"): None}
+        for allow, global_config in wanted.items():
+            with self.subTest(allow=allow), mock.patch.object(loop.Path, "home", return_value=home):
                 env = loop.sandbox_env(given, allow)
                 self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
-                self.assertEqual(("GIT_CONFIG_GLOBAL" in env), ".gitconfig" not in allow)
+                self.assertEqual(env.get("GIT_CONFIG_GLOBAL"), global_config)
                 if ".config/git" in allow:
                     self.assertEqual(env["GIT_CONFIG_COUNT"], "1")
                     self.assertEqual(sorted(k for k in env if k.startswith("GIT_CONFIG_KEY_")), ["GIT_CONFIG_KEY_0"])
@@ -5333,7 +5338,8 @@ class TestSandbox(unittest.TestCase):
                                      ("3", "core.excludesFile", "core.attributesFile"))
                 self.assertEqual((env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]), ("user.name", "Tester"))
         # A GIT_CONFIG_GLOBAL env already had is left as it was where .gitconfig is allowed.
-        self.assertEqual(loop.sandbox_env({"GIT_CONFIG_GLOBAL": "/x"}, (".gitconfig",))["GIT_CONFIG_GLOBAL"], "/x")
+        for allow in ((".gitconfig",), (".gitconfig", ".config/git")):
+            self.assertEqual(loop.sandbox_env({"GIT_CONFIG_GLOBAL": "/x"}, allow)["GIT_CONFIG_GLOBAL"], "/x")
 
     def test_sandbox_allow_reaches_the_git_settings_a_projects_command_runs_with(self):
         factory = self.root / "factory"
@@ -5627,7 +5633,14 @@ class TestSandbox(unittest.TestCase):
             self.assertIn("Home", out)
             # ~/.config/git stays denied, and with only .gitconfig allowed git reads nothing from it.
             self.assertNotIn("Xdg", out)
+            # git config --global reads only one file; git status reads them all, and would stop on the denied
+            # ~/.config/git/config if GIT_CONFIG_GLOBAL didn't point it at ~/.gitconfig alone.
+            code, out = allowed.own_command("git init -q && git status", tree)
+            self.assertEqual(code, 0, out)
+            self.assertNotIn("unable to access", out)
             code, out = lp.own_command("git config --global user.name", tree)
+        # git config exits 1 where the name isn't set, as with no global config; any other code is a failure.
+        self.assertEqual(code, 1, out)
         self.assertNotIn("Home", out)
 
     def test_a_callers_command_never_runs_outside_the_sandbox_whoever_calls_it(self):
