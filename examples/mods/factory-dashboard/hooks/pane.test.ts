@@ -353,3 +353,93 @@ group('/factory-dashboard', () => {
       .toBe('No scripts/dashboard_data.py at or above /h/elsewhere, so there are no numbers to show.')
   })
 })
+
+group('a range switch', () => {
+  test('clears the numbers at once and turns a spinner until the read for the new days ends', async ($, on) => {
+    const clock = mock.clock(on, { now: 1_800_000_000_000 })
+    let release: () => void = () => {}
+    const held = new Promise<void>(r => { release = r })
+    on('process.run', async () => {
+      await held
+      return { value: { exitCode: 0, stdout: JSON.stringify(DOC), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+    const state = seed(on, SEEN())
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ key: 'waiting' })).toBeDefined()
+    await ui.press({ key: 'range-30' })
+    await drain()
+    expect(await ui.find({ key: 'waiting' })).toBeUndefined()
+    expect(state.now()?.doc).toBeNull()
+    const loading = async () => JSON.stringify(await ui.find({ key: 'loading' }))
+    expect(await loading()).toContain('Reading the last 30 days')
+    expect(JSON.stringify(await ui.drawn())).toContain('Refreshing')
+    const before = await loading()
+    await clock.advance(120)
+    await drain()
+    expect(await loading()).not.toBe(before)
+    release()
+    await drain()
+    expect(await ui.find({ key: 'loading' })).toBeUndefined()
+    expect(await ui.find({ key: 'waiting' })).toBeDefined()
+    await ui.unmount()
+  })
+  test('pressing the range already chosen reads nothing and clears nothing', async ($, on) => {
+    let runs = 0
+    on('process.run', async () => {
+      runs += 1
+      return { value: { exitCode: 0, stdout: JSON.stringify(DOC), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    })
+    const state = seed(on, SEEN())
+    const ui = await $.ui.mount(PANE)
+    await ui.press({ key: 'range-14' })
+    await drain()
+    expect(runs).toBe(0)
+    expect(state.now()?.doc).toEqual(DOC)
+    await ui.unmount()
+  })
+})
+
+group('tables where text wraps', () => {
+  const PRS = { ...DOC, waiting: { blocked: [], pull_requests: [
+    { number: 689, title: 'Refuse a misread sandbox_commands or agent_env in loop.json', hours_waited: 0.2, checks: 'none', conflicts: true },
+  ] } }
+  // Built from its parts: a literal element key with a high-entropy tail reads to gitleaks as an API key.
+  const FIRST_ROW = 'waiting-prs-0'
+  for (const surface of ['vscode', 'desktop'] as const) {
+    test(`on ${surface} each row's figures go on their own line under its name, right-aligned with the header's`, async ($, on) => {
+      seed(on, SEEN({ doc: PRS }))
+      const ui = await $.ui.mount({ ...PANE, surface })
+      for (const key of ['waiting-prs-head', 'waiting-prs-0']) {
+        const name = await ui.find({ key: `${key}-name` })
+        const figures = await ui.find({ key: `${key}-figures` })
+        expect(name).toBeDefined()
+        expect(figures?.props.justifyContent).toBe('flex-end')
+      }
+      expect(JSON.stringify(await ui.find({ key: 'waiting-prs-0-name' }))).toContain('#689 Refuse a misread')
+      expect(JSON.stringify(await ui.find({ key: `${FIRST_ROW}-figures` }))).toContain('0.2h')
+      await ui.unmount()
+    })
+  }
+  test('on the terminal a row with room keeps its figures beside the name', async ($, on) => {
+    seed(on, SEEN({ doc: PRS }))
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 120 } })
+    expect(await ui.find({ key: `${FIRST_ROW}-figures` })).toBeUndefined()
+    expect(JSON.stringify(await ui.find({ key: 'waiting-prs-0' }))).toContain('0.2h')
+    await ui.unmount()
+  })
+})
+
+group('the title', () => {
+  test('/factory-dashboard opens the pane titled Factory dashboard', async ($, on) => {
+    mock.clock(on, { now: 1_800_000_000_000 })
+    session(on, { now: false })
+    const titles: string[] = []
+    on('ui.open', async (_$, e) => {
+      titles.push(e.title ?? '')
+      return { value: { isPlaced: true } }
+    })
+    const typed = { command: 'factory-dashboard', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as const
+    await $.command.run(typed)
+    expect(titles).toEqual(['Factory dashboard'])
+  })
+})

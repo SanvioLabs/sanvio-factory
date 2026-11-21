@@ -5,7 +5,8 @@ work. This mod opens a pane beside the conversation that shows it.
 
 The pane has two views. **List** shows the loop as a list. **Crew** shows a
 lane for each issue being worked on, with a figure working at its step. The
-two buttons at the top of the pane switch between them.
+two buttons at the top of the pane switch between them. The pane is titled
+**Factory floor** in both.
 
 It replaces the `loop-pane` and `loop-crew` mods, which are gone. Until a later
 release their commands still work here: `/loop-pane` opens this pane in the

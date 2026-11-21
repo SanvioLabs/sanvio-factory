@@ -1,6 +1,11 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+// What an open showed, as the pane's title said it before both views took the mod's name: the List as
+// Loop, the Crew, which asks for its size, as Loop crew and the loop it shows.
+const shownAs = (e: { rows?: number }, crewShown: string): string =>
+  e.rows === undefined ? 'Loop' : crewShown === '*' ? 'Loop crew: All loops' : crewShown ? `Loop crew: ${crewShown}` : 'Loop crew'
+
 const ROOT = '/h/starter'
 
 // root.test.ts's engine: a session whose root is ROOT, a factory there with its loop script and no loop
@@ -11,6 +16,7 @@ function world(on: On, options: Options = {}) {
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const registered: string[] = []
   const titles: string[] = []
+  const paneTitles: string[] = []
   const toasts: string[] = []
   const stored = new Map<string, unknown>()
   const panes = options.isShown ? [{ id: 'factory-floor', isShown: true, isPlaced: true }] : []
@@ -25,7 +31,9 @@ function world(on: On, options: Options = {}) {
   on('fs.exists', async (_$, e) => ({ value: e.path === `${ROOT}/scripts/loop.py` }))
   on('fs.read', async (_$, e) => ({ deny: `no ${e.path}` }))
   on('ui.open', async (_$, e) => {
-    titles.push(e.title ?? '')
+    // The title is the mod's in both views now; what each open showed is kept as the old titles said it.
+    paneTitles.push(e.title ?? '')
+    titles.push(shownAs(e, String(stored.get('crew-shown') ?? '')))
     return { value: { isPlaced: true } }
   })
   on('ui.close', async () => {
@@ -43,7 +51,7 @@ function world(on: On, options: Options = {}) {
     if (at.plugin === 'factory-floor') stored.set(at.key, at.value)
     return next(e)
   })
-  return { clock, registered, titles, toasts, stored, flip }
+  return { clock, registered, titles, paneTitles, toasts, stored, flip }
 }
 
 const typed = (command: string) =>
@@ -73,6 +81,13 @@ describe('the old names', () => {
     expect(titles).toEqual(['Loop'])
     expect(stored.get('mode')).toBe('list')
     expect(toasts).toEqual(['/loop-pane is now /factory-floor. The old name goes in a later release.'])
+  })
+  test('the pane is titled Factory floor in the List and in the Crew', async ($, on) => {
+    const { titles, paneTitles } = world(on)
+    await start($)
+    await run($, 'loop-crew')
+    expect(titles).toEqual(['Loop', 'Loop crew'])
+    expect(paneTitles).toEqual(['Factory floor', 'Factory floor'])
   })
   test('/loop-crew opens the pane in the Crew view and says the new name', async ($, on) => {
     const { titles, toasts, stored } = world(on)

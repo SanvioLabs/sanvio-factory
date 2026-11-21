@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
-import { ALL, DARK, LANE_ROWS, NOTHING, OUT_MS, PROJECTS_DIR, accentText, boardColumns, downOption, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopLabel, loopOptions, loopTag, loopValue, parseSpend, parseStatus, pickerOrder, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
+import { ALL, DARK, LANE_ROWS, NOTHING, OUT_MS, PROJECTS_DIR, accentText, boardColumns, downOption, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, loopTag, loopValue, parseSpend, parseStatus, pickerOrder, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Placement } from './crew-logic'
+import { TITLE } from './logic'
 import type { Down } from './logic'
 import type { CrewSpend as Spend, Row, Seen } from '../types'
 import { buttonRows, buttonsWidth, issueButtons, loopButtons } from './buttons'
@@ -365,17 +366,12 @@ async function refreshAll($: EngineInterface, root: string, at: number, loops: S
 }
 
 // Show a loop, by its picker value: a project's name, '' for the factory, ssh:<i>/… for another
-// machine's, or ALL for every loop. An open's and a pick's. On a pane already open this retitles it, with
-// another machine's loop by its label.
+// machine's, or ALL for every loop. An open's and a pick's. The title stays the mod's whichever loop is
+// shown: the picker says which.
 async function show($: EngineInterface, name: string) {
   await update($, shownAtom, () => name)
   await refresh($, true)
-  // One whose machine stopped answering has fallen back to the factory, as refresh did, and so has All
-  // loops with fewer than two.
-  const remote = name.includes('/') ? remoteLoop(name) : null
-  const allLabel = name === ALL && (await read($, shownAtom)) === ALL ? 'All loops' : ''
-  const label = name === ALL ? allLabel : name.includes('/') ? (remote ? loopLabel(remote) : '') : name
-  const opened = await $.ui.open({ id: PANE, title: label ? `Loop crew: ${label}` : 'Loop crew', rows: WANT_ROWS, columns: WANT_COLUMNS })
+  const opened = await $.ui.open({ id: PANE, title: TITLE, rows: WANT_ROWS, columns: WANT_COLUMNS })
   startPolling($)
   return opened
 }

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ALL, PAGE,PROJECTS_DIR, TABS, allActive, allHeader, changes, clip, clock, describe, dot, downOption, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
+import { ALL, PAGE,PROJECTS_DIR, TABS, TITLE, allActive, allHeader, changes, clip, clock, describe, dot, downOption, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
 import { issueButtons, loopButtons } from './buttons'
 import type { Down, Lists, Tagged, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
@@ -372,7 +372,7 @@ async function toList($: EngineInterface): Promise<void> {
   }
   stopCrew()
   await update($, modeAtom, () => 'list')
-  await $.ui.open({ id: PANE, title: 'Loop' })
+  await $.ui.open({ id: PANE, title: TITLE })
   await refresh($)
   startPolling($)
 }
@@ -398,7 +398,7 @@ async function openPane($: EngineInterface): Promise<{ text: string; isOpen: boo
     const focus = await readFocus($, root)
     await update($, focusAtom, () => focus)
     await refresh($)
-    const opened = await $.ui.open({ id: PANE, title: 'Loop' })
+    const opened = await $.ui.open({ id: PANE, title: TITLE })
     startPolling($)
     return { text: opened.isPlaced ? 'Loop pane opened.' : 'Loop pane opened. Widen the terminal to see it.', isOpen: true }
   } catch {

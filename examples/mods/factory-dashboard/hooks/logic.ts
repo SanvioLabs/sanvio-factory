@@ -102,7 +102,8 @@ export function model(id: string): string {
 
 // The header's right side: reading, when it last read, or that the last refresh failed.
 export function state(seen: Seen | null): Line {
-  if (!seen || (!seen.doc && seen.isReading)) return line('now', 'Reading… the first read can take a minute')
+  // Nothing read before: the first read. A range switch clears the document but keeps readAt, so it says Refreshing.
+  if (!seen || (!seen.doc && seen.isReading && !seen.readAt)) return line('now', 'Reading… the first read can take a minute')
   if (seen.isReading) return line('now', `Refreshing · ${seen.readAt ? hhmm(seen.readAt) : ''}`)
   if (seen.failedAt) {
     const shown = seen.doc && seen.readAt ? ` · showing ${hhmm(seen.readAt)}` : ''

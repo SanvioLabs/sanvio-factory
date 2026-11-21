@@ -16,6 +16,11 @@ const REFRESH_MS = 300_000
 const TIMEOUT_MS = 600_000
 // A chart's height in the terminal, in rows; each row draws eighths, so 5 rows is 40 steps.
 const CHART_ROWS = 5
+// While a read runs with nothing to show, the pane redraws this often to turn the spinner.
+const SPIN_MS = 120
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+// The pane's title, which says which mod it is beside the name Claude Code adds.
+const TITLE = 'Factory dashboard'
 
 const launchAtom = atom({ plugin: 'factory-dashboard', key: 'launch' } as const, null)
 const seenAtom = atom({ plugin: 'factory-dashboard', key: 'seen' } as const, null)
@@ -56,6 +61,7 @@ function refresh($: EngineInterface, root: string): Promise<void> {
       failure: prev?.failure ?? null, isReading: true,
     }))
     $.ui.invalidate('ui.render')
+    const spin = $.clock.every(SPIN_MS, () => $.ui.invalidate('ui.render'))
     let done = false
     try {
       // A range picked while a read runs is read straight after it.
@@ -77,6 +83,7 @@ function refresh($: EngineInterface, root: string): Promise<void> {
       // Whatever went wrong on the way, the pane isn't left saying Reading… with Refresh dead. A test
       // can't drive this: the engine skips a state hook that throws rather than failing the write.
       if (!done) await update($, seenAtom, prev => (prev ? { ...prev, isReading: false, failedAt: Date.now(), failure: "the read didn't finish" } : prev)).catch(() => {})
+      spin.cancel()
       $.ui.invalidate('ui.render')
     }
   })().finally(() => {
@@ -124,7 +131,7 @@ export const register: Register = on => {
     try {
       const root = await rootOf($)
       if (!root) return { text: `No scripts/dashboard_data.py at or above ${await $.session.root()}, so there are no numbers to show.` }
-      const opened = await $.ui.open({ id: PANE, title: 'Factory' })
+      const opened = await $.ui.open({ id: PANE, title: TITLE })
       void refresh($, root).catch(() => {})
       startPolling($, root)
       return { text: opened.isPlaced ? 'Dashboard opened.' : 'Dashboard opened. Widen the terminal to see it.' }
@@ -144,15 +151,18 @@ export const register: Register = on => {
     const fit = (s: string) => (wraps ? s : clip(s, width))
     const top = state(seen)
     const ahead = seen?.doc ? newer(seen.doc) : null
+    // The spinner's frame, from the engine's clock.
+    const spinAt = seen?.isReading && !seen.doc ? await $.clock.now().catch(() => Date.now()) : 0
 
     // A table: the name column takes what's left, each number column the width of its widest cell,
     // right-aligned, one space between. A name too long for what's left is cut, not wrapped. When
-    // fewer than 8 columns are left for the name, each row goes on two lines: the name across the
-    // whole pane, then its figures right-aligned under it, both in the row's colour.
+    // fewer than 8 columns are left for the name, and always where text wraps, each row goes on two
+    // lines: the name across the whole pane, then its figures right-aligned under it, both in the row's
+    // colour. A wrapped name pushed the figures out of their columns, so there they're never beside it.
     const table = (t: Table) => {
       const widths = t.head.map((h, i) => Math.max(h.length, ...t.rows.map(r => (r[i] ?? '').length)))
       const numbers = widths.slice(1).reduce((a, w) => a + w + 1, 0)
-      const stacked = width - numbers < 8
+      const stacked = wraps || width - numbers < 8
       const name = Math.max(4, width - numbers)
       const row = (cells: string[], key: string, head: boolean, tone: Tone = 'plain') => {
         const colors = head ? COLORS.quiet : COLORS[tone]
@@ -253,7 +263,11 @@ export const register: Register = on => {
               dimColor={n !== range}
               onPress={() => {
                 void (async () => {
+                  if (n === range) return
                   await update($, rangeAtom, () => n)
+                  // What's shown counted other days, so it goes, and the spinner stands in until the read ends.
+                  // readAt stays, so the header says Refreshing, not a first read.
+                  await update($, seenAtom, prev => (prev ? { ...prev, doc: null, failedAt: null, failure: null } : prev))
                   if (seen) await refresh($, seen.root)
                 })().catch(() => {})
               }}
@@ -284,7 +298,14 @@ export const register: Register = on => {
                 {section.lines.length ? <Box key={`${section.key}-end`} marginBottom={1} /> : null}
               </Box>
             ))
-          : <Text dimColor>{fit(seen?.failure ? 'Nothing read yet. Refresh tries again.' : 'Nothing to show until the first read ends.')}</Text>}
+          : seen?.isReading
+            ? (
+                <Box key="loading" flexDirection="row" columnGap={1}>
+                  <Text color="yellow">{SPINNER[Math.floor(spinAt / SPIN_MS) % SPINNER.length]}</Text>
+                  <Text dimColor>{fit(`Reading the last ${range} days`)}</Text>
+                </Box>
+              )
+            : <Text dimColor>{fit(seen?.failure ? 'Nothing read yet. Refresh tries again.' : 'Nothing to show until the first read ends.')}</Text>}
       </Box>
     )
   })
