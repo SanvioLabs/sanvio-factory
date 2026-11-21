@@ -163,10 +163,11 @@ Guard asked 1 time, since Oct 15
 
 A line separates each section. A section with a chart starts with it, then its
 tables: names on the left, figures in right-aligned columns. In Claude Desktop
-and VS Code, which wrap long text, and in a pane too narrow to leave 8 columns
-for the names, each row goes on two lines instead: the name, then its figures
-right-aligned under it, so a long pull request title can't push into the
-columns. The pane is titled **Factory dashboard**. A row that needs
+and VS Code, which wrap long text, a long name such as a pull request title
+wraps inside its own column, and the figures stay beside its first line under
+their headers. In a pane too narrow to leave the names 8 columns in the
+terminal, or 16 in Desktop and VS Code, each row goes on two lines instead:
+the name, then its figures right-aligned under it. The pane is titled **Factory dashboard**. A row that needs
 you is coloured. Red is a failing check, a conflict, a blocked issue, a failing
 eval, or a list the pane couldn't read. Yellow is checks still running, a stale
 or flaky eval, an eval count it couldn't read, loop pull requests that needed a

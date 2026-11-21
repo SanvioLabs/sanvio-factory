@@ -405,21 +405,43 @@ group('tables where text wraps', () => {
   ] } }
   // Built from its parts: a literal element key with a high-entropy tail reads to gitleaks as an API key.
   const FIRST_ROW = 'waiting-prs-0'
+  // Waiting, Checks and Conflicts take 25 of the pane's 60 columns: 7, 6 and 9, and a space before each.
+  const FIGURES = 25
+  type Node = { key?: string; props?: Record<string, unknown>; children?: (Node | string)[] }
   for (const surface of ['vscode', 'desktop'] as const) {
-    test(`on ${surface} each row's figures go on their own line under its name, right-aligned with the header's`, async ($, on) => {
+    test(`on ${surface} a long name wraps in its own column, with the figures beside it under their headers`, async ($, on) => {
       seed(on, SEEN({ doc: PRS }))
       const ui = await $.ui.mount({ ...PANE, surface })
-      for (const key of ['waiting-prs-head', 'waiting-prs-0']) {
-        const name = await ui.find({ key: `${key}-name` })
-        const figures = await ui.find({ key: `${key}-figures` })
-        expect(name).toBeDefined()
-        expect(figures?.props.justifyContent).toBe('flex-end')
+      for (const key of ['waiting-prs-head', FIRST_ROW]) {
+        const row = await ui.find({ key }) as unknown as Node
+        expect(row.props?.flexDirection).toBe('row')
+        expect(row.props?.flexWrap).toBe('nowrap')
+        const name = await ui.find({ key: `${key}-title` })
+        expect(name?.props.width).toBe(60 - FIGURES)
+        expect(name?.props.flexShrink).toBe(0)
+        expect(await ui.find({ key: `${key}-figures` })).toBeUndefined()
+        // The name's column, then the three figures, side by side in one row.
+        const kids = (row.children ?? []).map(c => (c as Node).props?.width)
+        expect(kids).toEqual([60 - FIGURES, 8, 7, 10])
+        for (let i = 0; i < 3; i++) expect(await ui.find({ key: `${key}-${i}` })).toBeDefined()
       }
-      expect(JSON.stringify(await ui.find({ key: 'waiting-prs-0-name' }))).toContain('#689 Refuse a misread')
-      expect(JSON.stringify(await ui.find({ key: `${FIRST_ROW}-figures` }))).toContain('0.2h')
+      const title = await ui.find({ key: `${FIRST_ROW}-title` }) as unknown as Node
+      const text = title.children![0] as Node
+      expect(text.props?.wrap ?? 'wrap').toBe('wrap')
+      expect(JSON.stringify(text)).toContain('#689 Refuse a misread sandbox_commands or agent_env in loop.json')
+      expect(JSON.stringify(await ui.find({ key: `${FIRST_ROW}-0` }))).toContain('0.2h')
       await ui.unmount()
     })
   }
+  test('on vscode a pane too narrow for a readable name column still puts the figures under the name', async ($, on) => {
+    seed(on, SEEN({ doc: PRS }))
+    // 15 columns left for the name: under 16, a wrapped name would be a word a line.
+    const ui = await $.ui.mount({ ...PANE, surface: 'vscode', props: { ...PANE.props, bodyColumns: FIGURES + 15 } })
+    expect(await ui.find({ key: `${FIRST_ROW}-title` })).toBeUndefined()
+    expect(JSON.stringify(await ui.find({ key: `${FIRST_ROW}-name` }))).toContain('#689 Refuse a misread')
+    expect(await ui.find({ key: `${FIRST_ROW}-figures` })).toBeDefined()
+    await ui.unmount()
+  })
   test('on the terminal a row with room keeps its figures beside the name', async ($, on) => {
     seed(on, SEEN({ doc: PRS }))
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 120 } })
