@@ -11,7 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 MODS_DIR = ROOT / "examples" / "mods"
 MODS = sorted(p for p in MODS_DIR.iterdir() if (p / ".claude-plugin" / "plugin.json").is_file())
-TIMEOUT = 60
+TIMEOUT = 180
 NEEDS_CLAUDE = "needs Claude Code (claude) on the PATH"
 FAIL = "(fail) "
 TEST_FILE = (".test.ts:", ".test.tsx:")
@@ -318,7 +318,7 @@ class CheckModReport(unittest.TestCase):
 
     def test_a_timeout_is_reported(self):
         report, _ = self.check(completed(0), subprocess.TimeoutExpired(cmd="claude", timeout=TIMEOUT))
-        self.assertEqual(report, "claude plugin test demo didn't finish within 60s")
+        self.assertEqual(report, "claude plugin test demo didn't finish within {}s".format(TIMEOUT))
 
     def test_both_passing_gives_none(self):
         report, run = self.check(completed(0), completed(0))

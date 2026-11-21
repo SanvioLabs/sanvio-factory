@@ -523,10 +523,13 @@ group("a job's pull request button", () => {
 })
 
 group('a job in the pane', () => {
-  // Six minutes and twelve seconds ago, as loop.py writes it: local, to the second, with no zone.
-  const d = new Date(Math.floor(Date.now() / 1000) * 1000 - 372_000)
   const p = (n: number) => String(n).padStart(2, '0')
-  const started = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  // Six minutes and twelve seconds before now, to the second.
+  const ago = () => new Date(Math.floor(Date.now() / 1000) * 1000 - 372_000)
+  // As loop.py writes a time: local, to the second, with no zone.
+  const stamp = (at: Date) => `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}T${p(at.getHours())}:${p(at.getMinutes())}:${p(at.getSeconds())}`
+  const d = ago()
+  const started = stamp(d)
   const working: Seen = {
     ...SEEN(false),
     status: {
@@ -536,11 +539,13 @@ group('a job in the pane', () => {
     },
   }
   test('has a dot and says when it started and how long it has been running', async ($, on) => {
-    seed(on, working)
+    // A start taken now, not when the file loaded: on a slow machine this test runs well after that.
+    const now = ago()
+    seed(on, { ...working, status: { ...working.status!, issues: [{ ...working.status!.issues[0]!, started: stamp(now) }] } })
     const ui = await $.ui.mount(PANE)
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('●')
-    expect(drawn).toContain(`started ${p(d.getHours())}:${p(d.getMinutes())} · running 6m 1`)
+    expect(drawn).toContain(`started ${p(now.getHours())}:${p(now.getMinutes())} · running 6m 1`)
     await ui.unmount()
   })
   test('the clock has a line of its own under the title, apart from the step', async ($, on) => {
