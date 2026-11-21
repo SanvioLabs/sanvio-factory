@@ -109,6 +109,12 @@ DEFAULTS = {
     # and the loop logs a WARN. For a project whose tests need one of those paths, the factory's loop.json
     # sets it false under "projects".
     "sandbox_commands": True,
+    # Names from SANDBOX_HOME_DENIED or SANDBOX_ROOT_DENIED, exactly as written there, such as ".npmrc", that
+    # those three commands may read and write anyway: a project whose npm ci needs a private registry's
+    # ~/.npmrc sets [".npmrc"] under "projects", and every other path stays denied. A machine key: a project's
+    # own loop.json can't reach your credentials through it. Not for a caller project, whose profile is
+    # caller_profile()'s.
+    "sandbox_allow": [],
     # What a caller project's test_command, generate_command and setup_command may read under the home folder,
     # the factory and the loop's checkouts, besides their clone, worktree and the run's own temp folder: each an
     # absolute or ~ path, a folder with all it holds, or a file. The default is where version managers and uv
@@ -1250,11 +1256,14 @@ def sandbox_env(env):
     return env
 
 
-def sandbox_profile(home, root, environ=None, extra=()):
+def sandbox_profile(home, root, environ=None, extra=(), allow=()):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
     absolute path. environ is os.environ unless given.
+
+    allow is sandbox_allow's names: each one on either list is left out, and a .config/ one under
+    XDG_CONFIG_HOME too. GH_CONFIG_DIR, extra and every other path stay denied.
 
     Every path is denied whether or not it exists, so one made after the profile is built is covered too.
     Each is resolved first, since the sandbox matches the real path (macOS's /var is /private/var); a missing
@@ -1269,7 +1278,7 @@ def sandbox_profile(home, root, environ=None, extra=()):
     extra is more paths to deny, such as caller_denied()'s for a caller project. Each takes root's base where it's
     under root, home where it's under home, so the factory or ~/.sanvio-loop can't be renamed aside to reach
     what's under them, and its parent otherwise."""
-    denied, folders = sandbox_denials(home, root, environ, extra)
+    denied, folders = sandbox_denials(home, root, environ, extra, allow)
     rules = ["(version 1)(allow default)"]
     rules += ['(deny file-read* file-write* (subpath "{}"))'.format(sbpl(path)) for path in denied]
     rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(folder)) for folder in folders]
@@ -1288,21 +1297,22 @@ def sbpl_regex(path):
     return re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", str(path))
 
 
-def sandbox_denials(home, root, environ=None, extra=()):
+def sandbox_denials(home, root, environ=None, extra=(), allow=()):
     """(the paths sandbox_profile() denies reading and writing, the folders it guards from unlinking), each
-    resolved and listed once, in the order the profile names them."""
+    resolved and listed once, in the order the profile names them. A name in allow is left out, as
+    sandbox_profile() says, and so are the folders only it needed guarded."""
     environ = os.environ if environ is None else environ
-    paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED]
+    paths = [(Path(home) / name, Path(home)) for name in SANDBOX_HOME_DENIED if name not in allow]
     home_real, root_real = Path(home).resolve(), Path(root).resolve()
     root_base = Path(home) if root_real == home_real or home_real in root_real.parents else Path(root)
     xdg = environ.get("XDG_CONFIG_HOME") or ""
     if os.path.isabs(xdg):
         paths += [(Path(xdg) / name.split("/", 1)[1], Path(xdg))
-                  for name in SANDBOX_HOME_DENIED if name.startswith(".config/")]
+                  for name in SANDBOX_HOME_DENIED if name.startswith(".config/") and name not in allow]
     gh = environ.get("GH_CONFIG_DIR") or ""
     if os.path.isabs(gh):
         paths.append((Path(gh), None))  # None: its parent is its base
-    paths += [(Path(root) / name, root_base) for name in SANDBOX_ROOT_DENIED]
+    paths += [(Path(root) / name, root_base) for name in SANDBOX_ROOT_DENIED if name not in allow]
     for path in extra:
         real = Path(path).resolve()
         paths.append((Path(path), root_base if real == root_real or root_real in real.parents
@@ -1319,6 +1329,20 @@ def sandbox_denials(home, root, environ=None, extra=()):
             if folder != Path(folder.anchor) and folder not in folders:
                 folders.append(folder)
     return denied, folders
+
+
+def sandbox_allow_problem(cfg):
+    """Why sandbox_allow can't be used, or None: it isn't a list of strings, or names something on neither
+    SANDBOX_HOME_DENIED nor SANDBOX_ROOT_DENIED, matched exactly, so a typo is found before any issue is taken
+    rather than leaving the path denied."""
+    allow = cfg.get("sandbox_allow", [])
+    if not isinstance(allow, list) or not all(isinstance(name, str) for name in allow):
+        return "{} isn't a list of names".format(repr(allow)[:100])
+    for name in allow:
+        if name not in SANDBOX_HOME_DENIED and name not in SANDBOX_ROOT_DENIED:
+            return ("{} isn't a path the sandbox denies: name it exactly as SANDBOX_HOME_DENIED or "
+                    "SANDBOX_ROOT_DENIED in scripts/loop.py does, such as \".npmrc\"".format(repr(name)[:100]))
+    return None
 
 
 # What any command writes to whatever the profile says: the device files a shell and its tools open.
@@ -1639,14 +1663,17 @@ def dropped_provider_env(environ, keep=()):
 
 
 def start_problem(cfg):
-    """Why loop.json's sandbox_commands or agent_env can't be acted on, as one ERROR's text, or None. A missing
-    key is its default's value, as load_config gives it. An empty agent_env is fine."""
+    """Why loop.json's sandbox_commands, agent_env or sandbox_allow can't be acted on, as one ERROR's text, or
+    None. A missing key is its default's value, as load_config gives it. An empty agent_env is fine."""
     sandbox = cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"])
     if not isinstance(sandbox, bool):
         return "sandbox_commands in loop.json: {} isn't true or false".format(repr(sandbox)[:100])
     keep = cfg.get("agent_env", DEFAULTS["agent_env"])
     if not (isinstance(keep, list) and all(isinstance(name, str) for name in keep)):
         return "agent_env in loop.json: {} isn't a list of strings".format(repr(keep)[:100])
+    why = sandbox_allow_problem(cfg)
+    if why:
+        return "sandbox_allow in loop.json: {}".format(why)[:300]
     return None
 
 
@@ -3090,11 +3117,12 @@ class Loop:
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
-        sandbox_profile denies, with sandbox_env's git settings, so git neither stops on the denied
-        ~/.gitconfig nor warns about ~/.config/git. For a caller project it's also denied every path
-        caller_denied() names, as its build and tester agents are. Anything else runs it as before: only true
-        turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands that isn't true or
-        false runs nothing: the loop refuses it at start, and this holds for any path that reaches here anyway."""
+        sandbox_profile denies but what sandbox_allow lets through, with sandbox_env's git settings, so git
+        neither stops on the denied ~/.gitconfig nor warns about ~/.config/git. For a caller project it's also
+        denied every path caller_denied() names, as its build and tester agents are. Anything else runs it as
+        before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands
+        that isn't true or false runs nothing, and a sandbox_allow that isn't a list of denied names lets
+        nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway."""
         if not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
             return 126, "refused: sandbox_commands in loop.json isn't true or false"
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
@@ -3103,7 +3131,10 @@ class Loop:
             return self.held_git("a command the loop ran", tree,
                                  lambda: self.caller_command(command, tree, env, timeout, partial))
         if self.sandboxed():
-            argv = [SANDBOX_EXEC, "-p", sandbox_profile(Path.home(), self.root), "/bin/sh", "-c", command]
+            # sandbox_allow's names are let through here only: a caller's profile above never reads it.
+            allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
+            profile = sandbox_profile(Path.home(), self.root, allow=allow)
+            argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
         if self.caller():
             # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
@@ -5237,6 +5268,17 @@ class Loop:
                          "your user can")
             elif self.cfg.get("sandbox_commands") is True and not self.sandboxed():
                 self.log("WARN", SANDBOX_PROBE_WARN.format(error=self.sandbox_error))
+            # Only where the sandbox applies: off, the WARN above already says every file can be read, and a
+            # bad value gets start_checks()'s ERROR instead. A caller's commands keep every denial, which a
+            # top-level sandbox_allow could make look otherwise, so it's told so rather than refused.
+            allow = self.cfg.get("sandbox_allow")
+            if sandbox_allow_problem(self.cfg) is None and allow and self.caller():
+                self.log("WARN", "sandbox_allow in the factory's loop.json doesn't apply to a caller project: "
+                         "its commands keep every denial")
+            elif sandbox_allow_problem(self.cfg) is None and allow and self.sandboxed():
+                shown = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
+                self.log("WARN", "sandbox_allow in the factory's loop.json lets test_command, generate_command "
+                         "and setup_command read and write: " + ", ".join(shown))
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:

@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-20: Let named paths through the command sandbox
+
+A new machine key, `sandbox_allow`, lets a project's `test_command`, `generate_command` and `setup_command` read and write the paths it names. Every other path the sandbox denies stays denied. Each entry is one of the sandbox's names, matched exactly, such as `.npmrc` or `company`. For a private npm registry, `"projects": {"app": {"sandbox_allow": [".npmrc"]}}` lets `npm ci` read `~/.npmrc`. A `.config/` name is let through under `XDG_CONFIG_HOME` too, and `GH_CONFIG_DIR` stays denied. It's empty by default and only the factory's `loop.json` sets it: a project's own `loop.json` that sets it is refused. A value that isn't a list of names, or a name the sandbox doesn't deny, stops `run`, `review` and `review --pr` with one `ERROR` line before anything is taken, and the three commands let nothing through under it. With the sandbox on, the loop logs one `WARN` line at start naming each path let through. It doesn't apply to caller projects, and a caller's loop with it set logs one `WARN` line saying so. Letting a path through is the factory owner's decision, as turning the sandbox off is.
+
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-13: The sandbox denies more and can't be stepped around; 2026-11-20: The loop refuses a misread sandbox_commands or agent_env
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`projects/README.md`](projects/README.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), [`steering/decisions.md`](steering/decisions.md), [`tests/test_steering.py`](tests/test_steering.py), [`CHANGELOG.md`](CHANGELOG.md).
+
+**Do:** nothing, unless a project's commands need `~/.npmrc` or another denied path: add `"sandbox_allow": [".npmrc"]` under its `"projects"` entry in the factory's `loop.json`.
+
 ## 2026-11-20: The loop refuses a misread sandbox_commands or agent_env
 
 `run`, the `review` watcher and `review --pr` now check `loop.json` before they take anything. A `sandbox_commands` that isn't `true` or `false`, such as `"true"` or `1`, or an `agent_env` that isn't a list of strings, such as `"AWS_PROFILE"`, stops them with one `ERROR` line ending "so nothing is taken". Before, only `run` checked `sandbox_commands`, and a misread `agent_env` passed no variables without saying so. `test_command`, `generate_command` and `setup_command` also refuse to run on their own under such a `sandbox_commands`. When `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_PROFILE`, `GOOGLE_APPLICATION_CREDENTIALS` or a `CLAUDE_CODE_*_TOKENS` limit is set where the loop starts but `agent_env` doesn't list it, the loop logs one `WARN` naming each one, never its value, since no agent gets it. `stop` still works with a bad value.

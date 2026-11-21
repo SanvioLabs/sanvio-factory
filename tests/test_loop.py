@@ -4586,6 +4586,22 @@ class TestAPass(unittest.TestCase):
                       (self.work / ".loop" / "loop.log").read_text())
         self.assertFalse((self.state / "agents-started").exists())
 
+    def test_sandbox_allow_that_isnt_a_list_of_denied_names_is_an_error_with_no_agent_run(self):
+        for value, why in ((".npmrc", "'.npmrc' isn't a list of names"), ([1], "[1] isn't a list of names"),
+                           ([".npmrc", ".bashrc"], "'.bashrc' isn't a path the sandbox denies")):
+            with self.subTest(value=value):
+                self.tearDown()
+                self.setUp()
+                self.cfg["sandbox_allow"] = value
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                    code = loop.Loop(self.work, self.cfg).run(once=True)
+                self.assertEqual(code, 1)
+                log = (self.work / ".loop" / "loop.log").read_text()
+                self.assertIn("ERROR sandbox_allow in loop.json: " + why, log)
+                self.assertIn(", so nothing is taken", log)
+                self.assertFalse((self.state / "agents-started").exists())
+
     # -- start-up checks of sandbox_commands and agent_env (#685) ------------
 
     def test_agent_env_that_isnt_a_list_of_strings_is_one_error_with_no_agent_run(self):
@@ -5309,6 +5325,43 @@ class TestSandbox(unittest.TestCase):
         self.assertEqual([p for p in self.denied(both) if p.startswith(under_root)],
                          [p for p in self.denied(plain) if p.startswith(under_root)])
 
+    def test_sandbox_allow_lets_through_only_the_names_it_lists(self):
+        home, root = self.root / "home", self.root / "factory"
+        plain = loop.sandbox_profile(home, root, {})
+        self.assertEqual(loop.sandbox_profile(home, root, {}, allow=()), plain)
+        npmrc = loop.sandbox_profile(home, root, {}, allow=(".npmrc",))
+        npmrc_path = str((home / ".npmrc").resolve())
+        self.assertIn(npmrc_path, self.denied(plain))
+        self.assertEqual(self.denied(npmrc), [p for p in self.denied(plain) if p != npmrc_path])
+        # Every folder guarded from renaming still is: others under home still need home guarded.
+        self.assertEqual(self.guarded(npmrc), self.guarded(plain))
+        company_path = str((root / "company").resolve())
+        company = loop.sandbox_profile(home, root, {}, allow=("company",))
+        self.assertIn(company_path, self.denied(plain))
+        self.assertEqual(self.denied(company), [p for p in self.denied(plain) if p != company_path])
+
+    def test_sandbox_allow_of_a_config_name_drops_its_xdg_copy_but_gh_config_dir_stays_denied(self):
+        home, root = self.root / "home", self.root / "factory"
+        environ = {"XDG_CONFIG_HOME": "/x/cfg", "GH_CONFIG_DIR": "/y/gh"}
+        plain = self.denied(loop.sandbox_profile(home, root, environ))
+        allowed = self.denied(loop.sandbox_profile(home, root, environ, allow=(".config/gh",)))
+        self.assertEqual(sorted(set(plain) - set(allowed)),
+                         sorted([str((home / ".config" / "gh").resolve()), "/x/cfg/gh"]))
+        self.assertIn("/y/gh", allowed)
+        self.assertIn("/x/cfg/git", allowed)
+
+    def test_sandbox_allow_must_name_a_denied_path_exactly(self):
+        self.assertIsNone(loop.sandbox_allow_problem({}))
+        self.assertIsNone(loop.sandbox_allow_problem({"sandbox_allow": []}))
+        self.assertIsNone(loop.sandbox_allow_problem({"sandbox_allow": [".npmrc", "company", ".config/gh"]}))
+        for value in (".npmrc", [1], None, {".npmrc": True}):
+            with self.subTest(value=value):
+                self.assertIn("isn't a list of names", loop.sandbox_allow_problem({"sandbox_allow": value}))
+        for name in (".bashrc", "~/.npmrc", "/Users/x/.npmrc", "gh", ".config"):
+            with self.subTest(name=name):
+                self.assertIn("{!r} isn't a path the sandbox denies".format(name),
+                              loop.sandbox_allow_problem({"sandbox_allow": [".npmrc", name]}))
+
     def test_the_profile_lists_the_planned_paths(self):
         self.assertEqual(set(loop.SANDBOX_HOME_DENIED), {
             ".ssh", ".aws", ".config/gh", ".config/gcloud", ".config/git", ".config/op", ".azure", ".kube",
@@ -5378,6 +5431,78 @@ class TestSandbox(unittest.TestCase):
         self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
         self.assertIn(" - WARN sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted), so test_command, generate_command and setup_command run without the sandbox: they can read any file your user can. It checks once a run: restart the loop to check again", lines[1])
         self.assertEqual(self.probe.call_count, 1)
+
+    def test_sandbox_allow_is_one_warn_naming_its_paths_only_where_the_sandbox_applies(self):
+        lines = self.logged(True, sandbox_allow=[".npmrc", "company"])
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN sandbox_allow in the factory's loop.json lets test_command, generate_command and "
+                      "setup_command read and write: ~/.npmrc, ", lines[1])
+        self.assertTrue(lines[1].endswith("/company"), lines[1])
+        self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
+        # Off, or where the probe fails, the WARN already there says everything can be read, and only it is logged.
+        for available, probe, cfg in ((False, None, {}), (True, None, {"sandbox_commands": False}),
+                                      (True, "sandbox_apply: Operation not permitted", {})):
+            with self.subTest(available=available, probe=probe, cfg=cfg):
+                lines = self.logged(available, probe, sandbox_allow=[".npmrc"], **cfg)
+                self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+                self.assertNotIn("sandbox_allow", lines[1])
+        # A bad value gets start_checks()'s ERROR, not this WARN, and nothing is taken.
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        lp = loop.Loop(root, dict(loop.DEFAULTS, sandbox_allow=[".bashrc"]))
+        with mock.patch.object(loop, "sandbox_available", return_value=True), \
+                mock.patch.object(loop, "sandbox_probe", return_value=None), \
+                mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
+                mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
+            self.assertEqual(lp.locked(lambda: self.fail("work() ran under a bad sandbox_allow")), 1)
+        lines = (lp.dir / "loop.log").read_text().splitlines()
+        self.assertEqual([l.split()[2] for l in lines], ["START", "ERROR"])
+        self.assertIn(" - ERROR sandbox_allow in loop.json: '.bashrc' isn't a path the sandbox denies", lines[1])
+        self.assertTrue(lines[1].endswith(", so nothing is taken"), lines[1])
+
+    def test_a_caller_with_sandbox_allow_is_told_it_doesnt_apply(self):
+        lines = self.logged(True, caller=True, sandbox_allow=[".npmrc"])
+        warns = [l for l in lines if " - WARN sandbox_allow" in l]
+        self.assertEqual(len(warns), 1, lines)
+        self.assertIn("doesn't apply to a caller project: its commands keep every denial", warns[0])
+
+    def test_own_command_lets_nothing_through_for_a_sandbox_allow_it_cant_use(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen["cmd"] = cmd
+            return 0, ""
+
+        # A string would match its names as substrings; each bad value leaves the profile as it is with none.
+        for bad in (".npmrc .ssh company", [".npmrc", ".bashrc"], [1]):
+            with self.subTest(allow=bad):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_allow=bad), project=own)
+                with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+                    lp.own_command("true", self.root / "tree")
+                self.assertEqual(seen["cmd"][2], loop.sandbox_profile(Path.home(), factory))
+
+    def test_sandbox_allow_reaches_the_profile_a_projects_command_runs_in(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen["cmd"] = cmd
+            return 0, ""
+
+        for allow in ([".npmrc"], []):
+            with self.subTest(allow=allow):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_allow=allow), project=own)
+                with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+                    lp.own_command("true", self.root / "tree")
+                self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p",
+                                               loop.sandbox_profile(Path.home(), factory, allow=allow),
+                                               "/bin/sh", "-c", "true"])
+        self.assertNotEqual(loop.sandbox_profile(Path.home(), factory, allow=[".npmrc"]),
+                            loop.sandbox_profile(Path.home(), factory))
 
     def real_sandbox(self):
         """Skips the test unless sandbox-exec can apply a profile here: a Mac, and not inside another sandbox."""
@@ -7832,6 +7957,25 @@ class TestReview(ReviewFixture, unittest.TestCase):
                     self.assertEqual(self.agents_started(), 0)
                     self.assertEqual(self.comments(), [])
 
+    def test_a_sandbox_allow_it_cant_use_stops_the_watcher_and_review_pr_with_no_agent_run(self):
+        for how in ("watcher", "--pr"):
+            with self.subTest(how=how):
+                self.tearDown()
+                self.setUp()
+                sha = self.push(7, "seven.txt")
+                self.list_prs(self.pr(7, sha))
+                self.view_pr(7, sha)
+                self.cfg["sandbox_allow"] = [".bashrc"]
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    runner = loop.Loop(self.work, self.cfg)
+                    code = runner.review(once=True) if how == "watcher" else runner.review(pr=7)
+                self.assertEqual(code, 1)
+                log = "\n".join(self.lines())
+                self.assertIn("ERROR sandbox_allow in loop.json: '.bashrc' isn't a path the sandbox denies", log)
+                self.assertIn(", so nothing is taken", log)
+                self.assertEqual(self.agents_started(), 0)
+                self.assertEqual(self.comments(), [])
+
     def test_a_credential_in_origin_s_url_is_never_printed(self):
         # Before T068 the refusal printed the URL as git has it, token and all (review after Phase 11).
         git(self.work, "remote", "set-url", "origin", CREDENTIAL_URL)
@@ -8595,6 +8739,38 @@ class TestForkKey(unittest.TestCase):
         self.assertEqual(loop.load_config(self.harness)["fork"], "pat/harness")
 
 
+class TestSandboxAllowKey(unittest.TestCase):
+    """sandbox_allow is a machine key: empty by default, set only in the factory's loop.json, a project's entry
+    first, so a project's own loop.json can't let its commands read your credentials."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_it_is_a_machine_key_and_empty_by_default(self):
+        self.assertEqual(loop.DEFAULTS["sandbox_allow"], [])
+        self.assertIn("sandbox_allow", loop.MACHINE_KEYS)
+        self.assertNotIn("sandbox_allow", loop.PROJECT_KEYS)
+
+    def test_a_project_whose_loop_json_sets_it_is_refused_naming_it(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "sandbox_allow": [".npmrc"]}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("sandbox_allow", err)
+        built.assert_not_called()
+
+    def test_a_project_s_entry_sets_it_for_that_project_alone(self):
+        self.harness_config({"projects": {"app": {"sandbox_allow": [".npmrc"]}, "site": {}}})
+        site = self.harness / "projects" / "site"
+        self.assertEqual(loop.load_project_config(self.harness, self.project)["sandbox_allow"], [".npmrc"])
+        self.assertEqual(loop.load_project_config(self.harness, site)["sandbox_allow"], [])
+        self.harness_config({"sandbox_allow": ["company"], "projects": {"app": {"sandbox_allow": [".npmrc"]}}})
+        self.assertEqual(loop.load_project_config(self.harness, self.project)["sandbox_allow"], [".npmrc"])
+        self.assertEqual(loop.load_project_config(self.harness, site)["sandbox_allow"], ["company"])
+
+
 # A whole work order, as a caller's issue needs it before any agent reads it (SPEC-003 REQ-007).
 WORK_ORDER = ("## Objective\n\nAdd feature.txt.\n\n## Acceptance Criteria\n\n- feature.txt exists\n\n"
               "## Scope\n\n**In:** `feature.txt`\n**Out:** `README.md`\n\n## Verification\n\n`test -f feature.txt`\n")
@@ -8918,6 +9094,23 @@ class TestCallerSandbox(unittest.TestCase):
                                        "/bin/sh", "-c", "true"])
         self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
         self.assertNotIn("held", seen["kwargs"])
+
+    def test_sandbox_allow_never_reaches_a_callers_profile(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=True, sandbox_allow=[".npmrc"]), project=own)
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen["cmd"] = cmd
+            return 0, ""
+
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", self.root / "tree")
+        self.assertEqual(seen["cmd"][:2], [loop.SANDBOX_EXEC, "-p"])
+        npmrc = loop.sbpl((Path.home() / ".npmrc").resolve())
+        self.assertIn('(deny file-read* file-write* (subpath "{}"))'.format(npmrc), seen["cmd"][2])
 
     def test_the_loops_output_files_never_write_through_a_link(self):
         target = self.root / "elsewhere.txt"
