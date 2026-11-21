@@ -8,6 +8,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -5643,6 +5644,269 @@ class TestSandbox(unittest.TestCase):
             self.assertEqual(lp.own_command("cat f", tree), (0, "CHECKOUT"))
 
 
+class TestSandboxStrict(unittest.TestCase):
+    """sandbox_strict (#696): on a Mac, a project's own test_command, generate_command and setup_command may
+    write only their worktree, a temp folder of their own, git's folder for it and what sandbox_write_allow
+    lists, and reach only what sandbox_network says. Off, nothing changes. TestSandbox's fixture, borrowed."""
+
+    setUp, tearDown, logged, real_sandbox, real_home, at_home = (
+        TestSandbox.setUp, TestSandbox.tearDown, TestSandbox.logged, TestSandbox.real_sandbox,
+        TestSandbox.real_home, TestSandbox.at_home)
+
+    BAD = (("sandbox_strict", "yes", "'yes' isn't true or false"),
+           ("sandbox_write_allow", ["rel/path"], "['rel/path'] isn't a list of absolute or ~ paths"),
+           ("sandbox_write_allow", [1], "[1] isn't a list of absolute or ~ paths"),
+           ("sandbox_network", "proxy", "'proxy' isn't \"any\", \"local\" or \"none\""))
+
+    def factory_project(self):
+        """(the factory, a project under its projects/, a worktree folder), each made."""
+        factory, tree = self.root / "factory", self.root / "tree"
+        own = factory / "projects" / "app"
+        for folder in (own, tree):
+            folder.mkdir(parents=True, exist_ok=True)
+        return factory, own, tree
+
+    def ran(self, lp, tree):
+        """What own_command("true", tree) hands sh, with the sandbox taken to work: {cmd, env, scratch, existed},
+        scratch being the folder TMPDIR names and existed whether it was there while the command ran."""
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            scratch = Path(kwargs["env"].get("TMPDIR") or "")
+            seen.update(cmd=cmd, env=kwargs["env"], kwargs=kwargs, scratch=scratch, existed=scratch.is_dir())
+            return 0, ""
+
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", tree)
+        return seen
+
+    # -- what loop.json may say ------------------------------------------------
+
+    def test_its_defaults_leave_it_off(self):
+        self.assertIs(loop.DEFAULTS["sandbox_strict"], False)
+        self.assertEqual(loop.DEFAULTS["sandbox_write_allow"], [])
+        self.assertEqual(loop.DEFAULTS["sandbox_network"], "any")
+        self.assertIsNone(loop.start_problem(dict(loop.DEFAULTS)))
+        for network in ("any", "local", "none"):
+            with self.subTest(network=network):
+                self.assertIsNone(loop.start_problem(dict(loop.DEFAULTS, sandbox_strict=True, sandbox_network=network,
+                                                          sandbox_write_allow=["~/.npm", "/opt/cache"])))
+
+    def test_a_bad_value_is_one_error_naming_its_key_and_nothing_is_taken(self):
+        for key, value, why in self.BAD:
+            with self.subTest(key=key, value=value):
+                cfg = dict(loop.DEFAULTS, **{key: value})
+                self.assertEqual(loop.start_problem(cfg), "{} in loop.json: {}".format(key, why))
+                # run and the review watcher, through locked()
+                root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+                lp = loop.Loop(root, cfg)
+                with mock.patch.object(loop, "sandbox_available", return_value=True), \
+                        mock.patch.object(loop, "sandbox_probe", return_value=None), \
+                        mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
+                        mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
+                    self.assertEqual(lp.locked(lambda: self.fail("work() ran under a bad " + key)), 1)
+                lines = (lp.dir / "loop.log").read_text().splitlines()
+                self.assertEqual([l.split()[2] for l in lines], ["START", "ERROR"])
+                self.assertTrue(lines[1].endswith(" - ERROR {} in loop.json: {}, so nothing is taken".format(key, why)),
+                                lines[1])
+                # review --pr
+                root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+                lp = loop.Loop(root, cfg)
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(lp.review_alone(7), 1)
+                lines = (lp.dir / "loop.log").read_text().splitlines()
+                self.assertEqual(len(lines), 1, lines)
+                self.assertTrue(lines[0].endswith(" - ERROR {} in loop.json: {}, so nothing is taken".format(key, why)),
+                                lines[0])
+
+    # -- the profile -----------------------------------------------------------
+
+    def test_off_the_profile_is_the_one_it_always_was(self):
+        home, root = self.root / "home", self.root / "factory"
+        for allow in ((), (".npmrc",)):
+            with self.subTest(allow=allow):
+                plain = loop.sandbox_profile(home, root, {}, allow=allow)
+                self.assertEqual(loop.sandbox_profile(home, root, {}, allow=allow, strict=False,
+                                                      writable=[str(self.root / "w")], network="none"), plain)
+                self.assertNotIn("network", plain)
+                self.assertNotIn("allow file-write", plain)
+                self.assertNotIn('(deny file-write* (subpath "/"))', plain)
+        self.assertEqual(loop.sandbox_profile(home, root), loop.sandbox_profile(home, root, strict=False))
+        # Byte for byte the profile TestCallerSandbox pins.
+        self.assertEqual(loop.sandbox_profile("/nowhere-639/home", "/nowhere-639/home/work/factory", {}, strict=False,
+                                              writable=["/nowhere-639/w"], network="none"), NON_CALLER_PROFILE)
+
+    def test_on_writes_are_held_and_every_denial_still_comes_last(self):
+        home, root, tree = self.root / "home", self.root / "factory", self.root / "tree"
+        plain = loop.sandbox_profile(home, root, {}).splitlines()
+        lines = loop.sandbox_profile(home, root, {}, strict=True, writable=[tree, "~/.npm"]).splitlines()
+        self.assertEqual(lines[:5], [
+            "(version 1)(allow default)",
+            '(deny file-write* (subpath "/"))',
+            '(allow file-write* (subpath "{}"))'.format(loop.sbpl(tree.resolve())),
+            '(allow file-write* (subpath "{}"))'.format(loop.sbpl((home / ".npm").resolve())),
+            "(allow file-write* {})".format(" ".join(loop.SANDBOX_DEVICES))])
+        # "any" adds no network rule, and the denials are the ones strict off has, after every allow.
+        self.assertEqual(lines[5:], plain[1:])
+        self.assertFalse([l for l in lines if "network" in l])
+        key = '(deny file-read* file-write* (subpath "{}"))'.format(loop.sbpl((home / ".ssh").resolve()))
+        self.assertGreater(lines.index(key), max(i for i, l in enumerate(lines) if l.startswith("(allow")))
+
+    def test_the_network_rules_none_and_local_and_anything_else_as_none(self):
+        home, root = self.root / "home", self.root / "factory"
+        plain = loop.sandbox_profile(home, root, {}).splitlines()
+        deny, local = "(deny network-outbound)", '(allow network-outbound (remote ip "localhost:*"))'
+        for network, rules in (("none", [deny]), ("local", [deny, local]), ("proxy", [deny]), (None, [deny])):
+            with self.subTest(network=network):
+                lines = loop.sandbox_profile(home, root, {}, strict=True, network=network).splitlines()
+                self.assertEqual(lines[3:3 + len(rules)], rules)
+                self.assertEqual(lines[3 + len(rules):], plain[1:])
+
+    # -- what own_command runs -------------------------------------------------
+
+    def test_own_command_under_strict_writes_its_worktree_temp_and_git_folder_and_what_the_lists_let(self):
+        factory, own, tree = self.factory_project()
+        git_dir = loop.worktree_git_dir(tree, own)
+        for cfg, allow, more in (({"sandbox_write_allow": ["~/.npm"], "sandbox_network": "local"}, (), ["~/.npm"]),
+                                 ({"sandbox_allow": [".npmrc"]}, (".npmrc",), ["~/.npmrc"]),
+                                 # One it refuses at start makes nothing more writable here.
+                                 ({"sandbox_write_allow": ["rel/path"]}, (), [])):
+            with self.subTest(cfg=cfg), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True, **cfg), project=own)
+                seen = self.ran(lp, tree)
+                scratch = seen["scratch"]
+                self.assertTrue(scratch.name.startswith("sanvio-strict-"), scratch)
+                self.assertTrue(seen["existed"])
+                self.assertFalse(scratch.exists())
+                expected = loop.sandbox_profile(Path.home(), factory, allow=allow, strict=True,
+                                                writable=[tree, str(scratch), git_dir] + more,
+                                                network=cfg.get("sandbox_network", "any"))
+                self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p", expected, "/bin/sh", "-c", "true"])
+                self.assertEqual(seen["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
+                self.assertNotIn("held", seen["kwargs"])
+
+    def test_off_own_command_runs_as_it_did_with_no_temp_folder_of_its_own(self):
+        factory, own, tree = self.factory_project()
+        for allow in ([], [".npmrc"]):
+            with self.subTest(allow=allow):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_allow=allow, sandbox_write_allow=["~/.npm"],
+                                             sandbox_network="none"), project=own)
+                seen = self.ran(lp, tree)
+                self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p",
+                                               loop.sandbox_profile(Path.home(), factory, allow=allow),
+                                               "/bin/sh", "-c", "true"])
+                self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
+
+    def test_strict_for_one_project_leaves_another_projects_profile_alone(self):
+        factory, own, tree = self.factory_project()
+        site = factory / "projects" / "site"
+        site.mkdir()
+        (factory / "loop.json").write_text(json.dumps({"projects": {"app": {"sandbox_strict": True}, "site": {}}}))
+        self.assertIs(loop.load_project_config(factory, own)["sandbox_strict"], True)
+        cfg = loop.load_project_config(factory, site)
+        self.assertIs(cfg["sandbox_strict"], False)
+        seen = self.ran(loop.Loop(factory, cfg, project=site), tree)
+        self.assertEqual(seen["cmd"][2], loop.sandbox_profile(Path.home(), factory))
+
+    def test_a_callers_profile_is_the_same_with_strict_on(self):
+        factory, own, tree = self.factory_project()
+        profiles = []
+        for strict in (False, True):
+            lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=True, sandbox_strict=strict, sandbox_network="none",
+                                         sandbox_write_allow=["~/.npm"]), project=own)
+            seen = self.ran(lp, tree)
+            scratch = seen["scratch"].parent  # caller_env's TMPDIR is a folder in the run's temp folder
+            self.assertTrue(scratch.name.startswith("sanvio-caller-"), scratch)
+            profiles.append(seen["cmd"][2].replace(loop.sbpl(scratch.resolve()), "SCRATCH"))
+        self.assertEqual(profiles[0], profiles[1])
+        self.assertNotIn("(deny network-outbound)", profiles[1])
+
+    # -- the log when the loop starts ------------------------------------------
+
+    def test_on_a_mac_one_info_line_names_what_it_may_write_and_the_network(self):
+        lines = self.logged(True, sandbox_strict=True, sandbox_write_allow=["~/.npm", "~/.cache/uv"],
+                            sandbox_network="local")
+        self.assertEqual([l.split()[2] for l in lines], ["START", "INFO"])
+        self.assertTrue(lines[1].endswith(" - INFO sandbox_strict: test_command, generate_command and setup_command "
+                                          "may write ~/.npm, ~/.cache/uv beyond the worktree, temp and git's folder, "
+                                          "and sandbox_network is \"local\""), lines[1])
+        lines = self.logged(True, sandbox_strict=True)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "INFO"])
+        self.assertIn("may write nothing beyond the worktree, temp and git's folder, and sandbox_network is \"any\"",
+                      lines[1])
+        # Off, nothing is logged for it.
+        self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
+
+    def test_where_nothing_enforces_it_a_second_warn_says_so(self):
+        for available, probe in ((False, None), (True, "sandbox_apply: Operation not permitted")):
+            with self.subTest(available=available, probe=probe):
+                lines = self.logged(available, probe, sandbox_strict=True)
+                self.assertEqual([l.split()[2] for l in lines], ["START", "WARN", "WARN"])
+                self.assertIn(" - WARN sandbox_strict is true in the factory's loop.json, but nothing enforces it "
+                              "here", lines[2])
+
+    def test_a_caller_logs_nothing_for_it(self):
+        lines = self.logged(True, caller=True, sandbox_strict=True)
+        self.assertFalse([l for l in lines if "sandbox_strict" in l], lines)
+
+    # -- on a real Mac, outside any other sandbox ------------------------------
+
+    def strict_loop(self, network="any"):
+        """(home, tree, a Loop under sandbox_strict) from TestSandbox.real_home()."""
+        home, tree, lp = self.real_home()
+        lp.cfg.update(sandbox_strict=True, sandbox_network=network)
+        return home, tree, lp
+
+    def test_on_a_real_mac_it_writes_the_worktree_and_temp_and_not_home_or_the_factory(self):
+        self.real_sandbox()
+        home, tree, lp = self.strict_loop()
+        with self.at_home(home):
+            self.assertEqual(lp.own_command('printf a > in-tree && printf b > "$TMPDIR/t" && cat in-tree "$TMPDIR/t"',
+                                            tree), (0, "ab"))
+            for folder in (home, lp.root):
+                made = folder / "made-here"
+                code, out = lp.own_command("printf x > " + shlex.quote(str(made)), tree)
+                self.assertNotEqual(code, 0, folder)
+                self.assertIn("Operation not permitted", out)
+                self.assertFalse(made.exists(), folder)
+
+    def test_on_a_real_mac_it_still_cant_read_an_ssh_key(self):
+        self.real_sandbox()
+        home, tree, lp = self.strict_loop()
+        (home / ".ssh" / "key").write_text("SECRET-KEY")
+        with self.at_home(home):
+            code, out = lp.own_command("cat " + shlex.quote(str(home / ".ssh" / "key")), tree)
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("SECRET-KEY", out)
+
+    def connect(self, lp, tree, host, port):
+        """own_command's (code, output) for a python3 that connects to host:port."""
+        script = "import socket; socket.create_connection(({!r}, {}), 3); print('connected')".format(host, port)
+        return lp.own_command("{} -c {}".format(shlex.quote(sys.executable), shlex.quote(script)), tree)
+
+    def test_on_a_real_mac_none_refuses_a_connection_and_local_reaches_loopback(self):
+        self.real_sandbox()
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        port = listener.getsockname()[1]
+        home, tree, lp = self.strict_loop("none")
+        with self.at_home(home):
+            # The sandbox refuses it before any packet leaves, so this holds offline too.
+            code, out = self.connect(lp, tree, "1.1.1.1", 53)
+            self.assertNotEqual(code, 0, out)
+            self.assertIn("Operation not permitted", out)
+            self.assertNotEqual(self.connect(lp, tree, "127.0.0.1", port)[0], 0)
+            lp.cfg["sandbox_network"] = "local"
+            code, out = self.connect(lp, tree, "127.0.0.1", port)
+            self.assertEqual(code, 0, out)
+            self.assertIn("connected", out)
+            code, out = self.connect(lp, tree, "1.1.1.1", 53)
+            self.assertNotEqual(code, 0, out)
+            self.assertIn("Operation not permitted", out)
+
+
 # A line from each file of the harness's rules, to find in the prompts. None is a phrase the stand-in agent looks for.
 RULES = {"AGENTS.md": "RULE-FROM-AGENTS", "steering/operating.md": "RULE-FROM-OPERATING",
          "steering/response-style.md": "RULE-FROM-RESPONSE-STYLE",
@@ -8801,6 +9065,44 @@ class TestSandboxAllowKey(unittest.TestCase):
         self.harness_config({"sandbox_allow": ["company"], "projects": {"app": {"sandbox_allow": [".npmrc"]}}})
         self.assertEqual(loop.load_project_config(self.harness, self.project)["sandbox_allow"], [".npmrc"])
         self.assertEqual(loop.load_project_config(self.harness, site)["sandbox_allow"], ["company"])
+
+
+class TestSandboxStrictKeys(unittest.TestCase):
+    """sandbox_strict, sandbox_write_allow and sandbox_network are machine keys (#696): a project's own
+    loop.json can't loosen or tighten its commands' sandbox, and the factory's entry for it can."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    VALUES = {"sandbox_strict": True, "sandbox_write_allow": ["~/.npm"], "sandbox_network": "none"}
+
+    def test_each_is_a_machine_key(self):
+        for key in self.VALUES:
+            with self.subTest(key=key):
+                self.assertIn(key, loop.MACHINE_KEYS)
+                self.assertNotIn(key, loop.PROJECT_KEYS)
+
+    def test_a_project_whose_loop_json_sets_one_is_refused_naming_it(self):
+        for key, value in self.VALUES.items():
+            with self.subTest(key=key):
+                site = self.harness / "projects" / "site"
+                if not site.exists():
+                    site = self.on_github("site")
+                (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, key: value}))
+                code, err, built = self.main("run", "--project", str(site))
+                self.assertEqual(code, 1)
+                self.assertTrue(err.startswith("ERROR "), err)
+                self.assertIn(key, err)
+                built.assert_not_called()
+
+    def test_the_factorys_entry_for_a_project_sets_each_for_that_project_alone(self):
+        site = self.harness / "projects" / "site"
+        self.harness_config({"projects": {"app": dict(self.VALUES), "site": {}}})
+        for key, value in self.VALUES.items():
+            with self.subTest(key=key):
+                self.assertEqual(loop.load_project_config(self.harness, self.project)[key], value)
+                self.assertEqual(loop.load_project_config(self.harness, site)[key], loop.DEFAULTS[key])
 
 
 # A whole work order, as a caller's issue needs it before any agent reads it (SPEC-003 REQ-007).
