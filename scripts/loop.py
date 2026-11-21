@@ -5395,8 +5395,14 @@ class Loop:
                 prog = multiplexer()
                 self.log("START", "in {0} session {1}: {0} attach -t {2}".format(prog, tmux, shell_quote(tmux)))
                 self.write_watch(tmux)
+            # sandbox_strict first, so sandboxed() isn't asked when it's off; a caller's profile is its own, and
+            # a bad value gets start_checks()'s ERROR instead.
+            strict = (self.cfg.get("sandbox_strict") is True and not self.caller()
+                      and sandbox_strict_problem(self.cfg) is None)
             if self.caller():
                 pass  # work() refuses a caller whose commands wouldn't run in the sandbox, in one ERROR line
+            elif strict:
+                pass  # start_checks() stops a strict project whose commands wouldn't run in the sandbox, in one ERROR
             elif self.cfg.get("sandbox_commands") is not False and not sandbox_available():
                 self.log("WARN", "test_command, generate_command and setup_command run without a sandbox here, "
                          "since only macOS has sandbox-exec: they can read any file your user can")
@@ -5406,9 +5412,10 @@ class Loop:
                          "your user can")
             elif self.cfg.get("sandbox_commands") is True and not self.sandboxed():
                 self.log("WARN", SANDBOX_PROBE_WARN.format(error=self.sandbox_error))
-            # Only where the sandbox applies: off, the WARN above already says every file can be read, and a
-            # bad value gets start_checks()'s ERROR instead. A caller's commands keep every denial, which a
-            # top-level sandbox_allow could make look otherwise, so it's told so rather than refused.
+            # Only where the sandbox applies: off, the WARN above already says every file can be read (or, under
+            # sandbox_strict, start_checks()'s ERROR stops the run), and a bad value gets start_checks()'s ERROR.
+            # A caller's commands keep every denial, which a top-level sandbox_allow could make look otherwise, so
+            # it's told so rather than refused.
             allow = self.cfg.get("sandbox_allow")
             if sandbox_allow_problem(self.cfg) is None and allow and self.caller():
                 self.log("WARN", "sandbox_allow in the factory's loop.json doesn't apply to a caller project: "
@@ -5417,19 +5424,14 @@ class Loop:
                 shown = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
                 self.log("WARN", "sandbox_allow in the factory's loop.json lets test_command, generate_command "
                          "and setup_command read and write: " + ", ".join(shown))
-            # sandbox_strict first, so sandboxed() isn't asked when it's off; a caller's profile is its own, and
-            # a bad value gets start_checks()'s ERROR instead.
-            strict = self.cfg.get("sandbox_strict") is True
-            if strict and not self.caller() and sandbox_strict_problem(self.cfg) is None:
-                if self.sandboxed():
-                    paths = self.cfg.get("sandbox_write_allow") or []
-                    where = "nothing" if not paths else ", ".join(paths)
-                    self.log("INFO", "sandbox_strict: test_command, generate_command and setup_command may write "
-                             "{} beyond the worktree, temp and git's folder, and sandbox_network is \"{}\"".format(
-                                 where, self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"])))
-                else:
-                    self.log("WARN", "sandbox_strict is true in the factory's loop.json, but nothing enforces it "
-                             "here, since test_command, generate_command and setup_command run without the sandbox")
+            # Where nothing would enforce it, start_checks() logs the one ERROR and nothing is taken.
+            if strict and self.sandboxed():
+                paths = self.cfg.get("sandbox_write_allow") or []
+                where = "nothing" if not paths else ", ".join(paths)
+                self.log("INFO", "sandbox_strict: test_command, generate_command and setup_command may write "
+                         "{} beyond the worktree, temp and git's folder, and sandbox_network is \"{}\"; the clone's "
+                         "shared .git stays read-only, so a command that commits or fetches in the worktree fails, "
+                         "on purpose".format(where, self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"])))
             if self.cfg.get("hours"):
                 # Before work(), so a bad value is found before any issue or pull request is taken.
                 try:
@@ -5458,10 +5460,22 @@ class Loop:
     def start_checks(self):
         """Before run, the review watcher or review --pr takes anything: 1 with one ERROR line when
         start_problem() finds a key it can't act on, else None, with one WARN line naming each provider
-        setting set here that no agent would get. Names only, never a value."""
+        setting set here that no agent would get. Names only, never a value. Under sandbox_strict, where the
+        sandbox can't start, it's 1 with one ERROR line too (#703): a caller's profile is its own, and work()
+        refuses a caller whose commands wouldn't run in the sandbox."""
         found = start_problem(self.cfg)
         if found:
             self.log("ERROR", "{}, so nothing is taken".format(found))
+            return 1
+        # In sandboxed()'s order, so the probe's reason is there by the third.
+        if self.cfg.get("sandbox_strict") is True and not self.caller() and not self.sandboxed():
+            if self.cfg.get("sandbox_commands") is not True:
+                why = "sandbox_commands is false, so nothing could enforce it and nothing is taken"
+            elif not sandbox_available():
+                why = "only macOS has sandbox-exec, so nothing could enforce it and nothing is taken"
+            else:
+                why = "sandbox-exec can't apply a profile here ({}), so nothing is taken".format(self.sandbox_error)
+            self.log("ERROR", "sandbox_strict is true for this project, but " + why)
             return 1
         dropped = dropped_provider_env(os.environ, self.cfg.get("agent_env") or ())
         if dropped:

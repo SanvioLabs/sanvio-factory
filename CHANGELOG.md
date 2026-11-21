@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: sandbox_strict stops the loop where the sandbox can't start
+
+A project with `sandbox_strict` on no longer runs its `test_command`, `generate_command` and `setup_command` without the sandbox. Where the sandbox can't apply (off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't apply a profile), `run`, `review` and `review --pr` now stop with one `ERROR` line saying which, and take nothing. Before, the loop logged a `WARN` and went on. The `INFO` line it logs when it starts now also says that the clone's shared `.git` stays read-only on purpose, so a command that commits or fetches in the worktree fails. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gives the reason: a hook or config written there would be run by the loop's own git, outside the sandbox. It no longer suggests adding that path to `sandbox_write_allow`. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-21: A strict sandbox for one project's commands
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** a project with `sandbox_strict` on now needs the sandbox to start, or the loop stops: run its loop on a Mac with `sandbox_commands` true, outside any other sandbox.
+
 ## 2026-11-21: sandbox_allow of git's config lifts its overrides
 
 A project's `sandbox_allow` of `.gitconfig` now also points `GIT_CONFIG_GLOBAL` at `~/.gitconfig` instead of `/dev/null` (unset when `.config/git` is allowed too), and one of `.config/git` drops the `/dev/null` `core.excludesFile` and `core.attributesFile`, so its commands read the git config each name lets through. It holds under `sandbox_strict` too.

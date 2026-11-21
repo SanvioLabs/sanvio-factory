@@ -5865,6 +5865,9 @@ class TestSandboxStrict(unittest.TestCase):
         factory, own, tree = self.factory_project()
         for allow in ([], [".gitconfig"], [".config/git"], [".gitconfig", ".config/git"]):
             with self.subTest(allow=allow), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+                # The loop runs its test_command with GIT_CONFIG_GLOBAL=/dev/null, and sandbox_env() keeps one
+                # the environment already has, so it's cleared here; patch.dict puts it back afterwards.
+                os.environ.pop("GIT_CONFIG_GLOBAL", None)
                 lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True, sandbox_allow=allow), project=own)
                 seen = self.ran(lp, tree)
                 expected = dict(loop.sandbox_env(loop.env_for_tests(os.environ), tuple(allow)),
@@ -5916,7 +5919,9 @@ class TestSandboxStrict(unittest.TestCase):
         self.assertEqual([l.split()[2] for l in lines], ["START", "INFO"])
         self.assertTrue(lines[1].endswith(" - INFO sandbox_strict: test_command, generate_command and setup_command "
                                           "may write ~/.npm, ~/.cache/uv beyond the worktree, temp and git's folder, "
-                                          "and sandbox_network is \"local\""), lines[1])
+                                          "and sandbox_network is \"local\"; the clone's shared .git stays read-only, "
+                                          "so a command that commits or fetches in the worktree fails, on purpose"),
+                        lines[1])
         lines = self.logged(True, sandbox_strict=True)
         self.assertEqual([l.split()[2] for l in lines], ["START", "INFO"])
         self.assertIn("may write nothing beyond the worktree, temp and git's folder, and sandbox_network is \"any\"",
@@ -5924,13 +5929,102 @@ class TestSandboxStrict(unittest.TestCase):
         # Off, nothing is logged for it.
         self.assertEqual([l.split()[2] for l in self.logged(True)], ["START"])
 
-    def test_where_nothing_enforces_it_a_second_warn_says_so(self):
-        for available, probe in ((False, None), (True, "sandbox_apply: Operation not permitted")):
-            with self.subTest(available=available, probe=probe):
-                lines = self.logged(available, probe, sandbox_strict=True)
-                self.assertEqual([l.split()[2] for l in lines], ["START", "WARN", "WARN"])
-                self.assertIn(" - WARN sandbox_strict is true in the factory's loop.json, but nothing enforces it "
-                              "here", lines[2])
+    # -- where the sandbox can't start (#703) ----------------------------------
+
+    FAILED = "sandbox_apply: Operation not permitted"
+
+    def started(self, lp, available, probe=None):
+        """(locked()'s code, the log's lines) for lp, sandbox_available() saying available and sandbox_probe()
+        answering probe, with self.work the work() it was handed, so a test can tell whether anything was taken."""
+        self.work = mock.Mock(return_value=None)
+        with mock.patch.object(loop, "sandbox_available", return_value=available), \
+                mock.patch.object(loop, "sandbox_probe", return_value=probe), \
+                mock.patch.object(lp, "tmux_session", return_value="loop-work"), \
+                mock.patch.object(lp, "write_watch"), mock.patch("builtins.print"):
+            code = lp.locked(self.work)
+        return code, (lp.dir / "loop.log").read_text().splitlines()
+
+    def strict_started(self, available, probe=None, **cfg):
+        """started() for a factory Loop with sandbox_strict on and cfg."""
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        return self.started(loop.Loop(root, dict(loop.DEFAULTS, sandbox_strict=True, **cfg)), available, probe)
+
+    def test_where_the_probe_fails_it_stops_with_one_error_saying_why_and_takes_nothing(self):
+        code, lines = self.strict_started(True, self.FAILED)
+        self.assertEqual(code, 1)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "ERROR"])
+        self.assertTrue(lines[1].endswith(" - ERROR sandbox_strict is true for this project, but sandbox-exec can't "
+                                          "apply a profile here (sandbox_apply: Operation not permitted), so nothing "
+                                          "is taken"), lines[1])
+        self.work.assert_not_called()
+
+    def test_off_a_mac_it_stops_with_one_error_and_takes_nothing(self):
+        code, lines = self.strict_started(False)
+        self.assertEqual(code, 1)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "ERROR"])
+        self.assertTrue(lines[1].endswith(" - ERROR sandbox_strict is true for this project, but only macOS has "
+                                          "sandbox-exec, so nothing could enforce it and nothing is taken"), lines[1])
+        self.work.assert_not_called()
+
+    def test_with_sandbox_commands_false_on_a_mac_it_stops_with_one_error_and_takes_nothing(self):
+        code, lines = self.strict_started(True, sandbox_commands=False)
+        self.assertEqual(code, 1)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "ERROR"])
+        self.assertTrue(lines[1].endswith(" - ERROR sandbox_strict is true for this project, but sandbox_commands is "
+                                          "false, so nothing could enforce it and nothing is taken"), lines[1])
+        self.work.assert_not_called()
+
+    def test_review_pr_stops_before_it_looks_at_auto_merge(self):
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        lp = loop.Loop(root, dict(loop.DEFAULTS, sandbox_strict=True))
+        with mock.patch.object(loop, "sandbox_available", return_value=True), \
+                mock.patch.object(loop, "sandbox_probe", return_value=self.FAILED), \
+                mock.patch.object(lp, "auto_merge_ok") as merge_ok, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(lp.review_alone(7), 1)
+        merge_ok.assert_not_called()
+        lines = (lp.dir / "loop.log").read_text().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn(" - ERROR sandbox_strict is true for this project, but sandbox-exec can't apply a profile "
+                      "here (sandbox_apply: Operation not permitted)", lines[0])
+
+    def test_without_strict_a_failed_probe_is_still_one_warn_and_work_goes_on(self):
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        code, lines = self.started(loop.Loop(root, dict(loop.DEFAULTS)), True, self.FAILED)
+        self.assertEqual(code, 0)
+        self.assertEqual([l.split()[2] for l in lines], ["START", "WARN"])
+        self.assertIn(" - WARN " + loop.SANDBOX_PROBE_WARN.format(error=self.FAILED), lines[1])
+        self.work.assert_called_once_with()
+
+    def test_a_caller_with_strict_and_a_failed_probe_gets_no_strict_error(self):
+        root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        lp = loop.Loop(root, dict(loop.DEFAULTS, caller=True, sandbox_strict=True))
+        with mock.patch.object(loop, "sandbox_available", return_value=True), \
+                mock.patch.object(loop, "sandbox_probe", return_value=self.FAILED):
+            self.assertIsNone(lp.start_checks())
+        log = lp.dir / "loop.log"
+        lines = log.read_text().splitlines() if log.exists() else []
+        self.assertFalse([l for l in lines if "sandbox_strict" in l], lines)
+        # Through locked(), a caller's whole start goes as it does with strict off: same code, same log lines.
+        runs = {}
+        for strict in (True, False):
+            root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+            code, lines = self.started(loop.Loop(root, dict(loop.DEFAULTS, caller=True, sandbox_strict=strict)),
+                                       True, self.FAILED)
+            runs[strict] = (code, [l.split(None, 1)[1] for l in lines], self.work.call_count)
+        self.assertEqual(runs[True], runs[False])
+        self.assertFalse([l for l in runs[True][1] if "sandbox_strict" in l], runs[True][1])
+
+    def test_strict_for_one_project_doesnt_stop_another(self):
+        factory, own, tree = self.factory_project()
+        site = factory / "projects" / "site"
+        site.mkdir()
+        (factory / "loop.json").write_text(json.dumps({"projects": {"app": {"sandbox_strict": True}, "site": {}}}))
+        lp = loop.Loop(factory, loop.load_project_config(factory, site), project=site)
+        code, lines = self.started(lp, True, self.FAILED)
+        self.assertEqual(code, 0)
+        self.assertFalse([l for l in lines if "sandbox_strict" in l], lines)
+        self.work.assert_called_once_with()
 
     def test_a_caller_logs_nothing_for_it(self):
         lines = self.logged(True, caller=True, sandbox_strict=True)
