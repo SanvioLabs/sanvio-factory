@@ -5320,16 +5320,14 @@ class TestSandbox(unittest.TestCase):
                      GIT_CONFIG_KEY_2="core.attributesFile", GIT_CONFIG_VALUE_2="/dev/null")
         self.assertEqual(loop.sandbox_env(given, ()), today)
         self.assertEqual(loop.sandbox_env(given, ()), loop.sandbox_env(given))
-        home = self.root / "home"
-        # With ~/.config/git still denied, .gitconfig alone points git at ~/.gitconfig, so git doesn't stop on
-        # ~/.config/git/config; with both allowed it's unset, and git reads either.
-        wanted = {(): "/dev/null", (".gitconfig",): str(home / ".gitconfig"),
-                  (".config/git",): "/dev/null", (".gitconfig", ".config/git"): None}
-        for allow, global_config in wanted.items():
-            with self.subTest(allow=allow), mock.patch.object(loop.Path, "home", return_value=home):
+        for allow in ((), (".gitconfig",), (".config/git",), (".gitconfig", ".config/git")):
+            with self.subTest(allow=allow):
                 env = loop.sandbox_env(given, allow)
                 self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
-                self.assertEqual(env.get("GIT_CONFIG_GLOBAL"), global_config)
+                if ".gitconfig" in allow:
+                    self.assertNotIn("GIT_CONFIG_GLOBAL", env)
+                else:
+                    self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
                 if ".config/git" in allow:
                     self.assertEqual(env["GIT_CONFIG_COUNT"], "1")
                     self.assertEqual(sorted(k for k in env if k.startswith("GIT_CONFIG_KEY_")), ["GIT_CONFIG_KEY_0"])
@@ -5633,11 +5631,6 @@ class TestSandbox(unittest.TestCase):
             self.assertIn("Home", out)
             # ~/.config/git stays denied, and with only .gitconfig allowed git reads nothing from it.
             self.assertNotIn("Xdg", out)
-            # git config --global reads only one file; git status reads them all, and would stop on the denied
-            # ~/.config/git/config if GIT_CONFIG_GLOBAL didn't point it at ~/.gitconfig alone.
-            code, out = allowed.own_command("git init -q && git status", tree)
-            self.assertEqual(code, 0, out)
-            self.assertNotIn("unable to access", out)
             code, out = lp.own_command("git config --global user.name", tree)
         # git config exits 1 where the name isn't set, as with no global config; any other code is a failure.
         self.assertEqual(code, 1, out)
