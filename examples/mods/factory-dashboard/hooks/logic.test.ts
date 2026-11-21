@@ -116,7 +116,10 @@ group('the header', () => {
   const seen = (over: Partial<Seen>): Seen => ({ root: '/h/starter', doc: DOC, readAt: Date.parse('2026-10-27T11:43:00'), isReading: false, failedAt: null, failure: null, ...over })
   test('says the first read can take a while', () => {
     expect(state(null).text).toContain('can take a minute')
-    expect(state(seen({ doc: null, isReading: true })).text).toContain('can take a minute')
+    expect(state(seen({ doc: null, isReading: true, readAt: null })).text).toContain('can take a minute')
+  })
+  test('a read after a range switch, with the old numbers cleared, says Refreshing and when it last read', () => {
+    expect(state(seen({ doc: null, isReading: true }))).toEqual({ tone: 'now', text: 'Refreshing · 11:43' })
   })
   test('says when it last read, and when a refresh failed it says so and what it still shows', () => {
     expect(state(seen({})).text).toBe('Updated 11:43')

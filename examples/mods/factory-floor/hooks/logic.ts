@@ -5,6 +5,8 @@ export type Tone = 'now' | 'pass' | 'fail' | 'quiet' | 'idle'
 export type Line = { tone: Tone; text: string }
 
 export const PROJECTS_DIR = '.loop/projects'
+// The pane's title in both views, which says which mod it is beside the name Claude Code adds.
+export const TITLE = 'Factory floor'
 export const SCRIPT = 'scripts/loop.py'
 
 // The folder under the root holding one loop's files: the factory's, or a project's.

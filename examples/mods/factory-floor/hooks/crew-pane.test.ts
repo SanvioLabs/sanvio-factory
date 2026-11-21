@@ -8,6 +8,11 @@ import type { On } from 'claude-code'
 import { buttonRows, buttonsWidth } from './buttons'
 import { ACCENT, DARK, OUT_MS, STATIONS, stationX, walkMs } from './crew-logic'
 
+// What an open showed, as the pane's title said it before both views took the mod's name: the List as
+// Loop, the Crew, which asks for its size, as Loop crew and the loop it shows.
+const shownAs = (e: { rows?: number }, crewShown: string): string =>
+  e.rows === undefined ? 'Loop' : crewShown === '*' ? 'Loop crew: All loops' : crewShown ? `Loop crew: ${crewShown}` : 'Loop crew'
+
 const ROOT = '/h/starter'
 const HARNESS = `${ROOT}/.loop`
 const ALPHA = `${ROOT}/.loop/projects/alpha`
@@ -77,6 +82,10 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Ma
   const writes: { path: string; text: string }[] = []
   const session = focus.session ?? { id: null }
   const titles: string[] = []
+  const paneTitles: string[] = []
+  // Every value the mod stores, as plugin/key, and the loop the Crew last stored as shown.
+  const written: string[] = []
+  let crewShown = ''
   const sizes: [number | undefined, number | undefined][] = []
   const blits: { key: string; cells: string }[] = []
   const invalidated: string[] = []
@@ -121,8 +130,18 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Ma
     ran.push([...e.argv])
     return flip.staleLock ? process(1, `kill: (${e.argv[2]}) - No such process`) : process(0, '')
   })
+  on('state.set', async (_$, e, next) => {
+    const at = e as unknown as { plugin: string; key: string; value: unknown }
+    written.push(`${at.plugin}/${at.key}`)
+    if (at.plugin === 'factory-floor' && at.key === 'crew-shown') crewShown = String(at.value ?? '')
+    return next(e)
+  })
   on('ui.open', async (_$, e) => {
-    titles.push(e.title ?? '')
+    // The title is the mod's in both views now. What each open showed is kept as the old titles said it,
+    // so the tests still check which loop opened: the List as Loop, the Crew, which asks for its size, as
+    // Loop crew and the loop it shows.
+    paneTitles.push(e.title ?? '')
+    titles.push(shownAs(e, crewShown))
     sizes.push([(e as { rows?: number }).rows, (e as { columns?: number }).columns])
     if (!panes.some(p => p.isShown)) {
       panes.length = 0
@@ -158,7 +177,7 @@ function world(on: On, files: Map<string, string>, focus: Focus = {}, remote: Ma
     await clock.advance(2000)
     await drain()
   }
-  return { clock, ran, reads, writes, session, titles, sizes, blits, invalidated, panes, flip, close, sshes }
+  return { clock, ran, reads, writes, session, titles, paneTitles, written, sizes, blits, invalidated, panes, flip, close, sshes }
 }
 
 // The pane as the current test's world has it, for say to tell whether /factory-floor would open it.
@@ -1666,17 +1685,11 @@ group('the List and Crew buttons', () => {
     await close()
   })
   test("the Crew keeps its values under factory-floor, and loop-crew's stored loop doesn't move it", async ($, on) => {
-    const { close } = world(on, two())
-    const written: string[] = []
+    const { close, written } = world(on, two())
     // loop-crew's own stored loop is alpha. The Crew never reads it, so it opens where the List was.
     on('state.get', async (_$, e, next) => {
       const at = e as unknown as { plugin: string; key: string }
       return at.plugin === 'loop-crew' && at.key === 'shown' ? ({ value: { value: 'alpha', version: 1 } } as never) : next(e)
-    })
-    on('state.set', async (_$, e, next) => {
-      const at = e as unknown as { plugin: string; key: string }
-      written.push(`${at.plugin}/${at.key}`)
-      return next(e)
     })
     await say($)
     const ui = (await $.ui.mount(WIDE())) as unknown as Views
@@ -1793,7 +1806,7 @@ group('another machine', () => {
     expect(options.map(o => [o.value, o.label])).toEqual([['*', 'All loops'], ['', '● starter (1)'], ['ssh:0/', '● spare-mac (1)']])
     await ui.select({ key: 'loop-pick', value: 'ssh:0/' })
     await drain()
-    expect(titles[titles.length - 1]).toBe('Loop crew: spare-mac')
+    expect(titles[titles.length - 1]).toBe('Loop crew: ssh:0/')
     const build = textOf(rowFive(await cellsOf(ui, 'lane-21'), 72).slice(labelAt(3, 72), labelAt(4, 72) - 1)).trimEnd()
     expect(build).toBe('$1.72 6.2M')
     expect(sshes).toContain(`cat '${SPARE}/.loop/issue-21/usage.json'`)

@@ -18,6 +18,11 @@ import {
 } from './crew-logic'
 import type { Seen } from '../types'
 
+// What an open showed, as the pane's title said it before both views took the mod's name: the List as
+// Loop, the Crew, which asks for its size, as Loop crew and the loop it shows.
+const shownAs = (e: { rows?: number }, crewShown: string): string =>
+  e.rows === undefined ? 'Loop' : crewShown === '*' ? 'Loop crew: All loops' : crewShown ? `Loop crew: ${crewShown}` : 'Loop crew'
+
 group('one copy', () => {
   test("every reading and focus name the Crew uses is logic.ts's own", () => {
     const pairs: [string, unknown, unknown][] = [
@@ -77,6 +82,7 @@ function world(on: On, files: Map<string, string>, session: { id: string | null 
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   const writes: { path: string; text: string }[] = []
   const titles: string[] = []
+  const paneTitles: string[] = []
   const stored = new Map<string, unknown>()
   const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
   on('session.root', async () => ({ value: ROOT }))
@@ -101,7 +107,9 @@ function world(on: On, files: Map<string, string>, session: { id: string | null 
   })
   on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('ui.open', async (_$, e) => {
-    titles.push(e.title ?? '')
+    // The title is the mod's in both views now; what each open showed is kept as the old titles said it.
+    paneTitles.push(e.title ?? '')
+    titles.push(shownAs(e, String(stored.get('crew-shown') ?? '')))
     if (!panes.some(p => p.isShown)) {
       panes.length = 0
       panes.push({ id: 'factory-floor', isShown: true, isPlaced: true })
@@ -127,7 +135,7 @@ function world(on: On, files: Map<string, string>, session: { id: string | null 
     await clock.advance(2000)
     await drain()
   }
-  return { clock, writes, titles, stored, close }
+  return { clock, writes, titles, paneTitles, stored, close }
 }
 
 const PANE = {
