@@ -126,6 +126,7 @@ extension in VS Code 1.143.0, and Claude Desktop 3.6556.2 on macOS:
 | VS Code extension | The setup message, the guard, the skills and the three mods: the lens and GitHub status lines above the prompt, and the loop's pane, which is now [`/factory-floor`](examples/mods/factory-floor/)'s List view and hasn't been tried here under that name. Open the repo's root as the folder, as in the terminal |
 | Claude Desktop, Code tab | The same: the trust prompt, the setup message, the guard, `/whats-new`, the plugins in `/plugin`, both lines above the prompt and the loop's pane, now `/factory-floor`'s List view. Pick the repo's root under **Local**, then **Open folder…** |
 | Claude Desktop, chat | None of it. Chat opens no folder, so no hooks, guard, skills, mods or `company/` load. Asked, it can read this repo's [`AGENTS.md`](AGENTS.md) as text, but nothing enforces it. Use the Code tab |
+| Claude mobile app, following a session | Tried on 2026-11-21 from the iOS app, following a session in the VS Code extension: the conversation, and commands that reply in text, such as a skill or `/factory-floor`'s reply line. No pane and no line above the prompt: a mod's pane opens on the computer running the session, and Claude Code's mods reference lists panes for the terminal, Desktop and VS Code only. To see the loop from the phone, ask the session for loop status |
 
 [`/factory-dashboard`](examples/mods/factory-dashboard/) came after those tries. It's on by default and has been seen in the terminal
 and the VS Code extension.

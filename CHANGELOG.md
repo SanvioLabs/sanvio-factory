@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: Where to run it covers the mobile app
+
+[`README.md`](README.md)'s *Where to run it* table has a row for the Claude mobile app following a session: the conversation and text replies come through, but mod panes and the lines above the prompt stay on the computer running the session, so from the phone you ask the session for loop status.
+
+Files: [`README.md`](README.md), [`tests/test_steering.py`](tests/test_steering.py), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-21: Name the skill before the script
 
 When someone asks how to do something, the agent now names the skill or workflow that does it before suggesting any script or command. [`steering/operating.md`](steering/operating.md)'s *Always* line also covers workflows, not only skills.
