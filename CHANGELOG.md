@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: sandbox_allow of git's config lifts its overrides
+
+A project's `sandbox_allow` of `.gitconfig` now also drops `GIT_CONFIG_GLOBAL=/dev/null`, and one of `.config/git` drops the `/dev/null` `core.excludesFile` and `core.attributesFile`, so its commands read the git config each name lets through.
+
+**Needs:** 2026-11-20: Let named paths through the command sandbox
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing, unless a project's `sandbox_allow` names `.gitconfig` or `.config/git`: its commands now get that git config.
+
 ## 2026-11-21: Where to run it covers the mobile app
 
 [`README.md`](README.md)'s *Where to run it* table has a row for the Claude mobile app following a session: the conversation and text replies come through, but mod panes and the lines above the prompt stay on the computer running the session, so from the phone you ask the session for loop status.
