@@ -44,13 +44,14 @@ Read for this plan:
 | `scripts/usage_shape.py` | The v2 bundle's keys and types, the heartbeat's, the field-to-question table (AC-012), and `problems(obj)`, which returns every way an object is off-shape. Read by `export.py`, `send_usage.py` and the store's validator |
 | `scripts/usage_scrub.py` | `scrub(command, home)`, returning `(text, redactions)` or `None` for a dropped command. Imports its patterns from `guard.py` and `loop.py` |
 | `scripts/send_usage.py` | `FILE`, `--auto`, `--heartbeat`, `--opt-in detailed`, `--opt-out`. Reads `.sanvio/export.json`, sends through the cloud CLI's named profile |
-| `examples/usage-store/` | Terraform for the bucket, the key, the roles and the workload identity; one validator function; the alert job; one saved query per RQ |
+| `examples/usage-store/` | `local/`: a compose file running Grafana with the DuckDB plugin on `127.0.0.1` over a folder. `cloud/`: Terraform for the bucket, the key, the roles, the workload identity and Grafana. Shared: `validator.py` (a function in the cloud, a command locally), `queries/rq-N.sql`, the Grafana dashboard and alert rules as provisioning files |
 
 ### `.sanvio/export.json`
 
 ```json
 {
   "store": {"kind": "s3", "bucket": "<bucket>", "prefix": "<team>", "profile": "<cli profile>", "region": "<region>"},
+  "_or_store": {"kind": "folder", "path": "~/usage-store"},
   "node": "<name>",
   "auto": false,
   "export_projects": {"<project folder>": "<label>"},
@@ -70,6 +71,25 @@ root.
 <prefix>/incoming/<node>/heartbeat/<time>.json
         -> validator -> accepted/... or rejected/...<reason>
 ```
+
+The same tree, without the bucket, is a local folder's layout: `send_usage.py`
+copies into `incoming/`, `validator.py --folder` sorts it, and DuckDB reads
+`accepted/**/*.json` with `read_json_auto` in both places. Only the path in front
+changes, so the SQL files are the same.
+
+### The interface
+
+Grafana with the DuckDB data source plugin, provisioned from files: the data
+source, one dashboard with a panel per RQ, and the REQ-015 alert rules over the
+heartbeats. Locally it runs in one container from `local/compose.yaml`, bound to
+`127.0.0.1`, reading the folder mounted read-only. In the cloud it runs in the
+owner's account behind their identity provider. Two data sources there: one for
+`accepted/general/` and heartbeats that the team's role can use, and one for
+`detailed/` that only the owner's role can (REQ-014, REQ-023).
+
+T030 checks first that the DuckDB plugin reads the bucket with the CLI profile's
+credentials. If it can't, the cloud Grafana uses the provider's query service
+over the same files with the same SQL, and the local form is unchanged.
 
 A sender's role may `PutObject` only under its own `incoming/<node>/`. Nothing
 may `GetObject` under `incoming/`. The validator moves each object and writes
@@ -105,7 +125,7 @@ label, so a node's liveness never names an unlisted project.
 | 1. Shape and scrubber | `usage_shape.py`, `usage_scrub.py`, `export.py` v2 with `export_projects`. No network, nothing new recorded | Nothing |
 | 2. Detailed capture | The opt-in, the commands file, expiry, the setup message, the guard rule for `export.json`, `export.py --mode detailed` | Phase 1 |
 | 3. Sender | `send_usage.py` in every mode, OBS-001 lines, the dashboard's last send, the `factory-trends` offer | Phase 2 |
-| 4. Reference store | `examples/usage-store/` and the live runs AC-010, AC-011, AC-015 | Phase 3, and a test cloud account named in local config |
+| 4. Reference store | `examples/usage-store/` local and cloud, and the live runs AC-010, AC-011, AC-015, AC-016, AC-017 | Phase 3. The local form needs only Docker; the cloud form a test account named in local config |
 | 5. Docs | [`reports/usage/README.md`](../../../reports/usage/README.md), [`steering/data-and-tools.md`](../../../steering/data-and-tools.md), [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md), [`README.md`](../../../README.md) | Each phase updates its own docs; this one checks they agree |
 
 One pull request per phase into `main`, each with its own
@@ -127,4 +147,5 @@ does that in its own provisioning, after Phase 4.
 | Hook latency on every Bash call in detailed mode | NFR-004, measured in a test that times 1,000 scrubs |
 | The validator and the sender disagree on the shape | Both import `usage_shape.py`; the Terraform packages that file, not a copy |
 | A heartbeat naming a client's project | Unlisted projects go under a hashed label (Design, *Heartbeat*) |
+| The DuckDB Grafana plugin can't read the bucket | T030 tries it before anything depends on it; the fallback keeps the SQL and swaps the cloud data source |
 | Terraform in a repo with no Terraform CI | Phase 4 runs `terraform fmt -check` and `terraform validate` by hand and records them, and the module stays under [`examples/`](../../../examples/) |

@@ -40,6 +40,12 @@ modes:
 It also adds a heartbeat, so a silent node reads as down rather than idle, and
 a spend alert, so a run that heads for its budget gets noticed while it runs.
 
+**The store runs on the owner's laptop or in the owner's own cloud account, with
+the same interface on both.** Locally it's a folder; in the cloud it's object
+storage. DuckDB reads the bundle files in either place, so each question the
+store answers is one SQL file that runs on both, and Grafana draws them and
+raises the alerts.
+
 **`export.py` stays the gate.** Its docstring already says its shape is the
 only one any later sender may send. The sender added here sends only what
 `export.py` writes, and the store checks that shape again when the bundle lands.
@@ -90,8 +96,8 @@ only one any later sender may send. The sender added here sends only what
 - Changing what the local usage log records in general mode. The promise in
   [`reports/usage/README.md`](../../../reports/usage/README.md) (*Telling your team*) stays true for anyone who
   doesn't opt in.
-- Real-time dashboards. The store answers queries. A dashboard on top of it is
-  a later spec.
+- A dashboard built for this spec. The interface is Grafana, set up from
+  `examples/usage-store/`, and the factory's own dashboard pane is unchanged.
 
 ## The questions the store answers
 
@@ -123,8 +129,10 @@ Affected:
 - .claude/hooks/session_start.py: says detailed mode is on and when it ends
 - .claude/hooks/guard.py and tests/test_agent_hooks.py: agents can't write,
   move or delete the commands file or the export config
-- examples/usage-store/, new: the reference store (bucket, validator,
-  queries, alert job) as Terraform and one function
+- examples/usage-store/, new: the reference store, in two forms. Local: a
+  folder, the validator as a command, and Grafana in one container. Cloud:
+  Terraform for the bucket, the roles and Grafana, and the validator as one
+  function. Both share the SQL queries, the dashboard and the alert rules
 - skills/factory-trends/: offers to send the bundle as its last step
 - reports/usage/README.md: the sending flow, and a second paste-ready message
   for detailed mode
@@ -166,11 +174,15 @@ Not Affected:
 | REQ-012 | Event-Driven | When `send_usage.py --heartbeat` runs, it shall send one heartbeat: node, time, factory commit, and for each loop running on the node its label, whether its process is alive, how many issues wait, the issue in progress by number, its tokens so far and its budget. No issue title or text. |
 | REQ-013 | Ubiquitous | The reference store in `examples/usage-store/` shall accept a bundle or heartbeat only into the sender's own prefix, never let a sender read or overwrite, check each object against the v2 shape when it lands and move it to `accepted/` or `rejected/` with the reason, and expire objects after the same 90 days as the local logs. |
 | REQ-014 | Ubiquitous | The reference store shall keep detailed bundles under a separate prefix, encrypted with a key only the owner's role can use, so that general numbers can be shared with the team and commands can't. |
-| REQ-015 | Event-Driven | When a node's last heartbeat is older than its window (30 minutes by default), or a heartbeat shows a run past a set share of its budget (80% by default), the reference store's alert job shall send one alert to the destination the owner configures, and not again for the same node or run until it recovers. |
+| REQ-015 | Event-Driven | When a node's last heartbeat is older than its window (30 minutes by default), or a heartbeat shows a run past a set share of its budget (80% by default), the reference store's Grafana alert rules shall send one alert to the contact point the owner configures, and not again for the same node or run until it recovers. |
 | REQ-016 | Event-Driven | When a bundle lands whose `chain_head` doesn't follow from the same person's last accepted bundle, the store shall mark both, as the local report does for a broken chain. |
 | REQ-017 | Ubiquitous | [`reports/usage/README.md`](../../../reports/usage/README.md) shall carry the sending flow and a second paste-ready message telling the team what detailed mode records, who can read it and when it ends. |
 | REQ-018 | Event-Driven | When `factory-trends` has written a person's sprint report, it shall offer to send that period's general bundle, show the person the bundle first, and send it through `send_usage.py` only on their yes. Laptops send no heartbeat. |
 | REQ-019 | Ubiquitous | An unattended node shall authenticate to the store with short-lived credentials from the cloud provider's certificate-based workload identity, one certificate per node, so that no long-lived key sits on its disk and access is revoked node by node. `examples/usage-store/` shall set this up. |
+| REQ-020 | Optional | Where `.sanvio/export.json`'s store has `kind: folder`, `send_usage.py` shall copy the bundle or heartbeat into that folder's `incoming/<node>/` path instead of sending it, through the same checks as REQ-009. |
+| REQ-021 | Ubiquitous | The reference store's validator shall run from one file both as a cloud function and as a command over a local folder, moving each object from `incoming/` to `accepted/` or `rejected/` with its reason. |
+| REQ-022 | Ubiquitous | `examples/usage-store/` shall hold one SQL file per RQ that DuckDB runs unchanged over a local folder's `accepted/` and over the bucket's, one Grafana dashboard drawing them, and the alert rules for REQ-015, provisioned from files so a fresh Grafana starts with all three. |
+| REQ-023 | Ubiquitous | A local Grafana shall listen on `127.0.0.1` only. A cloud Grafana shall sign people in through an identity provider the owner controls, and only the owner's role shall have a data source that can read `detailed/`. |
 
 ## Acceptance Criteria
 
@@ -191,6 +203,8 @@ Not Affected:
 | AC-013 | REQ-017 | The detailed-mode message names what's recorded, who reads it, and the end date | Reading, at review |
 | AC-014 | REQ-018 | `factory-trends` shows the bundle and sends nothing when the person says no | Reading, plus a test of the skill's send step with a stand-in sender |
 | AC-015 | REQ-019 | A test node sends with a certificate-issued credential, holds no access key on disk, and is refused once its certificate is revoked | A live run, recorded in TASKS.md |
+| AC-016 | REQ-020, REQ-021, REQ-022, REQ-023 | On one machine, with invented bundles and heartbeats: the sender copies them into a folder, the validator command sorts them, the local Grafana starts on `127.0.0.1` with the dashboard showing all six questions, and stopping a heartbeat fires the silent-node alert | A live run, recorded in TASKS.md |
+| AC-017 | REQ-022 | Each RQ's SQL file returns the same rows over a local folder and over the bucket holding the same bundles | A live run, recorded in TASKS.md |
 
 ## Security Requirements
 
@@ -200,7 +214,7 @@ Not Affected:
 | SEC-002 | The sender reads no credential itself. It uses the cloud CLI's named profile set in the export config, and the config names the profile, never a key. On an unattended node that profile gets short-lived credentials (REQ-019). |
 | SEC-003 | A sender's access to the store is write-only, to its own prefix. No sender can read anything back, its own included. |
 | SEC-004 | Agents can't write, move or delete `.sanvio/export.json` or the commands file: the guard refuses it, as it does the usage log. |
-| SEC-005 | The alert destination (a chat webhook, say) is read from the store's own secret store by name. It never sits in the repo, in the export config, or in a bundle. |
+| SEC-005 | The alert contact point (a chat webhook, say) is read from the store's own secret store by name, or from an environment variable on a local Grafana. It never sits in the repo, in the export config, in a provisioning file or in a bundle. |
 
 ## Privacy and Compliance Requirements
 
@@ -218,7 +232,7 @@ Not Affected:
 |---|---|
 | OBS-001 | `send_usage.py` writes one line per send to the usage log: `export_sent` or `export_refused`, with the mode and the bundle id, never the contents. |
 | OBS-002 | The factory dashboard shows when this machine last sent, and in which mode. |
-| OBS-003 | The reference store's queries answer RQ-1 to RQ-6 as saved queries, one per question. |
+| OBS-003 | The reference store's SQL files answer RQ-1 to RQ-6, one per question (REQ-022). |
 
 ## Non-Functional Requirements
 
@@ -239,6 +253,8 @@ Not Affected:
   person. Those live in the gitignored `.sanvio/export.json`.
 - **Unattended machines get general mode only** (REQ-011), whatever their
   config says.
+- **Grafana and DuckDB are used, not shipped.** `examples/usage-store/` names
+  their published images and plugin by version and vendors neither.
 
 ## Open Questions
 
@@ -261,4 +277,13 @@ Resolved by Pat on 2026-11-19:
 - [x] Q6: A person sends when they write their sprint report: `factory-trends`
   offers it as its last step (REQ-018). Laptops send no heartbeat.
 
-No questions remain open.
+Resolved by Pat on 2026-11-21:
+
+- [x] Q7: The interface is Grafana over DuckDB, run locally or in the owner's
+  own cloud account, with the same queries, dashboard and alert rules in both
+  (REQ-020 to REQ-023). Grafana's alerting replaces a separate alert job.
+
+No questions remain open. One check is planned rather than open: whether
+DuckDB's Grafana plugin reads the bucket with the cloud CLI's credentials. If
+it can't, the cloud Grafana reads through the provider's own query service
+instead, and the SQL files stay as they are (TASKS.md T030).

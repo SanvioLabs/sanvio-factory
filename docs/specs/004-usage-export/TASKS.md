@@ -118,13 +118,22 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
   - Acceptance: AC-014
   - Depends on: T013
   - Verification: `TESTS` with a stand-in sender, then a reading of the skill
+- [ ] T031 A store with `kind: folder`: copy into its `incoming/<node>/` path after the same checks as T013, creating folders as needed
+  - Requirements: REQ-020
+  - Acceptance: AC-016
+  - Depends on: T013
+  - Verification: `TESTS`
 - [ ] T020 Phase 3's CHANGELOG entry, and the pull request
-  - Depends on: T013 to T019
+  - Depends on: T013 to T019, T031
   - Verification: the full suite
 
 ## Phase 4: Reference store
 
-- [ ] T021 `examples/usage-store/`: bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
+- [ ] T030 Spike: run the DuckDB Grafana plugin's current release locally against a folder and against a test bucket through a CLI profile. Record the version, whether the bucket read worked, and which cloud data source the plan uses
+  - Requirements: REQ-022
+  - Depends on: T020
+  - Verification: the spike's result, recorded here
+- [ ] T021 `examples/usage-store/cloud/`: bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
   - Requirements: REQ-013, REQ-014
   - Privacy: PRIV-004, PRIV-005
   - Depends on: T020
@@ -134,25 +143,35 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
   - Security: SEC-003
   - Depends on: T021
   - Verification: `terraform validate`
-- [ ] T023 The validator function: packages `scripts/usage_shape.py`, moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap
-  - Requirements: REQ-013, REQ-016
+- [ ] T023 `validator.py`: imports `scripts/usage_shape.py`, moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
+  - Requirements: REQ-013, REQ-016, REQ-021
   - Depends on: T021
   - Verification: unit tests beside the function, with stand-in storage
-- [ ] T024 The alert job: a silent node past its window and a run past 80% of its budget, one alert each until it recovers, the destination read from the secret store by name
-  - Requirements: REQ-015
+- [ ] T024 Grafana alert rules as provisioning files: a silent node past its window and a run past 80% of its budget, one alert each until it recovers. The contact point from the secret store by name, or an environment variable locally
+  - Requirements: REQ-015, REQ-022
   - Security: SEC-005
-  - Depends on: T023
-  - Verification: unit tests beside the function
-- [ ] T025 One saved query per RQ
-  - Requirements: OBS-003
-  - Depends on: T023
-  - Verification: each run once against AC-010's data, recorded here
-- [ ] T026 Live runs in a test account: AC-010, AC-011 and AC-015, each recorded here with what it showed
-  - Acceptance: AC-010, AC-011, AC-015
-  - Depends on: T022 to T025
+  - Depends on: T025
+  - Verification: part of AC-011 and AC-016
+- [ ] T025 `queries/rq-1.sql` to `rq-6.sql`, and the dashboard with a panel per RQ, as a provisioning file
+  - Requirements: OBS-003, REQ-022
+  - Acceptance: AC-017
+  - Depends on: T023, T030
+  - Verification: each file run with the DuckDB CLI over a folder of invented bundles, in a test that skips where DuckDB isn't installed
+- [ ] T032 `examples/usage-store/local/`: a compose file running Grafana and the plugin at pinned versions on `127.0.0.1`, the folder mounted read-only, and a README going from nothing to the dashboard
+  - Requirements: REQ-022, REQ-023
+  - Acceptance: AC-016
+  - Depends on: T024, T025
+  - Verification: AC-016's live run
+- [ ] T033 Grafana in `cloud/`: behind the owner's identity provider, with the general and detailed data sources split by role
+  - Requirements: REQ-023, REQ-014
+  - Depends on: T021, T030
+  - Verification: `terraform validate`, then part of AC-010
+- [ ] T026 Live runs: AC-016 on one machine, then AC-010, AC-011, AC-015 and AC-017 in a test account, each recorded here with what it showed
+  - Acceptance: AC-010, AC-011, AC-015, AC-016, AC-017
+  - Depends on: T022 to T025, T032, T033
   - Verification: the live runs
 - [ ] T027 Phase 4's CHANGELOG entry, and the pull request
-  - Depends on: T021 to T026
+  - Depends on: T021 to T026, T030, T032, T033
 
 ## Phase 5: Docs
 
@@ -184,8 +203,12 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 | REQ-012 | T016 | AC-009 | |
 | REQ-013 | T001, T021, T022, T023 | AC-010 | |
 | REQ-014 | T021 | AC-010 | |
-| REQ-015 | T024 | AC-011 | |
+| REQ-015 | T024 | AC-011, AC-016 | |
 | REQ-016 | T023 | AC-010 | |
 | REQ-017 | T028 | AC-013 | |
 | REQ-018 | T019 | AC-014 | |
 | REQ-019 | T022 | AC-015 | |
+| REQ-020 | T031 | AC-016 | |
+| REQ-021 | T023 | AC-016 | |
+| REQ-022 | T024, T025, T030, T032 | AC-016, AC-017 | |
+| REQ-023 | T032, T033 | AC-016, AC-010 | |
