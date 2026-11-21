@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: A loop agent can't switch off the guard's unattended check
+
+The guard used to know a loop agent only by `SANVIO_UNATTENDED=1`, which the agent could drop by starting a session of its own with `env -u`, and every tool call the guard couldn't check went back to being let through with a warning nobody reads. Now, while an agent runs in one of the loop's worktrees, the loop also keeps a `sanvio-unattended-*` file in that worktree's own folder in `.git`, and the guard treats a session there as unattended when it finds either sign. Any write, edit or shell command naming the file is refused in an unattended session and asked about in a person's. A person's session in the clone, or anywhere outside the loop's worktrees, is unchanged.
+
+**Needs:** 2026-11-11: The loop's agents get no tokens, and the guard fails closed for them; 2026-11-14: Factory floor on other machines
+
+**Controls:** AC-5, AU-9
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/loop.py`](scripts/loop.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md).
+
+**Do:** nothing. If a loop you stopped with `kill` leaves a worktree's guard strict, remove that worktree, or delete its `sanvio-unattended-*` file in `.git/worktrees/` yourself.
+
 ## 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
 
 In [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), picking **7 days**, **14 days** or **30 days** now clears the numbers shown, since they counted other days, and a spinner with **Reading the last N days** stands in until the read ends; picking the range already chosen does nothing. In Claude Desktop and VS Code, which wrap long text, each table row puts its figures on a line under its name, so a long pull request title no longer pushes **Waiting**, **Checks** and **Conflicts** out of their columns. The pane is titled **Factory dashboard**, and [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s is **Factory floor** in the List and the Crew, where the Crew's title used to name the loop it showed. The dashboard is now 0.9.0 and factory-floor 0.12.0.
