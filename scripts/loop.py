@@ -1260,13 +1260,17 @@ def sandbox_env(env, allow=()):
     config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
     GIT_CONFIG_VALUE_n after any entries env's GIT_CONFIG_COUNT already holds, so git doesn't warn that it
     can't read its default ignore and attributes files. allow is the sandbox_allow names the profile lets
-    through: with ".gitconfig" in it GIT_CONFIG_GLOBAL isn't set, and stays as env has it, so git reads
-    ~/.gitconfig. With ".config/git" in it the SANDBOX_GIT_CONFIG entries aren't added and GIT_CONFIG_COUNT
-    and its keys stay as env has them, so git reads the ignore and attributes files there. An empty allow
-    sets both."""
+    through. With ".gitconfig" and ".config/git" both in it GIT_CONFIG_GLOBAL stays as env has it, so git reads
+    both. With ".gitconfig" alone it names env's HOME's .gitconfig, so git reads that file as its global config
+    and never opens ~/.config/git/config, which stays denied and which git would otherwise stop on with "unable
+    to access". A GIT_CONFIG_GLOBAL env already has is kept either way. With ".config/git" in it the
+    SANDBOX_GIT_CONFIG entries aren't added and GIT_CONFIG_COUNT and its keys stay as env has them, so git reads
+    the ignore and attributes files there. An empty allow sets both."""
     env = dict(env)
     if ".gitconfig" not in allow:
         env["GIT_CONFIG_GLOBAL"] = os.devnull
+    elif ".config/git" not in allow and "GIT_CONFIG_GLOBAL" not in env:
+        env["GIT_CONFIG_GLOBAL"] = os.path.join(env.get("HOME") or str(Path.home()), ".gitconfig")
     if ".config/git" in allow:
         return env
     count = env.get("GIT_CONFIG_COUNT", "")

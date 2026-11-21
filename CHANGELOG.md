@@ -44,7 +44,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-21: sandbox_allow of git's config lifts its overrides
 
-A project's `sandbox_allow` of `.gitconfig` now also drops `GIT_CONFIG_GLOBAL=/dev/null`, and one of `.config/git` drops the `/dev/null` `core.excludesFile` and `core.attributesFile`, so its commands read the git config each name lets through. It holds under `sandbox_strict` too.
+A project's `sandbox_allow` of `.gitconfig` now also points `GIT_CONFIG_GLOBAL` at `~/.gitconfig` instead of `/dev/null` (unset when `.config/git` is allowed too), and one of `.config/git` drops the `/dev/null` `core.excludesFile` and `core.attributesFile`, so its commands read the git config each name lets through. It holds under `sandbox_strict` too.
 
 **Needs:** 2026-11-20: Let named paths through the command sandbox; 2026-11-21: A strict sandbox for one project's commands
 

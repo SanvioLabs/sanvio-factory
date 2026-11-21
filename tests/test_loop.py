@@ -5325,8 +5325,11 @@ class TestSandbox(unittest.TestCase):
             with self.subTest(allow=allow):
                 env = loop.sandbox_env(given, allow)
                 self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
-                if ".gitconfig" in allow:
+                if ".gitconfig" in allow and ".config/git" in allow:
                     self.assertNotIn("GIT_CONFIG_GLOBAL", env)
+                elif ".gitconfig" in allow:
+                    # Named outright, so git never opens the denied ~/.config/git/config and stops on it.
+                    self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.path.join(str(Path.home()), ".gitconfig"))
                 else:
                     self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
                 if ".config/git" in allow:
@@ -5339,6 +5342,9 @@ class TestSandbox(unittest.TestCase):
         # A GIT_CONFIG_GLOBAL env already had is left as it was where .gitconfig is allowed.
         for allow in ((".gitconfig",), (".gitconfig", ".config/git")):
             self.assertEqual(loop.sandbox_env({"GIT_CONFIG_GLOBAL": "/x"}, allow)["GIT_CONFIG_GLOBAL"], "/x")
+        # The .gitconfig named is the one under env's HOME, where it has one.
+        self.assertEqual(loop.sandbox_env({"HOME": "/h"}, (".gitconfig",))["GIT_CONFIG_GLOBAL"],
+                         os.path.join("/h", ".gitconfig"))
 
     def test_sandbox_allow_reaches_the_git_settings_a_projects_command_runs_with(self):
         factory = self.root / "factory"
@@ -5864,7 +5870,7 @@ class TestSandboxStrict(unittest.TestCase):
                 expected = dict(loop.sandbox_env(loop.env_for_tests(os.environ), tuple(allow)),
                                 TMPDIR=str(seen["scratch"]))
                 self.assertEqual(seen["env"], expected)
-                self.assertEqual("GIT_CONFIG_GLOBAL" in seen["env"], ".gitconfig" not in allow)
+                self.assertEqual(seen["env"].get("GIT_CONFIG_GLOBAL") == os.devnull, ".gitconfig" not in allow)
 
     def test_off_own_command_runs_as_it_did_with_no_temp_folder_of_its_own(self):
         factory, own, tree = self.factory_project()
