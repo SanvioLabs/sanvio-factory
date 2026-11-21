@@ -5865,6 +5865,9 @@ class TestSandboxStrict(unittest.TestCase):
         factory, own, tree = self.factory_project()
         for allow in ([], [".gitconfig"], [".config/git"], [".gitconfig", ".config/git"]):
             with self.subTest(allow=allow), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+                # The loop runs its test_command with GIT_CONFIG_GLOBAL=/dev/null, and sandbox_env() keeps one
+                # the environment already has, so it's cleared here; patch.dict puts it back afterwards.
+                os.environ.pop("GIT_CONFIG_GLOBAL", None)
                 lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True, sandbox_allow=allow), project=own)
                 seen = self.ran(lp, tree)
                 expected = dict(loop.sandbox_env(loop.env_for_tests(os.environ), tuple(allow)),
@@ -6002,6 +6005,15 @@ class TestSandboxStrict(unittest.TestCase):
         log = lp.dir / "loop.log"
         lines = log.read_text().splitlines() if log.exists() else []
         self.assertFalse([l for l in lines if "sandbox_strict" in l], lines)
+        # Through locked(), a caller's whole start goes as it does with strict off: same code, same log lines.
+        runs = {}
+        for strict in (True, False):
+            root = Path(tempfile.mkdtemp(dir=self.tmp.name))
+            code, lines = self.started(loop.Loop(root, dict(loop.DEFAULTS, caller=True, sandbox_strict=strict)),
+                                       True, self.FAILED)
+            runs[strict] = (code, [l.split(None, 1)[1] for l in lines], self.work.call_count)
+        self.assertEqual(runs[True], runs[False])
+        self.assertFalse([l for l in runs[True][1] if "sandbox_strict" in l], runs[True][1])
 
     def test_strict_for_one_project_doesnt_stop_another(self):
         factory, own, tree = self.factory_project()
