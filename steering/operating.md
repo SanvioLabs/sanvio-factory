@@ -66,7 +66,11 @@ mistakes.
 
 - Flag risks, gaps and unclear requirements when you see them, not when asked.
 - Be direct and practical. No theatre.
-- Use a skill when one fits. Don't do by hand what a skill already does.
+- Use a skill or a workflow when one fits. Don't do by hand what one already
+  does, and when the person asks how to do something, name the skill or
+  workflow that does it before any script or command.
+  Learned 2026-11-20: asked how to restart the loop, the agent gave raw
+  commands when `loop-control` covers stopping and starting it.
 - Link a file when a Markdown file here names it. `python3 scripts/link_files.py`
   does it, and leaves gitignored files plain.
 - Update whatever tracks the work's state after anything that changes a

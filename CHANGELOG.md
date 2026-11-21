@@ -54,6 +54,14 @@ Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/loop.py`](s
 
 **Do:** nothing. If a loop you stopped with `kill` leaves a worktree's guard strict, remove that worktree, or delete its `sanvio-unattended-*` file in `.git/worktrees/` yourself.
 
+## 2026-11-21: Name the skill before the script
+
+When someone asks how to do something, the agent now names the skill or workflow that does it before suggesting any script or command. [`steering/operating.md`](steering/operating.md)'s *Always* line also covers workflows, not only skills.
+
+Files: [`steering/operating.md`](steering/operating.md), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
 
 In [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), picking **7 days**, **14 days** or **30 days** now clears the numbers shown, since they counted other days, and a spinner with **Reading the last N days** stands in until the read ends; picking the range already chosen does nothing. In Claude Desktop and VS Code, which wrap long text, each table row puts its figures on a line under its name, so a long pull request title no longer pushes **Waiting**, **Checks** and **Conflicts** out of their columns. The pane is titled **Factory dashboard**, and [`examples/mods/factory-floor/`](examples/mods/factory-floor/)'s is **Factory floor** in the List and the Crew, where the Crew's title used to name the loop it showed. The dashboard is now 0.9.0 and factory-floor 0.12.0.
