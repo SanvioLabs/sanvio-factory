@@ -155,14 +155,16 @@ export const register: Register = on => {
     const spinAt = seen?.isReading && !seen.doc ? await $.clock.now().catch(() => Date.now()) : 0
 
     // A table: the name column takes what's left, each number column the width of its widest cell,
-    // right-aligned, one space between. A name too long for what's left is cut, not wrapped. When
-    // fewer than 8 columns are left for the name, and always where text wraps, each row goes on two
-    // lines: the name across the whole pane, then its figures right-aligned under it, both in the row's
-    // colour. A wrapped name pushed the figures out of their columns, so there they're never beside it.
+    // right-aligned, one space between. In the terminal a name too long for what's left is cut. Where
+    // text wraps, the name wraps inside a column of exactly what's left, and the row never wraps, so the
+    // figures stay beside the name's first line under their headers: a name with no set width took its
+    // whole length and pushed them onto the next line. When too few columns are left for the name, 8 in
+    // the terminal and 16 where it wraps, each row goes on two lines: the name across the whole pane,
+    // then its figures right-aligned under it, both in the row's colour.
     const table = (t: Table) => {
       const widths = t.head.map((h, i) => Math.max(h.length, ...t.rows.map(r => (r[i] ?? '').length)))
       const numbers = widths.slice(1).reduce((a, w) => a + w + 1, 0)
-      const stacked = wraps || width - numbers < 8
+      const stacked = width - numbers < (wraps ? 16 : 8)
       const name = Math.max(4, width - numbers)
       const row = (cells: string[], key: string, head: boolean, tone: Tone = 'plain') => {
         const colors = head ? COLORS.quiet : COLORS[tone]
@@ -183,10 +185,20 @@ export const register: Register = on => {
             </Box>
           )
         }
+        if (wraps) {
+          return (
+            <Box key={key} flexDirection="row" flexWrap="nowrap" alignItems="flex-start">
+              <Box key={`${key}-title`} width={name} flexShrink={0}>
+                <Text {...colors} wrap="wrap">{cells[0] ?? ''}</Text>
+              </Box>
+              {figures}
+            </Box>
+          )
+        }
         return (
           <Box key={key} flexDirection="row">
             <Box flexGrow={1} flexShrink={1}>
-              <Text {...colors}>{wraps ? (cells[0] ?? '') : clip(cells[0] ?? '', name)}</Text>
+              <Text {...colors}>{clip(cells[0] ?? '', name)}</Text>
             </Box>
             {figures}
           </Box>

@@ -56,8 +56,10 @@ Wired in .claude/settings.json as a PreToolUse hook. Six jobs:
    Unset, nothing here changes.
 
 A call this hook can't check, because its input is unreadable or the hook has a bug, goes through with a
-warning in a person's session. In a headless run, and in an agent scripts/loop.py started
-(SANVIO_UNATTENDED=1), nobody reads the warning, so it's refused instead.
+warning in a person's session. In a headless run, and in an agent scripts/loop.py started, nobody reads the
+warning, so it's refused instead. A loop agent is told by SANVIO_UNATTENDED=1 or by a sanvio-unattended-*
+file the loop keeps in the worktree's own folder in .git for as long as the agent runs, which a session
+started without the variable still finds; the agent can't change that file.
 
 AGENTS.md says the same thing as a rule. This is the part that holds when the
 agent decides otherwise. It's a backstop for honest mistakes, not a sandbox: a
@@ -104,6 +106,14 @@ MACHINES_ARE_THE_PERSONS = ("{} holds factory-floor's list of other machines, wh
                             "connects to over ssh with your keys. Say yes only if you asked for this change.")
 MACHINES_UNATTENDED = ("{} holds factory-floor's list of other machines, which chooses the hosts this machine "
                        "connects to over ssh. Nobody is here to approve a change to it, so it's refused.")
+# The file scripts/loop.py keeps in a worktree's own folder in .git while an agent runs there (#686): with it,
+# a session that dropped SANVIO_UNATTENDED is still one nobody is watching. Only the loop writes or removes it.
+UNATTENDED_MARKER = "sanvio-unattended-"
+MARKER_NAME = re.compile(r"sanvio-unattended", re.I)
+MARKER_IS_THE_LOOPS = ("{} names the loop's sanvio-unattended file, which tells this hook a loop agent is "
+                       "running. Say yes only if you're clearing one a stopped loop left behind.")
+MARKER_UNATTENDED = ("{} names the loop's sanvio-unattended file, which tells this hook a loop agent is running. "
+                     "Only the loop writes or removes it, so it's refused.")
 
 
 def log_write(command):
@@ -190,8 +200,9 @@ RISKY_GIT_CONFIG = re.compile(
     r"|^\s*\[\s*(include|includeif|filter|pager)\b", re.I | re.M)
 
 
-def git_dir_configs(start):
-    """The config files git reads for the repo holding `start`, nearest repo first."""
+def git_dir(start):
+    """git's own folder for the repo holding `start`: its .git folder, or the folder a .git file names, as a
+    linked worktree's does. None outside a repo, or where the .git file can't be read."""
     here = os.path.abspath(start)
     while True:
         dot = os.path.join(here, ".git")
@@ -203,15 +214,23 @@ def git_dir_configs(start):
                 with open(dot) as handle:
                     line = handle.read().strip()
             except OSError:
-                return []
+                return None
             if not line.startswith("gitdir:"):
-                return []
+                return None
             gitdir = os.path.join(here, line[len("gitdir:"):].strip())
             break
         parent = os.path.dirname(here)
         if parent == here:
-            return []
+            return None
         here = parent
+    return gitdir
+
+
+def git_dir_configs(start):
+    """The config files git reads for the repo holding `start`, nearest repo first."""
+    gitdir = git_dir(start)
+    if gitdir is None:
+        return []
     found = [os.path.join(gitdir, "config"), os.path.join(gitdir, "config.worktree")]
     try:
         with open(os.path.join(gitdir, "commondir")) as handle:
@@ -800,15 +819,39 @@ def shell_outside(command, cwd, folders):
     return None
 
 
-def is_unattended():
-    """An agent scripts/loop.py started (SANVIO_UNATTENDED=1). Nobody reads a warning in its session, so a call
-    this hook can't check is refused there. Nothing else changes: the agent still has to edit and run tests."""
-    return os.environ.get("SANVIO_UNATTENDED") == "1"
+def is_unattended(cwd=None):
+    """An agent scripts/loop.py started. Nobody reads a warning in its session, so a call this hook can't check
+    is refused there. Nothing else changes: the agent still has to edit and run tests.
+
+    Either sign is enough: SANVIO_UNATTENDED=1, which the loop sets in each agent's environment, or a
+    sanvio-unattended-* file in git's own folder for the repo holding cwd, which the loop writes there for as
+    long as an agent runs in that worktree (#686). The variable alone could be dropped by the agent it
+    describes, with env -u in a session it starts; the file sits outside the worktree, and this hook refuses
+    any change to it. A session started outside the worktree loads no guard at all, and Claude Code's own
+    sandbox is what holds it there. cwd is the session's folder, as the tool call's event gives it; without
+    one, only the variable counts."""
+    if os.environ.get("SANVIO_UNATTENDED") == "1":
+        return True
+    if not cwd:
+        return False
+    gitdir = git_dir(cwd)
+    try:
+        return gitdir is not None and any(name.startswith(UNATTENDED_MARKER) for name in os.listdir(gitdir))
+    except OSError:
+        return False
 
 
-def machines_verdict(path, headless):
+def marker_verdict(where, headless, cwd):
+    """A change that names the loop's unattended marker: the person is asked, and in a session nobody is
+    watching it's refused, since the marker is how this hook knows that."""
+    if headless or is_unattended(cwd):
+        return ("deny", MARKER_UNATTENDED.format(where))
+    return ("ask", MARKER_IS_THE_LOOPS.format(where))
+
+
+def machines_verdict(path, headless, cwd=None):
     """A change under .sanvio/factory-floor/: the person is asked, and where nobody can answer it's refused."""
-    if headless or is_unattended():
+    if headless or is_unattended(cwd):
         return ("deny", MACHINES_UNATTENDED.format(path))
     return ("ask", MACHINES_ARE_THE_PERSONS.format(path))
 
@@ -850,7 +893,9 @@ def decide(event, held=None):
         if path and LOG_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return ("deny", LOGS_ARE_READ_ONLY.format(path))
         if path and MACHINES_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
-            return machines_verdict(path, headless)
+            return machines_verdict(path, headless, event.get("cwd"))
+        if path and MARKER_NAME.search(os.path.basename(os.path.normpath(path))):
+            return marker_verdict(path, headless, event.get("cwd"))
 
     if held is not None and (tool in FILE_TOOLS or tool in ("Grep", "Glob")):
         if confined_outside(tool, data, cwd, held):
@@ -889,7 +934,9 @@ def decide(event, held=None):
                 return ("deny", CONFINED_GIT_SHELL.format(named))
         changed = machines_write(command)
         if changed:
-            return machines_verdict(changed, headless)
+            return machines_verdict(changed, headless, event.get("cwd"))
+        if MARKER_NAME.search(command):
+            return marker_verdict("That command", headless, event.get("cwd"))
         # Before the auditor's list: a headless run is held to its reads whichever agent asks.
         if headless:
             why = headless_refusal(command)
@@ -932,6 +979,7 @@ def headless_rewrite(event):
 
 def main():
     headless = is_headless()
+    event = None
     try:
         held = confined_folders(sys.argv[1:])
         event = json.load(sys.stdin)
@@ -939,7 +987,9 @@ def main():
         if verdict is None and headless_rewrite(event) is not None:
             verdict = ("update", headless_rewrite(event))
     except Exception:
-        if not headless and not is_unattended():
+        # The session's folder: the event's, or where Claude Code started this hook when the input never parsed.
+        where = (event.get("cwd") if isinstance(event, dict) else None) or os.getcwd()
+        if not headless and not is_unattended(where):
             # Unreadable input, or a bug here: let the call through and say so, rather than block every
             # tool, and leave the traceback on stderr so a guard bug doesn't fail quietly.
             traceback.print_exc()

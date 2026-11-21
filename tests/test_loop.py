@@ -728,6 +728,10 @@ open(os.path.join(state, step + "-argv"), "w").write(json.dumps(sys.argv[1:]))
 open(os.path.join(state, step + "-retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset") + os.environ.get("HARNESS_RETRO", "unset"))
 open(os.path.join(state, step + "-env"), "w").write(json.dumps(sorted(os.environ)))
 open(os.path.join(state, step + "-unattended"), "w").write(os.environ.get("SANVIO_UNATTENDED", "unset"))
+# The loop's unattended markers in this checkout's own folder in .git while this step runs (#686).
+_gitdir = open(".git").read().split("gitdir:", 1)[1].strip() if os.path.isfile(".git") else None
+open(os.path.join(state, step + "-marker"), "w").write(
+    " ".join(sorted(n for n in os.listdir(_gitdir) if n.startswith("sanvio-unattended-"))) if _gitdir else "no gitdir")
 open(os.path.join(state, step + "-confine"), "w").write(os.environ.get("SANVIO_CONFINE", "unset"))
 open(os.path.join(state, step + "-environ"), "w").write(json.dumps(dict(os.environ)))
 if step == "build" and os.path.exists(os.path.join(state, "build-sets-filter")):
@@ -1285,6 +1289,34 @@ class TestAPass(unittest.TestCase):
             self.assertIn("ANTHROPIC_API_KEY", names, step)
             self.assertIn("LOOP_TEST_STATE", names, step)
             self.assertEqual((self.state / (step + "-unattended")).read_text(), "1", step)
+
+    def test_each_agent_runs_with_one_unattended_marker_and_it_goes_when_the_agent_stops(self):
+        self.go()
+        for step in ("plan", "build", "review"):
+            seen = (self.state / (step + "-marker")).read_text().split()
+            self.assertEqual(len(seen), 1, (step, seen))
+            self.assertTrue(seen[0].startswith(loop.UNATTENDED_MARKER + str(os.getpid()) + "-"), seen)
+        left = [p for p in (self.work / ".git" / "worktrees").glob("*/" + loop.UNATTENDED_MARKER + "*")]
+        self.assertEqual(left, [])
+
+    def test_the_marker_goes_when_the_agent_fails(self):
+        runner = loop.Loop(self.work, self.cfg)
+        tree = self.work.parent / "elsewhere"
+        admin = self.work / ".git" / "worktrees" / "x"
+        admin.mkdir(parents=True)
+        with mock.patch.object(runner, "agent_git_dir", return_value=admin):
+            with self.assertRaises(RuntimeError):
+                with runner.unattended(tree):
+                    self.assertEqual(len(list(admin.glob(loop.UNATTENDED_MARKER + "*"))), 1)
+                    raise RuntimeError("the agent died")
+        self.assertEqual(list(admin.glob(loop.UNATTENDED_MARKER + "*")), [])
+
+    def test_no_marker_outside_the_loops_worktrees(self):
+        runner = loop.Loop(self.work, self.cfg)
+        self.assertIsNone(runner.agent_git_dir(self.work))
+        self.assertIsNone(runner.agent_git_dir(None))
+        with runner.unattended(self.work):
+            self.assertEqual(list((self.work / ".git").glob(loop.UNATTENDED_MARKER + "*")), [])
 
     def test_a_build_that_runs_the_tests_itself_has_no_tokens_to_hand_them(self):
         self.cfg.update(builder_runs_tests=True)

@@ -550,7 +550,17 @@ keeping only the agent's own sign-in (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN
 `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `CODEX_API_KEY`) and what `agent_env`
 names. Each agent's session also gets `SANVIO_UNATTENDED=1`, so a tool call
 [`.claude/hooks/guard.py`](.claude/hooks/guard.py) can't check is refused rather than let through with a
-warning nobody reads. The tests still run code the agent
+warning nobody reads. The variable alone could be dropped by the agent it
+describes, in a session it starts itself with `env -u`, so while an agent runs
+in one of the loop's worktrees the loop also keeps a `sanvio-unattended-*` file
+in that worktree's own folder in `.git`, found from the clone's side. The guard
+reads either sign as a session nobody is watching, the file from the session's
+folder, and refuses any change that names the file, asking first in a person's
+session. The file goes when the agent stops; one a killed loop leaves behind
+only keeps the guard strict in that worktree until the worktree is removed. A
+person's session in the clone itself, or anywhere outside the loop's worktrees,
+is unchanged. A session started outside the worktree loads no guard at all,
+and Claude Code's own sandbox is what holds it there. The tests still run code the agent
 wrote, as you. On a Mac, `sandbox_commands` keeps them, and the generate and
 setup commands, from reading or writing the credential files and factory folders its row
 in the table above lists. Anything else your user can reach is still in reach:
