@@ -58,6 +58,7 @@ agents get the harness's rules in their prompts, and a claude build agent the ha
 Standard library only; needs git and the gh CLI, signed in.
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -1407,6 +1408,12 @@ def linked_git_dir(tree, clone):
         if named and os.path.join(os.path.realpath(os.path.dirname(named)), os.path.basename(named)) == want:
             return folders / name
     return None
+
+
+# The file a loop agent's worktree carries in its own folder in .git while the agent runs (#686), so
+# .claude/hooks/guard.py treats a session there as one nobody is watching even when SANVIO_UNATTENDED was
+# dropped from its environment. guard.py's UNATTENDED_MARKER names the same prefix.
+UNATTENDED_MARKER = "sanvio-unattended-"
 
 
 def worktree_git_dir(tree, clone):
@@ -3215,6 +3222,43 @@ class Loop:
             raise GitTampered(step, changed)
         return result
 
+    def agent_git_dir(self, cwd):
+        """git's own folder for the checkout an agent runs in, where cwd is in one of the loop's worktrees of
+        self.repo: found from the clone's side by linked_git_dir(), never from the worktree's .git file, which a
+        build can rewrite. None for anywhere else, such as the clone itself, where a person works."""
+        if cwd is None:
+            return None
+        where, top = os.path.realpath(str(cwd)), os.path.realpath(str(self.worktrees()))
+        if not where.startswith(top + os.sep):
+            return None
+        return linked_git_dir(os.path.join(top, os.path.relpath(where, top).split(os.sep)[0]), self.repo)
+
+    @contextlib.contextmanager
+    def unattended(self, cwd):
+        """While an agent runs in cwd: an UNATTENDED_MARKER file in its worktree's own folder in .git, named for
+        this process and run so two at once don't clear each other's, and gone when the agent stops, however it
+        stops. Where cwd isn't one of the loop's worktrees there's no folder to mark, and SANVIO_UNATTENDED is
+        the only sign. A marker a killed loop leaves behind only keeps the guard strict in that worktree, and
+        goes with the worktree."""
+        folder, marker = self.agent_git_dir(cwd), None
+        if folder is not None:
+            self.marked = getattr(self, "marked", 0) + 1
+            marker = folder / "{}{}-{}".format(UNATTENDED_MARKER, os.getpid(), self.marked)
+            try:
+                marker.write_text("an agent scripts/loop.py started is running here\n", encoding="utf-8")
+            except OSError as err:
+                self.log("WARN", "couldn't mark {} as unattended, so only SANVIO_UNATTENDED says so: {}".format(
+                    folder, err.strerror or err)[:300])
+                marker = None
+        try:
+            yield
+        finally:
+            if marker is not None:
+                try:
+                    marker.unlink()
+                except OSError:
+                    pass
+
     def caller_worktree(self, cwd):
         """For a git the loop runs in a caller project: git's own folder for cwd where cwd is a worktree the clone
         links back to, False where cwd is under the loop's checkouts and isn't one, else None (#640)."""
@@ -3587,13 +3631,15 @@ class Loop:
         hold = (lambda run: self.held_git("the {} agent".format("build" if which == "agent" else "tester"), cwd,
                                           run)) if builder else (lambda run: run())
         if number is None:  # never kept for a session retro either: see stream()
-            return hold(lambda: self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"], stderr=stderr,
-                                        env=self.agents_env(cwd)))
+            with self.unattended(cwd):
+                return hold(lambda: self.sh(cmd, cwd=cwd, stdin=prompt, timeout=self.cfg["agent_timeout"],
+                                            stderr=stderr, env=self.agents_env(cwd)))
         self.halt_if_interrupted()
         folder = self.dir / "issue-{}".format(number)
         folder.mkdir(exist_ok=True)
-        result = hold(lambda: self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step,
-                                          round_no))
+        with self.unattended(cwd):
+            result = hold(lambda: self.stream(cmd, cwd, prompt, folder / "agent.log", which, stderr, number, step,
+                                              round_no))
         self.halt_if_interrupted()  # its exit code is the Ctrl-C's kill, not something it got wrong
         return result
 
