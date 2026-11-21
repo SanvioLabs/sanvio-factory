@@ -1242,12 +1242,19 @@ def sandbox_probe():
     return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
 
 
-def sandbox_env(env):
+def sandbox_env(env, allow=()):
     """A copy of env for a command run in the sandbox: GIT_CONFIG_GLOBAL=/dev/null, so git reads no global
     config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
     GIT_CONFIG_VALUE_n after any entries env's GIT_CONFIG_COUNT already holds, so git doesn't warn that it
-    can't read its default ignore and attributes files."""
-    env = dict(env, GIT_CONFIG_GLOBAL=os.devnull)
+    can't read its default ignore and attributes files. allow is the sandbox_allow names the profile lets
+    through: with ".gitconfig" in it GIT_CONFIG_GLOBAL is left as env has it, and with ".config/git" in it
+    the SANDBOX_GIT_CONFIG entries aren't added and GIT_CONFIG_COUNT stays as env has it, so git reads what
+    each lets through. An empty allow sets both."""
+    env = dict(env)
+    if ".gitconfig" not in allow:
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+    if ".config/git" in allow:
+        return env
     count = env.get("GIT_CONFIG_COUNT", "")
     start = int(count) if count.isdigit() else 0
     for number, (key, value) in enumerate(SANDBOX_GIT_CONFIG, start):
@@ -3125,8 +3132,10 @@ class Loop:
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
         sandbox_profile denies but what sandbox_allow lets through, with sandbox_env's git settings, so git
-        neither stops on the denied ~/.gitconfig nor warns about ~/.config/git. For a caller project it's also
-        denied every path caller_denied() names, as its build and tester agents are. Anything else runs it as
+        neither stops on the denied ~/.gitconfig nor warns about ~/.config/git. A sandbox_allow of .gitconfig
+        or .config/git drops the matching git setting, so git reads what it lets through. For a caller
+        project it's also denied every path caller_denied() names, as its build and tester agents are, and
+        sandbox_allow changes neither its profile nor its git settings. Anything else runs it as
         before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands
         that isn't true or false runs nothing, and a sandbox_allow that isn't a list of denied names lets
         nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway."""
@@ -3142,7 +3151,7 @@ class Loop:
             allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
             profile = sandbox_profile(Path.home(), self.root, allow=allow)
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
-            return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env), partial=partial)
+            return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env, allow), partial=partial)
         if self.caller():
             # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
             return 126, "refused: a caller project's commands run only in sandbox-exec, which can't run here"
