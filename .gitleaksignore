@@ -1,0 +1,5 @@
+# Findings gitleaks skips, one fingerprint per line. Only made-up values a test needs. Pat approved these two on 2026-11-21.
+# tests/test_usage_scrub.py's made-up Authorization headers (Basic of user:pass, Bearer abc.def.ghi, on https://example.com)
+# in the first SPEC-004 phase 1 commit. The test now splits them (f7f6c6d); remove these once usage-export/phase-1 and phase-2 merge.
+982152d4082133536daa5c8662246980bcc72684:tests/test_usage_scrub.py:curl-auth-header:56
+982152d4082133536daa5c8662246980bcc72684:tests/test_usage_scrub.py:curl-auth-header:57
