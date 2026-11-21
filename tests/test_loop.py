@@ -5313,6 +5313,61 @@ class TestSandbox(unittest.TestCase):
                          ("3", "core.excludesFile", "core.attributesFile"))
         self.assertEqual(loop.sandbox_env({"GIT_CONFIG_COUNT": "x"})["GIT_CONFIG_COUNT"], "2")
 
+    def test_sandbox_allow_of_gits_config_drops_the_git_setting_that_would_hide_it(self):
+        given = {"PATH": "/bin", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name",
+                 "GIT_CONFIG_VALUE_0": "Tester"}
+        today = dict(given, GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_COUNT="3",
+                     GIT_CONFIG_KEY_1="core.excludesFile", GIT_CONFIG_VALUE_1="/dev/null",
+                     GIT_CONFIG_KEY_2="core.attributesFile", GIT_CONFIG_VALUE_2="/dev/null")
+        self.assertEqual(loop.sandbox_env(given, ()), today)
+        self.assertEqual(loop.sandbox_env(given, ()), loop.sandbox_env(given))
+        for allow in ((), (".gitconfig",), (".config/git",), (".gitconfig", ".config/git")):
+            with self.subTest(allow=allow):
+                env = loop.sandbox_env(given, allow)
+                self.assertEqual(given["GIT_CONFIG_COUNT"], "1")  # a copy: what it was given is left alone
+                if ".gitconfig" in allow and ".config/git" in allow:
+                    self.assertNotIn("GIT_CONFIG_GLOBAL", env)
+                elif ".gitconfig" in allow:
+                    # Named outright, so git never opens the denied ~/.config/git/config and stops on it.
+                    self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.path.join(str(Path.home()), ".gitconfig"))
+                else:
+                    self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
+                if ".config/git" in allow:
+                    self.assertEqual(env["GIT_CONFIG_COUNT"], "1")
+                    self.assertEqual(sorted(k for k in env if k.startswith("GIT_CONFIG_KEY_")), ["GIT_CONFIG_KEY_0"])
+                else:
+                    self.assertEqual((env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_1"], env["GIT_CONFIG_KEY_2"]),
+                                     ("3", "core.excludesFile", "core.attributesFile"))
+                self.assertEqual((env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]), ("user.name", "Tester"))
+        # A GIT_CONFIG_GLOBAL env already had is left as it was where .gitconfig is allowed.
+        for allow in ((".gitconfig",), (".gitconfig", ".config/git")):
+            self.assertEqual(loop.sandbox_env({"GIT_CONFIG_GLOBAL": "/x"}, allow)["GIT_CONFIG_GLOBAL"], "/x")
+        # The .gitconfig named is the one under env's HOME, where it has one.
+        self.assertEqual(loop.sandbox_env({"HOME": "/h"}, (".gitconfig",))["GIT_CONFIG_GLOBAL"],
+                         os.path.join("/h", ".gitconfig"))
+
+    def test_sandbox_allow_reaches_the_git_settings_a_projects_command_runs_with(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen["env"] = kwargs["env"]
+            return 0, ""
+
+        for allow in ([], [".gitconfig"], [".config/git"], [".gitconfig", ".config/git"]):
+            with self.subTest(allow=allow):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_allow=allow), project=own)
+                with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+                    lp.own_command("true", self.root / "tree")
+                self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ), tuple(allow)))
+        # A sandbox_allow the loop refuses lets nothing through, git's settings included.
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_allow=".gitconfig"), project=own)
+        with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+            lp.own_command("true", self.root / "tree")
+        self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
+
     def test_a_path_that_cant_be_looked_at_is_denied_not_an_error(self):
         # As inside the sandbox itself, where the suite runs under the loop: stat on a denied path is refused.
         self.make(self.root, [".ssh", ".aws"])
@@ -5573,6 +5628,27 @@ class TestSandbox(unittest.TestCase):
         # reading them is refused, so sandbox_env points core.excludesFile and core.attributesFile elsewhere.
         self.assertNotIn("unable to access", out)
 
+    def test_on_a_real_mac_git_reads_the_home_gitconfig_only_where_sandbox_allow_lets_it_through(self):
+        self.real_sandbox()
+        home, tree, lp = self.real_home()
+        allowed = loop.Loop(lp.root, dict(loop.DEFAULTS, sandbox_allow=[".gitconfig"]))
+        with self.at_home(home):
+            code, out = allowed.own_command("git config --global user.name", tree)
+            self.assertEqual(code, 0, out)
+            self.assertIn("Home", out)
+            # git config --global looks at ~/.gitconfig alone where it's there. Every other git command reads
+            # the whole chain, ~/.config/git/config first, which stays denied: git mustn't stop on it.
+            code, out = allowed.own_command("git init -q && git config user.name && git status", tree)
+            self.assertEqual(code, 0, out)
+            self.assertIn("Home", out)
+            self.assertNotIn("unable to access", out)
+            # ~/.config/git stays denied, and with only .gitconfig allowed git reads nothing from it.
+            self.assertNotIn("Xdg", out)
+            code, out = lp.own_command("git config --global user.name", tree)
+        # git config exits 1 where the name isn't set, as with no global config; any other code is a failure.
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("Home", out)
+
     def test_a_callers_command_never_runs_outside_the_sandbox_whoever_calls_it(self):
         """work() refuses such a caller before any issue; own_command refuses too, so a later path can't skip it."""
         factory, tree = self.root / "factory", self.root / "tree"
@@ -5784,6 +5860,17 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p", expected, "/bin/sh", "-c", "true"])
                 self.assertEqual(seen["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
                 self.assertNotIn("held", seen["kwargs"])
+
+    def test_under_strict_a_sandbox_allow_of_gits_config_lifts_its_git_setting_too(self):
+        factory, own, tree = self.factory_project()
+        for allow in ([], [".gitconfig"], [".config/git"], [".gitconfig", ".config/git"]):
+            with self.subTest(allow=allow), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": ""}):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True, sandbox_allow=allow), project=own)
+                seen = self.ran(lp, tree)
+                expected = dict(loop.sandbox_env(loop.env_for_tests(os.environ), tuple(allow)),
+                                TMPDIR=str(seen["scratch"]))
+                self.assertEqual(seen["env"], expected)
+                self.assertEqual(seen["env"].get("GIT_CONFIG_GLOBAL") == os.devnull, ".gitconfig" not in allow)
 
     def test_off_own_command_runs_as_it_did_with_no_temp_folder_of_its_own(self):
         factory, own, tree = self.factory_project()
@@ -9428,6 +9515,32 @@ class TestCallerSandbox(unittest.TestCase):
                                        "/bin/sh", "-c", "true"])
         self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
         self.assertNotIn("held", seen["kwargs"])
+
+    def test_sandbox_allow_leaves_a_callers_git_settings_as_they_are(self):
+        factory = self.root / "factory"
+        own = factory / "projects" / "app"
+        own.mkdir(parents=True)
+        scratch = self.root / "scratch"
+        scratch.mkdir()
+        # caller_env takes no sandbox_allow: its git entries are always sandbox_env's with nothing allowed.
+        git = {k: v for k, v in loop.caller_env({"PATH": "/bin"}, scratch).items() if k.startswith("GIT_")}
+        self.assertEqual(git, {k: v for k, v in loop.sandbox_env({"PATH": "/bin"}).items() if k.startswith("GIT_")})
+        seen = {}
+
+        def sh(cmd, **kwargs):
+            seen["env"] = kwargs["env"]
+            return 0, ""
+
+        for allow in ([".gitconfig"], [".config/git"], [".gitconfig", ".config/git"]):
+            with self.subTest(allow=allow):
+                lp = loop.Loop(factory, dict(loop.DEFAULTS, caller=True, sandbox_allow=allow), project=own)
+                with mock.patch.object(lp, "sandboxed", return_value=True), mock.patch.object(lp, "sh", sh):
+                    lp.own_command("true", self.root / "tree")
+                env = seen["env"]
+                self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
+                keys = [env["GIT_CONFIG_KEY_{}".format(n)] for n in range(int(env["GIT_CONFIG_COUNT"]))]
+                self.assertIn("core.excludesFile", keys)
+                self.assertIn("core.attributesFile", keys)
 
     def test_sandbox_allow_never_reaches_a_callers_profile(self):
         factory = self.root / "factory"

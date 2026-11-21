@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: sandbox_allow of git's config lifts its overrides
+
+A project's `sandbox_allow` of `.gitconfig` now also points `GIT_CONFIG_GLOBAL` at `~/.gitconfig` instead of `/dev/null` (unset when `.config/git` is allowed too), and one of `.config/git` drops the `/dev/null` `core.excludesFile` and `core.attributesFile`, so its commands read the git config each name lets through. It holds under `sandbox_strict` too.
+
+**Needs:** 2026-11-20: Let named paths through the command sandbox; 2026-11-21: A strict sandbox for one project's commands
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing, unless a project's `sandbox_allow` names `.gitconfig` or `.config/git`: its commands now get that git config.
+
 ## 2026-11-21: A strict sandbox for one project's commands
 
 A new machine key, `sandbox_strict`, turns on a deny-by-default sandbox for writes and the network for a project's `test_command`, `generate_command` and `setup_command`, on a Mac where `sandbox_commands` applies. On, they may write only the issue's worktree, a temp folder of their own (`TMPDIR`) that the loop removes after each command, git's folder for that worktree, what `sandbox_allow` lets through and what the new `sandbox_write_allow` lists. The new `sandbox_network` holds them to `"any"` (as now), `"local"` (loopback addresses only) or `"none"`. Every path `sandbox_commands` denies stays denied. It's off by default, and only the factory's `loop.json` sets the three keys, at its top level or under `"projects"`: a project's own `loop.json` that sets one is refused. A bad value stops `run`, `review` and `review --pr` with one `ERROR` line before anything is taken. When the loop starts, it logs one `INFO` line naming what the commands may write and the network setting, or one `WARN` line where nothing enforces it. Caller projects keep `caller_profile()` and ignore it. `sandbox-exec` matches addresses, not domain names, so there's no list of allowed domains.
