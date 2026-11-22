@@ -6190,6 +6190,35 @@ class TestSandboxStrict(unittest.TestCase):
                                            "git there"), errors[0])
         self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
 
+    def test_under_strict_tidy_keeps_a_worktree_strict_git_env_refuses_and_logs_the_refusal_once(self):
+        lp, own, tree = self.indexed_worktree()
+        # #3: a real worktree whose .git file now names a folder of its own; #4: a folder under the checkouts the
+        # clone doesn't link back to.
+        (tree / ".git").write_text("gitdir: /nowhere-721\n")
+        unlinked = lp.worktrees() / "issue-4"
+        unlinked.mkdir()
+        lp.status["issues"] = [{"number": 3, "state": "pr", "pr": "5"}, {"number": 4, "state": "pr", "pr": "6"}]
+        ran = []
+
+        def git(*args, **kwargs):
+            ran.append(args)
+            return 0, ""
+
+        with mock.patch.object(lp, "gh", return_value=(0, "MERGED abc")), mock.patch.object(lp, "git", git):
+            lp.tidy()
+            lp.tidy()
+        self.assertEqual(ran, [])
+        self.assertTrue(tree.is_dir())
+        self.assertTrue(unlinked.is_dir())
+        errors = [l for l in (lp.dir / "loop.log").read_text().splitlines() if " ERROR " in l]
+        self.assertEqual(len(errors), 2, errors)
+        self.assertIn(" #3 ERROR refused: {}/.git names /nowhere-721, not the clone's own folder for this "
+                      "worktree".format(os.path.realpath(str(tree))), errors[0])
+        self.assertTrue(errors[1].endswith(" #4 ERROR refused: {} is under the loop's checkouts but isn't a worktree "
+                                           "the clone links back to, so the loop runs no git there".format(unlinked)),
+                        errors[1])
+        self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+
     # -- the log when the loop starts ------------------------------------------
 
     def test_on_a_mac_one_info_line_names_what_it_may_write_and_the_network(self):
