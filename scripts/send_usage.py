@@ -12,7 +12,7 @@ never sends anywhere its owner didn't choose. The store is one of:
 
     {"store": {"kind": "folder", "path": "~/usage-store"}}
     {"store": {"kind": "s3", "bucket": "<bucket>", "prefix": "<team>", "profile": "<cli profile>",
-               "region": "<region>", "detailed_key": "<key alias>"}}
+               "region": "<region>", "detailed_key": "<key ARN>"}}
 
 The file names the cloud CLI's profile, never a key: the CLI resolves the credentials. A folder store is a
 folder on this machine or a mounted one, for a store you run locally.
@@ -43,9 +43,10 @@ asks before an agent runs it for you.
 import argparse
 import datetime
 import hashlib
+import hmac
 import json
 import os
-import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -61,7 +62,6 @@ import usage_log  # noqa: E402 (needs .claude/hooks/ on the path first)
 import usage_scrub  # noqa: E402 (same reason as export)
 import usage_shape  # noqa: E402 (same reason as export)
 
-SAFE = re.compile(r"[^A-Za-z0-9._-]")
 LAST_SEND = Path("usage") / "last-send"  # under names.state_dir(); the dashboard reads it
 ENDED = ("pr", "blocked", "stopped", "skipped")
 CLI_TIMEOUT = 60
@@ -72,7 +72,7 @@ class Refused(Exception):
 
 
 def safe(part):
-    return SAFE.sub("_", str(part)) or "unknown"
+    return usage_shape.safe_name(part)
 
 
 def store_of(cfg):
@@ -92,6 +92,14 @@ def store_of(cfg):
     else:
         raise Refused("the store's kind is {!r}; it can be folder or s3".format(kind))
     return store
+
+
+def where(store):
+    """The store, as a person reads it, so a store changed behind their back shows at the next send."""
+    if store["kind"] == "folder":
+        return "the folder " + store["path"]
+    return "s3://{}/{} with the profile {}".format(store["bucket"], (store.get("prefix") or "").strip("/"),
+                                                   store["profile"])
 
 
 def key_for(obj, store):
@@ -122,10 +130,13 @@ def deliver(raw, key, store, detailed=False):
     """Put raw bytes at key in the store. Refused when the store won't take them."""
     if store["kind"] == "folder":
         target = Path(os.path.expanduser(store["path"])) / key
-        target.parent.mkdir(parents=True, exist_ok=True)
-        part = target.with_name(target.name + ".part")
-        part.write_bytes(raw)
-        os.replace(part, target)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            part = target.with_name(target.name + ".part")
+            part.write_bytes(raw)
+            os.replace(part, target)
+        except OSError as err:
+            raise Refused("the store's folder won't take it: {}".format(type(err).__name__))
         return
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
         handle.write(raw)
@@ -167,8 +178,11 @@ def send_bundle(root, raw, store):
     """Check and send one bundle's exact bytes, logging the result. Returns its key."""
     try:
         obj = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
         raise Refused("it isn't JSON")
+    if not isinstance(obj, dict):
+        log(root, "export_refused", "unknown", "")
+        raise Refused("it isn't a bundle")
     mode = obj.get("mode") if obj.get("mode") in ("general", "detailed") else "unknown"
     bundle_id = str(obj.get("bundle_id", ""))[:64]
     try:
@@ -199,12 +213,25 @@ def send_auto(root, today=None):
     store = store_of(cfg)
     if cfg.get("auto") is not True:
         raise Refused('--auto needs "auto": true in .sanvio/export.json, for a machine nobody watches')
-    today = today or datetime.date.today()
+    today = today or export.utc_today()
     keys = []
     for day in (today - datetime.timedelta(days=1), today):
         found = export.bundle(root, day.isoformat(), today.isoformat(), "general", last=day.isoformat())
         keys.append(send_bundle(root, (json.dumps(found, indent=2) + "\n").encode("utf-8"), store))
     return keys
+
+
+def label_salt(root):
+    """This machine's own random salt for unlisted projects' labels, made once. A plain hash of a folder's
+    name could be matched by hashing guesses at it, a customer's name say; a salted one can't."""
+    path = names.state_dir(root) / "usage" / "label-salt"
+    try:
+        return bytes.fromhex(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        salt = secrets.token_bytes(16)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(salt.hex() + "\n", encoding="utf-8")
+        return salt
 
 
 def lock_alive(folder):
@@ -251,7 +278,7 @@ def heartbeat(root, now=None):
             label = listed[folder.name]
             loops.append(beat(folder, label, settings[label]["max_issue_tokens"], True))
         else:
-            label = "project-" + hashlib.sha256(folder.name.encode("utf-8")).hexdigest()[:8]
+            label = "project-" + hmac.new(label_salt(root), folder.name.encode("utf-8"), hashlib.sha256).hexdigest()[:8]
             loops.append(beat(folder, label, None, False))
     return {"v": usage_shape.V, "kind": "heartbeat", "node": export.node_name(cfg),
             "ts": usage_log.stamp_of(now), "loops": loops,
@@ -272,7 +299,8 @@ def send_heartbeat(root):
 
 
 def main(argv=None, root=ROOT):
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # No abbreviations: --opt-i would otherwise turn detailed mode on past the guard's --opt-in check.
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0], allow_abbrev=False)
     which = parser.add_mutually_exclusive_group(required=True)
     which.add_argument("file", nargs="?", help="a bundle python3 scripts/export.py wrote, to send as it is")
     which.add_argument("--auto", action="store_true", help="send yesterday's and today's general bundles")
@@ -305,6 +333,8 @@ def main(argv=None, root=ROOT):
         return 1
     for key in keys:
         print("Sent: " + key)
+    if keys:
+        print("To: " + where(store_of(export.config(root))))
     return 0
 
 

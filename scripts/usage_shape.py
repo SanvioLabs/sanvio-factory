@@ -11,9 +11,16 @@ Every key also has to serve one of the questions the store answers (SPEC-004, *T
 answers*), or be envelope: what's needed to read, order or de-duplicate any bundle. SERVES says which, and
 tests/test_usage_shape.py fails on a key it doesn't list.
 
+Values are checked as tightly as the store reads them: a node, user or id is letters, digits, dot, dash
+and underscore (safe_name() makes one), a name chosen at run time (a skill, a rule, a project's label) is
+at most 100 characters of a short set (tidy() folds any other into "other"), a day is a real date, a time is
+UTC to the second, and a whole number fits in 53 bits. So one odd bundle can't break the store's views.
+
 Standard library only, and nothing that opens a network connection or a process: the store's validator
 packages this file as it is.
 """
+import datetime
+import re
 
 V = 2
 
@@ -48,16 +55,52 @@ def _number(value):
 
 
 STR = Kind("text", lambda v: isinstance(v, str))
-INT = Kind("a whole number", lambda v: isinstance(v, int) and not isinstance(v, bool))
+INT = Kind("a whole number", lambda v: isinstance(v, int) and not isinstance(v, bool) and abs(v) < 2 ** 53)
+NAME_RE = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
+LABEL_RE = re.compile(r"[A-Za-z0-9:_./@ -]{1,100}\Z")
+TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+NAME = Kind("a name of letters, digits, dot, dash and underscore, at most 64", lambda v: isinstance(v, str)
+            and bool(NAME_RE.match(v)))
+LABEL = Kind("a label of at most 100 letters, digits, spaces and :_./@-", lambda v: isinstance(v, str)
+             and bool(LABEL_RE.match(v)))
+TS = Kind("a UTC time, YYYY-MM-DDTHH:MM:SSZ", lambda v: isinstance(v, str) and bool(TS_RE.match(v)))
+
+
+def _day(value):
+    if not isinstance(value, str) or not re.match(r"\d{4}-\d{2}-\d{2}\Z", value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+DAY = Kind("a date, YYYY-MM-DD", _day)
+
+
+def safe_name(value):
+    """value as a NAME: anything outside the set becomes _, cut to 64. The sender, the export and the store's
+    validator all use this, so a node called "Pat's Mac" is Pat_s_Mac everywhere."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", str(value))[:64] or "unknown"
+
+
+def tidy(counts):
+    """A {name: count} with every name a LABEL: any other folds into "other"."""
+    out = {}
+    for name, n in counts.items():
+        key = name if isinstance(name, str) and LABEL_RE.match(name) else "other"
+        out[key] = out.get(key, 0) + n
+    return out
 NUM = Kind("a number", _number)
 BOOL = Kind("true or false", lambda v: isinstance(v, bool))
 
 
-def _jsonish(value):
-    """A scalar, or a list of them, nested as deep as it likes, and never an object."""
+def _jsonish(value, depth=0):
+    """A scalar, or a list of them, nested at most four deep, and never an object."""
     if value is None or isinstance(value, (str, bool)) or _number(value):
         return True
-    return isinstance(value, list) and all(_jsonish(item) for item in value)
+    return isinstance(value, list) and depth < 4 and all(_jsonish(item, depth + 1) for item in value)
 
 
 FLAT = Kind("a value or a list, never an object", _jsonish)
@@ -104,8 +147,8 @@ class MapOf(Check):
             out.append("{}: expected an object".format(path))
             return
         for name, item in value.items():
-            if not isinstance(name, str):
-                out.append("{}: a name that isn't text".format(path))
+            if not isinstance(name, str) or not LABEL_RE.match(name):
+                out.append("{}: a name that isn't a label".format(path))
             self.inner.check(item, "{}.{}".format(path, name), out)
 
 
@@ -129,7 +172,6 @@ class Obj(Check):
                 rule.check(value[name], prefix + name, out)
 
 
-DAY = STR
 FACTORY = Obj({"commit": Maybe(STR), "changelog": Maybe(DAY)})
 LOOP_RUN_KEYS = ("v", "run", "issue", "project", "started", "ended", "outcome", "rounds", "tests", "verdicts",
                  "fix_reasons", "tests_changed", "tokens", "cost_usd", "agent", "reviewer")
@@ -140,19 +182,19 @@ USAGE = Obj({"sessions": INT, "log_off": INT, "skills": MapOf(INT), "agents": Ma
              "commands": MapOf(INT), "guard_deny": MapOf(INT), "guard_ask": MapOf(INT),
              "ask_approved": MapOf(INT)})
 VERDICTS = ("ran", "refused", "asked")
-COMMAND = Obj({"ts": STR, "session": STR, "verdict": OneOf(*VERDICTS), "text": STR, "redactions": INT})
+COMMAND = Obj({"ts": TS, "session": STR, "verdict": OneOf(*VERDICTS), "text": STR, "redactions": INT})
 
 BUNDLE_KEYS = {
     "v": OneOf(V), "kind": OneOf("bundle"), "mode": OneOf("general", "detailed"),
     "exported": DAY, "since": DAY, "period": Obj({"first": DAY, "last": DAY}),
-    "user": STR, "node": STR, "factory": FACTORY, "loop_config": MapOf(LOOP_CONFIG),
-    "chain_head": Maybe(STR), "bundle_id": STR, "loop": ListOf(LOOP_RUN), "usage": USAGE,
+    "user": NAME, "node": NAME, "factory": FACTORY, "loop_config": MapOf(LOOP_CONFIG),
+    "chain_head": Maybe(STR), "bundle_id": NAME, "loop": ListOf(LOOP_RUN), "usage": USAGE,
 }
 DETAILED_KEYS = {"commands": ListOf(COMMAND)}  # in a detailed bundle only, and required there
 
-LOOP_BEAT = Obj({"label": STR, "alive": BOOL, "waiting": INT, "issue": Maybe(INT), "tokens": Maybe(INT),
+LOOP_BEAT = Obj({"label": LABEL, "alive": BOOL, "waiting": INT, "issue": Maybe(INT), "tokens": Maybe(INT),
                  "budget": Maybe(INT)})
-HEARTBEAT_KEYS = {"v": OneOf(V), "kind": OneOf("heartbeat"), "node": STR, "ts": STR, "factory": FACTORY,
+HEARTBEAT_KEYS = {"v": OneOf(V), "kind": OneOf("heartbeat"), "node": NAME, "ts": TS, "factory": FACTORY,
                   "loops": ListOf(LOOP_BEAT)}
 
 ENVELOPE = "envelope: needed to read, order or de-duplicate any bundle"

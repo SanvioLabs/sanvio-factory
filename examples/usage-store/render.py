@@ -36,6 +36,7 @@ DETAILED_PANELS = [("rq-6.sql", "RQ-6 Shell commands agents ran", DETAILED)]
 ALERTS = [
     ("alert-silent-node.sql", "usage-silent-node", "A node stopped sending heartbeats", "minutes_silent", 30),
     ("alert-budget.sql", "usage-budget", "A run passed 80% of its token budget", "percent_of_budget", 80),
+    ("alert-dead-loop.sql", "usage-dead-loop", "A loop stopped while its machine still reports", "stopped", 0),
 ]
 
 
@@ -50,7 +51,7 @@ def quoted(text, indent):
 
 
 def datasource(uid, name, files, default):
-    init = "${USAGE_INIT}\n" + "\n\n".join(sql(f) for f in files)
+    init = "${USAGE_INIT}\n" + "\n\n".join(sql(f) for f in list(files) + ["lock.sql"])
     return ("apiVersion: 1\n\ndatasources:\n"
             "  - name: {}\n    uid: {}\n    type: {}\n    access: proxy\n    isDefault: {}\n    editable: false\n"
             "    jsonData:\n      path: ''\n      initSql: {}\n").format(name, uid, PLUGIN, "true" if default else "false",

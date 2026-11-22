@@ -202,6 +202,41 @@ class Sending(unittest.TestCase):
         self.assertEqual(self.log_events(), ["export_refused"])
 
 
+    def test_a_folder_it_cannot_write_is_refused_and_logged(self):
+        self.store.parent.mkdir(parents=True, exist_ok=True)
+        self.store.write_text("a file, not a folder")
+        self.folder()
+        with self.assertRaises(send_usage.Refused):
+            send_usage.send_file(self.root, self.bundle_file())
+        self.assertEqual(self.log_events(), ["export_refused"])
+
+    def test_a_file_that_is_not_an_object_is_refused_and_logged(self):
+        self.folder()
+        path = self.root / "export.json"
+        path.write_text("[]")
+        with self.assertRaises(send_usage.Refused):
+            send_usage.send_file(self.root, path)
+        self.assertEqual(self.log_events(), ["export_refused"])
+
+    def test_each_send_says_where_it_went(self):
+        self.folder()
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            self.assertEqual(send_usage.main([str(self.bundle_file())], root=self.root), 0)
+        self.assertIn("To: the folder " + str(self.store), out.getvalue())
+
+    def test_an_abbreviated_flag_is_refused(self):
+        with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+            send_usage.main(["--opt-i", "detailed"], root=self.root)
+        self.assertFalse(usage_log.detailed_path(self.root).exists())
+
+    def test_a_node_name_is_made_safe_in_the_bundle_and_the_key(self):
+        self.config(store={"kind": "folder", "path": str(self.store)}, node="Bench Mac's")
+        (key,) = send_usage.send_file(self.root, self.bundle_file())
+        self.assertTrue(key.startswith("incoming/Bench_Mac_s/"), key)
+        self.assertEqual(json.loads((self.store / key).read_text())["node"], "Bench_Mac_s")
+
+
 class Heartbeat(unittest.TestCase):
     """SPEC-004 REQ-012: alive, waiting, the issue in progress; an unlisted project only alive and waiting."""
 

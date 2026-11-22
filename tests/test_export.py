@@ -146,7 +146,7 @@ class TheCommand(unittest.TestCase):
             out = Path(tmp) / "export.json"
             self.assertEqual(export.main(["--out", str(out)]), 0)
             got = json.loads(out.read_text())
-        self.assertEqual(got["since"], (datetime.date.today() - datetime.timedelta(days=14)).isoformat())
+        self.assertEqual(got["since"], (export.utc_today() - datetime.timedelta(days=14)).isoformat())
 
     def test_an_impossible_since_is_refused(self):
         result = self.run_export("--since", "2026-13-01")

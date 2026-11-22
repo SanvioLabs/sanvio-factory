@@ -36,6 +36,8 @@ for _folder in (HERE, HERE.parent.parent / "scripts"):  # beside it in the funct
         sys.path.insert(0, str(_folder))
 import usage_shape  # noqa: E402 (needs its folder on the path first)
 
+MAX_BYTES = 4 * 1024 * 1024  # a bundle is a few kilobytes; anything near this is rejected unread
+
 SHAPE_FILES = {
     "accepted/_shape/_shape/general/shape.json": {"kind": "shape"},
     "accepted/_shape/_shape/detailed/shape.json": {"kind": "shape"},
@@ -57,6 +59,9 @@ class Store:
 
     def delete(self, key):
         raise NotImplementedError  # each store below deletes its own way
+
+    def size(self, key):
+        raise NotImplementedError  # each store below sizes its own way
 
 
 class FolderStore(Store):
@@ -84,6 +89,9 @@ class FolderStore(Store):
 
     def delete(self, key):
         (self.root / key).unlink()
+
+    def size(self, key):
+        return (self.root / key).stat().st_size
 
     def prune(self, days, now=None):
         """Remove files under accepted/, rejected/ and marks/ last changed over `days` ago. Returns their keys."""
@@ -145,6 +153,9 @@ class BucketStore(Store):
     def delete(self, key):
         self.client.delete_object(Bucket=self.bucket, Key=self.full(key))
 
+    def size(self, key):
+        return self.client.head_object(Bucket=self.bucket, Key=self.full(key))["ContentLength"]
+
     def encryption(self, key):
         head = self.client.head_object(Bucket=self.bucket, Key=self.full(key))
         return {k: head[k] for k in ("ServerSideEncryption", "SSEKMSKeyId") if k in head}
@@ -161,8 +172,8 @@ def why_rejected(tail, raw):
     """None when the object at incoming/<tail> may be accepted, else the reason."""
     try:
         obj = json.loads(raw)
-    except ValueError:
-        return "not JSON"
+    except (ValueError, RecursionError):
+        return "not JSON, or nested too deep"
     problems = usage_shape.problems(obj)
     if problems:
         return "; ".join(problems[:10])
@@ -208,9 +219,13 @@ def chain_marks(store, obj, dest):
 def sort_one(store, key):
     """Move one incoming/ object to accepted/ or rejected/. Returns (where it went, reason or None)."""
     tail = key[len("incoming/"):]
-    raw = store.read(key)
-    like = store.encryption(key) if isinstance(store, BucketStore) else None
-    reason = why_rejected(tail, raw)
+    if store.size(key) > MAX_BYTES:
+        raw, reason = b"{}", "larger than {} bytes, not read".format(MAX_BYTES)
+    else:
+        raw = store.read(key)
+        reason = why_rejected(tail, raw)
+    # Only a detailed bundle keeps its key: a general one under it would be unreadable to the team's Grafana.
+    like = store.encryption(key) if isinstance(store, BucketStore) and "/detailed/" in key else None
     if reason:
         dest = "rejected/" + tail
         store.write(dest, raw, like)

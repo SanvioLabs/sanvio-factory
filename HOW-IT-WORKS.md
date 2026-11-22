@@ -1113,7 +1113,7 @@ Detailed mode adds the shell commands agents ran, scrubbed before they're
 written down, and each person turns it on for themselves for 14 days; only the
 owner reads those. [`examples/usage-store/`](examples/usage-store/) is a store
 you run yourself, on one machine or in your own cloud account, with a Grafana
-dashboard answering six questions and alerts for a silent machine or a run near
+dashboard answering six questions and alerts for a silent machine, a stopped loop or a run near
 its budget. With no store named in `.sanvio/export.json`, nothing is sent.
 
 Nobody edits a shared rule in their own copy. A local edit is a quiet fork,
