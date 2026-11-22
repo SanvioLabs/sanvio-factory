@@ -1,6 +1,7 @@
 """Run with: python3 -m unittest discover -s tests"""
 import datetime
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -279,6 +280,54 @@ class Version2(unittest.TestCase):
         finally:
             usage_shape.problems = original
         self.assertFalse(out.exists())
+
+
+class DetailedBundle(unittest.TestCase):
+    """SPEC-004 REQ-003: --mode detailed adds the commands, and only while detailed mode is on."""
+
+    PERSON = {"SANVIO_HEADLESS": "", "HARNESS_HEADLESS": "", "SANVIO_USAGE_LOG": "", "HARNESS_USAGE_LOG": "",
+              "SANVIO_DETAILED_DAYS": ""}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        patcher = unittest.mock.patch.dict(os.environ, self.PERSON)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.on = datetime.datetime(2026, 10, 20, tzinfo=datetime.timezone.utc)
+
+    def write_commands(self):
+        write_lines(usage_log.commands_path(self.root), [
+            {"ts": "2026-10-21T09:00:00Z", "session": "s1", "verdict": "ran", "text": "git status",
+             "redactions": 0, "prev": "", "cwd": "/somewhere"},
+            {"ts": "2026-10-01T09:00:00Z", "session": "s0", "verdict": "ran", "text": "old", "redactions": 0}])
+
+    def test_with_no_opt_in_it_is_refused(self):
+        self.write_commands()
+        with self.assertRaises(ValueError):
+            export.bundle(self.root, "2026-10-14", "2026-10-25", "detailed")
+
+    def test_while_on_it_adds_the_commands_since_the_date_rebuilt_from_the_shape(self):
+        usage_log.opt_in(self.root, now=self.on)
+        self.write_commands()
+        got = export.bundle(self.root, "2026-10-14", "2026-10-25", "detailed")
+        self.assertEqual(got["mode"], "detailed")
+        self.assertEqual(got["commands"], [{"ts": "2026-10-21T09:00:00Z", "session": "s1", "verdict": "ran",
+                                            "text": "git status", "redactions": 0}])
+        self.assertEqual(usage_shape.problems(got), [])
+        self.assertNotEqual(got["bundle_id"], export.bundle(self.root, "2026-10-14", "2026-10-25")["bundle_id"])
+
+    def test_the_day_after_it_ends_it_is_refused(self):
+        usage_log.opt_in(self.root, days=1, now=self.on)
+        export.bundle(self.root, "2026-10-14", "2026-10-21", "detailed")
+        with self.assertRaises(ValueError):
+            export.bundle(self.root, "2026-10-14", "2026-10-22", "detailed")
+
+    def test_a_general_bundle_never_has_commands(self):
+        usage_log.opt_in(self.root, now=self.on)
+        self.write_commands()
+        self.assertNotIn("commands", export.bundle(self.root, "2026-10-14", "2026-10-25"))
 
 
 if __name__ == "__main__":

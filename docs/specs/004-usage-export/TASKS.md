@@ -50,44 +50,51 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 
 ## Phase 2: Detailed capture
 
-- [ ] T006 Add the opt-in file `.sanvio/usage/<user>.detailed` and its `detailed_on` line. `SANVIO_DETAILED_DAYS`, 14 by default, through `names.py`
+- [x] T006 Add the opt-in file `.sanvio/usage/<user>.detailed` and its `detailed_on` line. `SANVIO_DETAILED_DAYS`, 14 by default, through `names.py`
   - Requirements: REQ-004
   - Acceptance: AC-003
   - Privacy: PRIV-002
   - Depends on: T005
   - Verification: `TESTS` with a fixed clock
-- [ ] T007 `usage_log.py` writes a scrubbed line to `<user>.commands.jsonl` for each `PreToolUse` Bash call while the opt-in is live, with `ran`, `refused` or `asked` from the guard's verdict, through `log_chain`, pruned like the usage log
+  - Done 2026-11-21: `opt_in()`, `detailed_path()` and `detailed_until()` in `usage_log.py`, `names.detailed_days()`; `Detailed` in [`tests/test_usage.py`](../../../tests/test_usage.py)
+- [x] T007 `usage_log.py` writes a scrubbed line to `<user>.commands.jsonl` for each `PreToolUse` Bash call while the opt-in is live, with `ran`, `refused` or `asked` from the guard's verdict, through `log_chain`, pruned like the usage log
   - Requirements: REQ-005
   - Acceptance: AC-004
   - Security: SEC-001
   - Depends on: T002, T006
   - Verification: `TESTS`
-- [ ] T008 No command line from a headless session or one whose `cwd` is inside [`projects/`](../../../projects/)
+  - Done 2026-11-21: `command_record()` and the Bash branch of `main()`; the guard is asked once per call; `prune()` covers the commands file
+- [x] T008 No command line from a headless session or one whose `cwd` is inside [`projects/`](../../../projects/)
   - Requirements: REQ-006
   - Acceptance: AC-004
   - Depends on: T007
   - Verification: `TESTS`
-- [ ] T009 At session start, an end date in the past removes the opt-in, writes `detailed_expired`, and adds one line to the setup message. A live one adds a line naming its end date
+  - Done 2026-11-21: `inside_projects()`, and `names.headless()` in `command_record()`
+- [x] T009 At session start, an end date in the past removes the opt-in, writes `detailed_expired`, and adds one line to the setup message. A live one adds a line naming its end date
   - Requirements: REQ-008
   - Acceptance: AC-003
   - Privacy: PRIV-002
   - Depends on: T006
   - Verification: `TESTS`
-- [ ] T010 The guard asks a person before a change to `.sanvio/export.json` and refuses one from a headless run, as it does `.sanvio/factory-floor/`. Confirm the commands and opt-in files are already read-only under `LOG_NAME`
+  - Done 2026-11-21: `usage_log.expire()`, called from `session_start.detailed_notes()`, which says it once; `report()` takes notes
+- [x] T010 The guard asks a person before a change to `.sanvio/export.json` and refuses one from a headless run, as it does `.sanvio/factory-floor/`. Confirm the commands and opt-in files are already read-only under `LOG_NAME`
   - Requirements: SEC-004
   - Depends on: None
   - Verification: `TESTS` in [`tests/test_agent_hooks.py`](../../../tests/test_agent_hooks.py)
-- [ ] T011 `export.py --mode detailed` adds the `commands` section from the commands file, and refuses with no live opt-in
+  - Done 2026-11-21: `EXPORT_FILE`, `OPT_IN` and `persons_verdict()` in `guard.py`; `TheUsageSettings` in [`tests/test_agent_hooks.py`](../../../tests/test_agent_hooks.py). The opt-in and commands files were already under `LOG_NAME`
+- [x] T011 `export.py --mode detailed` adds the `commands` section from the commands file, and refuses with no live opt-in
   - Requirements: REQ-003
   - Acceptance: AC-003
   - Depends on: T007, T009
   - Verification: `TESTS`
-- [ ] T012 Phase 2's CHANGELOG entry, and the pull request
+  - Done 2026-11-21: `bundle(..., mode)` and `--mode` in `export.py`; `DetailedBundle` in [`tests/test_export.py`](../../../tests/test_export.py)
+- [x] T012 Phase 2's CHANGELOG entry, and the pull request
   - Depends on: T006 to T011
   - Verification: the full suite
 
 ## Phase 3: Sender
 
+  - Done 2026-11-21: the *Detailed mode for the usage bundle* entry, plus the README's *Detailed mode* section and its paste-ready message (part of T028) and the retention row
 - [ ] T013 `send_usage.py FILE`: check the shape, refuse unknown keys, run the scrubber again and refuse the file if anything changes, then send its exact bytes through the cloud CLI's profile to `incoming/<node>/<user>/<mode>/<bundle_id>.json`
   - Requirements: REQ-009
   - Acceptance: AC-006
@@ -109,10 +116,11 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
   - Acceptance: AC-009
   - Depends on: T013
   - Verification: `TESTS` over a fixture `.loop/` with one live and one dead lock
-- [ ] T017 `--opt-in detailed` and `--opt-out`, writing through T006
+- [x] T017 `--opt-in detailed` and `--opt-out`, writing through T006
   - Requirements: REQ-004
   - Depends on: T006, T013
   - Verification: `TESTS`
+  - Done 2026-11-21: done early, in phase 2: `scripts/send_usage.py --opt-in detailed` and `--opt-out`; [`tests/test_send_usage.py`](../../../tests/test_send_usage.py)
 - [ ] T018 `export_sent` and `export_refused` lines in the usage log, and the dashboard's last send and mode
   - Requirements: OBS-001, OBS-002
   - Depends on: T013

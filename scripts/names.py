@@ -75,6 +75,18 @@ def keep_days(environ=None):
     return days if days > 0 else KEEP_DAYS
 
 
+DETAILED_DAYS = 14  # how long one opt-in to detailed mode lasts, unless SANVIO_DETAILED_DAYS says
+
+
+def detailed_days(environ=None):
+    """SANVIO_DETAILED_DAYS as a whole number of days above 0, else DETAILED_DAYS."""
+    try:
+        days = int(env("DETAILED_DAYS", environ=environ).strip())
+    except ValueError:
+        return DETAILED_DAYS
+    return days if days > 0 else DETAILED_DAYS
+
+
 def logging_off(environ=None):
     """The usage log is switched off. The old name's off still counts: like headless, it only ever means
     less is recorded, so someone who opted out stays opted out."""

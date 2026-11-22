@@ -106,6 +106,21 @@ MACHINES_ARE_THE_PERSONS = ("{} holds factory-floor's list of other machines, wh
                             "connects to over ssh with your keys. Say yes only if you asked for this change.")
 MACHINES_UNATTENDED = ("{} holds factory-floor's list of other machines, which chooses the hosts this machine "
                        "connects to over ssh. Nobody is here to approve a change to it, so it's refused.")
+# Where this machine's usage is sent, and which projects' numbers go with it (SPEC-004). Gitignored, and the
+# person's to change: a changed store would send the team's numbers somewhere else.
+EXPORT_NAME = r"\.sanvio/export\.json(?=$|[\s'\";|&>)])"
+EXPORT_FILE = re.compile(r"(?:^|(?<=[/\s'\"=<:]))" + EXPORT_NAME)
+EXPORT_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + EXPORT_NAME)
+EXPORT_IS_THE_PERSONS = ("{} chooses where this machine's usage is sent and which projects' numbers go with it. "
+                         "Say yes only if you asked for this change.")
+EXPORT_UNATTENDED = ("{} chooses where this machine's usage is sent. Nobody is here to approve a change to it, "
+                     "so it's refused.")
+# Turning on detailed mode, which records the shell commands a person's sessions run. Only they turn it on.
+OPT_IN = re.compile(r"\bsend_usage\.py\b[^;|&]*--opt-in\b")
+OPT_IN_IS_THE_PERSONS = ("That command turns on detailed mode, which records the shell commands your sessions "
+                         "run, scrubbed, for your usage bundle. Say yes only if you want that.")
+OPT_IN_UNATTENDED = ("That command turns on detailed mode, which only a person turns on for themselves, and "
+                     "nobody is here, so it's refused.")
 # The file scripts/loop.py keeps in a worktree's own folder in .git while an agent runs there (#686): with it,
 # a session that dropped SANVIO_UNATTENDED is still one nobody is watching. Only the loop writes or removes it.
 UNATTENDED_MARKER = "sanvio-unattended-"
@@ -124,6 +139,11 @@ def log_write(command):
 def machines_write(command):
     """The path under .sanvio/factory-floor/ a shell command writes to, moves or deletes, or None."""
     return file_write(command, MACHINES_FILE, MACHINES_REDIRECT)
+
+
+def export_write(command):
+    """The usage export settings, if a shell command writes to, moves or deletes them, else None."""
+    return file_write(command, EXPORT_FILE, EXPORT_REDIRECT)
 
 
 def file_write(command, file_pattern, redirect_pattern):
@@ -856,6 +876,13 @@ def machines_verdict(path, headless, cwd=None):
     return ("ask", MACHINES_ARE_THE_PERSONS.format(path))
 
 
+def persons_verdict(headless, cwd, ask, deny):
+    """A change only the person may make: asked where someone's there, refused where nobody is."""
+    if headless or is_unattended(cwd):
+        return ("deny", deny)
+    return ("ask", ask)
+
+
 def decide(event, held=None):
     """(decision, reason) for one tool call, or None to let it through untouched."""
     tool = event.get("tool_name", "")
@@ -894,6 +921,9 @@ def decide(event, held=None):
             return ("deny", LOGS_ARE_READ_ONLY.format(path))
         if path and MACHINES_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return machines_verdict(path, headless, event.get("cwd"))
+        if path and EXPORT_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
+            return persons_verdict(headless, event.get("cwd"), EXPORT_IS_THE_PERSONS.format(path),
+                                   EXPORT_UNATTENDED.format(path))
         if path and MARKER_NAME.search(os.path.basename(os.path.normpath(path))):
             return marker_verdict(path, headless, event.get("cwd"))
 
@@ -935,6 +965,12 @@ def decide(event, held=None):
         changed = machines_write(command)
         if changed:
             return machines_verdict(changed, headless, event.get("cwd"))
+        changed = export_write(command)
+        if changed:
+            return persons_verdict(headless, event.get("cwd"), EXPORT_IS_THE_PERSONS.format(changed),
+                                   EXPORT_UNATTENDED.format(changed))
+        if OPT_IN.search(command):
+            return persons_verdict(headless, event.get("cwd"), OPT_IN_IS_THE_PERSONS, OPT_IN_UNATTENDED)
         if MARKER_NAME.search(command):
             return marker_verdict("That command", headless, event.get("cwd"))
         # Before the auditor's list: a headless run is held to its reads whichever agent asks.
