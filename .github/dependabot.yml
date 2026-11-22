@@ -1,5 +1,5 @@
-# Dependabot opens a pull request each week for an action or an npm package
-# that has a newer version. When it bumps an action pinned to a commit SHA, it
+# Dependabot opens a pull request each week for an action, an npm package, the
+# usage store's image or its Terraform providers that has a newer version. When it bumps an action pinned to a commit SHA, it
 # keeps the pin as a SHA and rewrites the `# vX.Y.Z` comment beside it, so no
 # setting is needed for that.
 #
@@ -16,5 +16,15 @@ updates:
       interval: weekly
   - package-ecosystem: "npm"
     directory: "/examples/typescript"
+    schedule:
+      interval: weekly
+  # The usage store's Grafana image (by digest) and its Terraform providers. The DuckDB plugin and its
+  # extensions are pinned by hand in examples/usage-store/Dockerfile, with their SHA-256s.
+  - package-ecosystem: "docker"
+    directory: "/examples/usage-store"
+    schedule:
+      interval: weekly
+  - package-ecosystem: "terraform"
+    directory: "/examples/usage-store/cloud"
     schedule:
       interval: weekly

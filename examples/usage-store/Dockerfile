@@ -17,6 +17,28 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends unzip w
  && unzip -q /tmp/plugin.zip -d /opt/grafana-plugins \
  && rm /tmp/plugin.zip \
  && chown -R grafana /opt/grafana-plugins
+
+# DuckDB's S3 and credential extensions, for a bucket store, fetched here and checked, so the running Grafana
+# never fetches code. The cloud task's USAGE_INIT loads them from this folder; a folder store doesn't need them.
+ARG TARGETARCH
+ARG DUCKDB_VERSION=1.5.6
+ARG HTTPFS_SHA256_ARM64=b18472a0e85cbf15ca4ebbe335173f87b62a074cd0f26072d4c756205c6239d0
+ARG AWS_SHA256_ARM64=7be5627a03495959bc033755fe4184db6cbc1d391c16790d3dad06fc14c79606
+ARG HTTPFS_SHA256_AMD64=19e6906934a845487c96f9c94beee250c71e32bb9be260eb27ad96939a1df5f0
+ARG AWS_SHA256_AMD64=9d9bbd40e131f5e1314d6a7a82584b680f64a38fe771d4048275d48aa405852e
+RUN case "${TARGETARCH:-arm64}" in \
+      arm64) P=linux_arm64; H="${HTTPFS_SHA256_ARM64}"; A="${AWS_SHA256_ARM64}" ;; \
+      amd64) P=linux_amd64; H="${HTTPFS_SHA256_AMD64}"; A="${AWS_SHA256_AMD64}" ;; \
+      *) echo "no pinned DuckDB extensions for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && D="/opt/duckdb-extensions/v${DUCKDB_VERSION}/${P}" && mkdir -p "$D" \
+ && for pair in "httpfs:$H" "aws:$A"; do \
+      e="${pair%%:*}"; sum="${pair#*:}"; \
+      wget -q -O "/tmp/$e.gz" "https://extensions.duckdb.org/v${DUCKDB_VERSION}/${P}/$e.duckdb_extension.gz" \
+      && echo "$sum  /tmp/$e.gz" | sha256sum -c - \
+      && gunzip -c "/tmp/$e.gz" > "$D/$e.duckdb_extension" && rm "/tmp/$e.gz" || exit 1; \
+    done \
+ && chown -R grafana /opt/duckdb-extensions
 USER grafana
 
 # /var/lib/grafana is a volume in the base image, so a plugin unpacked there at build time is lost. Grafana's

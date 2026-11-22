@@ -112,6 +112,26 @@ data "aws_iam_policy_document" "bucket" {
       values   = [aws_kms_key.detailed.arn]
     }
   }
+  # Only detailed bundles go under the detailed key. A general bundle or heartbeat under it would be one the
+  # team's Grafana can't read, so one sender could blank everyone's dashboard.
+  statement {
+    sid     = "GeneralNotUnderTheDetailedKey"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    resources = [
+      "${local.incoming}/*/*/general/*", "${local.incoming}/*/heartbeat/*",
+      "${local.accepted}/*/*/general/*", "${local.accepted}/*/heartbeat/*",
+    ]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["aws:kms", "aws:kms:dsse"]
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "store" {
@@ -137,6 +157,23 @@ data "aws_iam_policy_document" "detailed_key" {
     principals {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.here.account_id}:root"]
+    }
+  }
+  # The account statement above lets the account's IAM grant the key to anyone. This one stops that for
+  # reading: only the owner and the validator ever decrypt, whatever IAM says.
+  statement {
+    sid       = "NobodyElseDecrypts"
+    effect    = "Deny"
+    actions   = ["kms:Decrypt", "kms:ReEncryptFrom"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "ArnNotEquals"
+      variable = "aws:PrincipalArn"
+      values   = [var.owner_role_arn, aws_iam_role.validator.arn]
     }
   }
   statement {
@@ -245,10 +282,24 @@ resource "aws_rolesanywhere_profile" "nodes" {
 data "aws_iam_policy_document" "person_trust" {
   count = length(var.people_principal_arns) > 0 ? 1 : 0
   statement {
-    actions = ["sts:AssumeRole", "sts:TagSession"]
+    actions = ["sts:AssumeRole"]
     principals {
       type        = "AWS"
       identifiers = var.people_principal_arns
+    }
+  }
+  # The usage_node tag comes from the identity provider, carried on the caller's own session. A caller who
+  # tries to set a different one on the way in is refused, so nobody writes under another's node.
+  statement {
+    actions = ["sts:TagSession"]
+    principals {
+      type        = "AWS"
+      identifiers = var.people_principal_arns
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/usage_node"
+      values   = ["$${aws:PrincipalTag/usage_node}"]
     }
   }
 }

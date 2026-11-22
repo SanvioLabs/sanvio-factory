@@ -200,12 +200,18 @@ def changelog_day(root):
     return found.group(1) if found else None
 
 
+def utc_today():
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
 def node_name(cfg):
+    """This machine's name in the store, as usage_shape.safe_name() makes it, so the sender's key, the bundle
+    and the validator's check agree."""
     if isinstance(cfg.get("node"), str) and cfg["node"].strip():
-        return cfg["node"].strip()[:100]
+        return usage_shape.safe_name(cfg["node"].strip())
     if hasattr(os, "uname"):
-        return os.uname().nodename or "unknown"
-    return os.environ.get("COMPUTERNAME") or "unknown"
+        return usage_shape.safe_name(os.uname().nodename or "unknown")
+    return usage_shape.safe_name(os.environ.get("COMPUTERNAME") or "unknown")
 
 
 def chain_head(root):
@@ -226,12 +232,12 @@ def until(lines, last):
 def usage_counts(root, since, last=None):
     lines = until(usage_report.read(log_path(root), since), last)
     return {"sessions": len({l.get("session") for l in lines if l.get("session")}),
-            "skills": dict(usage_report.count(lines, "skill", "name")),
-            "agents": dict(usage_report.count(lines, "agent", "name")),
-            "commands": dict(usage_report.count(lines, "command", "name")),
-            "guard_deny": dict(usage_report.count(lines, "guard_deny", "rule")),
-            "guard_ask": dict(by_tool(lines, "guard_ask")),
-            "ask_approved": dict(by_tool(lines, "ask_approved")),
+            "skills": usage_shape.tidy(usage_report.count(lines, "skill", "name")),
+            "agents": usage_shape.tidy(usage_report.count(lines, "agent", "name")),
+            "commands": usage_shape.tidy(usage_report.count(lines, "command", "name")),
+            "guard_deny": usage_shape.tidy(usage_report.count(lines, "guard_deny", "rule")),
+            "guard_ask": usage_shape.tidy(by_tool(lines, "guard_ask")),
+            "ask_approved": usage_shape.tidy(by_tool(lines, "ask_approved")),
             "log_off": sum(1 for l in lines if l.get("event") == "log_off")}
 
 
@@ -271,7 +277,9 @@ def bundle(root, since, today, mode="general", last=None):
 
 
 def main(argv=None):
-    today = datetime.date.today()
+    # The usage log is dated in UTC, so the bundle's days are too: a local date west of UTC would drop the
+    # evening's lines from today's bundle.
+    today = utc_today()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--since", type=usage_report.since_date,
                         default=(today - datetime.timedelta(days=14)).isoformat(),

@@ -51,8 +51,9 @@ import usage_scrub  # noqa: E402 (the one scrubber, before a command reaches dis
 FILE_TOOLS = guard.FILE_TOOLS + ("Grep", "Glob")
 COMMAND = re.compile(r"^/([A-Za-z0-9][A-Za-z0-9:_-]*)(\s|$)")
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
-# What both of the guard's reasons for the export settings say, after the path they start with.
-USAGE_SETTINGS = " chooses where this machine's usage is sent"
+# The guard's refusal for the export settings, after the path it starts with: taken from the guard, so a
+# reworded message still matches.
+USAGE_SETTINGS = guard.EXPORT_REFUSED.split("{}", 1)[1]
 
 
 def rule(tool, reason=""):

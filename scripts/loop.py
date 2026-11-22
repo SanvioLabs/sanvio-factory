@@ -1018,11 +1018,14 @@ def configured_model(cfg, which):
 
 def command_name(value):
     """The tool a command setting runs, for a record: its name, or the last part of a command line's
-    first word, so no path is written. None when it's empty."""
+    first word, so no path is written, skipping any NAME=value before it, so no setting's value is either.
+    None when it's empty."""
     name = named(value)[0]
     if name:
         return name
     words = shlex.split(value or "")
+    while words and re.match(r"[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words = words[1:]
     return os.path.basename(words[0]) if words else None
 
 
