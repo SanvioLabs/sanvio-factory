@@ -164,6 +164,8 @@
                      undercounts what everyone spent. It's an estimate at API prices, not a bill. With
                      work_by_type missing it is {"value": null, "why": ...} with work_by_type's why. It
                      prints no title, login, path or address
+    last_send        the last usage bundle send_usage.py sent from here: date, mode (general or detailed)
+                     and days_since. Why values: "not sent yet" and "unreadable"
     last_review      the last monthly log review, from .sanvio/usage/last-review, which
                      usage_report.py --review writes: date, YYYY-MM-DD, and days_since, the days from
                      it to today. Why values: "no review yet" when there's no file, and "unreadable"
@@ -233,6 +235,7 @@ STAGE_STEPS = ("SHAPE", "BUILD", "VALIDATE", "SCALE")  # the loop's steps stage_
 STAGE_PR_FIELDS = "number,headRefName,author,createdAt,mergedAt,reviews"
 SLOWEST_AT = 3  # how many a stage's median needs behind it before it can be named slowest
 LAST_REVIEW = Path("usage") / "last-review"  # under names.state_dir(), written by usage_report.py --review
+LAST_SEND = Path("usage") / "last-send"  # under names.state_dir(), written by send_usage.py
 
 
 def missing(why):
@@ -1086,6 +1089,20 @@ def last_review(root, today):
     return {"date": found, "days_since": (today - datetime.date.fromisoformat(found)).days}
 
 
+def last_send(root, today):
+    """{date, mode, days_since} from .sanvio/usage/last-send, which send_usage.py writes after a bundle goes."""
+    try:
+        found = json.loads((names.state_dir(root) / LAST_SEND).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return missing("not sent yet")
+    except (OSError, ValueError):
+        return missing("unreadable")
+    day = iso_date(found.get("date")) if isinstance(found, dict) else None
+    if day is None or found.get("mode") not in ("general", "detailed"):
+        return missing("unreadable")
+    return {"date": day, "mode": found["mode"], "days_since": (today - datetime.date.fromisoformat(day)).days}
+
+
 def billed(value):
     """value as a float when it's a finite, non-negative number that isn't a bool, else None."""
     found = number(value)
@@ -1185,7 +1202,8 @@ def build(root, since, today, now=None, projects_dir=TRANSCRIPTS):
             "loop_history": history,
             "work_by_type": work,
             "all_in": all_in(work, spent_by_loop, talk, root),
-            "last_review": last_review(root, today)}
+            "last_review": last_review(root, today),
+            "last_send": last_send(root, today)}
 
 
 def main(argv=None, root=ROOT, projects_dir=TRANSCRIPTS):

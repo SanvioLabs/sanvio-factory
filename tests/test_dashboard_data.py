@@ -204,7 +204,8 @@ class Layout(Factory):
         found = json.loads(out)
         self.assertEqual(list(found), ["schema", "generated", "since", "loop_spend", "loop_throughput", "activity",
                                        "evals", "conversations", "bill", "waiting", "loop_rework", "stage_times",
-                                       "loop_history", "work_by_type", "all_in", "last_review"])
+                                       "loop_history", "work_by_type", "all_in", "last_review",
+                                       "last_send"])
         self.assertEqual(found["schema"], 2)
         self.assertEqual(found["since"], SINCE)
         self.assertIsNotNone(datetime.datetime.fromisoformat(found["generated"]).tzinfo)
@@ -947,6 +948,13 @@ class LastReview(Factory):
     def test_a_folder_in_its_place_is_unreadable(self):
         (self.root / ".sanvio" / "usage" / "last-review").mkdir(parents=True)
         self.assertEqual(self.build()["last_review"], {"value": None, "why": "unreadable"})
+
+    def test_the_last_send_has_its_date_mode_and_days_since(self):
+        self.assertEqual(self.build()["last_send"], {"value": None, "why": "not sent yet"})
+        write(self.root, ".sanvio/usage/last-send", json.dumps({"date": "2026-10-25", "mode": "detailed"}))
+        self.assertEqual(self.build()["last_send"], {"date": "2026-10-25", "mode": "detailed", "days_since": 2})
+        write(self.root, ".sanvio/usage/last-send", json.dumps({"date": "2026-10-25", "mode": "everything"}))
+        self.assertEqual(self.build()["last_send"], {"value": None, "why": "unreadable"})
 
     def test_the_docstring_lists_the_section(self):
         self.assertIn("\n    last_review ", dashboard_data.__doc__)
@@ -1795,6 +1803,7 @@ class Sample(GitHarness):
         write(log_path(self.root).parent, log_path(self.root).name, "".join(json.dumps(e) + "\n" for e in events))
         # The last monthly log review, a week before TODAY.
         write(self.root, ".sanvio/usage/last-review", "2026-10-20\n")
+        write(self.root, ".sanvio/usage/last-send", json.dumps({"date": "2026-10-24", "mode": "general"}))
 
         # Each reviewer's saved result reads a folder of cases committed before it was saved. The reviewer's
         # brief is committed again after, so the reviewer is stale with the file that changed and the other fresh.

@@ -44,10 +44,41 @@ project, under the label you give it:
 With no list, no project's runs are in it. `.sanvio/` is gitignored, so the list
 stays on your machine.
 
-Nothing sends it. It stays where you write it. Its shape,
-[`scripts/usage_shape.py`](../../scripts/usage_shape.py), is the only shape any later sender may send:
+It stays where you write it until you send it. Its shape,
+[`scripts/usage_shape.py`](../../scripts/usage_shape.py), is the only shape anything may send:
 anything not in it stays on your machine, and the export refuses to write a
 bundle that isn't in it.
+
+## Sending it
+
+[`scripts/send_usage.py`](../../scripts/send_usage.py) sends a bundle to the store your factory's owner
+runs, and nothing at all until `.sanvio/export.json` names one. This repo
+ships none. The store is a folder (one on this machine, for a store you run
+locally) or a bucket reached through the cloud CLI's named profile:
+
+```json
+{"store": {"kind": "folder", "path": "~/usage-store"}, "node": "my-laptop"}
+```
+
+```
+python3 scripts/export.py --out reports/usage/export.json   # write it, then read it
+python3 scripts/send_usage.py reports/usage/export.json      # send exactly that file
+```
+
+It checks the file against the shape first, refuses a key the shape doesn't
+name, and scrubs every command in a detailed bundle again, sending nothing if
+that would change one. The sprint report offers to send its period's general
+bundle as its last step, and only sends on your yes.
+
+A machine nobody watches, one that runs loops, sets `"auto": true` and runs
+two commands on a schedule: `--auto` sends yesterday's and today's general
+bundles, never detailed, and `--heartbeat` sends whether each of its loops is
+alive and how many issues wait, so a stopped loop shows as stopped rather than
+quiet. A project you haven't listed under `export_projects` shows in a
+heartbeat under a hashed label, with no issue, tokens or budget.
+
+Each send or refusal of a bundle adds one line to your usage log, with the
+mode and the bundle's id, and the factory dashboard says when you last sent.
 
 ## Telling your team
 

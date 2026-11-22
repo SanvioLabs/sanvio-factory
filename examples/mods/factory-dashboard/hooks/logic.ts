@@ -509,13 +509,24 @@ function lastReview(doc: Doc): Line[] {
   return [line(days > REVIEW_DUE ? 'now' : 'quiet', `Last log review: ${day(str(r.date))}, ${days} ${days === 1 ? 'day' : 'days'} ago`)]
 }
 
+// When this machine last sent a usage bundle, send_usage.py (SPEC-004), and in which mode. Nothing before
+// the first send, and nothing from a script that doesn't say.
+function lastSend(doc: Doc): Line[] {
+  if (doc.last_send === undefined || missing(doc.last_send) === 'not sent yet') return []
+  const why = missing(doc.last_send)
+  const r = obj(doc.last_send)
+  const days = num(r?.days_since)
+  if (why || !r || days === null) return [line('quiet', `Last usage sent: ${why ?? "couldn't read it"}`)]
+  return [line('quiet', `Last usage sent: ${day(str(r.date))}, ${str(r.mode)}, ${days} ${days === 1 ? 'day' : 'days'} ago`)]
+}
+
 // What the harness did in the person's sessions, a table each: skills, agents, commands and what the
 // guard refused, then how often it asked, then when the logs were last reviewed. A script that says what
 // each name spent adds its tokens and estimated cost, ? where it has no figure, and what the estimate rests on.
 export function activity(doc: Doc): Section {
   const why = missing(doc.activity)
   const a = obj(doc.activity)
-  if (why || !a) return { key: 'activity', title: 'Activity', lines: [line('quiet', why ?? 'not in this script'), ...lastReview(doc)] }
+  if (why || !a) return { key: 'activity', title: 'Activity', lines: [line('quiet', why ?? 'not in this script'), ...lastReview(doc), ...lastSend(doc)] }
   const tables: Table[] = []
   let estimated = false
   for (const [field, label, spentField] of [['skills', 'Skill', 'skill_spend'], ['agents', 'Agent', 'agent_spend'], ['commands', 'Command', 'command_spend'], ['guard_refusals', 'Guard refused', null]] as const) {
@@ -533,7 +544,7 @@ export function activity(doc: Doc): Section {
   const n = num(a.asks) ?? 0
   const out = [...(estimated ? estimate(a) : []), line('quiet', `Guard asked ${n} ${n === 1 ? 'time' : 'times'}, since ${day(str(doc.since))}`)]
   if (!tables.length) out.unshift(line('quiet', 'Nothing used yet'))
-  return { key: 'activity', title: 'Activity', lines: [...out, ...lastReview(doc)], tables }
+  return { key: 'activity', title: 'Activity', lines: [...out, ...lastReview(doc), ...lastSend(doc)], tables }
 }
 
 // The sections in the pane's order: what needs the person first.
