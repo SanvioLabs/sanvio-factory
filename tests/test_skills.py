@@ -1125,6 +1125,33 @@ class FactoryTrendsRename(unittest.TestCase):
                 self.assertEqual(path.read_text(errors="replace").count(old), 0, (name, old))
 
 
+class FactoryTrendsSend(unittest.TestCase):
+    """SPEC-004 REQ-018: the sprint run's last step offers to send the period's general bundle, only with a
+    store, shows it first, and sends only on a yes."""
+
+    SKILL = ROOT / "skills" / "factory-trends" / "SKILL.md"
+
+    def step(self):
+        text = self.SKILL.read_text()
+        start = text.index("8. **Offer to send the period's numbers")
+        return text[start:text.index("### Daily run")]
+
+    def test_it_comes_after_the_report_is_written_and_read(self):
+        text = self.SKILL.read_text()
+        self.assertLess(text.index("5. **Write the report**"), text.index("8. **Offer to send"))
+        self.assertLess(text.index("6. **Have them read it.**"), text.index("8. **Offer to send"))
+
+    def test_it_needs_a_store_shows_the_bundle_and_sends_only_on_a_yes(self):
+        step = self.step()
+        self.assertIn("names no `store`", step)
+        self.assertIn("python3 scripts/export.py --since <YYYY-MM-DD> --out reports/usage/export.json", step)
+        self.assertIn("Only on a yes", step)
+        self.assertIn("python3 scripts/send_usage.py reports/usage/export.json", step)
+        self.assertIn("Never send detailed mode from here", step)
+        self.assertNotIn("--mode detailed", step)
+        self.assertNotIn("--auto", step)
+
+
 class FactoryTrendsDaily(unittest.TestCase):
     """factory-trends has a daily run that recommends one change and, with a yes, proposes it to pulse."""
 

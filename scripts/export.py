@@ -8,7 +8,7 @@
 The bundle is format v2 (SPEC-004), checked against scripts/usage_shape.py before it's written. It holds:
 
 - `v`, `kind`, `mode`: the format version, "bundle", and "general" or "detailed"
-- `exported`, `since`, `period`: today's date, the first day counted, and both as first and last
+- `exported`, `since`, `period`: today's date, the first day counted, and the first and last days counted
 - `user`: the same cleaned name your usage log's filename uses, so no new identifier
 - `node`: the `node` in .sanvio/export.json, else this machine's host name
 - `factory`: this repo's commit, read from .git without running git, and the date of CHANGELOG.md's top entry
@@ -77,8 +77,9 @@ def listed_projects(cfg):
             if isinstance(folder, str) and folder and "/" not in folder and isinstance(label, str) and label}
 
 
-def history_lines(path, since):
-    """The JSON object lines of one history file that ended on or after `since`. Unreadable lines are skipped."""
+def history_lines(path, since, last=None):
+    """The JSON object lines of one history file that ended from `since` to `last`, both days included, or
+    with no `last`, on or after `since`. Unreadable lines are skipped."""
     try:
         text = Path(path).read_text(encoding="utf-8")
     except OSError:
@@ -89,19 +90,20 @@ def history_lines(path, since):
             line = json.loads(raw)
         except ValueError:
             continue
-        if isinstance(line, dict) and str(line.get("ended", ""))[:10] >= since:
+        day = str(line.get("ended", ""))[:10] if isinstance(line, dict) else ""
+        if day >= since and (last is None or day <= last):
             out.append(line)
     return out
 
 
-def loop_runs(root, since, projects=None):
+def loop_runs(root, since, projects=None, last=None):
     """The factory's own runs since `since`, then each listed project's from .loop/projects/<folder>/, with
     its project set to the label it's listed under. A line tagged with any other project is dropped."""
     runs = [{key: line.get(key) for key in LOOP_KEYS}
-            for line in history_lines(Path(root) / ".loop" / "history.jsonl", since)
+            for line in history_lines(Path(root) / ".loop" / "history.jsonl", since, last)
             if line.get("project") is None]
     for folder, label in sorted((projects or {}).items()):
-        for line in history_lines(Path(root) / ".loop" / "projects" / folder / "history.jsonl", since):
+        for line in history_lines(Path(root) / ".loop" / "projects" / folder / "history.jsonl", since, last):
             if line.get("project") == folder:
                 runs.append(dict({key: line.get(key) for key in LOOP_KEYS}, project=label))
     return runs
@@ -216,8 +218,13 @@ def by_tool(lines, kind):
     return Counter(l.get("tool") or l.get("rule", "") for l in lines if l.get("event") == kind)
 
 
-def usage_counts(root, since):
-    lines = usage_report.read(log_path(root), since)
+def until(lines, last):
+    """The log lines whose day is `last` or earlier; all of them with no `last`."""
+    return lines if last is None else [l for l in lines if str(l.get("ts", ""))[:10] <= last]
+
+
+def usage_counts(root, since, last=None):
+    lines = until(usage_report.read(log_path(root), since), last)
     return {"sessions": len({l.get("session") for l in lines if l.get("session")}),
             "skills": dict(usage_report.count(lines, "skill", "name")),
             "agents": dict(usage_report.count(lines, "agent", "name")),
@@ -231,15 +238,17 @@ def usage_counts(root, since):
 COMMAND_KEYS = tuple(usage_shape.COMMAND.keys)
 
 
-def commands_since(root, since):
-    """Detailed mode's command lines since `since`, each rebuilt from the shape's keys and nothing else."""
+def commands_since(root, since, last=None):
+    """Detailed mode's command lines from `since` to `last`, each rebuilt from the shape's keys and nothing else."""
     return [{key: line.get(key) for key in COMMAND_KEYS}
-            for line in usage_report.read(usage_log.commands_path(root), since)]
+            for line in until(usage_report.read(usage_log.commands_path(root), since), last)]
 
 
-def bundle(root, since, today, mode="general"):
-    """A v2 bundle, general or detailed. Raises ValueError, naming each problem, if it isn't in usage_shape's
-    shape, and for a detailed one with no live opt-in."""
+def bundle(root, since, today, mode="general", last=None):
+    """A v2 bundle, general or detailed, of the days from `since` to `last` (today when it's None), written
+    today. Raises ValueError, naming each problem, if it isn't in usage_shape's shape, and for a detailed one
+    with no live opt-in."""
+    last = last or today
     cfg = config(root)
     projects = listed_projects(cfg)
     user, node = log_path(root).stem, node_name(cfg)
@@ -248,13 +257,13 @@ def bundle(root, since, today, mode="general"):
         if usage_log.detailed_until(root, now) is None:
             raise ValueError("detailed mode isn't on; python3 scripts/send_usage.py --opt-in detailed turns it on")
     found = {"v": usage_shape.V, "kind": "bundle", "mode": mode, "exported": today, "since": since,
-             "period": {"first": since, "last": today}, "user": user, "node": node,
+             "period": {"first": since, "last": last}, "user": user, "node": node,
              "factory": {"commit": head_commit(root), "changelog": changelog_day(root)},
              "loop_config": loop_config(root, projects), "chain_head": chain_head(root),
-             "bundle_id": hashlib.sha256("|".join((user, node, mode, since, today)).encode("utf-8")).hexdigest(),
-             "loop": loop_runs(root, since, projects), "usage": usage_counts(root, since)}
+             "bundle_id": hashlib.sha256("|".join((user, node, mode, since, last)).encode("utf-8")).hexdigest(),
+             "loop": loop_runs(root, since, projects, last), "usage": usage_counts(root, since, last)}
     if mode == "detailed":
-        found["commands"] = commands_since(root, since)
+        found["commands"] = commands_since(root, since, last)
     problems = usage_shape.problems(found)
     if problems:
         raise ValueError("the bundle isn't in the v2 shape: " + "; ".join(problems[:10]))

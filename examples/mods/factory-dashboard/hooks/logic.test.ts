@@ -590,6 +590,13 @@ group('activity', () => {
     expect(activity(DOC).lines).toEqual(activity(reviewed(undefined)).lines)
     expect(text(activity(DOC).lines)).not.toContain('log review')
   })
+  test('after the review, the last usage send with its mode, and nothing before the first', () => {
+    const sent = (last_send: unknown): Doc => ({ ...DOC, last_review: { date: '2026-10-20', days_since: 7 }, last_send })
+    expect(last(sent({ date: '2026-10-25', mode: 'general', days_since: 2 }))).toEqual({ tone: 'quiet', text: 'Last usage sent: Oct 25, general, 2 days ago' })
+    expect(last(sent({ value: null, why: 'not sent yet' }))?.text).toBe('Last log review: Oct 20, 7 days ago')
+    expect(last(sent({ value: null, why: 'unreadable' }))?.text).toBe('Last usage sent: unreadable')
+    expect(last(sent(undefined))?.text).toBe('Last log review: Oct 20, 7 days ago')
+  })
   test('the line still shows when the activity itself is missing', () => {
     const lines = activity(reviewed({ date: '2026-10-20', days_since: 7 }, { activity: { value: null, why: 'no usage log' } })).lines
     expect(lines).toEqual([{ tone: 'quiet', text: 'no usage log' }, { tone: 'quiet', text: 'Last log review: Oct 20, 7 days ago' }])
