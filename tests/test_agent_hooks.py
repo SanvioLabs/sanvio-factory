@@ -341,6 +341,46 @@ class TheMachinesFile(unittest.TestCase):
             self.assertIsNone(call("Write", file_path="examples/mods/factory-floor/machines.example.json", content="{}"))
             self.assertIsNone(call("Bash", command="cp examples/mods/factory-floor/machines.example.json /tmp/m.json"))
 
+class TheUsageSettings(unittest.TestCase):
+    """SPEC-004 SEC-004 and PRIV-002: the export settings and the detailed opt-in are the person's. A change
+    asks them, and where nobody can answer it's refused. The opt-in and commands files are read-only logs."""
+
+    PERSON = {"SANVIO_UNATTENDED": "", "SANVIO_HEADLESS": "", "HARNESS_HEADLESS": ""}
+    WRITES = [("Write", {"file_path": ".sanvio/export.json", "content": "{}"}),
+              ("Edit", {"file_path": "/repo/.sanvio/export.json", "old_string": "a", "new_string": "b"})]
+    COMMANDS = ["echo '{}' > .sanvio/export.json", "cp /tmp/x.json .sanvio/export.json",
+                "rm .sanvio/export.json", "python3 scripts/send_usage.py --opt-in detailed",
+                "cd /repo && python3 scripts/send_usage.py --opt-in detailed"]
+    READS = ["cat .sanvio/export.json", "python3 scripts/send_usage.py --opt-out",
+             "python3 scripts/export.py --mode detailed"]
+
+    def test_a_person_is_asked(self):
+        with mock.patch.dict(os.environ, self.PERSON):
+            for tool, tool_input in self.WRITES:
+                self.assertEqual(call(tool, **tool_input)[0], "ask", tool_input)
+            for command in self.COMMANDS:
+                self.assertEqual((call("Bash", command=command) or (None,))[0], "ask", command)
+
+    def test_a_loop_agent_is_refused(self):
+        with mock.patch.dict(os.environ, {"SANVIO_UNATTENDED": "1"}):
+            for tool, tool_input in self.WRITES:
+                self.assertEqual(call(tool, **tool_input)[0], "deny", tool_input)
+            for command in self.COMMANDS:
+                self.assertEqual((call("Bash", command=command) or (None,))[0], "deny", command)
+
+    def test_reading_and_opting_out_are_fine(self):
+        with mock.patch.dict(os.environ, self.PERSON):
+            self.assertIsNone(call("Read", file_path=".sanvio/export.json"))
+            for command in self.READS:
+                self.assertIsNone(call("Bash", command=command), command)
+
+    def test_the_opt_in_and_commands_files_are_logs_no_agent_changes(self):
+        with mock.patch.dict(os.environ, self.PERSON):
+            for path in (".sanvio/usage/me.detailed", ".sanvio/usage/me.commands.jsonl"):
+                self.assertEqual(call("Write", file_path=path, content="{}")[0], "deny", path)
+                self.assertEqual(call("Bash", command="rm " + path)[0], "deny", path)
+
+
 def deny_rule_matches(rule, path):
     """Whether a permissions rule's path pattern matches a path from the repo root, the gitignore way Claude
     Code reads it: **/ any folders or none, /** everything below, * within one name."""
@@ -1102,6 +1142,24 @@ class SessionStart(unittest.TestCase):
         self.assertTrue(message.startswith("[setup] hooks: core.hooksPath is not set"), message)
         self.assertTrue(message.endswith(self.LOG_OFF), message)
         self.assertIn("git config core.hooksPath .githooks", payload["hookSpecificOutput"]["additionalContext"])
+
+    def test_notes_come_after_the_log_off_each_on_its_own_line(self):
+        payload = session_start.report([("PASS", "python 3.12", None)], log_off=True, notes=["one", "two"])
+        self.assertEqual(payload["systemMessage"].splitlines(), ["[usage] " + self.LOG_OFF, "[usage] one",
+                                                                 "[usage] two"])
+
+    def test_detailed_mode_is_said_while_on_and_once_when_it_ends(self):
+        import usage_log
+        person = {"SANVIO_HEADLESS": "", "HARNESS_HEADLESS": "", "SANVIO_USAGE_LOG": "", "HARNESS_USAGE_LOG": ""}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, person):
+            root = Path(tmp)
+            self.assertEqual(session_start.detailed_notes(root), [])
+            until = usage_log.opt_in(root)
+            self.assertEqual(session_start.detailed_notes(root), [session_start.DETAILED_ON.format(until)])
+            usage_log.detailed_path(root).write_text(json.dumps({"until": "2020-01-01"}))
+            self.assertEqual(session_start.detailed_notes(root), [session_start.DETAILED_ENDED.format(" on 2020-01-01")])
+            self.assertFalse(usage_log.detailed_path(root).exists())
+            self.assertEqual(session_start.detailed_notes(root), [])
 
     def test_an_old_state_folder_is_moved_and_said_once(self):
         with tempfile.TemporaryDirectory() as tmp:

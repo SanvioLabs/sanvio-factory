@@ -5,7 +5,8 @@ Wired in .claude/settings.json as a SessionStart hook. Runs the same checks as
 scripts/check_setup.py and stays silent when everything passes. When something
 fails or needs a decision, it tells the person in one line and gives the agent
 the detail, so the first reply can mention it. With the usage log switched off
-(SANVIO_USAGE_LOG=off) it says so in one more line, everything else passing or not.
+(SANVIO_USAGE_LOG=off) it says so in one more line, everything else passing or not. It does the same while
+detailed mode is on, with its end date, and once on the day it ends, which it ends here (SPEC-004 REQ-008).
 
 The failure it exists for: a pre-commit hook that never runs because one git
 config line was unset, and nothing ever says so.
@@ -23,21 +24,26 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 LOG_OFF = ("The usage log is off for this session; unset SANVIO_USAGE_LOG and start a new session "
            "to turn it back on.")
+DETAILED_ON = ("Detailed mode is on until {}: the shell commands this session runs are recorded, scrubbed, for "
+               "your next usage bundle. python3 scripts/send_usage.py --opt-out turns it off.")
+DETAILED_ENDED = ("Detailed mode ended{}, so shell commands are no longer recorded. "
+                  "python3 scripts/send_usage.py --opt-in detailed turns it on again.")
 
 
-def report(results, log_off=False):
+def report(results, log_off=False, notes=()):
     """The hook's JSON for these check results, or None when there's nothing to say. With log_off, the
-    usage log's being off is said after any setup line."""
+    usage log's being off is said after any setup line, and then each of notes, each as its own line."""
+    usage = ([LOG_OFF] if log_off else []) + list(notes)
     open_items = [(status, line, fix) for status, line, fix in results if status != "PASS"]
     if not open_items:
-        return {"systemMessage": "[usage] " + LOG_OFF} if log_off else None
+        return {"systemMessage": "\n".join("[usage] " + note for note in usage)} if usage else None
     failed = [line for status, line, _ in open_items if status == "FAIL"]
     headline = failed[0] if failed else open_items[0][1]
     more = len(open_items) - 1
     message = "[setup] {}{}. Run /orientation or python3 scripts/check_setup.py".format(
         headline, " (+{} more)".format(more) if more else "")
-    if log_off:
-        message += "\n[usage] " + LOG_OFF
+    for note in usage:
+        message += "\n[usage] " + note
     detail = "\n".join("{} {}{}".format(status, line, "\n  {}: {}".format(
         "fix" if status == "FAIL" else "note", fix) if fix else "") for status, line, fix in open_items)
     return {
@@ -60,7 +66,21 @@ def startup(root):
     results = check_setup.run(root)
     if moved and not moved.startswith("both "):  # check_old_names already names both folders
         results.insert(0, ("WARN", "names: " + moved, None))  # a move is said once: the next session has none
-    return report(results, log_off=names.logging_off())
+    return report(results, log_off=names.logging_off(), notes=detailed_notes(root))
+
+
+def detailed_notes(root):
+    """What to say about detailed mode: that it ended, which this ends, or that it's on and until when. Nothing
+    in a headless run, which never records commands."""
+    import names
+    import usage_log
+    ended = usage_log.expire(root)
+    if names.headless():
+        return []
+    if ended is not None:
+        return [DETAILED_ENDED.format(" on " + ended if ended else "")]
+    until = usage_log.detailed_until(root)
+    return [DETAILED_ON.format(until)] if until else []
 
 
 def main():
