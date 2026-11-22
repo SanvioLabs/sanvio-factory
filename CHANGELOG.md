@@ -54,6 +54,30 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-21: A strict command can't plant git config the loop's git reads
+
+Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can no longer write `commondir`, `gitdir`, `config`, `config.worktree` or `hooks/` in git's folder for their worktree, or the worktree's `.git` file, and can't rename that folder aside. The index, `HEAD`, `logs/` and `refs/` there stay writable, so their own git still works. The loop's own git in such a worktree, the factory's own loop included, now finds that folder from the clone's side and runs with no hooks, no fsmonitor and no replace refs. Where the `.git` file names any other folder, `commondir` names anything but the clone's `.git`, or a folder under the loop's checkouts isn't a worktree the clone links back to, it runs no git there and the step fails. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-21: A strict sandbox for one project's commands; 2026-11-21: sandbox_strict stops the loop where the sandbox can't start; 2026-11-18: A caller's checkout can't change what the loop's own git runs
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** Nothing, unless a strict project's own commits relied on its git hooks: the loop's commits there now skip them.
+
+## 2026-11-21: Usage export review fixes
+
+What the independent review of [SPEC-004](docs/specs/004-usage-export/SPEC.md) found, fixed. **No agent changes `.sanvio/export.json` any more, yours included**: the guard used to ask you, and now refuses, as the spec says, including the ways round it (`cd .sanvio` then `export.json`, `tee`, a `python3 -c` write), so you edit it yourself. Each send now says which store it went to. `send_usage.py` takes no abbreviated flags, so `--opt-i` can't slip past the guard's opt-in check. The scrubber now catches quoted flag values, slash-bearing secret keys, `curl -u`, `mysql -p`, `sshpass -p`, `configure set` on a secret's name, API-key, token and cookie headers, and `*_PASS` assignments, drops a command naming `clients` or `projects` in any case, and never cuts inside a `[redacted]`. The bundle's shape is tighter: a node or user is letters, digits and `._-` (a node called "Pat's Mac" becomes `Pat_s_Mac` everywhere, so the store no longer rejects it), dates are real dates, times are UTC, and a skill or rule name outside a short set is counted as `other`. Bundles are dated in UTC, like the log. An unlisted project's heartbeat label is salted per machine. A headless session no longer swallows the "detailed mode ended" notice. In the store, a day two bundles cover is counted once, a third alert fires for a loop that stopped on a machine still sending heartbeats, DuckDB can read the store and nothing else, the Grafana image carries DuckDB's S3 extensions instead of fetching them, and the validator rejects oversized objects. The cloud Terraform refuses a general bundle under the detailed key, lets only the owner and the validator decrypt, stops a person setting another node's tag, and turns off Grafana's basic and built-in admin sign-in; its README says how to revoke a node and to re-apply after a shape change, that it hasn't been run against a real account yet, and which checks the first deployment runs. CI now runs the store's SQL tests with DuckDB, and Dependabot watches the store's image and providers.
+
+**Needs:** 2026-11-21: The usage store in the docs
+
+**Controls:** AC-5, AU-9
+
+Files: [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`scripts/usage_scrub.py`](scripts/usage_scrub.py), [`scripts/usage_shape.py`](scripts/usage_shape.py), [`scripts/export.py`](scripts/export.py), [`scripts/send_usage.py`](scripts/send_usage.py), [`scripts/loop.py`](scripts/loop.py), [`examples/usage-store/`](examples/usage-store/), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/dependabot.yml`](.github/dependabot.yml), [`tests/test_usage_scrub.py`](tests/test_usage_scrub.py), [`tests/test_send_usage.py`](tests/test_send_usage.py), [`tests/test_usage_store.py`](tests/test_usage_store.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_export.py`](tests/test_export.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`docs/specs/004-usage-export/TASKS.md`](docs/specs/004-usage-export/TASKS.md), `CHANGELOG.md`.
+
+**Do:** change `.sanvio/export.json` yourself from now on; an agent can't. If you run the usage store, rebuild its image (`docker compose -f local/compose.yaml up -d --build`), and in the cloud re-apply its Terraform.
+
 ## 2026-11-21: The usage store in the docs
 
 The last step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). [`steering/data-and-tools.md`](steering/data-and-tools.md) now says the usage store keeps the same 90 days as the local logs, that anyone can ask the owner to delete everything under their own prefix sooner and the owner does it without asking why, and that the store sits in a system the owner has approved for the team's data. [`reports/usage/README.md`](reports/usage/README.md) gives the cron lines for an unattended machine's heartbeat and daily sends. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) and [`README.md`](README.md) say where the numbers can go.

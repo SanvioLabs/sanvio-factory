@@ -111,12 +111,16 @@ MACHINES_UNATTENDED = ("{} holds factory-floor's list of other machines, which c
 EXPORT_NAME = r"\.sanvio/export\.json(?=$|[\s'\";|&>)])"
 EXPORT_FILE = re.compile(r"(?:^|(?<=[/\s'\"=<:]))" + EXPORT_NAME)
 EXPORT_REDIRECT = re.compile(r">>?\|?\s*['\"]?(?:[^\s'\";|&>]*/)?" + EXPORT_NAME)
-EXPORT_IS_THE_PERSONS = ("{} chooses where this machine's usage is sent and which projects' numbers go with it. "
-                         "Say yes only if you asked for this change.")
-EXPORT_UNATTENDED = ("{} chooses where this machine's usage is sent. Nobody is here to approve a change to it, "
-                     "so it's refused.")
+# Refused for every agent, a person's included (SPEC-004 SEC-004): the person edits it themselves.
+EXPORT_REFUSED = ("{} chooses where this machine's usage is sent and which projects' numbers go with it, so no "
+                  "agent changes it. Edit it yourself, in your editor, if it needs to change.")
+# A command that names .sanvio and export.json apart (cd .sanvio && ... > export.json) and writes something.
+EXPORT_SPLIT = re.compile(r"\.sanvio\b.*\bexport\.json\b|\bexport\.json\b.*\.sanvio\b", re.S)
+WRITES_SOMETHING = re.compile(r">|\b(?:tee|mv|cp|rm|ln|dd|truncate|install|rsync)\b|\bsed\s+(?:-\w*\s+)*-i|"
+                              r"\b(?:python3?|perl|ruby|node|awk)\b")
 # Turning on detailed mode, which records the shell commands a person's sessions run. Only they turn it on.
-OPT_IN = re.compile(r"\bsend_usage\.py\b[^;|&]*--opt-in\b")
+# --opt-i is matched too: argparse would take it for --opt-in, though send_usage.py now refuses abbreviations.
+OPT_IN = re.compile(r"\bsend_usage\.py\b[^;|&]*--opt-in?\b|\bopt_in\s*\(")
 OPT_IN_IS_THE_PERSONS = ("That command turns on detailed mode, which records the shell commands your sessions "
                          "run, scrubbed, for your usage bundle. Say yes only if you want that.")
 OPT_IN_UNATTENDED = ("That command turns on detailed mode, which only a person turns on for themselves, and "
@@ -142,8 +146,14 @@ def machines_write(command):
 
 
 def export_write(command):
-    """The usage export settings, if a shell command writes to, moves or deletes them, else None."""
-    return file_write(command, EXPORT_FILE, EXPORT_REDIRECT)
+    """The usage export settings, if a shell command writes to, moves or deletes them, else None. A command
+    that names .sanvio and export.json apart and writes anything counts too: it's the likely way round."""
+    found = file_write(command, EXPORT_FILE, EXPORT_REDIRECT)
+    if found:
+        return found
+    if EXPORT_SPLIT.search(command) and WRITES_SOMETHING.search(command):
+        return ".sanvio/export.json"
+    return None
 
 
 def file_write(command, file_pattern, redirect_pattern):
@@ -922,8 +932,7 @@ def decide(event, held=None):
         if path and MACHINES_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
             return machines_verdict(path, headless, event.get("cwd"))
         if path and EXPORT_FILE.search(os.path.normpath(path).replace(os.sep, "/")):
-            return persons_verdict(headless, event.get("cwd"), EXPORT_IS_THE_PERSONS.format(path),
-                                   EXPORT_UNATTENDED.format(path))
+            return ("deny", EXPORT_REFUSED.format(path))
         if path and MARKER_NAME.search(os.path.basename(os.path.normpath(path))):
             return marker_verdict(path, headless, event.get("cwd"))
 
@@ -967,8 +976,7 @@ def decide(event, held=None):
             return machines_verdict(changed, headless, event.get("cwd"))
         changed = export_write(command)
         if changed:
-            return persons_verdict(headless, event.get("cwd"), EXPORT_IS_THE_PERSONS.format(changed),
-                                   EXPORT_UNATTENDED.format(changed))
+            return ("deny", EXPORT_REFUSED.format(changed))
         if OPT_IN.search(command):
             return persons_verdict(headless, event.get("cwd"), OPT_IN_IS_THE_PERSONS, OPT_IN_UNATTENDED)
         if MARKER_NAME.search(command):

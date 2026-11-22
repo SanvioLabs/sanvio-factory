@@ -5873,6 +5873,28 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertEqual(lines[3:3 + len(rules)], rules)
                 self.assertEqual(lines[3 + len(rules):], plain[1:])
 
+    def test_on_each_held_path_is_denied_after_every_write_allow_and_off_it_changes_nothing(self):
+        home, root, tree = self.root / "home", self.root / "factory", self.root / "tree"
+        git_dir = root / ".git" / "worktrees" / "tree"
+        held = [git_dir / name for name in ("commondir", "gitdir", "config", "config.worktree", "hooks")]
+        held.append(tree / ".git")
+        lines = loop.sandbox_profile(home, root, {}, strict=True, writable=[tree, git_dir], network="none",
+                                     held=held, held_folders=[git_dir]).splitlines()
+        last_allow = max(i for i, l in enumerate(lines) if l.startswith("(allow file-write*"))
+        network = lines.index("(deny network-outbound)")
+        rules = ['(deny file-write* (subpath "{}"))'.format(loop.sbpl(path.resolve())) for path in held]
+        rules.append('(deny file-write-unlink (literal "{}"))'.format(loop.sbpl(git_dir.resolve())))
+        for rule in rules:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, lines)
+                self.assertGreater(lines.index(rule), last_allow)
+                self.assertLess(lines.index(rule), network)
+        # Off, they change nothing: byte for byte the profile TestCallerSandbox pins.
+        self.assertEqual(loop.sandbox_profile("/nowhere-639/home", "/nowhere-639/home/work/factory", {}, strict=False,
+                                              writable=["/nowhere-639/w"], network="none",
+                                              held=["/nowhere-639/w/.git", "/nowhere-639/g/config"],
+                                              held_folders=["/nowhere-639/g"]), NON_CALLER_PROFILE)
+
     # -- what own_command runs -------------------------------------------------
 
     def test_own_command_under_strict_writes_its_worktree_temp_and_git_folder_and_what_the_lists_let(self):
@@ -5889,10 +5911,18 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertTrue(scratch.name.startswith("sanvio-strict-"), scratch)
                 self.assertTrue(seen["existed"])
                 self.assertFalse(scratch.exists())
+                held = [git_dir / name for name in ("commondir", "gitdir", "config", "config.worktree", "hooks")]
+                held.append(tree / ".git")
                 expected = loop.sandbox_profile(Path.home(), factory, allow=allow, strict=True,
                                                 writable=[tree, str(scratch), git_dir] + more,
-                                                network=cfg.get("sandbox_network", "any"))
+                                                network=cfg.get("sandbox_network", "any"), held=held,
+                                                held_folders=[git_dir])
                 self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p", expected, "/bin/sh", "-c", "true"])
+                # #714: what the loop's own git reads in git's folder, and the folder itself, are held.
+                for path in held:
+                    self.assertIn('(deny file-write* (subpath "{}"))'.format(loop.sbpl(path.resolve())), expected)
+                self.assertIn('(deny file-write-unlink (literal "{}"))'.format(loop.sbpl(git_dir.resolve())),
+                              expected)
                 self.assertEqual(seen["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
                 self.assertNotIn("held", seen["kwargs"])
 
@@ -5945,6 +5975,137 @@ class TestSandboxStrict(unittest.TestCase):
             profiles.append(seen["cmd"][2].replace(loop.sbpl(scratch.resolve()), "SCRATCH"))
         self.assertEqual(profiles[0], profiles[1])
         self.assertNotIn("(deny network-outbound)", profiles[1])
+
+    # -- the loop's own git in a strict project's worktrees (#714) -------------
+
+    def linked_by_hand(self, project=True, **cfg):
+        """(a Loop, its worktree where the loop keeps checkouts, git's folder for it in the clone), the clone's
+        folder linking back to the worktree and the worktree's .git naming it, written by hand as git would.
+        With project False, the factory's own loop, whose clone is the factory."""
+        factory, own, _ = self.factory_project()
+        trees = self.root / "trees"
+        clone, tree = (own, trees / "app" / "issue-3") if project else (factory, trees / "issue-3")
+        folder = clone / ".git" / "worktrees" / "issue-3"
+        for made in (tree, folder):
+            made.mkdir(parents=True)
+        (folder / "gitdir").write_text(str(tree / ".git") + "\n")
+        (folder / "commondir").write_text("../..\n")
+        (tree / ".git").write_text("gitdir: {}\n".format(folder))
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, worktree_dir=str(trees), **cfg), project=own if project else None)
+        return lp, tree, folder.resolve()
+
+    def git_ran(self, lp, cwd, *args):
+        """(code, output, [(argv, env)] for each subprocess.run, none of which really runs) for the loop's git."""
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append((cmd, kwargs.get("env")))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(loop.subprocess, "run", run):
+            code, out = lp.git(*args, cwd=cwd)
+        return code, out, calls
+
+    def test_under_strict_the_loops_git_in_a_worktree_finds_its_folder_from_the_clone_with_no_hooks(self):
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        (tree / "sub").mkdir()
+        relative = os.path.relpath(str(folder), os.path.realpath(str(tree)))
+        for named, cwd in ((str(folder), tree), (str(folder), tree / "sub"), (relative, tree)):
+            with self.subTest(named=named, cwd=cwd):
+                (tree / ".git").write_text("gitdir: {}\n".format(named))
+                code, out, calls = self.git_ran(lp, cwd, "status", "--porcelain")
+                self.assertEqual(code, 0, out)
+                self.assertEqual(len(calls), 1)
+                cmd, env = calls[0]
+                self.assertEqual(cmd, ["git", *loop.CALLER_GIT_SAFE, "status", "--porcelain"])
+                self.assertEqual(env["GIT_DIR"], str(folder))
+                self.assertEqual(env["GIT_WORK_TREE"], os.path.realpath(str(tree)))
+
+    def test_under_strict_the_factorys_own_loop_gets_the_same(self):
+        lp, tree, folder = self.linked_by_hand(project=False, sandbox_strict=True)
+        code, out, calls = self.git_ran(lp, tree, "status")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls[0][0], ["git", *loop.CALLER_GIT_SAFE, "status"])
+        self.assertEqual(calls[0][1]["GIT_DIR"], str(folder))
+
+    def test_under_strict_a_git_file_naming_another_folder_runs_no_git(self):
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        other = self.root / "other-repo"
+        top = os.path.realpath(str(tree))
+        for text, named in (("gitdir: {}\n".format(other), str(other)), (None, "nothing readable"),
+                            ("", "nothing readable"), ("not a gitdir line\n", "'not a gitdir line'")):
+            with self.subTest(text=text):
+                git_file = tree / ".git"
+                if text is None:
+                    git_file.unlink()
+                else:
+                    git_file.write_text(text)
+                code, out, calls = self.git_ran(lp, tree, "add", "-A")
+                self.assertEqual(code, 1)
+                self.assertEqual(out, "refused: {}/.git names {}, not the clone's own folder for this worktree ({}), "
+                                      "so the loop runs no git there".format(top, named, folder))
+                self.assertEqual(calls, [])
+
+    def test_under_strict_a_commondir_naming_another_folder_runs_no_git(self):
+        # A link made in the worktree could rewrite it whatever the sandbox holds.
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        clone_git = os.path.realpath(str(lp.repo / ".git"))
+        other = self.root / "other-repo"
+        for text, named in ((str(other) + "\n", str(other)), (None, "nothing readable"), ("", "nothing readable")):
+            with self.subTest(text=text):
+                if text is None:
+                    (folder / "commondir").unlink()
+                else:
+                    (folder / "commondir").write_text(text)
+                code, out, calls = self.git_ran(lp, tree, "commit", "-q", "-m", "x")
+                self.assertEqual(code, 1)
+                self.assertEqual(out, "refused: {}/commondir names {}, not the clone's own .git ({}), so the loop "
+                                      "runs no git there".format(folder, named, clone_git))
+                self.assertEqual(calls, [])
+        # Absolute, naming the clone's own .git, is fine.
+        (folder / "commondir").write_text(clone_git + "\n")
+        self.assertEqual(self.git_ran(lp, tree, "status")[0], 0)
+
+    def test_under_strict_a_folder_under_the_checkouts_the_clone_doesnt_link_is_refused(self):
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        stray = tree.parent / "issue-99"
+        stray.mkdir()
+        (stray / ".git").write_text("gitdir: {}\n".format(folder))
+        code, out, calls = self.git_ran(lp, stray, "status")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "refused: {} is under the loop's checkouts but isn't a worktree the clone links back to, "
+                              "so the loop runs no git there".format(stray))
+        self.assertEqual(calls, [])
+
+    def test_under_strict_git_in_the_clone_itself_gets_no_git_dir(self):
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        code, out, calls = self.git_ran(lp, None, "fetch", "-q", "origin")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(calls, [(["git", *loop.CALLER_GIT_SAFE, "fetch", "-q", "origin"], None)])
+
+    def test_off_and_for_a_project_without_it_the_loops_git_runs_as_it_did(self):
+        lp, tree, folder = self.linked_by_hand()
+        self.assertEqual(self.git_ran(lp, tree, "status")[2], [(["git", "status"], None)])
+        # Another project in the same factory, without it, while one has it.
+        factory = lp.root
+        site = factory / "projects" / "site"
+        site.mkdir()
+        (factory / "loop.json").write_text(json.dumps({"projects": {"app": {"sandbox_strict": True}, "site": {}}}))
+        cfg = dict(loop.load_project_config(factory, site), worktree_dir=lp.cfg["worktree_dir"])
+        site_tree = tree.parent.parent / "site" / "issue-3"
+        site_tree.mkdir(parents=True)
+        self.assertEqual(self.git_ran(loop.Loop(factory, cfg, project=site), site_tree, "status")[2],
+                         [(["git", "status"], None)])
+
+    def test_a_callers_git_is_the_same_with_strict_on(self):
+        runs = []
+        for strict in (False, True):
+            lp, tree, folder = self.linked_by_hand(caller=True, sandbox_strict=strict)
+            runs.append(self.git_ran(lp, tree, "status"))
+            shutil.rmtree(str(self.root / "trees"))
+            shutil.rmtree(str(self.root / "factory"))
+        self.assertEqual(runs[0], runs[1])
+        self.assertIn("GIT_DIR", runs[1][2][-1][1])
 
     # -- the log when the loop starts ------------------------------------------
 
@@ -6121,6 +6282,78 @@ class TestSandboxStrict(unittest.TestCase):
             code, out = self.connect(lp, tree, "1.1.1.1", 53)
             self.assertNotEqual(code, 0, out)
             self.assertIn("Operation not permitted", out)
+
+    def strict_worktree(self):
+        """(home, a Loop under sandbox_strict for a real clone, a real worktree of it where the loop keeps
+        checkouts, git's folder for that worktree), from TestSandbox.real_home(). The clone's git runs here with
+        no global or system config, so nothing of this machine's own reaches it."""
+        home, _, plain = self.real_home()
+        clone, trees = plain.root / "projects" / "app", self.root / "trees"
+        clone.mkdir(parents=True)
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        tree = trees / "app" / "issue-3"
+        tree.parent.mkdir(parents=True)
+        (clone / "README.md").write_text("x\n")
+        for args in (["init", "-q"], ["add", "README.md"],
+                     ["-c", "user.name=Loop", "-c", "user.email=loop@example.com", "commit", "-q", "-m", "one"],
+                     ["worktree", "add", "-q", "-b", "loop/issue-3", str(tree)]):
+            subprocess.run(["git", *args], cwd=str(clone), env=env, check=True, capture_output=True)
+        lp = loop.Loop(plain.root, dict(loop.DEFAULTS, sandbox_strict=True, worktree_dir=str(trees)), project=clone)
+        return home, lp, tree, loop.worktree_git_dir(tree, clone)
+
+    def test_on_a_real_mac_a_strict_command_cant_change_what_the_loops_git_reads(self):
+        self.real_sandbox()
+        home, lp, tree, git_dir = self.strict_worktree()
+        self.assertTrue((git_dir / "commondir").is_file() and (git_dir / "gitdir").is_file(), git_dir)
+        before = {name: (git_dir / name).read_bytes() for name in ("commondir", "gitdir")}
+        dot_git = (tree / ".git").read_bytes()
+        gd = shlex.quote(str(git_dir))
+        attempts = []
+        for name in ("commondir", "gitdir"):
+            attempts += ['echo x > {}/{}'.format(gd, name), 'rm -f {}/{}'.format(gd, name),
+                         'mv {0}/{1} {0}/{1}.aside'.format(gd, name), 'mv {0}/{1} aside-{1}'.format(gd, name)]
+        attempts += ['echo x > {}/config.worktree'.format(gd), 'echo x > {}/config'.format(gd),
+                     'printf x > {0}/t && mv {0}/t {0}/config.worktree'.format(gd),
+                     'mkdir -p {0}/hooks && touch {0}/hooks/pre-commit'.format(gd), 'ln -s /tmp {}/hooks'.format(gd),
+                     'echo "gitdir: /tmp/x" > .git', 'rm -f .git', 'mv .git aside-git',
+                     'mv {0} {0}.aside'.format(gd), 'mv {} aside-folder'.format(gd)]
+        with self.at_home(home):
+            for command in attempts:
+                with self.subTest(command=command):
+                    code, out = lp.own_command(command, tree)
+                    self.assertNotEqual(code, 0, out)
+                    self.assertTrue(git_dir.is_dir())
+                    for name, data in before.items():
+                        self.assertEqual((git_dir / name).read_bytes(), data, name)
+                    self.assertEqual((tree / ".git").read_bytes(), dot_git)
+                    for name in ("config", "config.worktree", "hooks"):
+                        self.assertFalse(os.path.lexists(str(git_dir / name)), name)
+            # What its own git writes there still is.
+            code, out = lp.own_command('touch {0}/index {0}/HEAD && mkdir -p {0}/logs {0}/refs/bisect'.format(gd), tree)
+            self.assertEqual(code, 0, out)
+            # And the loop's own git, outside the sandbox, still works in the worktree.
+            code, out = lp.git("status", "--porcelain", cwd=tree)
+            self.assertEqual(code, 0, out)
+
+    def test_on_a_real_mac_a_hard_link_from_the_worktree_never_steers_the_loops_git(self):
+        self.real_sandbox()
+        for name, rewrite in (("commondir", "printf '/elsewhere\\n'"), (".git", "printf 'gitdir: /tmp/x\\n'")):
+            with self.subTest(name=name):
+                home, lp, tree, git_dir = self.strict_worktree()
+                target = tree / ".git" if name == ".git" else git_dir / name
+                before = target.read_bytes()
+                command = "ln {} hl && {} > hl".format(shlex.quote(str(target)), rewrite)
+                with self.at_home(home):
+                    lp.own_command(command, tree)
+                    # Whichever way the sandbox takes the link, the loop's git never follows what it wrote.
+                    if target.read_bytes() != before:
+                        code, out = lp.git("status", "--porcelain", cwd=tree)
+                        self.assertEqual(code, 1, out)
+                        self.assertTrue(out.startswith("refused: "), out)
+                shutil.rmtree(str(self.root / "trees"))
+                shutil.rmtree(str(lp.root))
+                shutil.rmtree(str(home))
+                shutil.rmtree(str(self.root / "tree"))
 
 
 # A line from each file of the harness's rules, to find in the prompts. None is a phrase the stand-in agent looks for.
@@ -12355,6 +12588,16 @@ class FileLocks(unittest.TestCase):
                 self.assertFalse(other)
         with loop.FileLock(self.path) as again:
             self.assertTrue(again)
+
+
+
+class CommandName(unittest.TestCase):
+    """SPEC-004 F18: the agent name a run records never carries a setting's value."""
+
+    def test_settings_before_the_command_are_skipped(self):
+        self.assertEqual(loop.command_name("SOME_SETTING=value claude -p"), "claude")
+        self.assertEqual(loop.command_name("A=1 B=2 /usr/local/bin/codex exec"), "codex")
+        self.assertIsNone(loop.command_name("ONLY=a-setting"))
 
 
 if __name__ == "__main__":

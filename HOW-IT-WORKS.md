@@ -576,7 +576,17 @@ for that worktree and what `sandbox_allow` and `sandbox_write_allow` name, and
 at all (`"none"`). Only git's folder for the worktree is writable, not the
 clone's whole `.git`, and that stays read-only on purpose: a hook or a config
 written there would be run by the loop's own git, outside the sandbox. So a
-command that commits or fetches in the worktree fails. Where the sandbox can't
+command that commits or fetches in the worktree fails. In git's folder for the
+worktree, the index, `HEAD`, `logs/` and `refs/` stay writable, but `commondir`,
+`gitdir`, `config`, `config.worktree` and `hooks/` don't, and neither does the
+worktree's `.git` file, nor can the folder itself be renamed aside. The loop's
+own git in such a worktree finds that folder from the clone's side, never from
+the `.git` file, and runs with no hooks, no fsmonitor and no replace refs. Where
+the `.git` file names any other folder, `commondir` names anything but the
+clone's `.git` (a hard link made in the worktree could rewrite either), or a
+folder under the loop's checkouts
+isn't a worktree the clone links back to, it runs no git there, and the step
+fails. So the loop's own commits in that project skip its git hooks. Where the sandbox can't
 apply, off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't
 apply a profile, `run`, `review` and `review --pr` stop with one `ERROR` line
 and take nothing, rather than run the commands without it. A cache a command fills outside the worktree, such as
@@ -1113,7 +1123,7 @@ Detailed mode adds the shell commands agents ran, scrubbed before they're
 written down, and each person turns it on for themselves for 14 days; only the
 owner reads those. [`examples/usage-store/`](examples/usage-store/) is a store
 you run yourself, on one machine or in your own cloud account, with a Grafana
-dashboard answering six questions and alerts for a silent machine or a run near
+dashboard answering six questions and alerts for a silent machine, a stopped loop or a run near
 its budget. With no store named in `.sanvio/export.json`, nothing is sent.
 
 Nobody edits a shared rule in their own copy. A local edit is a quiet fork,

@@ -344,12 +344,14 @@ class DependencyScan(unittest.TestCase):
 
     def test_dependabot_watches_only_the_factorys_own_dependencies(self):
         self.assertEqual(sorted(dependabot_updates(self.dependabot)), [
+            ("docker", "/examples/usage-store", "weekly"),
             ("github-actions", "/", "weekly"),
             ("npm", "/examples/typescript", "weekly"),
+            ("terraform", "/examples/usage-store/cloud", "weekly"),
         ])
         # projects/ and a copy's own repos keep their own dependabot.yml.
         code = code_lines(self.dependabot)
-        self.assertEqual(len(re.findall(r"(?m)^\s*directory:", code)), 2)
+        self.assertEqual(len(re.findall(r"(?m)^\s*directory:", code)), 4)
         self.assertNotRegex(code, r"(?m)^\s*directories:")
 
 

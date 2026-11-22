@@ -22,6 +22,7 @@ ANTHROPIC = "s" + "k-ant-" + "api03-" + "Qw7" * 10
 JWT = "ey" + "JhbGciOiJIUzI1NiJ9" + ".ey" + "JzdWIiOiIxIn0" + ".c2lnbmF0dXJlLWhlcmU"
 PEM = "-----BEGIN " + "PRIVATE KEY-----\nMIIEvQIBADAN\n-----END " + "PRIVATE KEY-----"
 RANDOM = "q8Zr2LmX0vT4bN7cWd1Ye5Hs9Kp3Jf6U"  # 32 characters, mixed letters and digits
+SLASHED = "q8Zr2LmX0v" + "/T4bN7cWd1Y" + "/e5Hs9Kp3Jf6Ub2Mn"  # a 40-character cloud secret key's shape
 
 
 def scrub(command):
@@ -72,6 +73,34 @@ class Secrets(unittest.TestCase):
     def test_a_long_random_run_is_redacted(self):
         self.assertRedacted("deploy --key-id " + RANDOM, RANDOM)
 
+    def test_quoted_flag_values_are_redacted(self):
+        self.assertRedacted('tool --password "letmein now" run', "letmein")
+        self.assertRedacted("tool --token 'abc123' run", "abc123")
+        self.assertRedacted("tool --client-secret=s3cr3tvalue run", "s3cr3tvalue")
+
+    def test_a_slash_bearing_secret_key_is_redacted(self):
+        self.assertRedacted("aws configure set aws_secret_access_key " + SLASHED, SLASHED, "q8Zr2")
+        self.assertRedacted("export X=1; tool --with " + SLASHED, SLASHED)
+
+    def test_user_passwords_and_short_password_flags_are_redacted(self):
+        self.assertRedacted("curl -u bob:" + "hunter2 https://example.com", "hunter2")
+        self.assertRedacted("curl --user bob:" + "hunter2 https://example.com", "hunter2")
+        self.assertRedacted("mysql -u root -p" + "letmein db", "letmein")
+        self.assertRedacted("sshpass -p " + "letmein ssh host", "letmein")
+
+    def test_key_headers_and_pass_named_values_are_redacted(self):
+        self.assertRedacted('curl -H "X-Api-Key: ' + 'abc123def" https://example.com', "abc123def")
+        self.assertRedacted("curl -H 'Cookie: session=" + "abc123def' https://example.com", "abc123def")
+        text = self.assertRedacted("DB_PASS=" + "letmein ./run.sh", "letmein")
+        self.assertIn("DB_PASS=", text)
+
+    def test_paths_and_ordinary_slashes_are_kept(self):
+        for command in ("ls /usr/local/lib/python3.9/site-packages/someLongPackage2/module.py",
+                        "git log origin/main..feature/AddTheThing2Quickly/forReal",
+                        "python3 scripts/export.py --since 2026-11-01"):
+            with self.subTest(command=command):
+                self.assertEqual(scrub(command), (command, 0))
+
     def test_long_ordinary_words_and_paths_are_kept(self):
         command = "python3 -m unittest tests.test_usage_scrub_and_everything_else_in_the_suite"
         self.assertEqual(scrub(command), (command, 0))
@@ -80,6 +109,11 @@ class Secrets(unittest.TestCase):
 class Dropped(unittest.TestCase):
     def test_a_command_reaching_a_project_or_client_folder_is_dropped(self):
         for command in ("cat projects/acme/README.md", "cd ~/work/clients/acme && ls", "ls ./projects/"):
+            with self.subTest(command=command):
+                self.assertIsNone(scrub(command))
+
+    def test_a_bare_or_differently_cased_folder_is_dropped(self):
+        for command in ("cd clients", "ls projects", "cat ./Clients/Foo/notes.md", "cd PROJECTS && ls"):
             with self.subTest(command=command):
                 self.assertIsNone(scrub(command))
 
@@ -100,6 +134,15 @@ class Shape(unittest.TestCase):
     def test_a_long_command_is_cut_to_500_characters(self):
         text, _ = scrub("echo " + "word " * 300)
         self.assertEqual(len(text), usage_scrub.MAX_LENGTH)
+
+    def test_the_cut_never_splits_a_placeholder(self):
+        for pad in range(450, 500):
+            with self.subTest(pad=pad):
+                text, _ = scrub("echo " + "y" * pad + " Authorization: Bearer abcdefgh")
+                self.assertLessEqual(len(text), usage_scrub.MAX_LENGTH)
+                placeholder = usage_scrub.REDACTED
+                self.assertFalse(any(text.endswith(placeholder[:k]) for k in range(1, len(placeholder))), text[-20:])
+                self.assertEqual(scrub(text), (text, 0))
 
     def test_scrubbing_twice_changes_nothing_the_second_time(self):
         once = scrub("MY_TOKEN=abc curl -H 'Authorization: Bearer x.y.z' https://u:" + "p@example.com " + GITHUB)

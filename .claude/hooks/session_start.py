@@ -71,12 +71,13 @@ def startup(root):
 
 def detailed_notes(root):
     """What to say about detailed mode: that it ended, which this ends, or that it's on and until when. Nothing
-    in a headless run, which never records commands."""
+    in a headless run, which never records commands, and which leaves an ended opt-in for the person's next
+    session to end and say so."""
     import names
     import usage_log
-    ended = usage_log.expire(root)
     if names.headless():
         return []
+    ended = usage_log.expire(root)
     if ended is not None:
         return [DETAILED_ENDED.format(" on " + ended if ended else "")]
     until = usage_log.detailed_until(root)
