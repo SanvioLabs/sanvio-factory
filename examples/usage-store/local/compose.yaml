@@ -17,7 +17,8 @@ services:
       - "../grafana/local/dashboards/detailed.json:/etc/grafana/local-dashboards/detailed.json:ro"
     environment:
       USAGE_ROOT: /store
-      # Where alerts go. Empty means nowhere: the rules still fire, in Grafana's own alert list.
+      # Where alerts go. Unset, it's a local port nothing listens on: the rules still fire, in Grafana's own
+      # alert list, and the notifications go nowhere.
       USAGE_ALERT_WEBHOOK: "${USAGE_ALERT_WEBHOOK:-http://127.0.0.1:9/}"
       # On loopback only, so anyone at this machine reads the dashboards without a login, and nobody else can.
       GF_AUTH_ANONYMOUS_ENABLED: "true"

@@ -46,6 +46,11 @@ jobs:
       - name: The API security Semgrep rules
         if: matrix.python == '3.13'
         run: uvx semgrep@1.175.0 --metrics=off --test tools/api-security/semgrep/
+      # The usage store's SQL over invented bundles, with the DuckDB its Grafana plugin carries. Plain
+      # unittest above skips these, having no DuckDB.
+      - name: The usage store's queries
+        if: matrix.python == '3.13'
+        run: uv run --no-project --with duckdb==1.5.6 --with pytz python3 -m unittest tests.test_usage_store -v
       - name: The example's proposals pass their gate
         run: python3 examples/proposal/gates/proposal_gate.py
       - name: Every file name in the Markdown is a link

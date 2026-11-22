@@ -106,11 +106,16 @@ resource "aws_ecs_task_definition" "grafana" {
     portMappings = [{ containerPort = 3000, protocol = "tcp" }]
     environment = [
       { name = "USAGE_ROOT", value = "s3://${aws_s3_bucket.store.id}/${local.prefix}" },
-      # The bucket needs these first: DuckDB's S3 and cloud-credential extensions, and a secret that takes
-      # the task role's credentials from the environment. It names no key.
-      { name = "USAGE_INIT", value = "INSTALL httpfs; LOAD httpfs; INSTALL aws; LOAD aws; CREATE OR REPLACE SECRET usage_store (TYPE s3, PROVIDER credential_chain, REGION '${var.region}');" },
+      # The bucket needs these first: DuckDB's S3 and cloud-credential extensions, loaded from the folder
+      # the image put them in, never fetched, and a secret that takes the task role's credentials from the
+      # environment. It names no key.
+      { name = "USAGE_INIT", value = "SET autoinstall_known_extensions = false; SET extension_directory = '/opt/duckdb-extensions'; LOAD httpfs; LOAD aws; CREATE OR REPLACE SECRET usage_store (TYPE s3, PROVIDER credential_chain, REGION '${var.region}');" },
       { name = "GF_SERVER_ROOT_URL", value = var.grafana_url },
+      # Sign-in through the identity provider only: no login form, no basic auth on the API, and no
+      # built-in admin account whose default password could still work.
       { name = "GF_AUTH_DISABLE_LOGIN_FORM", value = "true" },
+      { name = "GF_AUTH_BASIC_ENABLED", value = "false" },
+      { name = "GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION", value = "true" },
       { name = "GF_AUTH_ANONYMOUS_ENABLED", value = "false" },
       { name = "GF_AUTH_GENERIC_OAUTH_ENABLED", value = "true" },
       { name = "GF_AUTH_GENERIC_OAUTH_NAME", value = var.oauth.name },

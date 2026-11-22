@@ -12322,5 +12322,15 @@ class FileLocks(unittest.TestCase):
             self.assertTrue(again)
 
 
+
+class CommandName(unittest.TestCase):
+    """SPEC-004 F18: the agent name a run records never carries a setting's value."""
+
+    def test_settings_before_the_command_are_skipped(self):
+        self.assertEqual(loop.command_name("SOME_SETTING=value claude -p"), "claude")
+        self.assertEqual(loop.command_name("A=1 B=2 /usr/local/bin/codex exec"), "codex")
+        self.assertIsNone(loop.command_name("ONLY=a-setting"))
+
+
 if __name__ == "__main__":
     unittest.main()

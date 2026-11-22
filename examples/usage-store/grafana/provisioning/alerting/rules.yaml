@@ -80,3 +80,40 @@ groups:
               expression: B
               conditions:
                 - evaluator: {type: gt, params: [80]}
+      - uid: usage-dead-loop
+        title: A loop stopped while its machine still reports
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: A loop stopped while its machine still reports (stopped over 0)
+        data:
+          - refId: A
+            datasourceUid: usage
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              format: 1
+              rawQuery: true
+              editorMode: code
+              rawSql: |
+                -- REQ-015: a loop whose machine still sends heartbeats but whose loop has stopped. 1 per stopped loop, from
+                -- each node's latest heartbeat; the rule fires on any.
+                SELECT node || '/' || label AS loop, CASE WHEN alive THEN 0 ELSE 1 END AS stopped
+                FROM loop_beats;
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0]}

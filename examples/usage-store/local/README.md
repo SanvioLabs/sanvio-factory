@@ -26,6 +26,13 @@ From nothing to the dashboard, with Docker and nothing else.
    Good objects move to `accepted/`, the rest to `rejected/` with a `.reason.json` beside each. It also
    removes anything older than 90 days (`SANVIO_KEEP_DAYS`), the same as the local logs keep.
 
+   Nothing reaches the dashboard until it's sorted, so a machine whose heartbeats sit in `incoming/` reads as
+   silent. Where machines send on their own, run it on a schedule too, more often than the 30-minute alert:
+
+   ```
+   */5 * * * *  python3 /path/to/factory/examples/usage-store/validator.py --folder ~/usage-store
+   ```
+
 4. **Start Grafana**, from [`examples/usage-store/`](../):
 
    ```
