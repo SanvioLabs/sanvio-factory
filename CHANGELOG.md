@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: Usage bundle v2
+
+[`scripts/export.py`](scripts/export.py) now writes bundle format 2, the first step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). Every key from format 1 is still there, and it adds `kind`, `mode`, `period`, `node`, `factory` (this repo's commit and newest changelog date, read from git's files without running git), `loop_config` (the loop's agent and reviewer by name and model, and its worker, round and token limits, never a command line), `chain_head` and `bundle_id`. A project's loop runs are in it only where the new, gitignored `.sanvio/export.json` lists the project under `export_projects`, under the label given there. With no list, none are, as before. [`scripts/usage_shape.py`](scripts/usage_shape.py) is the one copy of the shape: the export refuses to write a bundle that isn't in it, and each of its keys has to serve one of the questions the spec says the store answers. [`scripts/usage_scrub.py`](scripts/usage_scrub.py) is the scrubber the spec's detailed mode will run on shell commands. Nothing records commands or sends anything yet. `SECRET_ENV` moved from [`scripts/loop.py`](scripts/loop.py) to [`scripts/names.py`](scripts/names.py), so the scrubber shares the loop's copy.
+
+**Controls:** AC-5
+
+Files: [`scripts/export.py`](scripts/export.py), [`scripts/usage_shape.py`](scripts/usage_shape.py), [`scripts/usage_scrub.py`](scripts/usage_scrub.py), [`scripts/names.py`](scripts/names.py), [`scripts/loop.py`](scripts/loop.py), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_export.py`](tests/test_export.py), [`tests/test_usage_shape.py`](tests/test_usage_shape.py), [`tests/test_usage_scrub.py`](tests/test_usage_scrub.py), `CHANGELOG.md`.
+
+**Do:** nothing, unless something of yours reads the bundle: its `v` is now 2 and it has more keys. To put a project's runs in it, add `{"export_projects": {"<project folder>": "<label>"}}` to `.sanvio/export.json`.
+
 ## 2026-11-21: sandbox_strict stops the loop where the sandbox can't start
 
 A project with `sandbox_strict` on no longer runs its `test_command`, `generate_command` and `setup_command` without the sandbox. Where the sandbox can't apply (off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't apply a profile), `run`, `review` and `review --pr` now stop with one `ERROR` line saying which, and take nothing. Before, the loop logged a `WARN` and went on. The `INFO` line it logs when it starts now also says that the clone's shared `.git` stays read-only on purpose, so a command that commits or fetches in the worktree fails. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gives the reason: a hook or config written there would be run by the loop's own git, outside the sandbox. It no longer suggests adding that path to `sandbox_write_allow`. Projects without `sandbox_strict` and caller projects work as before.
