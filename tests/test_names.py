@@ -117,7 +117,7 @@ class TheModule(unittest.TestCase):
                 found.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 found.add((node.module or "").split(".")[0])
-        self.assertLessEqual(found, {"os", "pathlib", "old_names"}, "the standard library, and old_names beside it")
+        self.assertLessEqual(found, {"os", "pathlib", "re", "old_names"}, "the standard library, and old_names beside it")
 
     def test_its_docstring_names_no_other_files_job(self):
         said = ast.get_docstring(ast.parse((ROOT / "scripts" / "names.py").read_text(encoding="utf-8")))
