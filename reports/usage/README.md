@@ -67,3 +67,34 @@ written to paste into Slack or your team's working-practices doc as it is:
 >
 > To turn the log off for yourself, set `SANVIO_USAGE_LOG=off` in your shell
 > profile.
+
+## Detailed mode
+
+Detailed mode adds the shell commands your sessions run to your bundle, for
+when the owner needs to see what agents actually ran. Only you turn it on, for
+yourself, and it ends on its own:
+
+```
+python3 scripts/send_usage.py --opt-in detailed   # on for 14 days (SANVIO_DETAILED_DAYS)
+python3 scripts/send_usage.py --opt-out           # off now
+python3 scripts/export.py --mode detailed          # a bundle with the commands
+```
+
+Each command is scrubbed before it's written to
+`.sanvio/usage/<you>.commands.jsonl`: secrets become `[redacted]`, your home
+folder becomes `~`, and a command that reaches [`projects/`](../../projects/), `clients/` or a
+credential file isn't written at all. Nothing is recorded from a headless run,
+from a session working inside [`projects/`](../../projects/), or with the usage log off. Every
+session start says it's on and until when, and says once when it ends. The
+guard asks before an agent turns it on for you, and refuses a loop agent.
+
+If you ask people to turn it on, tell them first. This is written to paste as
+it is:
+
+> For the next two weeks I'd like some of us to turn on the factory's detailed
+> mode: `python3 scripts/send_usage.py --opt-in detailed`. It adds the shell
+> commands your agents run to your usage report, scrubbed first: secrets are
+> redacted, and anything touching a project's or client's files isn't recorded
+> at all. Only I can read the detailed records. It turns itself off after 14
+> days, and `--opt-out` turns it off sooner. No prompts, no code and no file
+> contents, ever.

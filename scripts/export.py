@@ -3,10 +3,11 @@
 
     python3 scripts/export.py                         # the last 14 days, printed
     python3 scripts/export.py --since 2026-10-01 --out reports/usage/export.json
+    python3 scripts/export.py --mode detailed         # with your shell commands, while detailed mode is on
 
 The bundle is format v2 (SPEC-004), checked against scripts/usage_shape.py before it's written. It holds:
 
-- `v`, `kind`, `mode`: the format version, "bundle", and "general"
+- `v`, `kind`, `mode`: the format version, "bundle", and "general" or "detailed"
 - `exported`, `since`, `period`: today's date, the first day counted, and both as first and last
 - `user`: the same cleaned name your usage log's filename uses, so no new identifier
 - `node`: the `node` in .sanvio/export.json, else this machine's host name
@@ -22,6 +23,10 @@ The bundle is format v2 (SPEC-004), checked against scripts/usage_shape.py befor
 - `usage`: counts from your usage log, .sanvio/usage/<you>.jsonl: sessions, then skills, agents and slash
   commands by name, guard refusals by rule, and guard asks and the asks you said yes to by tool (or by rule
   when there's no tool), and `log_off`, how many sessions started with SANVIO_USAGE_LOG=off
+
+- `commands`, in a detailed bundle only: your shell commands since that day from
+  .sanvio/usage/<you>.commands.jsonl, each with its time, session, whether it ran or the guard refused or asked,
+  its text as the hook scrubbed it, and how many redactions that took. Refused unless detailed mode is on
 
 Nothing sends it. It only reads, prints or writes the one file you name. This shape is the only one any later
 sender may send: anything not in it stays on this machine.
@@ -42,6 +47,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import log_chain  # noqa: E402 (needs scripts/ on the path first)
 import names  # noqa: E402 (same reason)
 import usage_report  # noqa: E402 (same reason)
+import usage_log  # noqa: E402 (same reason: usage_report put .claude/hooks/ on the path)
 import usage_shape  # noqa: E402 (same reason)
 from usage_report import log_path  # noqa: E402 (same reason)
 
@@ -222,17 +228,33 @@ def usage_counts(root, since):
             "log_off": sum(1 for l in lines if l.get("event") == "log_off")}
 
 
-def bundle(root, since, today):
-    """A general v2 bundle. Raises ValueError, naming each problem, if it isn't in usage_shape's shape."""
+COMMAND_KEYS = tuple(usage_shape.COMMAND.keys)
+
+
+def commands_since(root, since):
+    """Detailed mode's command lines since `since`, each rebuilt from the shape's keys and nothing else."""
+    return [{key: line.get(key) for key in COMMAND_KEYS}
+            for line in usage_report.read(usage_log.commands_path(root), since)]
+
+
+def bundle(root, since, today, mode="general"):
+    """A v2 bundle, general or detailed. Raises ValueError, naming each problem, if it isn't in usage_shape's
+    shape, and for a detailed one with no live opt-in."""
     cfg = config(root)
     projects = listed_projects(cfg)
-    user, node, mode = log_path(root).stem, node_name(cfg), "general"
+    user, node = log_path(root).stem, node_name(cfg)
+    if mode == "detailed":
+        now = datetime.datetime.combine(datetime.date.fromisoformat(today), datetime.time(), datetime.timezone.utc)
+        if usage_log.detailed_until(root, now) is None:
+            raise ValueError("detailed mode isn't on; python3 scripts/send_usage.py --opt-in detailed turns it on")
     found = {"v": usage_shape.V, "kind": "bundle", "mode": mode, "exported": today, "since": since,
              "period": {"first": since, "last": today}, "user": user, "node": node,
              "factory": {"commit": head_commit(root), "changelog": changelog_day(root)},
              "loop_config": loop_config(root, projects), "chain_head": chain_head(root),
              "bundle_id": hashlib.sha256("|".join((user, node, mode, since, today)).encode("utf-8")).hexdigest(),
              "loop": loop_runs(root, since, projects), "usage": usage_counts(root, since)}
+    if mode == "detailed":
+        found["commands"] = commands_since(root, since)
     problems = usage_shape.problems(found)
     if problems:
         raise ValueError("the bundle isn't in the v2 shape: " + "; ".join(problems[:10]))
@@ -246,9 +268,11 @@ def main(argv=None):
                         default=(today - datetime.timedelta(days=14)).isoformat(),
                         help="the first day to count, as YYYY-MM-DD (default: 14 days ago)")
     parser.add_argument("--out", help="a file to write the bundle to, instead of printing it")
+    parser.add_argument("--mode", choices=("general", "detailed"), default="general",
+                        help="detailed adds your shell commands, while detailed mode is on (default: general)")
     args = parser.parse_args(argv)
     try:
-        text = json.dumps(bundle(ROOT, args.since, today.isoformat()), indent=2) + "\n"
+        text = json.dumps(bundle(ROOT, args.since, today.isoformat(), args.mode), indent=2) + "\n"
     except ValueError as err:
         print("Nothing written: {}".format(err), file=sys.stderr)
         return 1

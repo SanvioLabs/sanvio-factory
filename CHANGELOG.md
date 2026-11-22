@@ -54,6 +54,18 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** Nothing, unless a strict project's own commits relied on its git hooks: the loop's commits there now skip them.
 
+## 2026-11-21: Detailed mode for the usage bundle
+
+The second step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). `python3 scripts/send_usage.py --opt-in detailed` turns on detailed mode for you, for `SANVIO_DETAILED_DAYS` days (14 by default), and `--opt-out` turns it off. While it's on, the usage log hook writes each shell command your sessions run to `.sanvio/usage/<you>.commands.jsonl`, scrubbed by [`scripts/usage_scrub.py`](scripts/usage_scrub.py) before it reaches disk, and `python3 scripts/export.py --mode detailed` adds them to the bundle. Nothing is recorded from a headless run, a session working inside [`projects/`](projects/), or with the usage log off. Each session start says it's on and until when, ends it once its date has passed, and says so that once. The usage log gets `detailed_on`, `detailed_off` and `detailed_expired` lines holding only the time and the end date. The guard asks a person before a change to the new `.sanvio/export.json` or before `--opt-in` runs, and refuses both in a loop agent; the opt-in and commands files are under `.sanvio/usage/`, so agents already can't change them. Nothing is sent anywhere yet.
+
+**Needs:** 2026-11-21: Usage bundle v2
+
+**Controls:** AU-9, SA-9
+
+Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/send_usage.py`](scripts/send_usage.py), [`scripts/export.py`](scripts/export.py), [`scripts/names.py`](scripts/names.py), [`reports/usage/README.md`](reports/usage/README.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_export.py`](tests/test_export.py), [`tests/test_send_usage.py`](tests/test_send_usage.py), `CHANGELOG.md`.
+
+**Do:** nothing. Detailed mode is off until you turn it on. If you ask your team to, [`reports/usage/README.md`](reports/usage/README.md) has a message to paste first.
+
 ## 2026-11-21: Usage bundle v2
 
 [`scripts/export.py`](scripts/export.py) now writes bundle format 2, the first step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). Every key from format 1 is still there, and it adds `kind`, `mode`, `period`, `node`, `factory` (this repo's commit and newest changelog date, read from git's files without running git), `loop_config` (the loop's agent and reviewer by name and model, and its worker, round and token limits, never a command line), `chain_head` and `bundle_id`. A project's loop runs are in it only where the new, gitignored `.sanvio/export.json` lists the project under `export_projects`, under the label given there. With no list, none are, as before. [`scripts/usage_shape.py`](scripts/usage_shape.py) is the one copy of the shape: the export refuses to write a bundle that isn't in it, and each of its keys has to serve one of the questions the spec says the store answers. [`scripts/usage_scrub.py`](scripts/usage_scrub.py) is the scrubber the spec's detailed mode will run on shell commands. Nothing records commands or sends anything yet. `SECRET_ENV` moved from [`scripts/loop.py`](scripts/loop.py) to [`scripts/names.py`](scripts/names.py), so the scrubber shares the loop's copy.
