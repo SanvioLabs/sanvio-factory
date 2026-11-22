@@ -472,7 +472,7 @@ class ReviewCases(unittest.TestCase):
                 code = eval_agents.main([str(CI_EVALS), "--runs", "1", "--agent", agent, "--checkout", tmp])
             clean = eval_agents.run_case(ci_case("06"), agent=agent, checkout=Path(tmp))
         self.assertEqual(code, 0, out.getvalue())
-        self.assertIn("9 stable, 0 flaky, 0 failing", out.getvalue())
+        self.assertIn("10 stable, 0 flaky, 0 failing", out.getvalue())
         self.assertTrue(clean["passed"], clean["reasons"])
         self.assertEqual(eval_agents.findings(clean["reply"]), [])
 
