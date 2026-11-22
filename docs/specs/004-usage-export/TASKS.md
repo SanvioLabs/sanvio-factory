@@ -153,43 +153,52 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
   - Requirements: REQ-022
   - Depends on: T020
   - Verification: the spike's result, recorded here
-- [ ] T021 `examples/usage-store/cloud/`: bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
+  - Done 2026-11-21, local half: Grafana OSS 13.0.2 with motherduck-duckdb-datasource 0.4.6 (unsigned, allowed by name; carries DuckDB 1.5.6) reads a folder store through `read_json`, and all six RQ panels returned rows through Grafana's query API. Two findings went into the Dockerfile: the plugin's backend is built against glibc and won't start on the default Alpine image, so the image is the `-ubuntu` one; and `/var/lib/grafana` is a volume, so the plugin lives in `/opt/grafana-plugins`. The plugin's query `format` is a number (1, a table), not a string. The cloud data source is the same plugin over `s3://` with DuckDB's `httpfs` and `aws` extensions and a `credential_chain` secret, set by `USAGE_INIT`. **Bucket half open:** it needs a test account, which isn't named in local config yet
+- [x] T021 [`examples/usage-store/cloud/`](../../../examples/usage-store/cloud/): bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
   - Requirements: REQ-013, REQ-014
   - Privacy: PRIV-004, PRIV-005
   - Depends on: T020
   - Verification: `terraform fmt -check` and `terraform validate`, recorded here
-- [ ] T022 Sender roles that may only put under their own `incoming/<node>/` and read nothing, with certificate-based workload identity for unattended nodes
+  - Done 2026-11-21: [`examples/usage-store/cloud/main.tf`](../../../examples/usage-store/cloud/main.tf), with [`export.example.json`](../../../examples/usage-store/cloud/export.example.json). The bucket policy refuses a detailed put without the detailed key, so `detailed_key` is the key's ARN. `terraform fmt -check -recursive` and `terraform validate` (offline, `-backend=false`) pass
+- [x] T022 Sender roles that may only put under their own `incoming/<node>/` and read nothing, with certificate-based workload identity for unattended nodes
   - Requirements: REQ-013, REQ-019
   - Security: SEC-003
   - Depends on: T021
   - Verification: `terraform validate`
-- [ ] T023 `validator.py`: imports [`scripts/usage_shape.py`](../../../scripts/usage_shape.py), moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
+  - Done 2026-11-21: nodes through an IAM Roles Anywhere trust anchor, each limited to `incoming/<its certificate's CN>/`, general and heartbeats only; people through a role limited to `incoming/<usage_node session tag>/`. Neither may read. `terraform validate` passes
+- [x] T023 `validator.py`: imports [`scripts/usage_shape.py`](../../../scripts/usage_shape.py), moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
   - Requirements: REQ-013, REQ-016, REQ-021
   - Depends on: T021
   - Verification: unit tests beside the function, with stand-in storage
-- [ ] T024 Grafana alert rules as provisioning files: a silent node past its window and a run past 80% of its budget, one alert each until it recovers. The contact point from the secret store by name, or an environment variable locally
+  - Done 2026-11-21: [`examples/usage-store/validator.py`](../../../examples/usage-store/validator.py), tested in [`tests/test_usage_store.py`](../../../tests/test_usage_store.py) over a folder store
+- [x] T024 Grafana alert rules as provisioning files: a silent node past its window and a run past 80% of its budget, one alert each until it recovers. The contact point from the secret store by name, or an environment variable locally
   - Requirements: REQ-015, REQ-022
   - Security: SEC-005
   - Depends on: T025
   - Verification: part of AC-011 and AC-016
-- [ ] T025 `queries/rq-1.sql` to `rq-6.sql`, and the dashboard with a panel per RQ, as a provisioning file
+  - Done 2026-11-21: written by [`render.py`](../../../examples/usage-store/render.py) from `alert-*.sql`, evaluated every minute, one notification per node or run (`group_by: ['...']`), not repeated while firing (`repeat_interval: 8760h`). Seen firing in AC-016's live run
+- [x] T025 `queries/rq-1.sql` to `rq-6.sql`, and the dashboard with a panel per RQ, as a provisioning file
   - Requirements: OBS-003, REQ-022
   - Acceptance: AC-017
   - Depends on: T023, T030
   - Verification: each file run with the DuckDB CLI over a folder of invented bundles, in a test that skips where DuckDB isn't installed
-- [ ] T032 `examples/usage-store/local/`: a compose file running Grafana and the plugin at pinned versions on `127.0.0.1`, the folder mounted read-only, and a README going from nothing to the dashboard
+  - Done 2026-11-21: `views.sql`, `views-detailed.sql`, `rq-1.sql` to `rq-6.sql`, and two dashboards (RQ-6 on the owner's), rendered from the SQL. The tests run each over a folder of invented bundles with DuckDB 1.5.6, and skip without it
+- [x] T032 [`examples/usage-store/local/`](../../../examples/usage-store/local/): a compose file running Grafana and the plugin at pinned versions on `127.0.0.1`, the folder mounted read-only, and a README going from nothing to the dashboard
   - Requirements: REQ-022, REQ-023
   - Acceptance: AC-016
   - Depends on: T024, T025
   - Verification: AC-016's live run
-- [ ] T033 Grafana in `cloud/`: behind the owner's identity provider, with the general and detailed data sources split by role
+  - Done 2026-11-21: [`local/compose.yaml`](../../../examples/usage-store/local/compose.yaml) and [`local/README.md`](../../../examples/usage-store/local/README.md)
+- [x] T033 Grafana in `cloud/`: behind the owner's identity provider, with the general and detailed data sources split by role
   - Requirements: REQ-023, REQ-014
   - Depends on: T021, T030
   - Verification: `terraform validate`, then part of AC-010
+  - Done 2026-11-21, with one change from the task's wording: the cloud Grafana has the general data source only. OSS Grafana can't limit a data source to a role, so the team's Grafana role gets no access to `detailed/` or its key, and the owner reads detailed bundles from a copy of `accepted/` in the local Grafana, which has the detailed data source. REQ-023's "only the owner's role" holds through the key. `terraform validate` passes. **Ruled by the owner 2026-11-21: keep this design**
 - [ ] T026 Live runs: AC-016 on one machine, then AC-010, AC-011, AC-015 and AC-017 in a test account, each recorded here with what it showed
   - Acceptance: AC-010, AC-011, AC-015, AC-016, AC-017
   - Depends on: T022 to T025, T032, T033
   - Verification: the live runs
+  - AC-016, 2026-11-21, on one machine with invented data: `send_usage.py --auto` and `--heartbeat` wrote two general bundles and a heartbeat into a folder, a hand-written heartbeat two hours old stood in for a node that stopped, and a detailed bundle went in through `send_usage.py FILE`. `validator.py` moved all to `accepted/`. `docker compose -f local/compose.yaml up --build` started Grafana 13.0.2, published on `127.0.0.1:3000` only (`docker compose port`); RQ-1 to RQ-6 each returned rows, running the panels' own queries from the dashboards Grafana provisioned; the silent-node rule fired for the stale node and not the fresh one, the budget rule fired for the run at 90%, and the webhook received one notification for each and no repeats while they stayed firing. Then the bench node's heartbeats stopped (last at 23:01:37 UTC) and its silent-node alert reached the webhook at 23:32, inside the 30-minute window plus one evaluation. A recreated container sends firing alerts once more, since Grafana's alert state lives in its own database. **AC-010, AC-011, AC-015 and AC-017's bucket half are open:** they need a test account
 - [ ] T027 Phase 4's CHANGELOG entry, and the pull request
   - Depends on: T021 to T026, T030, T032, T033
 

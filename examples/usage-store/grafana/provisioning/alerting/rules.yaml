@@ -1,0 +1,82 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: usage
+    folder: Factory usage
+    interval: 1m
+    rules:
+      - uid: usage-silent-node
+        title: A node stopped sending heartbeats
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: A node stopped sending heartbeats (minutes_silent over 30)
+        data:
+          - refId: A
+            datasourceUid: usage
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              format: 1
+              rawQuery: true
+              editorMode: code
+              rawSql: |
+                -- REQ-015: minutes since each node's last heartbeat. The alert rule fires past the node's window.
+                SELECT node, date_diff('minute', max(ts), now()) AS minutes_silent
+                FROM heartbeats
+                GROUP BY node;
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [30]}
+      - uid: usage-budget
+        title: A run passed 80% of its token budget
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: A run passed 80% of its token budget (percent_of_budget over 80)
+        data:
+          - refId: A
+            datasourceUid: usage
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              format: 1
+              rawQuery: true
+              editorMode: code
+              rawSql: |
+                -- REQ-015: how much of its token budget each running issue has spent, from each node's latest heartbeat.
+                SELECT node || '/' || label || '#' || CAST(issue AS VARCHAR) AS run, 100.0 * tokens / budget AS percent_of_budget
+                FROM loop_beats
+                WHERE issue IS NOT NULL AND tokens IS NOT NULL AND budget > 0;
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [80]}

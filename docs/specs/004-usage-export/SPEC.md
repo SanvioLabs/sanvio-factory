@@ -97,7 +97,7 @@ only one any later sender may send. The sender added here sends only what
   [`reports/usage/README.md`](../../../reports/usage/README.md) (*Telling your team*) stays true for anyone who
   doesn't opt in.
 - A dashboard built for this spec. The interface is Grafana, set up from
-  `examples/usage-store/`, and the factory's own dashboard pane is unchanged.
+  [`examples/usage-store/`](../../../examples/usage-store/), and the factory's own dashboard pane is unchanged.
 
 ## The questions the store answers
 
@@ -172,16 +172,16 @@ Not Affected:
 | REQ-010 | Unwanted Behavior | If no store is configured in `.sanvio/export.json`, then `send_usage.py` shall send nothing and say how to configure one. The repo shall ship no default store. |
 | REQ-011 | Optional | Where the export config sets `auto: true`, `send_usage.py --auto` shall build and send a general bundle with no review step, for a machine nobody watches. `--auto` shall never send detailed mode. |
 | REQ-012 | Event-Driven | When `send_usage.py --heartbeat` runs, it shall send one heartbeat: node, time, factory commit, and for each loop running on the node its label, whether its process is alive, how many issues wait, the issue in progress by number, its tokens so far and its budget. No issue title or text. |
-| REQ-013 | Ubiquitous | The reference store in `examples/usage-store/` shall accept a bundle or heartbeat only into the sender's own prefix, never let a sender read or overwrite, check each object against the v2 shape when it lands and move it to `accepted/` or `rejected/` with the reason, and expire objects after the same 90 days as the local logs. |
+| REQ-013 | Ubiquitous | The reference store in [`examples/usage-store/`](../../../examples/usage-store/) shall accept a bundle or heartbeat only into the sender's own prefix, never let a sender read or overwrite, check each object against the v2 shape when it lands and move it to `accepted/` or `rejected/` with the reason, and expire objects after the same 90 days as the local logs. |
 | REQ-014 | Ubiquitous | The reference store shall keep detailed bundles under a separate prefix, encrypted with a key only the owner's role can use, so that general numbers can be shared with the team and commands can't. |
 | REQ-015 | Event-Driven | When a node's last heartbeat is older than its window (30 minutes by default), or a heartbeat shows a run past a set share of its budget (80% by default), the reference store's Grafana alert rules shall send one alert to the contact point the owner configures, and not again for the same node or run until it recovers. |
 | REQ-016 | Event-Driven | When a bundle lands whose `chain_head` doesn't follow from the same person's last accepted bundle, the store shall mark both, as the local report does for a broken chain. |
 | REQ-017 | Ubiquitous | [`reports/usage/README.md`](../../../reports/usage/README.md) shall carry the sending flow and a second paste-ready message telling the team what detailed mode records, who can read it and when it ends. |
 | REQ-018 | Event-Driven | When `factory-trends` has written a person's sprint report, it shall offer to send that period's general bundle, show the person the bundle first, and send it through `send_usage.py` only on their yes. Laptops send no heartbeat. |
-| REQ-019 | Ubiquitous | An unattended node shall authenticate to the store with short-lived credentials from the cloud provider's certificate-based workload identity, one certificate per node, so that no long-lived key sits on its disk and access is revoked node by node. `examples/usage-store/` shall set this up. |
+| REQ-019 | Ubiquitous | An unattended node shall authenticate to the store with short-lived credentials from the cloud provider's certificate-based workload identity, one certificate per node, so that no long-lived key sits on its disk and access is revoked node by node. [`examples/usage-store/`](../../../examples/usage-store/) shall set this up. |
 | REQ-020 | Optional | Where `.sanvio/export.json`'s store has `kind: folder`, `send_usage.py` shall copy the bundle or heartbeat into that folder's `incoming/<node>/` path instead of sending it, through the same checks as REQ-009. |
 | REQ-021 | Ubiquitous | The reference store's validator shall run from one file both as a cloud function and as a command over a local folder, moving each object from `incoming/` to `accepted/` or `rejected/` with its reason. |
-| REQ-022 | Ubiquitous | `examples/usage-store/` shall hold one SQL file per RQ that DuckDB runs unchanged over a local folder's `accepted/` and over the bucket's, one Grafana dashboard drawing them, and the alert rules for REQ-015, provisioned from files so a fresh Grafana starts with all three. |
+| REQ-022 | Ubiquitous | [`examples/usage-store/`](../../../examples/usage-store/) shall hold one SQL file per RQ that DuckDB runs unchanged over a local folder's `accepted/` and over the bucket's, one Grafana dashboard drawing them, and the alert rules for REQ-015, provisioned from files so a fresh Grafana starts with all three. |
 | REQ-023 | Ubiquitous | A local Grafana shall listen on `127.0.0.1` only. A cloud Grafana shall sign people in through an identity provider the owner controls, and only the owner's role shall have a data source that can read `detailed/`. |
 
 ## Acceptance Criteria
@@ -197,7 +197,7 @@ Not Affected:
 | AC-007 | REQ-010 | With no `.sanvio/export.json`, nothing opens a network connection | Unit test that fails on any socket |
 | AC-008 | REQ-011 | `--auto` with detailed asked for sends general, and says so | Unit test |
 | AC-009 | REQ-012 | A heartbeat from a node with one live loop and one dead one reports both correctly, and holds no issue title | Unit test over a fixture `status.json` |
-| AC-010 | REQ-013, REQ-014, REQ-016 | In a test account, a sender can't read its own prefix back, can't write another's, an off-shape bundle lands in `rejected/`, a detailed bundle can't be read by the general readers' role, and a chain gap is marked | A live run of `examples/usage-store/`, recorded in TASKS.md |
+| AC-010 | REQ-013, REQ-014, REQ-016 | In a test account, a sender can't read its own prefix back, can't write another's, an off-shape bundle lands in `rejected/`, a detailed bundle can't be read by the general readers' role, and a chain gap is marked | A live run of [`examples/usage-store/`](../../../examples/usage-store/), recorded in TASKS.md |
 | AC-011 | REQ-015 | Stopping a test node's loop raises one alert inside its window, and one alert only; a run pushed past 80% of its budget raises one | A live run, recorded in TASKS.md |
 | AC-012 | The questions the store answers | Every key in the v2 shape maps to at least one RQ in a table the tests read; adding a key with no mapping fails | Unit test |
 | AC-013 | REQ-017 | The detailed-mode message names what's recorded, who reads it, and the end date | Reading, at review |
@@ -238,7 +238,7 @@ Not Affected:
 
 | ID | Requirement |
 |---|---|
-| NFR-001 | Python 3.9 or newer, standard library only, for everything outside `examples/usage-store/`. The sender shells out to the cloud CLI rather than adding a client library. |
+| NFR-001 | Python 3.9 or newer, standard library only, for everything outside [`examples/usage-store/`](../../../examples/usage-store/). The sender shells out to the cloud CLI rather than adding a client library. |
 | NFR-002 | A copy with no `.sanvio/export.json` behaves exactly as today, and every existing test passes unchanged. |
 | NFR-003 | A send or heartbeat that fails never blocks a session or a loop. It logs `export_refused` with the reason and tries again next time. |
 | NFR-004 | The usage log hook's added work for a Bash call in detailed mode stays under 50 ms. |
@@ -253,7 +253,7 @@ Not Affected:
   person. Those live in the gitignored `.sanvio/export.json`.
 - **Unattended machines get general mode only** (REQ-011), whatever their
   config says.
-- **Grafana and DuckDB are used, not shipped.** `examples/usage-store/` names
+- **Grafana and DuckDB are used, not shipped.** [`examples/usage-store/`](../../../examples/usage-store/) names
   their published images and plugin by version and vendors neither.
 
 ## Open Questions
