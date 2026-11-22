@@ -1432,7 +1432,7 @@ CALLER_GIT_DENIED = ("config", "config.lock", "config.worktree", "hooks", "info"
 # locked, the folder itself) would be read by the loop's own git next.
 CALLER_WORKTREE_GIT_WRITABLE = ()
 # The subcommands that write the worktree from what the index says, or the index from what it holds: the loop
-# checks a caller worktree's index before any of them (index_problem()).
+# checks a caller's or a strict project's worktree's index before any of them (index_problem()).
 INDEX_READERS = ("add", "checkout", "cherry-pick", "commit", "merge", "read-tree", "rebase", "reset", "restore",
                  "revert", "rm", "stash", "switch")
 # Folders outside the home folder where other runs, other users and other sessions keep files: the system's temp
@@ -3597,7 +3597,8 @@ class Loop:
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
         """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE before its
         subcommand, CALLER_GIT_FLAGS after it and every driver turned off, and doesn't run at all once the project
-        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE and strict_git_env() alone (#714)."""
+        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE and strict_git_env() alone (#714), and
+        one in INDEX_READERS in a worktree doesn't run while index_problem() finds anything there (#721)."""
         if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
             mark = self.tampered_mark()
             if mark.exists() or mark.is_symlink():
@@ -3621,6 +3622,13 @@ class Loop:
             refused, env = self.strict_git_env(cwd, env)
             if refused:
                 return 1, refused
+            # A strict command writes its worktree's index, so it's checked as a caller's is (#721), but no mark is
+            # written: this branch never reads one, and the refusal stands while the entry does.
+            at = git_subcommand(cmd[1:])
+            if at is not None and cmd[1:][at] in INDEX_READERS and self.caller_worktree(cwd):
+                why = self.index_problem(cwd, env)
+                if why:
+                    return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
             cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
         try:
             if held:
@@ -5205,6 +5213,16 @@ class Loop:
                 if found or why:
                     self.mark_tampered(GitTampered("an earlier run", found + (["the index " + why] if why else []))
                                        .reason(), number)
+                    continue
+            elif self.strict_git():
+                # git worktree remove runs a status of its own, from an index a strict command can write (#721).
+                # No mark: the worktree is kept, and every git of the loop's that reads the index refuses there.
+                why, env = self.strict_git_env(path, None)
+                if not why:
+                    found = self.index_problem(path, env)
+                    why = "the worktree's index {}, so the loop runs no git there".format(found) if found else None
+                if why:
+                    self.log_once("ERROR", why, number)
                     continue
             code, out = self.git("status", "--porcelain", cwd=path)
             if code != 0:

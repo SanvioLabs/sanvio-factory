@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: The index is checked under sandbox_strict
+
+Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-21: A strict command can't plant git config the loop's git reads
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-21: A strict command can't plant git config the loop's git reads
 
 Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can no longer write `commondir`, `gitdir`, `config`, `config.worktree` or `hooks/` in git's folder for their worktree, or the worktree's `.git` file, and can't rename that folder aside. The index, `HEAD`, `logs/` and `refs/` there stay writable, so their own git still works. The loop's own git in such a worktree, the factory's own loop included, now finds that folder from the clone's side and runs with no hooks, no fsmonitor and no replace refs. Where the `.git` file names any other folder, `commondir` names anything but the clone's `.git`, or a folder under the loop's checkouts isn't a worktree the clone links back to, it runs no git there and the step fails. Projects without `sandbox_strict` and caller projects work as before.

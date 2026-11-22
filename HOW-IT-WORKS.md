@@ -586,7 +586,12 @@ the `.git` file names any other folder, `commondir` names anything but the
 clone's `.git` (a hard link made in the worktree could rewrite either), or a
 folder under the loop's checkouts
 isn't a worktree the clone links back to, it runs no git there, and the step
-fails. So the loop's own commits in that project skip its git hooks. Where the sandbox can't
+fails. So the loop's own commits in that project skip its git hooks. Before any
+git of the loop's that reads or writes the worktree from its index, it checks
+the index, as it does for a caller project: an entry whose path leaves the
+worktree, names a `.git` in any case, or is a submodule's means it runs no git
+there, and the step fails. A merged or closed pull request's worktree with such
+an index is kept, with one `ERROR` line naming the entry. Where the sandbox can't
 apply, off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't
 apply a profile, `run`, `review` and `review --pr` stop with one `ERROR` line
 and take nothing, rather than run the commands without it. A cache a command fills outside the worktree, such as
