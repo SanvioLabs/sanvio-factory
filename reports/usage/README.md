@@ -77,6 +77,16 @@ alive and how many issues wait, so a stopped loop shows as stopped rather than
 quiet. A project you haven't listed under `export_projects` shows in a
 heartbeat under a hashed label, with no issue, tokens or budget.
 
+The store's silent-machine alert fires after 30 minutes without a heartbeat,
+so send one more often than that. With cron, from the factory's folder:
+
+```
+*/10 * * * *  cd /path/to/factory && python3 scripts/send_usage.py --heartbeat
+0 * * * *     cd /path/to/factory && python3 scripts/send_usage.py --auto
+```
+
+A launchd job or a systemd timer does the same with the same two commands.
+
 Each send or refusal of a bundle adds one line to your usage log, with the
 mode and the bundle's id, and the factory dashboard says when you last sent.
 
