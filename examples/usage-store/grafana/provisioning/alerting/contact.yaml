@@ -1,0 +1,23 @@
+apiVersion: 1
+
+# Where alerts go: a webhook whose address Grafana reads from USAGE_ALERT_WEBHOOK in its environment, never
+# from this file. In the cloud the task reads it from the secret store by name. Each node's or run's alert is
+# its own notification (group_by '...'), sent once, then once more when it resolves, and not again while it
+# stays firing (REQ-015): repeat_interval is a year.
+contactPoints:
+  - orgId: 1
+    name: usage-alerts
+    receivers:
+      - uid: usage-webhook
+        type: webhook
+        settings:
+          url: ${USAGE_ALERT_WEBHOOK}
+          httpMethod: POST
+
+policies:
+  - orgId: 1
+    receiver: usage-alerts
+    group_by: ['...']
+    group_wait: 0s
+    group_interval: 1m
+    repeat_interval: 8760h

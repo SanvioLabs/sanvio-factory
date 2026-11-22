@@ -1,0 +1,44 @@
+{
+  "uid": "factory-usage-detailed",
+  "title": "Factory usage, detailed",
+  "editable": false,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "RQ-6 Shell commands agents ran",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage-detailed"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage-detailed"
+          },
+          "rawSql": "-- RQ-6: Which shell commands do agents run most, and which get refused or asked about? Detailed mode only:\n-- this reads the commands view, which only the owner's data source has.\nSELECT split_part(trim(\"text\"), ' ', 1) AS program, count(*) AS runs,\n       count(*) FILTER (WHERE verdict = 'refused') AS refused, count(*) FILTER (WHERE verdict = 'asked') AS asked,\n       count(DISTINCT \"user\") AS people\nFROM commands\nGROUP BY program\nORDER BY runs DESC, program;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "sanvio-factory",
+    "usage"
+  ]
+}
