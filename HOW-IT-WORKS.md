@@ -1113,6 +1113,19 @@ stays on their own machine, holding names and counts, never prompts or code.
 Only the report they've read reaches the owner, and they send it themselves:
 it's gitignored in [`reports/usage/`](reports/usage/), never committed.
 
+Where the owner runs a usage store, the numbers can go there too, so the team's
+are read in one place. [`scripts/send_usage.py`](scripts/send_usage.py) sends
+the bundle [`scripts/export.py`](scripts/export.py) wrote, once its sender has
+read it, and only what the shape in
+[`scripts/usage_shape.py`](scripts/usage_shape.py) names. A machine nobody
+watches sends its general numbers and a heartbeat on its own, never more.
+Detailed mode adds the shell commands agents ran, scrubbed before they're
+written down, and each person turns it on for themselves for 14 days; only the
+owner reads those. [`examples/usage-store/`](examples/usage-store/) is a store
+you run yourself, on one machine or in your own cloud account, with a Grafana
+dashboard answering six questions and alerts for a silent machine or a run near
+its budget. With no store named in `.sanvio/export.json`, nothing is sent.
+
 Nobody edits a shared rule in their own copy. A local edit is a quiet fork,
 and the next update collides with it. A rule only one project needs goes in
 that project's `AGENTS.md`.
