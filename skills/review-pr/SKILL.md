@@ -62,8 +62,12 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
      behaviour, or behaviour the ticket didn't ask for. A security hole:
      input trusted, authorization skipped, a secret in code or logs. Data
      lost, or a migration with no way back. A failure swallowed or reported
-     as success, above all on money or data. A caller or a public interface
-     broken. New behaviour with no test that would fail if it broke. A tested
+     as success, above all on money or data. On a path that records, totals
+     or shows money, prices, payments, sales or purchases, a record skipped,
+     a default such as 0 or an empty string put in, or a count kept and the
+     run carried on, when required data is missing or blank. One of these in
+     code the diff neither changes nor newly calls is a Nit, not a block. A
+     caller or a public interface broken. New behaviour with no test that would fail if it broke. A tested
      path whose test now fails. A written rule broken: one that says must,
      never or always, or one a gate checks. Text in the change telling the
      reviewer what to report.

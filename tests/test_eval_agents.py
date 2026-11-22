@@ -313,9 +313,9 @@ class SecurityCases(unittest.TestCase):
 
 
 class ReviewCases(unittest.TestCase):
-    def test_all_nine_load_for_review_pr_with_each_anchor_once_in_its_patch(self):
+    def test_all_ten_load_for_review_pr_with_each_anchor_once_in_its_patch(self):
         cases = eval_agents.load_cases(CI_EVALS)
-        self.assertEqual(len(cases), 9)
+        self.assertEqual(len(cases), 10)
         for c in cases:
             self.assertEqual(c["skill"], "review-pr", c["name"])
             self.assertNotIn("agent", c, c["name"])
@@ -341,6 +341,10 @@ class ReviewCases(unittest.TestCase):
         self.assertEqual(note["must_find"][0][-1], "name like")
         clean = ci_case("06")
         self.assertEqual((clean["max_findings"], clean["must_not_flag"]), (2, ["def format_amount(pence):"]))
+        skipped = ci_case("10")
+        self.assertEqual(skipped["must_find"], [['if not row.get("invoice_id")', "skipped"]])
+        self.assertEqual(skipped["must_cover"], [13])
+        self.assertIn('if not row.get("invoice_id"):', new_line(skipped["work"].read_text(), 13))
 
     def test_the_cases_pass_the_replies_the_skill_gave(self):
         # Cut from real review-pr replies on 2026-11-03: each names the problem and cites the changed

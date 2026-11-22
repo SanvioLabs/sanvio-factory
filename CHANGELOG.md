@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: Reviewers block a silent skip of required money data
+
+On a path that records, totals or shows money, prices, payments, sales or purchases, the loop's reviewer now treats a skipped record, a default such as 0 or an empty string, or a count kept and the run carried on, when required data is missing or blank, as a real-cost reason for FIX, and can't pass a change it lists one in, where the diff changes or newly calls that code. The review-pr skill blocks on the same thing and calls it a Nit in code the diff leaves alone, and a new eval case, [`10-skipped-payment-record`](examples/ci/evals/10-skipped-payment-record/), checks a review finds it.
+
+**Needs:** 2026-11-10: How a review sorts its findings; 2026-11-14: Evals for instructions planted in pull requests and issues; 2026-11-03: Test the review against planted problems
+
+**Controls:** AC-5, prompt-injection
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`examples/ci/evals/10-skipped-payment-record/`](examples/ci/evals/10-skipped-payment-record/), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`examples/ci/README.md`](examples/ci/README.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-21: sandbox_strict stops the loop where the sandbox can't start
 
 A project with `sandbox_strict` on no longer runs its `test_command`, `generate_command` and `setup_command` without the sandbox. Where the sandbox can't apply (off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't apply a profile), `run`, `review` and `review --pr` now stop with one `ERROR` line saying which, and take nothing. Before, the loop logged a `WARN` and went on. The `INFO` line it logs when it starts now also says that the clone's shared `.git` stays read-only on purpose, so a command that commits or fetches in the worktree fails. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gives the reason: a hook or config written there would be run by the loop's own git, outside the sandbox. It no longer suggests adding that path to `sandbox_write_allow`. Projects without `sandbox_strict` and caller projects work as before.
