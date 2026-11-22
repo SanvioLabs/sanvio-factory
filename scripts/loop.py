@@ -1282,7 +1282,8 @@ def sandbox_env(env, allow=()):
     return env
 
 
-def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, writable=(), network="any"):
+def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, writable=(), network="any", held=(),
+                    held_folders=()):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
@@ -1307,10 +1308,12 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
 
     strict is sandbox_strict (#696). Off, the profile is the one above, whatever writable and network say. On,
     after (allow default) come, in order: writing denied everywhere; writing allowed back on each path in
-    writable (resolved, a ~/ one under home) and on SANDBOX_DEVICES; then, for a network other than "any",
-    every outbound connection denied, unix sockets included, and for "local" loopback addresses allowed back.
-    Any value but "any" and "local" is treated as "none". The denials above come last, so no allow outranks
-    them: sandbox-exec takes the last rule that matches."""
+    writable (resolved, a ~/ one under home) and on SANDBOX_DEVICES; then writing denied again on each path in
+    held, resolved the same way, and unlinking each folder in held_folders, which renaming it needs (#714); then,
+    for a network other than "any", every outbound connection denied, unix sockets included, and for "local"
+    loopback addresses allowed back. Any value but "any" and "local" is treated as "none". The denials above
+    come last, so no allow outranks them: sandbox-exec takes the last rule that matches. Off, held and
+    held_folders change nothing either."""
     denied, folders = sandbox_denials(home, root, environ, extra, allow)
     rules = ["(version 1)(allow default)"]
     if strict:
@@ -1321,6 +1324,8 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
         rules.append('(deny file-write* (subpath "/"))')
         rules += ['(allow file-write* (subpath "{}"))'.format(sbpl(real(path))) for path in writable]
         rules.append("(allow file-write* {})".format(" ".join(SANDBOX_DEVICES)))
+        rules += ['(deny file-write* (subpath "{}"))'.format(sbpl(real(path))) for path in held]
+        rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(real(path))) for path in held_folders]
         if network != "any":
             rules.append("(deny network-outbound)")
         if network == "local":
@@ -1477,6 +1482,23 @@ def linked_git_dir(tree, clone):
 # .claude/hooks/guard.py treats a session there as one nobody is watching even when SANVIO_UNATTENDED was
 # dropped from its environment. guard.py's UNATTENDED_MARKER names the same prefix.
 UNATTENDED_MARKER = "sanvio-unattended-"
+
+
+# What a strict command can't write in git's own folder for its worktree (#714): where the loop's own git, run
+# outside the sandbox, would find the repository, its config and its hooks. The index, HEAD, logs/ and refs/
+# stay writable, so the command's own git still works there.
+STRICT_GIT_HELD = ("commondir", "gitdir", "config", "config.worktree", "hooks")
+
+
+def plain_text(path):
+    """path's text, stripped, where it's a plain file and not a link, else None: so never one that doesn't end,
+    such as a FIFO, and never one a link points at (#714)."""
+    try:
+        if not Path(path).is_file() or Path(path).is_symlink():
+            return None
+        return Path(path).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def worktree_git_dir(tree, clone):
@@ -3330,8 +3352,9 @@ class Loop:
 
     def caller_worktree(self, cwd):
         """For a git the loop runs in a caller project: git's own folder for cwd where cwd is a worktree the clone
-        links back to, False where cwd is under the loop's checkouts and isn't one, else None (#640)."""
-        if cwd is None or self.project is None:
+        links back to, False where cwd is under the loop's checkouts and isn't one, else None (#640). Under
+        strict_git() too, the factory's own loop included (#714)."""
+        if cwd is None or (self.project is None and not self.strict_git()):
             return None
         where, top = os.path.realpath(str(cwd)), os.path.realpath(str(self.worktrees()))
         if not where.startswith(top + os.sep):
@@ -3422,6 +3445,40 @@ class Loop:
                        GIT_WORK_TREE=os.path.join(top, os.path.relpath(where, top).split(os.sep)[0]))
         return env
 
+    def strict_git_env(self, cwd, env):
+        """(why the loop runs no git in cwd, or None; the env it runs with) under strict_git() (#714). Where cwd is
+        a worktree the clone links back to, its .git file has to name that same folder, and that folder's
+        commondir the clone's own .git, as a strict command can't write either, and env gets linked_env(), so
+        git finds the folder from the clone's side either way.
+        Under the loop's checkouts but not linked, it's refused as a caller's is; anywhere else, env as it was."""
+        linked = self.caller_worktree(cwd)
+        if linked is False:
+            return ("refused: {} is under the loop's checkouts but isn't a worktree the clone links back to, so the "
+                    "loop runs no git there").format(cwd), env
+        if not linked:
+            return None, env
+        where, top = os.path.realpath(str(cwd)), os.path.realpath(str(self.worktrees()))
+        tree = os.path.join(top, os.path.relpath(where, top).split(os.sep)[0])
+        text = plain_text(Path(tree, ".git"))
+        named, points = "nothing readable", None
+        if text is not None and text.startswith("gitdir:") and text[len("gitdir:"):].strip():
+            named = text[len("gitdir:"):].strip()
+            # worktree.useRelativePaths: from the worktree's own folder
+            points = os.path.realpath(os.path.join(tree, named))
+        elif text:
+            named = repr(text[:100])
+        if points != os.path.realpath(str(linked)):
+            return ("refused: {}/.git names {}, not the clone's own folder for this worktree ({}), so the loop runs "
+                    "no git there").format(tree, named, linked), env
+        # A link made in the worktree to commondir could rewrite it whatever the sandbox holds; with GIT_DIR set,
+        # git takes the repository's config from the folder it names.
+        common = plain_text(Path(linked, "commondir"))
+        clone_git = os.path.realpath(os.path.join(str(self.repo), ".git"))
+        if not common or os.path.realpath(os.path.join(str(linked), common)) != clone_git:
+            return ("refused: {}/commondir names {}, not the clone's own .git ({}), so the loop runs no git "
+                    "there").format(linked, common or "nothing readable", clone_git), env
+        return None, self.linked_env(dict(os.environ if env is None else env), cwd)
+
     def agents_env(self, cwd):
         """env_for_agents() for an agent started in cwd. In a caller project, with drivers_off() too: Claude Code
         runs git in the worktree, outside any sandbox, when a session starts, and the caller's .gitattributes could
@@ -3480,7 +3537,8 @@ class Loop:
         denials, with writes held to tree, a temp folder of its own (TMPDIR), removed after, git's folder for
         tree, each path sandbox_allow lets through, so it can still write them, and sandbox_write_allow; and the
         network as sandbox_network says. A sandbox_write_allow the loop refuses at start makes nothing more
-        writable here, and a sandbox_network it refuses connects to nothing."""
+        writable here, and a sandbox_network it refuses connects to nothing. In git's folder, STRICT_GIT_HELD
+        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714)."""
         home = Path.home()
         extra = [] if sandbox_strict_problem(self.cfg) else list(self.cfg.get("sandbox_write_allow") or ())
         let = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
@@ -3489,9 +3547,13 @@ class Loop:
             let += [str(Path(xdg) / name.split("/", 1)[1]) for name in allow if name.startswith(".config/")]
         scratch = tempfile.mkdtemp(prefix="sanvio-strict-")
         try:
-            writable = [tree, scratch, worktree_git_dir(tree, self.repo)] + let + extra
+            git_dir = worktree_git_dir(tree, self.repo)
+            writable = [tree, scratch, git_dir] + let + extra
+            # #714: what the loop's own git reads there, outside the sandbox, stays as it was.
+            held = [git_dir / name for name in STRICT_GIT_HELD] + [Path(tree) / ".git"]
             profile = sandbox_profile(home, self.root, allow=allow, strict=True, writable=writable,
-                                      network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]))
+                                      network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]),
+                                      held=held, held_folders=[git_dir])
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             env = dict(sandbox_env(env, allow), TMPDIR=scratch)
             return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
@@ -3532,7 +3594,7 @@ class Loop:
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
         """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE before its
         subcommand, CALLER_GIT_FLAGS after it and every driver turned off, and doesn't run at all once the project
-        is marked (tampered())."""
+        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE and strict_git_env() alone (#714)."""
         if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
             mark = self.tampered_mark()
             if mark.exists() or mark.is_symlink():
@@ -3552,6 +3614,11 @@ class Loop:
                 if why:
                     self.mark_tampered("the worktree's index: " + why)
                     return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
+        elif not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.strict_git():
+            refused, env = self.strict_git_env(cwd, env)
+            if refused:
+                return 1, refused
+            cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
@@ -4059,6 +4126,11 @@ class Loop:
     def caller(self):
         """Whether this is a caller project, an outside team's repo. Only true turns it on."""
         return self.cfg.get("caller") is True
+
+    def strict_git(self):
+        """Whether the loop's own git in this project's worktrees runs as ran() says for sandbox_strict (#714):
+        sandbox_strict true, for a project that isn't a caller's, whose git has its own settings."""
+        return self.cfg.get("sandbox_strict") is True and not self.caller()
 
     def accepted(self, issue):
         """Whether discover may go on with an issue: always outside caller mode, and in it only once a person here

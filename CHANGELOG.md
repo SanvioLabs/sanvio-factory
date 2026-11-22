@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: A strict command can't plant git config the loop's git reads
+
+Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can no longer write `commondir`, `gitdir`, `config`, `config.worktree` or `hooks/` in git's folder for their worktree, or the worktree's `.git` file, and can't rename that folder aside. The index, `HEAD`, `logs/` and `refs/` there stay writable, so their own git still works. The loop's own git in such a worktree, the factory's own loop included, now finds that folder from the clone's side and runs with no hooks, no fsmonitor and no replace refs. Where the `.git` file names any other folder, `commondir` names anything but the clone's `.git`, or a folder under the loop's checkouts isn't a worktree the clone links back to, it runs no git there and the step fails. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-21: A strict sandbox for one project's commands; 2026-11-21: sandbox_strict stops the loop where the sandbox can't start; 2026-11-18: A caller's checkout can't change what the loop's own git runs
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** Nothing, unless a strict project's own commits relied on its git hooks: the loop's commits there now skip them.
+
 ## 2026-11-21: sandbox_strict stops the loop where the sandbox can't start
 
 A project with `sandbox_strict` on no longer runs its `test_command`, `generate_command` and `setup_command` without the sandbox. Where the sandbox can't apply (off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't apply a profile), `run`, `review` and `review --pr` now stop with one `ERROR` line saying which, and take nothing. Before, the loop logged a `WARN` and went on. The `INFO` line it logs when it starts now also says that the clone's shared `.git` stays read-only on purpose, so a command that commits or fetches in the worktree fails. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gives the reason: a hook or config written there would be run by the loop's own git, outside the sandbox. It no longer suggests adding that path to `sandbox_write_allow`. Projects without `sandbox_strict` and caller projects work as before.
