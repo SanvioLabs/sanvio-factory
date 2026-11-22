@@ -95,52 +95,60 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 ## Phase 3: Sender
 
   - Done 2026-11-21: the *Detailed mode for the usage bundle* entry, plus the README's *Detailed mode* section and its paste-ready message (part of T028) and the retention row
-- [ ] T013 `send_usage.py FILE`: check the shape, refuse unknown keys, run the scrubber again and refuse the file if anything changes, then send its exact bytes through the cloud CLI's profile to `incoming/<node>/<user>/<mode>/<bundle_id>.json`
+- [x] T013 `send_usage.py FILE`: check the shape, refuse unknown keys, run the scrubber again and refuse the file if anything changes, then send its exact bytes through the cloud CLI's profile to `incoming/<node>/<user>/<mode>/<bundle_id>.json`
   - Requirements: REQ-009
   - Acceptance: AC-006
   - Security: SEC-002
   - Depends on: T012
   - Verification: `TESTS` with a stand-in CLI first on `PATH`
-- [ ] T014 No `.sanvio/export.json`, or no `store` in it: send nothing, open no connection, and say how to configure one
+  - Done 2026-11-21: `send_file()`, `check()`, `key_for()` and `deliver()` in `send_usage.py`; `Sending` in [`tests/test_send_usage.py`](../../../tests/test_send_usage.py), with a stand-in `aws` on `PATH`
+- [x] T014 No `.sanvio/export.json`, or no `store` in it: send nothing, open no connection, and say how to configure one
   - Requirements: REQ-010
   - Acceptance: AC-007
   - Depends on: T013
   - Verification: `TESTS` with a socket that fails the test when opened
-- [ ] T015 `--auto` builds and sends a general bundle only, and says so when detailed was asked for
+  - Done 2026-11-21: `store_of()`; a test that fails on any socket or process
+- [x] T015 `--auto` builds and sends a general bundle only, and says so when detailed was asked for
   - Requirements: REQ-011
   - Acceptance: AC-008
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T016 `--heartbeat`, per the plan's *Heartbeat*: lock pid, queue, running issue's tokens and budget, unlisted projects under a hashed label, no titles
+  - Done 2026-11-21: `send_auto()`; `export.bundle(..., last=)` so each day's bundle covers that day only
+- [x] T016 `--heartbeat`, per the plan's *Heartbeat*: lock pid, queue, running issue's tokens and budget, unlisted projects under a hashed label, no titles
   - Requirements: REQ-012
   - Acceptance: AC-009
   - Depends on: T013
   - Verification: `TESTS` over a fixture `.loop/` with one live and one dead lock
+  - Done 2026-11-21: `heartbeat()` and `beat()`; `Heartbeat` in [`tests/test_send_usage.py`](../../../tests/test_send_usage.py)
 - [x] T017 `--opt-in detailed` and `--opt-out`, writing through T006
   - Requirements: REQ-004
   - Depends on: T006, T013
   - Verification: `TESTS`
   - Done 2026-11-21: done early, in phase 2: `scripts/send_usage.py --opt-in detailed` and `--opt-out`; [`tests/test_send_usage.py`](../../../tests/test_send_usage.py)
-- [ ] T018 `export_sent` and `export_refused` lines in the usage log, and the dashboard's last send and mode
+- [x] T018 `export_sent` and `export_refused` lines in the usage log, and the dashboard's last send and mode
   - Requirements: OBS-001, OBS-002
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T019 `factory-trends`'s *Sprint run* offers the period's general bundle after the report, shows it, and sends only on a yes. A failed send never stops the report
+  - Done 2026-11-21: `export_sent` and `export_refused` lines, `.sanvio/usage/last-send`, `last_send()` in `dashboard_data.py`, and the factory-dashboard mod's line (0.10.0)
+- [x] T019 `factory-trends`'s *Sprint run* offers the period's general bundle after the report, shows it, and sends only on a yes. A failed send never stops the report
   - Requirements: REQ-018
   - Acceptance: AC-014
   - Depends on: T013
   - Verification: `TESTS` with a stand-in sender, then a reading of the skill
-- [ ] T031 A store with `kind: folder`: copy into its `incoming/<node>/` path after the same checks as T013, creating folders as needed
+  - Done 2026-11-21: step 8 of the sprint run; `FactoryTrendsSend` in [`tests/test_skills.py`](../../../tests/test_skills.py)
+- [x] T031 A store with `kind: folder`: copy into its `incoming/<node>/` path after the same checks as T013, creating folders as needed
   - Requirements: REQ-020
   - Acceptance: AC-016
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T020 Phase 3's CHANGELOG entry, and the pull request
+  - Done 2026-11-21: `deliver()` writes a folder store's `incoming/` path through a `.part` file
+- [x] T020 Phase 3's CHANGELOG entry, and the pull request
   - Depends on: T013 to T019, T031
   - Verification: the full suite
 
 ## Phase 4: Reference store
 
+  - Done 2026-11-21: the *Sending the usage bundle* entry, and the README's *Sending it* section (part of T028)
 - [ ] T030 Spike: run the DuckDB Grafana plugin's current release locally against a folder and against a test bucket through a CLI profile. Record the version, whether the bucket read worked, and which cloud data source the plan uses
   - Requirements: REQ-022
   - Depends on: T020

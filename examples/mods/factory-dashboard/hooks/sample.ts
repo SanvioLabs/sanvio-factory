@@ -242,6 +242,11 @@ export const SAMPLE: Doc = {
     "date": "2026-10-20",
     "days_since": 7
   },
+  "last_send": {
+    "date": "2026-10-24",
+    "days_since": 3,
+    "mode": "general"
+  },
   "loop_history": {
     "by_day": [
       {

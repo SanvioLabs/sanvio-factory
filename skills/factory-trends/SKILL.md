@@ -137,6 +137,26 @@ version and scope and no path.
    themselves, the way the team passes documents around. It stays in
    [`reports/usage/`](../../reports/usage/) on their machine, gitignored, where step 1 finds it next
    sprint.
+8. **Offer to send the period's numbers, if there's a store.** Skip this step
+   when `.sanvio/export.json` names no `store`; say nothing about it then.
+   Otherwise write the general bundle for the same period and show it to them:
+
+   ```bash
+   python3 scripts/export.py --since <YYYY-MM-DD> --out reports/usage/export.json
+   ```
+
+   Show the counts in a few lines (sessions, the top skills, refusals, loop
+   runs and their cost), and say that the file holds names and counts only,
+   no prompts, code or paths, and that it goes to the store the factory's
+   owner runs. Ask once: "Send this to the factory's store?" Only on a yes:
+
+   ```bash
+   python3 scripts/send_usage.py reports/usage/export.json
+   ```
+
+   Say what it printed. A refusal, or a store that didn't take it, never
+   changes the report: say why and stop. Never send detailed mode from here,
+   and never send on anything but a yes to this question.
 
 ### Daily run
 

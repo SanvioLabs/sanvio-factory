@@ -270,6 +270,18 @@ class Version2(unittest.TestCase):
         self.write_config({"node": "x", "export_projects": {"../escape": "x", "ok": 3}})
         self.assertEqual(self.bundle()["loop"], [])
 
+    def test_a_period_ending_before_today_leaves_out_later_days(self):
+        write_lines(self.root / ".loop" / "history.jsonl", [run_line(1, "2026-10-20T10:00:00"),
+                                                           run_line(2, "2026-10-21T10:00:00")])
+        write_lines(usage_log.log_path(self.root), [
+            {"ts": "2026-10-20T09:00:00Z", "session": "a", "event": "skill", "name": "early"},
+            {"ts": "2026-10-21T09:00:00Z", "session": "b", "event": "skill", "name": "late"}])
+        got = export.bundle(self.root, "2026-10-20", "2026-10-25", last="2026-10-20")
+        self.assertEqual([line["issue"] for line in got["loop"]], [1])
+        self.assertEqual(got["usage"]["skills"], {"early": 1})
+        self.assertEqual((got["period"], got["exported"]), ({"first": "2026-10-20", "last": "2026-10-20"}, "2026-10-25"))
+        self.assertEqual(got["bundle_id"], export.bundle(self.root, "2026-10-20", "2026-10-26", last="2026-10-20")["bundle_id"])
+
     def test_a_bundle_off_the_shape_is_never_written(self):
         out = self.root / "export.json"
         original = usage_shape.problems
