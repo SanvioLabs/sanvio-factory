@@ -136,6 +136,15 @@ log as it is: don't delete it and don't fix it. Treat it as an incident under
 [`incidents.md`](incidents.md). If there's a refusal nobody can explain, ask
 whoever was working that day, and treat it as an incident if nobody knows.
 
+**The usage store keeps the same 90 days.** Where your factory's owner runs one
+(the reference is in [`examples/usage-store/`](../examples/usage-store/)), what
+people send is deleted 90 days after it arrives: by the bucket's lifecycle in
+the cloud, and by `validator.py --folder` each time it runs on a folder. Anyone
+can ask the owner to delete everything under their own prefix sooner, and the
+owner does it without asking why. The store sits in a system the owner has
+approved for the team's data, the same as any other tool here, and a hosted
+analytics service isn't one unless it's been approved like any other.
+
 `SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a
 period never outranks it. Stop the loop and set a longer period until the

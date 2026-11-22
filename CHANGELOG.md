@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-21: The usage store in the docs
+
+The last step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). [`steering/data-and-tools.md`](steering/data-and-tools.md) now says the usage store keeps the same 90 days as the local logs, that anyone can ask the owner to delete everything under their own prefix sooner and the owner does it without asking why, and that the store sits in a system the owner has approved for the team's data. [`reports/usage/README.md`](reports/usage/README.md) gives the cron lines for an unattended machine's heartbeat and daily sends. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) and [`README.md`](README.md) say where the numbers can go.
+
+**Needs:** 2026-11-21: The usage store
+
+**Controls:** SA-9
+
+Files: [`steering/data-and-tools.md`](steering/data-and-tools.md), [`reports/usage/README.md`](reports/usage/README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`docs/specs/004-usage-export/TASKS.md`](docs/specs/004-usage-export/TASKS.md), `CHANGELOG.md`.
+
+**Do:** if you run a usage store, tell your team they can ask you to delete their prefix, and add the two cron lines on each machine that sends on its own.
+
 ## 2026-11-21: The usage store
 
 The fourth step of [SPEC-004](docs/specs/004-usage-export/SPEC.md): somewhere for the bundles to go, and a way to read them. [`examples/usage-store/`](examples/usage-store/) is a reference store you run yourself, on one machine or in your own cloud account, with the same SQL, dashboards and alert rules in both. [`validator.py`](examples/usage-store/validator.py) moves what senders put under `incoming/` to `accepted/`, or to `rejected/` with its reason, checked against the same shape the sender uses, and marks a log whose chain changed between sends. Run on a folder, it also removes what's older than 90 days (`SANVIO_KEEP_DAYS`). `queries/` holds one SQL file per question the spec says the store answers, read by DuckDB, and [`render.py`](examples/usage-store/render.py) writes them into Grafana's provisioning: a dashboard, a detailed dashboard for the owner, and two alert rules, a node silent for 30 minutes and a run past 80% of its token budget, each sent once to the webhook you name. [`local/compose.yaml`](examples/usage-store/local/compose.yaml) runs Grafana on `127.0.0.1` over a folder. [`cloud/`](examples/usage-store/cloud/) is Terraform for a bucket with a 90-day lifecycle, a key only the owner can read detailed bundles with, sender roles that can only put under their own prefix (certificates for unattended machines), the validator as a function, and Grafana behind your identity provider's sign-in with no access to detailed bundles. Nothing in it names an account.

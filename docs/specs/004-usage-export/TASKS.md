@@ -204,15 +204,17 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 
 ## Phase 5: Docs
 
-- [ ] T028 [`reports/usage/README.md`](../../../reports/usage/README.md): the sending flow, and the second paste-ready message for detailed mode. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md): the commands file and the store in the retention table, and deletion on request
+- [x] T028 [`reports/usage/README.md`](../../../reports/usage/README.md): the sending flow, and the second paste-ready message for detailed mode. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md): the commands file and the store in the retention table, and deletion on request
   - Requirements: REQ-017
   - Acceptance: AC-013
   - Privacy: PRIV-001, PRIV-004
   - Depends on: T020
   - Verification: a reading, and `TESTS`
-- [ ] T029 [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) and [`README.md`](../../../README.md) agree with what shipped
+  - Done 2026-11-21: the sending flow and the detailed-mode message went in with phase 3; this adds the schedule for an unattended machine's two commands. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md) has the commands file in the retention table (phase 2), and now the store's 90 days, deletion of a person's prefix on request, and that the store sits in an approved system
+- [x] T029 [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) and [`README.md`](../../../README.md) agree with what shipped
   - Depends on: T027, T028
   - Verification: a reading, and `TESTS`
+  - Done 2026-11-21: [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) says where the numbers can go and what's sent on its own, and [`README.md`](../../../README.md)'s usage log row names the sender and the store
 
 ## Requirement Traceability
 
@@ -241,3 +243,34 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 | REQ-021 | T023 | AC-016 | |
 | REQ-022 | T024, T025, T030, T032 | AC-016, AC-017 | |
 | REQ-023 | T032, T033 | AC-016, AC-010 | |
+
+## Review Findings
+
+review-spec, 2026-11-21, on `usage-export/phase-5` against `main`. Lenses run: correctness and the requirement walk (probe, standing in for `code-review`), security (viper), engineering quality and architecture (cto, covering atlas's and review-principles' questions). Skipped: a separate atlas run and `find-dead-code`, since cto covered structure and dead code in the same pass. Nothing was run against a cloud account.
+
+**Recommendation: Not Complete.** F01 to F18 block it.
+
+| ID | Severity | Finding | Where | Lens | Status |
+|---|---|---|---|---|---|
+| F01 | HIGH | A loop that dies while cron keeps sending heartbeats raises no alert: the silent-node rule reads only the newest `ts`, and `alive: false` shows only in RQ-5. AC-011 can't pass as written | `queries/alert-silent-node.sql`, `grafana/provisioning/alerting/rules.yaml` | probe | open |
+| F02 | HIGH | Overlapping bundles double count: two 14-day exports a day apart have different `bundle_id`s, so RQ-1 and RQ-4 sum the same lines twice | `queries/views.sql` | probe | open |
+| F03 | HIGH | A node name outside `[A-Za-z0-9._-]` is cleaned in the sender's key and not in the validator's check, so every bundle and heartbeat from it is rejected while the sender says `Sent:` | [`scripts/send_usage.py`](../../../scripts/send_usage.py) `safe()`, `validator.py` `expected_tail` | probe, cto | open |
+| F04 | HIGH | The scrubber keeps quoted flag values (`--password "x"`), slash-bearing secrets (a 40-character cloud secret key), `curl -u`, `-pPASS`, `sshpass -p`, `X-Api-Key:` headers and `*_PASS=` assignments. The send-side check runs the same function, so it can't catch a miss. SEC-001 | [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py) | viper (risk 7), probe | open |
+| F05 | HIGH | The guard misses writes to `export.json` that don't spell `.sanvio/export.json` (`cd .sanvio && ... > export.json`, `tee`, `python3 -c`), and `--opt-i`, which argparse accepts as `--opt-in`. An agent can repoint the store or turn on detailed mode. The send prints the key, not the store, so a repointed store goes unnoticed | [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py), [`scripts/send_usage.py`](../../../scripts/send_usage.py) | viper (risk 6), probe | open |
+| F06 | HIGH | The person-sender role trusts any listed principal to set its own `usage_node` session tag, so one person can write under another's node, including heartbeats | `cloud/main.tf` person trust policy | viper (risk 6, plausible) | open |
+| F07 | HIGH | One malformed accepted bundle (a date that isn't a date, an integer past range) breaks every panel until it expires; the validator catches only `ValueError`, reads objects of any size, and copies a KMS header onto a general bundle that Grafana then can't read | [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) `DAY`, `validator.py`, `queries/views.sql`, `cloud/main.tf` bucket policy | viper (risk 5) | open |
+| F08 | HIGH | The cloud Grafana sets no `GF_AUTH_BASIC_ENABLED=false` or admin password, and DuckDB's external access isn't locked, so a viewer posting SQL may read local files such as the task's environment | `cloud/grafana.tf`, the data sources' init SQL | viper (risk 6, plausible) | open |
+| F09 | HIGH | Skill and agent names an agent chooses reach general bundles as they are; a prompt-injected agent can put text into the store through them | [`.claude/hooks/usage_log.py`](../../../.claude/hooks/usage_log.py), [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) | viper (risk 4) | open |
+| F10 | HIGH | No way to revoke one node's certificate: no CRL on the trust anchor and no instructions. REQ-019, AC-015 | `cloud/main.tf`, `cloud/README.md` | probe | open |
+| F11 | HIGH | The SQL views hard-code their columns, and the only tie to the shape is a DuckDB test CI skips, so a renamed key reads as NULL with no failure | `queries/views.sql`, [`tests/test_usage_store.py`](../../../tests/test_usage_store.py), CI | cto | open |
+| F12 | HIGH | Version skew: the Lambda carries the `usage_shape.py` of the clone it was applied from, so a team that updates the factory has its bundles rejected with nothing raised; and nothing says to schedule `validator.py --folder`, without which a healthy local node reads as silent | `cloud/main.tf`, `cloud/README.md`, `local/README.md` | cto, probe | open |
+| F13 | HIGH | The cloud Grafana installs DuckDB's `httpfs` and `aws` extensions from the network at each start, unpinned | `cloud/grafana.tf` `USAGE_INIT` | cto | open |
+| F14 | HIGH | The cloud form is unverified: the T030 bucket half and AC-010, AC-011, AC-015, AC-017 haven't run, and no CI step runs `terraform validate` | T030, T026 | cto | open, waits on a test account |
+| F15 | MEDIUM | A headless session consumes an expired opt-in, so the person never sees the "detailed mode ended" notice. REQ-008 | [`.claude/hooks/session_start.py`](../../../.claude/hooks/session_start.py) `detailed_notes` | probe | open |
+| F16 | MEDIUM | `send_usage.py` crashes with no `export_refused` line on a folder store it can't write or a bundle file that isn't an object; the 500-character cut can land inside `[redacted]`, after which the send check refuses that day's detailed bundle on every export | [`scripts/send_usage.py`](../../../scripts/send_usage.py), [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py) | probe | open |
+| F17 | MEDIUM | Usage lines are dated in UTC and the bundle's `today` in local time, so a late-evening use west of UTC drops out of a manual bundle | [`scripts/export.py`](../../../scripts/export.py) | probe | open |
+| F18 | MEDIUM | PRIV-003: the path check is case-sensitive and misses `cd clients`, `ls projects`; the unlisted-project label is an unsalted hash a guess can reverse; an env-prefixed command's first word reaches the history `agent` field | [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), [`scripts/send_usage.py`](../../../scripts/send_usage.py), [`scripts/loop.py`](../../../scripts/loop.py) | viper (risk 3) | open |
+| F19 | MEDIUM | The detailed key delegates to the account root, so any principal there with IAM `kms:Decrypt` and bucket read can open detailed bundles; "owner only" holds only with an explicit deny | `cloud/main.tf` key policy | viper (risk 3) | open |
+| F20 | MEDIUM | Small repeats: `SHAPE_FILES` in the validator and in Terraform, `LAST_SEND` in two scripts, the `.part` write in three places, two `keep_days`; `usage_log.rule()` classifies by a substring of the guard's message; Dependabot doesn't watch the image digest, the plugin or the providers | several | cto | open |
+| F21 | LOW | Minor behaviour: the cloud example's `projects/app` label is dropped without an error; `send_usage.py`'s docstring says key alias where the ARN is needed; extra workers' budgets aren't in the heartbeat; a node with no loops drops out of RQ-5; RQ-3 uses the latest sender's version; stray `.part` files are never pruned | several | probe | open |
+| F22 | INFO | `local/compose.yaml` says an empty webhook means nowhere; its default is a dead local port | `local/compose.yaml` | cto | open |
