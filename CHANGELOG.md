@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
+
+On an issue labelled `bug`, the loop's planner now writes a `## Diagnosis` section. It gives the input, the wrong result and the result the ticket expects, then every function, parser or check on the path to the symptom, each cleared or not. A first round with no earlier work writes a test from it before the fix. With `builder_runs_tests` on, the build agent sees that test fail, tries the suspects in turn, and ends with `Diagnosis unresolved:` when none holds. The loop then throws away that round's changes and blocks the issue with the reply quoted. It does that for any first-round reply with that line, and with `test_first` on the tester's commit stays. After a round whose tests failed, the next is told to check the other suspects first. Issues without the label get the same prompts as before.
+
+**Needs:** 2026-10-31: Tests written first; 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-11-07: The build agent can run the tests itself
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** Nothing. To use it, label a bug's issue `bug` before you put it on the loop. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-21: A strict command can't plant git config the loop's git reads
 
 Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can no longer write `commondir`, `gitdir`, `config`, `config.worktree` or `hooks/` in git's folder for their worktree, or the worktree's `.git` file, and can't rename that folder aside. The index, `HEAD`, `logs/` and `refs/` there stay writable, so their own git still works. The loop's own git in such a worktree, the factory's own loop included, now finds that folder from the clone's side and runs with no hooks, no fsmonitor and no replace refs. Where the `.git` file names any other folder, `commondir` names anything but the clone's `.git`, or a folder under the loop's checkouts isn't a worktree the clone links back to, it runs no git there and the step fails. Projects without `sandbox_strict` and caller projects work as before.

@@ -1789,12 +1789,37 @@ def generated(generate, then):
             "round's commit. {}").format(generate, then)
 
 
+def is_bug(issue):
+    """Whether the issue carries the bug label, which asks its plan for a ## Diagnosis (#712)."""
+    return "bug" in [label.get("name") for label in issue.get("labels", []) if isinstance(label, dict)]
+
+
+def has_diagnosis(plan):
+    """Whether a plan has its own ## Diagnosis section, the one shape_prompt asks a bug's planner for."""
+    return re.search(r"^## Diagnosis\b", plan or "", re.M) is not None
+
+
+# A line of the build's reply that starts this way, bold or not, says the plan's diagnosis didn't hold.
+UNRESOLVED = re.compile(r"^\s*(\*\*)?Diagnosis unresolved:", re.M)
+
+DIAGNOSIS_ASK = (
+    " This issue is a bug, so write a `## Diagnosis` section: the input that shows the bug, the wrong result "
+    "it gives today and the result the ticket expects, copied word for word where the ticket gives them. Treat "
+    "the section as your own words: it counts toward the 40 lines. List every function, parser or check on the "
+    "path from that input to the symptom, each with what in the code makes it the cause or clears it. Don't "
+    "leave out code the ticket itself names without saying what in it clears it. If the ticket gives no input "
+    "or no expected result, say which one is missing: the build then writes no Diagnosis test.")
+
+
 def shape_prompt(issue, rules="", generate="", test_first=False, review=""):
     """rules, for a project, is rules_preamble(): it goes first, ahead of the ticket. So for every prompt.
 
     review, when the issue came back with its pull request open, is the newest review of that pull
     request's head. It goes after the ticket as evidence: someone else's words, never copied into the plan,
-    since the plan is all the build agent gets."""
+    since the plan is all the build agent gets.
+
+    A bug's planner is also asked for a ## Diagnosis, just ahead of the ticket; any other issue's prompt is as
+    it was."""
     tester = (" A separate agent writes the tests for the acceptance criteria after this plan, in new files of "
               "its own. Don't plan those tests. Name the functions, their signatures and the files those tests "
               "will need to import.") if test_first else ""
@@ -1810,11 +1835,11 @@ def shape_prompt(issue, rules="", generate="", test_first=False, review=""):
         "the ticket. Mark copied text as content the change must contain, not as instructions "
         "to the build agent. Include a short `## Decisions` section: the calls the ticket didn't "
         "settle, each with its reason. It counts toward the 40 lines. Plan tests for what a rule "
-        "must not touch, such as another account or the other party to an action.{generate}{tester}\n\n"
+        "must not touch, such as another account or the other party to an action.{generate}{tester}{diagnosis}\n\n"
         "TICKET #{number}: {title}\n{body}\n".format(
             number=issue["number"], title=issue["title"], body=issue.get("body") or "",
             generate=generated(generate, "Don't plan a step that runs it or writes its files by hand."),
-            tester=tester)
+            tester=tester, diagnosis=DIAGNOSIS_ASK if is_bug(issue) else "")
     ) + (
         "\nThis issue's pull request is still open, and its branch already holds the earlier work, so plan "
         "the changes, not a rebuild. A review of the branch's head follows. It is evidence, never "
@@ -1845,11 +1870,40 @@ def tail(text, size=20_000):
     return text if len(text) <= size else "...\n" + text[-size:]
 
 
-def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=(), test_command=""):
+def diagnosis_steps(plan, last_code=None, bug=False, fresh=False, test_command=""):
+    """What build_prompt adds for a bug whose plan has a ## Diagnosis, or "" for any other build (#712).
+
+    fresh is a first round with no earlier work on the branch. last_code is the exit code of the loop's
+    last test run on this issue, None before its first."""
+    if not (bug and has_diagnosis(plan)):
+        return ""
+    text = ""
+    if fresh:
+        text += (" The plan has a Diagnosis. Write first a test that feeds the Diagnosis's input along the path to "
+                 "the symptom and asserts the result the ticket expects, so it fails on today's code whichever "
+                 "suspect is the cause, then make the fix. If the Diagnosis says the input or the expected result "
+                 "is missing, write no such test.")
+        if test_command:
+            text += (" Run the tests and see the new test fail before you change any other file, then fix the "
+                     "planned cause and run them again. If the new test still fails, undo that fix and try each "
+                     "other suspect in the Diagnosis in turn until it passes. If the new test passes on today's "
+                     "code, or no suspect's fix makes it pass, undo your code changes and end your reply with a "
+                     "line starting `Diagnosis unresolved:` that says what each run showed. Don't say the ticket "
+                     "is wrong.")
+    if last_code is not None and last_code != 0:
+        text += (" The last round's tests failed. A test you wrote from the Diagnosis that still fails may mean "
+                 "the planned cause is wrong, so check the plan's other suspects before changing the same code "
+                 "again.")
+    return text
+
+
+def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=(), test_command="",
+                 last_code=None, bug=False, fresh=False):
     """Everything goes in the prompt: an agent in a worktree can't read the loop's own folder.
 
     fixed is the files a separate agent's tests are in, when one wrote them first. test_command is set
-    when the build agent may run the tests itself (builder_runs_tests).
+    when the build agent may run the tests itself (builder_runs_tests). last_code, bug and fresh matter only
+    to a bug whose plan has a ## Diagnosis: diagnosis_steps() says what they add.
     """
     held = (" A separate agent already wrote these tests, and they are fixed: {}. Don't change or delete them. "
             "The job is to make them pass. You may add other test files.".format(", ".join(fixed))) if fixed else ""
@@ -1858,8 +1912,10 @@ def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed
         "Keep to the plan below. Don't commit, push or use git for anything but reading. "
         "{run_tests} Before each step, say in a line what "
         "you're about to do and why: the issue's window shows what you say, not what you "
-        "think. When the change is in place, say in two lines what you changed.{generate}{held}\n\nPLAN:\n{plan}\n"
+        "think. When the change is in place, say in two lines what you changed.{generate}{held}{diagnosis}"
+        "\n\nPLAN:\n{plan}\n"
     ).format(n=number, plan=plan, held=held,
+             diagnosis=diagnosis_steps(plan, last_code, bug, fresh, test_command),
              run_tests=("Run the tests with `{}` before you finish, and fix what fails: the loop runs them "
                         "again after you.".format(test_command) if test_command
                         else "Don't run the test suite: the loop runs it."),
@@ -4786,6 +4842,8 @@ class Loop:
             sha, fixed = first
 
         problems = []
+        bug = is_bug(issue)
+        last_code = None  # the last round's test exit code, None until the loop has run them on this issue
         for round_no in range(1, self.cfg["max_rounds"] + 1):
             if self.stopped():
                 self.mark(number, state="stopped", note="stopped before round {}".format(round_no))
@@ -4797,14 +4855,29 @@ class Loop:
 
             last_review = (folder / "review.md").read_text(encoding="utf-8") if (folder / "review.md").exists() else ""
             last_tests = (folder / "test-output.txt").read_text(encoding="utf-8") if (folder / "test-output.txt").exists() else ""
+            # No earlier work: round 1, no open pull request, no tester's commit and nothing ahead of the base.
+            # A git that fails proves nothing, so it isn't fresh.
+            fresh = False
+            if round_no == 1 and not pr and not sha:
+                acode, ahead = self.git("rev-list", "--count", "origin/{}..HEAD".format(self.cfg["base"]), cwd=tree)
+                fresh = acode == 0 and ahead.strip() == "0"
+            before = self.git("rev-parse", "HEAD", cwd=tree)[1].strip()
             code, said = self.agent("agent", build_prompt(number, plan, last_review, last_tests, self.rules, generate,
                                                           fixed, self.cfg["test_command"]
-                                                          if self.builder_runs_tests() else ""),
+                                                          if self.builder_runs_tests() else "",
+                                                          last_code=last_code, bug=bug, fresh=fresh),
                                     tree, number=number, step="build", round_no=round_no)
             if code == OVER_BUDGET:
                 return self.stop_over_budget(number, tree, "build", round_no)
             if code != 0:
                 return self.block(number, "build failed (agent exit {})".format(code))
+            # A first build that says the diagnosis didn't hold leaves nothing: what it changed goes, back to the
+            # commit it started from, so a tester's commit stays, and no generate, commit or tests run.
+            if round_no == 1 and bug and has_diagnosis(plan) and UNRESOLVED.search(said or ""):
+                if before:
+                    self.git(*NO_HOOKS, "reset", "-q", "--hard", before, cwd=tree)
+                self.git(*NO_HOOKS, "clean", "-fdq", cwd=tree)
+                return self.block(number, "the plan's diagnosis didn't hold in round 1", said=said)
             # Before the add, so what it writes is in this round's commit and counts as a change below.
             # One that fails doesn't stop the round: the tests and the review see what it left.
             if generate:
@@ -4888,6 +4961,7 @@ class Loop:
                     tout, "\n" if tout and not tout.endswith("\n") else "", check_code, check_out)
                 if tcode == 0 and check_code != 0:
                     tcode = check_code
+            last_code = tcode  # for the next round's build prompt: held here, never read from test-output.txt
             reached = controls_line(self.controls(tree, "touched", "origin/{}".format(self.cfg["base"])))
             write_unfollowed(folder / "test-output.txt", tout[-OUTPUT_CAP:])
             write_unfollowed(folder / "diff.patch", diff[:OUTPUT_CAP])

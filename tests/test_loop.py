@@ -40,6 +40,16 @@ RETRO_LOG = Path(__file__).resolve().parent / "fixtures" / "retro_session.jsonl"
 PLANNER_ON_THE_TESTER = ("A separate agent writes the tests for the acceptance criteria after this plan, in new files "
                          "of its own. Don't plan those tests. Name the functions, their signatures and the files "
                          "those tests will need to import.")
+# A bug's plan as the planner is asked to write it (#712), and the build's texts that plan can bring.
+DIAGNOSIS_PLAN = ("## Diagnosis\n\nInput: `parse('a,,b')`. Wrong result: `['a', 'b']`. Expected: `['a', '', 'b']`.\n"
+                  "- `split_fields()`: drops empty fields, the cause.\n- `read_row()`: passes the list through, "
+                  "cleared.\n\nPlan: fix split_fields().")
+FIRST_TEST = ("Write first a test that feeds the Diagnosis's input along the path to the symptom and asserts the "
+              "result the ticket expects, so it fails on today's code whichever suspect is the cause, then make the fix.")
+SEE_IT_FAIL = "Run the tests and see the new test fail before you change any other file"
+OTHER_SUSPECTS = ("A test you wrote from the Diagnosis that still fails may mean the planned cause is wrong, so check "
+                  "the plan's other suspects before changing the same code again.")
+UNRESOLVED_REPLY = "**Diagnosis unresolved:** run 1 passed on today's code UNRESOLVED-MARKER"
 
 
 def issue(number, labels=("loop-ready",), assignees=(), title="Add the thing"):
@@ -410,6 +420,90 @@ class TestPureParts(unittest.TestCase):
                 self.assertIn(part, prompt)
             self.assertNotIn(EM_DASH, prompt)
 
+    # -- a bug's diagnosis (#712) --------------------------------------------
+
+    def test_a_bugs_planner_is_asked_for_a_diagnosis_with_every_suspect(self):
+        for test_first in (False, True):
+            prompt = loop.shape_prompt(issue(4, labels=("loop-ready", "bug")), test_first=test_first)
+            for part in ("## Diagnosis",
+                         "the input that shows the bug, the wrong result it gives today and the result the ticket "
+                         "expects, copied word for word where the ticket gives them",
+                         "Treat the section as your own words: it counts toward the 40 lines.",
+                         "List every function, parser or check on the path from that input to the symptom, each with "
+                         "what in the code makes it the cause or clears it.",
+                         "Don't leave out code the ticket itself names without saying what in it clears it.",
+                         "If the ticket gives no input or no expected result, say which one is missing: the build "
+                         "then writes no Diagnosis test."):
+                self.assertIn(part, prompt)
+            # Nothing ahead of "You are planning"; the ask comes after the tester's sentence and before the ticket.
+            self.assertTrue(prompt.startswith("You are planning"))
+            self.assertLess(prompt.index("## Diagnosis"), prompt.index("TICKET #4"))
+            if test_first:
+                self.assertLess(prompt.index(PLANNER_ON_THE_TESTER), prompt.index("## Diagnosis"))
+            self.assertNotIn(EM_DASH, prompt)
+
+    def test_any_other_issues_planner_gets_todays_prompt_even_with_a_diagnosis_in_its_body(self):
+        for test_first in (False, True):
+            bug = loop.shape_prompt(issue(4, labels=("loop-ready", "bug")), test_first=test_first)
+            today = bug.replace(loop.DIAGNOSIS_ASK, "", 1)
+            self.assertNotEqual(bug, today)
+            for other in (issue(4), issue(4, labels=("loop-ready", "enhancement", "Bug")),
+                          {"number": 4, "title": "Add the thing", "body": "body"}):
+                self.assertEqual(loop.shape_prompt(other, test_first=test_first), today)
+            with_section = dict(issue(4), body="## Diagnosis\n\nInput: x.")
+            self.assertNotIn(loop.DIAGNOSIS_ASK, loop.shape_prompt(with_section, test_first=test_first))
+            self.assertNotIn("This issue is a bug", loop.shape_prompt(with_section, test_first=test_first))
+
+    def test_a_bugs_first_build_writes_its_failing_test_before_the_fix(self):
+        fresh = loop.build_prompt(4, DIAGNOSIS_PLAN, bug=True, fresh=True)
+        self.assertIn(FIRST_TEST, fresh)
+        self.assertIn("If the Diagnosis says the input or the expected result is missing, write no such test.", fresh)
+        for part in (SEE_IT_FAIL, "Diagnosis unresolved:", OTHER_SUSPECTS):
+            self.assertNotIn(part, fresh)
+        command = "python3 -m unittest"
+        runs = loop.build_prompt(4, DIAGNOSIS_PLAN, test_command=command, bug=True, fresh=True)
+        for part in (FIRST_TEST, SEE_IT_FAIL + ", then fix the planned cause and run them again.",
+                     "If the new test still fails, undo that fix and try each other suspect in the Diagnosis in turn "
+                     "until it passes.",
+                     "If the new test passes on today's code, or no suspect's fix makes it pass, undo your code "
+                     "changes and end your reply with a line starting `Diagnosis unresolved:` that says what each "
+                     "run showed.",
+                     "Don't say the ticket is wrong.",
+                     # Today's run-tests sentence, as it is.
+                     "Run the tests with `python3 -m unittest` before you finish, and fix what fails: the loop runs "
+                     "them again after you."):
+            self.assertIn(part, runs)
+        self.assertNotIn(OTHER_SUSPECTS, runs)
+        # Not fresh: no test first, and nothing about running it, whether or not the build runs the tests.
+        for later in (loop.build_prompt(4, DIAGNOSIS_PLAN, bug=True),
+                      loop.build_prompt(4, DIAGNOSIS_PLAN, test_command=command, bug=True)):
+            for part in (FIRST_TEST, SEE_IT_FAIL, "Diagnosis unresolved:"):
+                self.assertNotIn(part, later)
+        for prompt in (fresh, runs):
+            self.assertLess(prompt.index(FIRST_TEST), prompt.index("PLAN:\n"))
+            for part in ("TICKET", "separate agent", "must not touch", EM_DASH):
+                self.assertNotIn(part, prompt.replace(DIAGNOSIS_PLAN, ""))
+
+    def test_after_failing_tests_a_bugs_build_is_told_to_check_the_other_suspects(self):
+        for code, told in ((1, True), (2, True), (0, False), (None, False)):
+            with self.subTest(code=code):
+                prompt = loop.build_prompt(4, DIAGNOSIS_PLAN, "feature.txt is wrong.", "FAILED test_x", bug=True,
+                                           last_code=code)
+                self.assertEqual(OTHER_SUSPECTS in prompt, told)
+                self.assertNotIn(FIRST_TEST, prompt)
+                self.assertNotIn(EM_DASH, prompt)
+
+    def test_a_build_without_both_a_bug_and_a_diagnosis_gets_todays_prompt(self):
+        command = "python3 -m unittest"
+        no_section = "Plan: fix split_fields().\nThe ticket's ## Diagnosis is mid-line here, not a section."
+        for plan, bug in ((DIAGNOSIS_PLAN, False), ("Plan: fix split_fields().", True), (no_section, True)):
+            for test_command in ("", command):
+                with self.subTest(plan=plan, bug=bug, test_command=test_command):
+                    self.assertEqual(
+                        loop.build_prompt(4, plan, "Review.", "FAILED", test_command=test_command,
+                                          last_code=1, bug=bug, fresh=True),
+                        loop.build_prompt(4, plan, "Review.", "FAILED", test_command=test_command))
+
     def test_the_reviewer_tests_behaviour_the_plan_did_not_ask_for(self):
         prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
         for part in ("don't ask for", "an extra refusal", "gets its own row",
@@ -715,6 +809,7 @@ if "--output-format" in sys.argv and sys.argv[sys.argv.index("--output-format") 
 step = ("retro" if "You are reading a finished run" in prompt else "plan" if "You are planning" in prompt
         else "test" if "You are writing the tests" in prompt
         else "review" if "You are the reviewer" in prompt else "build")
+had_feature = os.path.exists("feature.txt")  # for build-says-again: a build after one that wrote it
 if "stream-json" in sys.argv and os.path.exists(os.path.join(state, "session-" + step)):
     # As claude's init event: session-<step> holds the id this step's session names.
     real.write(json.dumps({"type": "system", "subtype": "init", "model": "m",
@@ -777,7 +872,9 @@ elif "You are planning" in prompt:
     open(os.path.join(state, "plan-cwd"), "w").write(os.getcwd())
     if os.path.exists(os.path.join(state, "planner-edits")):
         open("planned.txt", "w").write("x")
-    print("Plan: add feature.txt.")
+    # plan-says, when a test sets it, is the whole plan.
+    says = os.path.join(state, "plan-says")
+    print(open(says).read() if os.path.exists(says) else "Plan: add feature.txt.")
 elif "You are the reviewer" in prompt:
     if os.path.exists(os.path.join(state, "reviewer-edits")):
         open("sneaky.txt", "w").write("x")
@@ -828,6 +925,12 @@ elif os.path.exists(os.path.join(state, "build-once")):
 else:
     open("feature.txt", "a").write("done")
     print("Added feature.txt.")
+# After whatever the build did: build-says ends every build's reply, build-says-again only a build that found
+# feature.txt already there.
+if step == "build" and os.path.exists(os.path.join(state, "build-says")):
+    print(open(os.path.join(state, "build-says")).read())
+if step == "build" and had_feature and os.path.exists(os.path.join(state, "build-says-again")):
+    print(open(os.path.join(state, "build-says-again")).read())
 """
 
 GH = """#!/usr/bin/env python3
@@ -4744,6 +4847,126 @@ class TestAPass(unittest.TestCase):
     def opened_pr(self):
         return any(c.startswith("pr create") for c in self.calls())
 
+    # -- a bug's diagnosis (#712) --------------------------------------------
+
+    def a_bug(self, labels=("loop-ready", "bug"), plan=DIAGNOSIS_PLAN, says=UNRESOLVED_REPLY):
+        """Issue 12 with labels, a planner that writes plan and a build whose reply ends with says."""
+        (self.state / "issues.json").write_text(json.dumps([issue(12, labels=labels)]))
+        if plan:
+            (self.state / "plan-says").write_text(plan)
+        if says:
+            (self.state / "build-says").write_text(says)
+
+    def assert_diagnosis_blocked(self, kept=()):
+        """Blocked in round 1 on the build's unresolved line, with nothing of the build left: kept is the commits
+        still ahead of the base, the tester's when it ran."""
+        self.assertNotIn("review", self.started_steps())
+        self.assertEqual(self.status()["issues"][0]["state"], "blocked")
+        self.assertEqual(self.status()["issues"][0]["note"], "the plan's diagnosis didn't hold in round 1")
+        comment = self.comments()[-1]
+        self.assertIn("the plan's diagnosis didn't hold in round 1", comment)
+        self.assertIn("The build agent's last reply", comment)
+        self.assertIn("UNRESOLVED-MARKER", comment)
+        self.assertFalse(self.opened_pr())
+        self.assertEqual(git(self.tree(), "log", "--format=%H", "origin/main..HEAD").stdout.split(), list(kept))
+        self.assertFalse((self.folder() / "test-output.txt").exists())
+        self.assertEqual(git(self.tree(), "status", "--porcelain").stdout, "")
+        self.assertFalse((self.tree() / "feature.txt").exists())
+        self.assertFalse((self.tree() / "src").exists())
+        self.assertEqual((self.tree() / "README.md").read_text(), "hi")
+
+    def test_a_bugs_first_build_that_says_its_diagnosis_did_not_hold_blocks_and_leaves_nothing(self):
+        self.a_bug()
+        # A new file in a new folder, and a change to one already there, on top of feature.txt.
+        (self.state / "build-writes").write_text("src/new.txt\nREADME.md\n")
+        self.go()
+        self.assertEqual(self.started_steps(), ["plan", "build"])
+        self.assert_diagnosis_blocked()
+
+    def test_with_test_first_on_the_block_keeps_the_testers_commit_and_drops_the_build(self):
+        self.tests_go_first()
+        self.a_bug()
+        (self.state / "build-writes").write_text("src/new.txt\nREADME.md\n")
+        self.go()
+        self.assertEqual(self.started_steps(), ["plan", "test", "build"])
+        sha = json.loads((self.folder() / "tests-first.json").read_text())["commit"]
+        self.assert_diagnosis_blocked(kept=[sha])
+        self.assertTrue((self.tree() / "tests" / "test_feature.txt").exists())
+
+    def test_a_build_that_changed_nothing_and_says_it_did_not_hold_blocks_on_the_diagnosis(self):
+        self.a_bug()
+        (self.state / "build-noop").write_text("")
+        self.go()
+        self.assert_diagnosis_blocked()
+        self.assertNotIn("made no change", self.comments()[-1])
+
+    def assert_not_blocked_on_the_diagnosis(self):
+        self.assertTrue(self.opened_pr(), self.lines())
+        self.assertNotIn("diagnosis didn't hold", (self.state / "gh-calls").read_text())
+        self.assertNotIn("diagnosis didn't hold", "\n".join(self.lines()))
+
+    def test_the_unresolved_line_blocks_nothing_but_a_bugs_first_round_with_a_diagnosis(self):
+        for name, labels, plan in (("not a bug", ("loop-ready",), DIAGNOSIS_PLAN),
+                                   ("no diagnosis", ("loop-ready", "bug"), None),
+                                   ("diagnosis mid-line", ("loop-ready", "bug"), "Plan: see the ## Diagnosis below.")):
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.a_bug(labels=labels, plan=plan)
+                self.assertEqual(self.go(), 0)
+                self.assert_not_blocked_on_the_diagnosis()
+
+    def test_a_mention_of_the_unresolved_line_mid_line_blocks_nothing(self):
+        self.a_bug(says="Nothing to report: the words Diagnosis unresolved: never start a line here.")
+        self.assertEqual(self.go(), 0)
+        self.assert_not_blocked_on_the_diagnosis()
+
+    def test_the_unresolved_line_in_round_2_blocks_nothing(self):
+        self.a_bug(says=None)
+        (self.state / "build-says-again").write_text(UNRESOLVED_REPLY)
+        (self.state / "fix-once").write_text("")  # round 1's review says FIX, so there is a round 2
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.started_steps(), ["plan", "build", "review", "build", "review"])
+        self.assert_not_blocked_on_the_diagnosis()
+
+    def test_only_a_bugs_first_build_with_no_earlier_work_is_told_to_write_its_test_first(self):
+        for name, setup, told in (("bug", lambda: None, True),
+                                  ("bug, build runs the tests", lambda: self.cfg.update(builder_runs_tests=True), True),
+                                  ("bug, test_first on", self.tests_go_first, False),
+                                  ("not a bug", lambda: self.a_bug(labels=("loop-ready",), says=None), False)):
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.a_bug(says=None)
+                setup()
+                self.assertEqual(self.go(), 0)
+                prompt = (self.state / "build-prompt").read_text()
+                self.assertEqual(FIRST_TEST in prompt, told)
+                self.assertEqual(SEE_IT_FAIL in prompt, told and self.cfg.get("builder_runs_tests") is True)
+
+    def test_a_reused_worktree_with_commits_ahead_is_earlier_work(self):
+        self.a_bug(says=None)
+        self.go()  # the first run leaves its commit on loop/issue-12
+        self.assertIn(FIRST_TEST, (self.state / "build-prompt").read_text())
+        self.go()
+        self.assertNotIn(FIRST_TEST, (self.state / "build-prompt").read_text())
+
+    def test_a_round_after_failing_tests_is_told_to_check_the_other_suspects(self):
+        # Round 1 writes "done" and fails; round 2 makes it "donedone" and passes.
+        self.cfg.update(test_command="grep -q donedone feature.txt")
+        self.a_bug(says=None)
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.started_steps(), ["plan", "build", "review", "build", "review"])
+        self.assertIn(OTHER_SUSPECTS, (self.state / "build-prompt").read_text())
+        # A round after passing tests isn't.
+        self.tearDown()
+        self.setUp()
+        self.a_bug(says=None)
+        (self.state / "fix-once").write_text("")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.started_steps(), ["plan", "build", "review", "build", "review"])
+        self.assertNotIn(OTHER_SUSPECTS, (self.state / "build-prompt").read_text())
+
     def test_with_test_first_not_true_a_run_is_what_it_was_and_a_leftover_record_changes_nothing(self):
         for value in (None, False, "true", 1):
             with self.subTest(value=value):
@@ -6402,6 +6625,17 @@ class TestRoundOnOpenPullRequest(unittest.TestCase):
         self.assertNotEqual(self.origin_head(), pushed, "the round pushed nothing on top")
         self.assertEqual(self.pr_creates(), [])
         self.assertIn("PR updated " + self.URL, self.lines()[-1])
+
+    def test_a_bugs_round_on_an_open_pull_request_is_not_told_to_write_its_test_first(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(12, labels=("loop-ready", "bug"))]))
+        (self.state / "plan-says").write_text(DIAGNOSIS_PLAN)
+        self.push_from_other()
+        self.open_pr()
+        self.assertEqual(self.go(), 0)
+        prompt = (self.state / "build-prompt").read_text()
+        self.assertIn(DIAGNOSIS_PLAN, prompt)
+        for part in (FIRST_TEST, SEE_IT_FAIL, "Diagnosis unresolved:"):
+            self.assertNotIn(part, prompt)
 
     def test_local_commits_never_pushed_are_dropped_and_said(self):
         self.go()
