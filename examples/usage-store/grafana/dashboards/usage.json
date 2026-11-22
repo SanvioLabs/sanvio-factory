@@ -1,0 +1,156 @@
+{
+  "uid": "factory-usage",
+  "title": "Factory usage",
+  "editable": false,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "RQ-1 Skills, agents and commands used",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-1: Which skills, agents and slash commands did the team use, and which went unused?\n-- A name whose last_used is weeks old is one the team stopped using.\nSELECT kind, name, CAST(sum(times) AS BIGINT) AS times, count(DISTINCT \"user\") AS people, max(last_day) AS last_used\nFROM usage_names\nWHERE kind IN ('skill', 'agent', 'command')\nGROUP BY kind, name\nORDER BY kind, times DESC, name;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "RQ-2 Cost of a pull request, by project and agent",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-2: What does a pull request cost, by project and by agent? Cost is the loop's estimate at API prices.\nSELECT coalesce(project, 'factory') AS project, agent, count(*) AS pull_requests,\n       round(sum(cost_usd), 2) AS cost_usd, round(sum(cost_usd) / count(*), 2) AS usd_per_pr,\n       CAST(sum(tokens) // count(*) AS BIGINT) AS tokens_per_pr\nFROM loop_runs\nWHERE outcome = 'pr'\nGROUP BY project, agent\nORDER BY cost_usd DESC NULLS LAST, project, agent;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "RQ-3 Fix rounds by agent, reviewer and factory version",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-3: How many fix rounds does an issue take, by agent, reviewer and factory version?\nSELECT agent, reviewer, coalesce(factory_version, 'unknown') AS factory_version, count(*) AS runs,\n       round(avg(rounds), 2) AS mean_rounds, max(rounds) AS most_rounds\nFROM loop_runs\nGROUP BY agent, reviewer, factory_version\nORDER BY factory_version DESC, agent, reviewer;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "RQ-4 Guard refusals and asks",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-4: Where does the guard refuse or ask most, and which asks do people always say yes to?\n-- An ask whose approved equals asked is one people always say yes to: a candidate to loosen.\nSELECT name, CAST(sum(times) FILTER (WHERE kind = 'guard_deny') AS BIGINT) AS refused,\n       CAST(sum(times) FILTER (WHERE kind = 'guard_ask') AS BIGINT) AS asked,\n       CAST(sum(times) FILTER (WHERE kind = 'ask_approved') AS BIGINT) AS approved\nFROM usage_names\nWHERE kind IN ('guard_deny', 'guard_ask', 'ask_approved')\nGROUP BY name\nORDER BY coalesce(refused, 0) + coalesce(asked, 0) DESC, name;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "RQ-5 Nodes and their loops",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-5: Is every node's loop running, and when did each last report?\nSELECT node, max(ts) AS last_heartbeat, date_diff('minute', max(ts), now()) AS minutes_since,\n       count(*) FILTER (WHERE alive) AS loops_alive, count(*) AS loops, CAST(sum(waiting) AS BIGINT) AS waiting\nFROM loop_beats\nGROUP BY node\nORDER BY minutes_since DESC, node;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "sanvio-factory",
+    "usage"
+  ]
+}

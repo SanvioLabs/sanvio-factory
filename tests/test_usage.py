@@ -649,5 +649,137 @@ class Review(unittest.TestCase):
         self.assertFalse(self.last_review().exists())
 
 
+NOW = datetime.datetime(2026, 11, 21, 9, 0, tzinfo=datetime.timezone.utc)
+PERSON = {"SANVIO_HEADLESS": "", "HARNESS_HEADLESS": "", "SANVIO_USAGE_LOG": "", "HARNESS_USAGE_LOG": "",
+          "SANVIO_DETAILED_DAYS": ""}
+
+
+class Detailed(unittest.TestCase):
+    """SPEC-004 REQ-004 to REQ-008: the opt-in, the commands file, and its end."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        patcher = mock.patch.dict(os.environ, PERSON)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def log(self):
+        path = usage_log.log_path(self.root)
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def commands(self):
+        path = usage_log.commands_path(self.root)
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+
+    def bash(self, command, cwd=None, now=NOW):
+        event = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd or str(self.root)}
+        return usage_log.command_record(self.root, event, None, now)
+
+    def test_opting_in_writes_the_end_date_and_one_line_with_only_the_time_and_the_date(self):
+        self.assertEqual(usage_log.opt_in(self.root, now=NOW), "2026-12-05")
+        self.assertEqual(json.loads(usage_log.detailed_path(self.root).read_text()), {"until": "2026-12-05"})
+        line = self.log()[-1]
+        self.assertEqual(set(line), {"ts", "event", "until", "prev"})
+        self.assertEqual((line["event"], line["until"]), ("detailed_on", "2026-12-05"))
+
+    def test_the_window_comes_from_sanvio_detailed_days(self):
+        with mock.patch.dict(os.environ, {"SANVIO_DETAILED_DAYS": "3"}):
+            self.assertEqual(usage_log.opt_in(self.root, now=NOW), "2026-11-24")
+
+    def test_a_headless_run_cannot_opt_in(self):
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
+            with self.assertRaises(PermissionError):
+                usage_log.opt_in(self.root, now=NOW)
+        self.assertFalse(usage_log.detailed_path(self.root).exists())
+
+    def test_it_is_live_through_its_end_date_and_not_the_day_after(self):
+        usage_log.opt_in(self.root, days=1, now=NOW)
+        self.assertEqual(usage_log.detailed_until(self.root, NOW + datetime.timedelta(days=1)), "2026-11-22")
+        self.assertIsNone(usage_log.detailed_until(self.root, NOW + datetime.timedelta(days=2)))
+
+    def test_with_no_opt_in_no_command_is_recorded(self):
+        self.assertIsNone(self.bash("git status"))
+
+    def test_while_live_a_command_is_recorded_scrubbed(self):
+        usage_log.opt_in(self.root, now=NOW)
+        token = "gh" + "p_" + "a1B2c3D4e5" * 4
+        got = self.bash("git push https://x:" + token + "@github.com/o/r.git")
+        self.assertEqual(got["verdict"], "ran")
+        self.assertNotIn(token, got["text"])
+        self.assertGreaterEqual(got["redactions"], 1)
+
+    def test_a_refused_or_asked_command_says_so(self):
+        usage_log.opt_in(self.root, now=NOW)
+        event = {"tool_name": "Bash", "tool_input": {"command": "git status"}, "cwd": str(self.root)}
+        self.assertEqual(usage_log.command_record(self.root, event, ("deny", "x"), NOW)["verdict"], "refused")
+        self.assertEqual(usage_log.command_record(self.root, event, ("ask", "x"), NOW)["verdict"], "asked")
+
+    def test_a_dropped_command_is_not_recorded(self):
+        usage_log.opt_in(self.root, now=NOW)
+        self.assertIsNone(self.bash("cat projects/acme/notes.md"))
+        self.assertIsNone(self.bash("cat .env"))
+
+    def test_a_headless_run_and_a_session_inside_projects_record_nothing(self):
+        usage_log.opt_in(self.root, now=NOW)
+        (self.root / "projects" / "acme").mkdir(parents=True)
+        self.assertIsNone(self.bash("ls", cwd=str(self.root / "projects" / "acme")))
+        with mock.patch.dict(os.environ, {"SANVIO_HEADLESS": "1"}):
+            self.assertIsNone(self.bash("ls"))
+
+    def test_an_ended_opt_in_is_removed_with_one_line_and_said_once(self):
+        usage_log.opt_in(self.root, days=1, now=NOW)
+        self.assertIsNone(usage_log.expire(self.root, NOW + datetime.timedelta(days=1)))
+        self.assertEqual(usage_log.expire(self.root, NOW + datetime.timedelta(days=2)), "2026-11-22")
+        self.assertFalse(usage_log.detailed_path(self.root).exists())
+        self.assertEqual([l["event"] for l in self.log()], ["detailed_on", "detailed_expired"])
+        self.assertIsNone(usage_log.expire(self.root, NOW + datetime.timedelta(days=3)))
+
+    def test_an_unreadable_opt_in_counts_as_ended(self):
+        path = usage_log.detailed_path(self.root)
+        path.parent.mkdir(parents=True)
+        path.write_text("not json")
+        self.assertIsNone(usage_log.detailed_until(self.root, NOW))
+        self.assertEqual(usage_log.expire(self.root, NOW), "")
+
+    def test_opting_out_ends_it_at_once(self):
+        usage_log.opt_in(self.root, now=NOW)
+        self.assertTrue(usage_log.opt_out(self.root, NOW))
+        self.assertIsNone(self.bash("git status"))
+        self.assertFalse(usage_log.opt_out(self.root, NOW))
+        self.assertEqual(self.log()[-1]["event"], "detailed_off")
+
+    def test_with_the_log_off_the_opt_in_still_ends_but_writes_no_line(self):
+        usage_log.opt_in(self.root, days=1, now=NOW)
+        with mock.patch.dict(os.environ, {"SANVIO_USAGE_LOG": "off"}):
+            usage_log.expire(self.root, NOW + datetime.timedelta(days=5))
+        self.assertEqual([l["event"] for l in self.log()], ["detailed_on"])
+
+    def test_the_commands_file_is_pruned_like_the_log(self):
+        path = usage_log.commands_path(self.root)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"ts": "2026-01-01T00:00:00Z", "text": "old"}) + "\n"
+                        + json.dumps({"ts": "2026-11-20T00:00:00Z", "text": "new"}) + "\n")
+        usage_log.prune(self.root, now=NOW)
+        self.assertEqual([l["text"] for l in self.commands()], ["new"])
+
+
+class TheHookInDetailedMode(unittest.TestCase):
+    def test_a_bash_call_lands_chained_in_the_commands_file_with_no_cwd_or_tool_input(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, PERSON):
+            usage_log.opt_in(Path(tmp))
+            clean = {k: v for k, v in os.environ.items() if not k.endswith("_USAGE_LOG")}
+            event = {"hook_event_name": "PreToolUse", "session_id": "s9", "tool_name": "Bash",
+                     "tool_input": {"command": "ls ~/code"}, "cwd": tmp}
+            result = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event), capture_output=True,
+                                    text=True, env=dict(clean, CLAUDE_PROJECT_DIR=tmp), timeout=30)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+            lines = [json.loads(l) for l in usage_log.commands_path(Path(tmp)).read_text().splitlines()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(set(lines[0]), {"ts", "session", "verdict", "text", "redactions", "prev"})
+        self.assertEqual((lines[0]["session"], lines[0]["text"]), ("s9", "ls ~/code"))
+
+
 if __name__ == "__main__":
     unittest.main()

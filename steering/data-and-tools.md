@@ -111,6 +111,7 @@ the problem afterwards.
 | Record | Kept | Removed by |
 |---|---|---|
 | Your usage log, `.sanvio/usage/<user>.jsonl` | 90 days | [`.claude/hooks/usage_log.py`](../.claude/hooks/usage_log.py), at each session start, log on or off |
+| Detailed mode's commands, `.sanvio/usage/<user>.commands.jsonl` | 90 days, and none are added once detailed mode ends | [`.claude/hooks/usage_log.py`](../.claude/hooks/usage_log.py), at each session start |
 | The loop's `.loop/issue-N/` folders | 90 days after their last file changed, once `.loop/status.json` no longer lists the issue | [`scripts/loop.py`](../scripts/loop.py), each time a run starts |
 | Session retro copies, `local-data/retro/` | 30 days, or once read | [`.claude/hooks/session_retro.py`](../.claude/hooks/session_retro.py) |
 | Test run status files, `.sanvio/tests/` | 30 days after their last update | [`scripts/run_tests.py`](../scripts/run_tests.py), each time a run starts |
@@ -134,6 +135,15 @@ factory dashboard shows when you last ran it. If the chain is broken, keep the
 log as it is: don't delete it and don't fix it. Treat it as an incident under
 [`incidents.md`](incidents.md). If there's a refusal nobody can explain, ask
 whoever was working that day, and treat it as an incident if nobody knows.
+
+**The usage store keeps the same 90 days.** Where your factory's owner runs one
+(the reference is in [`examples/usage-store/`](../examples/usage-store/)), what
+people send is deleted 90 days after it arrives: by the bucket's lifecycle in
+the cloud, and by `validator.py --folder` each time it runs on a folder. Anyone
+can ask the owner to delete everything under their own prefix sooner, and the
+owner does it without asking why. The store sits in a system the owner has
+approved for the team's data, the same as any other tool here, and a hosted
+analytics service isn't one unless it's been approved like any other.
 
 `SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
 holds everything: [`incidents.md`](incidents.md) says what to keep, and a

@@ -1,0 +1,91 @@
+apiVersion: 1
+
+datasources:
+  - name: Usage, detailed
+    uid: usage-detailed
+    type: motherduck-duckdb-datasource
+    access: proxy
+    isDefault: false
+    editable: false
+    jsonData:
+      path: ''
+      initSql: |
+        ${USAGE_INIT}
+        -- The views every RQ query reads (SPEC-004 REQ-022). ${USAGE_ROOT} is the store's root: a folder such as
+        -- /store, or s3://<bucket>/<prefix>. Only accepted/ is read, and the _shape/ files the validator writes are
+        -- left out: they're there so an empty store reads as no rows rather than an error. Detailed bundles are in
+        -- views-detailed.sql, which only the owner's data source loads.
+
+        CREATE OR REPLACE VIEW bundle_files AS
+        SELECT * FROM read_json('${USAGE_ROOT}/accepted/*/*/general/*.json', filename = true, columns = {
+            'v': 'INTEGER', 'kind': 'VARCHAR', 'mode': 'VARCHAR', 'exported': 'DATE', 'since': 'DATE',
+            'period': 'STRUCT("first" DATE, "last" DATE)', 'user': 'VARCHAR', 'node': 'VARCHAR',
+            'factory': 'STRUCT("commit" VARCHAR, changelog VARCHAR)',
+            'loop_config': 'MAP(VARCHAR, STRUCT(agent VARCHAR, reviewer VARCHAR, max_workers INTEGER, max_rounds INTEGER, max_issue_tokens BIGINT))',
+            'chain_head': 'VARCHAR', 'bundle_id': 'VARCHAR',
+            'loop': 'STRUCT(v INTEGER, run VARCHAR, issue BIGINT, project VARCHAR, started VARCHAR, ended VARCHAR, outcome VARCHAR, rounds INTEGER, tests VARCHAR[], verdicts VARCHAR[], fix_reasons JSON, tests_changed JSON, tokens BIGINT, cost_usd DOUBLE, agent VARCHAR, reviewer VARCHAR)[]',
+            'usage': 'STRUCT(sessions INTEGER, log_off INTEGER, skills MAP(VARCHAR, INTEGER), agents MAP(VARCHAR, INTEGER), commands MAP(VARCHAR, INTEGER), guard_deny MAP(VARCHAR, INTEGER), guard_ask MAP(VARCHAR, INTEGER), ask_approved MAP(VARCHAR, INTEGER))'
+        })
+        WHERE kind = 'bundle';
+
+        -- One row per bundle id, its latest export: a machine that sends today's bundle every hour replaces it.
+        CREATE OR REPLACE VIEW bundles AS
+        SELECT * EXCLUDE (newest) FROM (
+            SELECT *, row_number() OVER (PARTITION BY bundle_id ORDER BY exported DESC, filename DESC) AS newest
+            FROM bundle_files
+        ) WHERE newest = 1;
+
+        -- One row per loop run, however many bundles carried it, with the factory version that sent it.
+        CREATE OR REPLACE VIEW loop_runs AS
+        SELECT DISTINCT ON (r.run) node, "user", factory_commit, factory_version, r.*
+        FROM (
+            SELECT node, "user", exported, factory."commit" AS factory_commit, factory.changelog AS factory_version,
+                   unnest(loop) AS r
+            FROM bundles
+        )
+        ORDER BY r.run, exported DESC;
+
+        -- Skills, agents, slash commands and the guard's refusals and asks, one row per name per bundle.
+        CREATE OR REPLACE VIEW usage_names AS
+        SELECT node, "user", period."first" AS first_day, period."last" AS last_day, kind, entry."key" AS name,
+               entry."value" AS times
+        FROM (
+            SELECT node, "user", period, 'skill' AS kind, unnest(map_entries(usage.skills)) AS entry FROM bundles
+            UNION ALL SELECT node, "user", period, 'agent', unnest(map_entries(usage.agents)) FROM bundles
+            UNION ALL SELECT node, "user", period, 'command', unnest(map_entries(usage.commands)) FROM bundles
+            UNION ALL SELECT node, "user", period, 'guard_deny', unnest(map_entries(usage.guard_deny)) FROM bundles
+            UNION ALL SELECT node, "user", period, 'guard_ask', unnest(map_entries(usage.guard_ask)) FROM bundles
+            UNION ALL SELECT node, "user", period, 'ask_approved', unnest(map_entries(usage.ask_approved)) FROM bundles
+        );
+
+        CREATE OR REPLACE VIEW heartbeats AS
+        SELECT node, ts, factory, loops FROM read_json('${USAGE_ROOT}/accepted/*/heartbeat/*.json', columns = {
+            'v': 'INTEGER', 'kind': 'VARCHAR', 'node': 'VARCHAR', 'ts': 'TIMESTAMPTZ',
+            'factory': 'STRUCT("commit" VARCHAR, changelog VARCHAR)',
+            'loops': 'STRUCT(label VARCHAR, alive BOOLEAN, waiting INTEGER, issue BIGINT, tokens BIGINT, budget BIGINT)[]'
+        })
+        WHERE kind = 'heartbeat';
+
+        -- Each node's latest heartbeat, one row per loop on it.
+        CREATE OR REPLACE VIEW loop_beats AS
+        SELECT node, ts, l.* FROM (
+            SELECT node, ts, unnest(loops) AS l FROM (
+                SELECT *, row_number() OVER (PARTITION BY node ORDER BY ts DESC) AS newest FROM heartbeats
+            ) WHERE newest = 1
+        );
+
+        -- Detailed bundles' commands (SPEC-004 REQ-014). Only the owner's data source loads this file: in the cloud,
+        -- the team's Grafana has no access to detailed/ or its key, and the owner reads it from a copy of the bucket.
+        -- One row per command, from each detailed bundle's latest export.
+
+        CREATE OR REPLACE VIEW commands AS
+        SELECT node, "user", c.* FROM (
+            SELECT node, "user", unnest(commands) AS c FROM (
+                SELECT *, row_number() OVER (PARTITION BY bundle_id ORDER BY exported DESC, filename DESC) AS newest
+                FROM read_json('${USAGE_ROOT}/accepted/*/*/detailed/*.json', filename = true, columns = {
+                    'kind': 'VARCHAR', 'exported': 'DATE', 'user': 'VARCHAR', 'node': 'VARCHAR', 'bundle_id': 'VARCHAR',
+                    'commands': 'STRUCT(ts TIMESTAMPTZ, "session" VARCHAR, verdict VARCHAR, "text" VARCHAR, redactions INTEGER)[]'
+                })
+                WHERE kind = 'bundle'
+            ) WHERE newest = 1
+        );

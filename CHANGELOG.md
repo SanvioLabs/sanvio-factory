@@ -54,6 +54,58 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-21: The usage store in the docs
+
+The last step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). [`steering/data-and-tools.md`](steering/data-and-tools.md) now says the usage store keeps the same 90 days as the local logs, that anyone can ask the owner to delete everything under their own prefix sooner and the owner does it without asking why, and that the store sits in a system the owner has approved for the team's data. [`reports/usage/README.md`](reports/usage/README.md) gives the cron lines for an unattended machine's heartbeat and daily sends. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) and [`README.md`](README.md) say where the numbers can go.
+
+**Needs:** 2026-11-21: The usage store
+
+**Controls:** SA-9
+
+Files: [`steering/data-and-tools.md`](steering/data-and-tools.md), [`reports/usage/README.md`](reports/usage/README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`README.md`](README.md), [`docs/specs/004-usage-export/TASKS.md`](docs/specs/004-usage-export/TASKS.md), `CHANGELOG.md`.
+
+**Do:** if you run a usage store, tell your team they can ask you to delete their prefix, and add the two cron lines on each machine that sends on its own.
+
+## 2026-11-21: The usage store
+
+The fourth step of [SPEC-004](docs/specs/004-usage-export/SPEC.md): somewhere for the bundles to go, and a way to read them. [`examples/usage-store/`](examples/usage-store/) is a reference store you run yourself, on one machine or in your own cloud account, with the same SQL, dashboards and alert rules in both. [`validator.py`](examples/usage-store/validator.py) moves what senders put under `incoming/` to `accepted/`, or to `rejected/` with its reason, checked against the same shape the sender uses, and marks a log whose chain changed between sends. Run on a folder, it also removes what's older than 90 days (`SANVIO_KEEP_DAYS`). `queries/` holds one SQL file per question the spec says the store answers, read by DuckDB, and [`render.py`](examples/usage-store/render.py) writes them into Grafana's provisioning: a dashboard, a detailed dashboard for the owner, and two alert rules, a node silent for 30 minutes and a run past 80% of its token budget, each sent once to the webhook you name. [`local/compose.yaml`](examples/usage-store/local/compose.yaml) runs Grafana on `127.0.0.1` over a folder. [`cloud/`](examples/usage-store/cloud/) is Terraform for a bucket with a 90-day lifecycle, a key only the owner can read detailed bundles with, sender roles that can only put under their own prefix (certificates for unattended machines), the validator as a function, and Grafana behind your identity provider's sign-in with no access to detailed bundles. Nothing in it names an account.
+
+Files: [`examples/usage-store/`](examples/usage-store/), [`tests/test_usage_store.py`](tests/test_usage_store.py), [`docs/specs/004-usage-export/TASKS.md`](docs/specs/004-usage-export/TASKS.md), `CHANGELOG.md`.
+
+**Do:** nothing, unless you want a store. [`examples/usage-store/local/README.md`](examples/usage-store/local/README.md) goes from nothing to the dashboard with Docker; [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md) says what to have ready before the first apply.
+
+## 2026-11-21: Sending the usage bundle
+
+The third step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). [`scripts/send_usage.py`](scripts/send_usage.py) sends a bundle to the store your factory's owner runs: `send_usage.py FILE` sends a file [`scripts/export.py`](scripts/export.py) wrote, after checking it against the shape, refusing any key the shape doesn't name, and scrubbing each command in a detailed bundle again, sending nothing if that would change one. The store is named in the gitignored `.sanvio/export.json`, as a folder (`"kind": "folder"`) or a bucket through the cloud CLI's named profile (`"kind": "s3"`), and with none named it sends nothing and opens no connection; the repo ships none. On a machine nobody watches, with `"auto": true`, `--auto` sends yesterday's and today's general bundles, never detailed, and `--heartbeat` sends whether each loop on the machine is alive, how many issues wait and, for the factory's loop and listed projects, the issue in progress with its tokens and budget. An unlisted project shows under a hashed label. `export.py` bundles now cover their period exactly, so a bundle for one day leaves out later ones. Each bundle sent or refused adds `export_sent` or `export_refused` to the usage log with its mode and id, the dashboard data has a `last_send`, and the factory-dashboard mod draws it as the Activity section's last line. The sprint run of [`skills/factory-trends/`](skills/factory-trends/) offers to send its period's general bundle as its last step, where there's a store, and sends only on a yes.
+
+**Needs:** 2026-11-21: Detailed mode for the usage bundle
+
+Files: [`scripts/send_usage.py`](scripts/send_usage.py), [`scripts/export.py`](scripts/export.py), [`scripts/dashboard_data.py`](scripts/dashboard_data.py), [`skills/factory-trends/SKILL.md`](skills/factory-trends/SKILL.md), [`examples/mods/factory-dashboard/`](examples/mods/factory-dashboard/), [`docs/factory-dashboard.svg`](docs/factory-dashboard.svg), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_send_usage.py`](tests/test_send_usage.py), [`tests/test_export.py`](tests/test_export.py), [`tests/test_dashboard_data.py`](tests/test_dashboard_data.py), [`tests/test_skills.py`](tests/test_skills.py), `CHANGELOG.md`.
+
+**Do:** `claude plugin update factory-dashboard@sanvio-factory`, then `/reload-plugins`, for the last-send line. Nothing sends until you add a `store` to `.sanvio/export.json`.
+
+## 2026-11-21: Detailed mode for the usage bundle
+
+The second step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). `python3 scripts/send_usage.py --opt-in detailed` turns on detailed mode for you, for `SANVIO_DETAILED_DAYS` days (14 by default), and `--opt-out` turns it off. While it's on, the usage log hook writes each shell command your sessions run to `.sanvio/usage/<you>.commands.jsonl`, scrubbed by [`scripts/usage_scrub.py`](scripts/usage_scrub.py) before it reaches disk, and `python3 scripts/export.py --mode detailed` adds them to the bundle. Nothing is recorded from a headless run, a session working inside [`projects/`](projects/), or with the usage log off. Each session start says it's on and until when, ends it once its date has passed, and says so that once. The usage log gets `detailed_on`, `detailed_off` and `detailed_expired` lines holding only the time and the end date. The guard asks a person before a change to the new `.sanvio/export.json` or before `--opt-in` runs, and refuses both in a loop agent; the opt-in and commands files are under `.sanvio/usage/`, so agents already can't change them. Nothing is sent anywhere yet.
+
+**Needs:** 2026-11-21: Usage bundle v2
+
+**Controls:** AU-9, SA-9
+
+Files: [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/session_start.py`](.claude/hooks/session_start.py), [`.claude/hooks/guard.py`](.claude/hooks/guard.py), [`scripts/send_usage.py`](scripts/send_usage.py), [`scripts/export.py`](scripts/export.py), [`scripts/names.py`](scripts/names.py), [`reports/usage/README.md`](reports/usage/README.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`tests/test_export.py`](tests/test_export.py), [`tests/test_send_usage.py`](tests/test_send_usage.py), `CHANGELOG.md`.
+
+**Do:** nothing. Detailed mode is off until you turn it on. If you ask your team to, [`reports/usage/README.md`](reports/usage/README.md) has a message to paste first.
+
+## 2026-11-21: Usage bundle v2
+
+[`scripts/export.py`](scripts/export.py) now writes bundle format 2, the first step of [SPEC-004](docs/specs/004-usage-export/SPEC.md). Every key from format 1 is still there, and it adds `kind`, `mode`, `period`, `node`, `factory` (this repo's commit and newest changelog date, read from git's files without running git), `loop_config` (the loop's agent and reviewer by name and model, and its worker, round and token limits, never a command line), `chain_head` and `bundle_id`. A project's loop runs are in it only where the new, gitignored `.sanvio/export.json` lists the project under `export_projects`, under the label given there. With no list, none are, as before. [`scripts/usage_shape.py`](scripts/usage_shape.py) is the one copy of the shape: the export refuses to write a bundle that isn't in it, and each of its keys has to serve one of the questions the spec says the store answers. [`scripts/usage_scrub.py`](scripts/usage_scrub.py) is the scrubber the spec's detailed mode will run on shell commands. Nothing records commands or sends anything yet. `SECRET_ENV` moved from [`scripts/loop.py`](scripts/loop.py) to [`scripts/names.py`](scripts/names.py), so the scrubber shares the loop's copy.
+
+**Controls:** AC-5
+
+Files: [`scripts/export.py`](scripts/export.py), [`scripts/usage_shape.py`](scripts/usage_shape.py), [`scripts/usage_scrub.py`](scripts/usage_scrub.py), [`scripts/names.py`](scripts/names.py), [`scripts/loop.py`](scripts/loop.py), [`reports/usage/README.md`](reports/usage/README.md), [`tests/test_export.py`](tests/test_export.py), [`tests/test_usage_shape.py`](tests/test_usage_shape.py), [`tests/test_usage_scrub.py`](tests/test_usage_scrub.py), `CHANGELOG.md`.
+
+**Do:** nothing, unless something of yours reads the bundle: its `v` is now 2 and it has more keys. To put a project's runs in it, add `{"export_projects": {"<project folder>": "<label>"}}` to `.sanvio/export.json`.
+
 ## 2026-11-21: sandbox_strict stops the loop where the sandbox can't start
 
 A project with `sandbox_strict` on no longer runs its `test_command`, `generate_command` and `setup_command` without the sandbox. Where the sandbox can't apply (off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't apply a profile), `run`, `review` and `review --pr` now stop with one `ERROR` line saying which, and take nothing. Before, the loop logged a `WARN` and went on. The `INFO` line it logs when it starts now also says that the clone's shared `.git` stays read-only on purpose, so a command that commits or fetches in the worktree fails. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) gives the reason: a hook or config written there would be run by the loop's own git, outside the sandbox. It no longer suggests adding that path to `sandbox_write_allow`. Projects without `sandbox_strict` and caller projects work as before.

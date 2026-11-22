@@ -18,172 +18,203 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 
 ## Phase 1: Shape and scrubber
 
-- [ ] T001 Add `scripts/usage_shape.py`: the v2 bundle's and the heartbeat's keys and types, `problems(obj)`, and the table mapping every key to RQ-1 to RQ-6
+- [x] T001 Add [`scripts/usage_shape.py`](../../../scripts/usage_shape.py): the v2 bundle's and the heartbeat's keys and types, `problems(obj)`, and the table mapping every key to RQ-1 to RQ-6
   - Requirements: REQ-001, REQ-009, REQ-013
   - Acceptance: AC-012
   - Depends on: None
   - Verification: `TESTS`; a test adds a key with no RQ and expects a failure
-- [ ] T002 Add `scripts/usage_scrub.py`, importing its patterns from `guard.py` and `loop.py`. Write AC-005's fixture of invented secrets first and watch it fail
+  - Done 2026-11-21: [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) and `SERVES`; [`tests/test_usage_shape.py`](../../../tests/test_usage_shape.py)
+- [x] T002 Add [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), importing its patterns from `guard.py` and `loop.py`. Write AC-005's fixture of invented secrets first and watch it fail
   - Requirements: REQ-007
   - Acceptance: AC-005
   - Security: SEC-001
   - Depends on: None
   - Verification: `TESTS`; a timing test of 1,000 scrubs for NFR-004
-- [ ] T003 `export.py` writes `v: 2`: `mode`, `node`, `factory`, `loop_config`, `chain_head`, `period`, `bundle_id`, checked against `usage_shape.problems()` before it's written
+  - Done 2026-11-21: [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), with `SECRET_ENV` moved to `names.py` so the hook needn't import `loop.py`; [`tests/test_usage_scrub.py`](../../../tests/test_usage_scrub.py), under 5 ms a call
+- [x] T003 `export.py` writes `v: 2`: `mode`, `node`, `factory`, `loop_config`, `chain_head`, `period`, `bundle_id`, checked against `usage_shape.problems()` before it's written
   - Requirements: REQ-001
   - Acceptance: AC-001
   - Depends on: T001
   - Verification: `TESTS`
-- [ ] T004 `export.py` reads `export_projects` from `.sanvio/export.json` and includes those projects' runs under their labels, and no others
+  - Done 2026-11-21: `export.bundle()` writes v2 and refuses a bundle off the shape; `Version2` in [`tests/test_export.py`](../../../tests/test_export.py)
+- [x] T004 `export.py` reads `export_projects` from `.sanvio/export.json` and includes those projects' runs under their labels, and no others
   - Requirements: REQ-002
   - Acceptance: AC-002
   - Privacy: PRIV-003
   - Depends on: T003
   - Verification: `TESTS`
+  - Done 2026-11-21: `config()` and `listed_projects()` in `export.py`; a listed project's runs from `.loop/projects/<folder>/` under its label
 - [ ] T005 Phase 1's CHANGELOG entry, and open the pull request
   - Depends on: T001 to T004
   - Verification: the full suite, `python3 -m unittest discover -s tests`
 
 ## Phase 2: Detailed capture
 
-- [ ] T006 Add the opt-in file `.sanvio/usage/<user>.detailed` and its `detailed_on` line. `SANVIO_DETAILED_DAYS`, 14 by default, through `names.py`
+- [x] T006 Add the opt-in file `.sanvio/usage/<user>.detailed` and its `detailed_on` line. `SANVIO_DETAILED_DAYS`, 14 by default, through `names.py`
   - Requirements: REQ-004
   - Acceptance: AC-003
   - Privacy: PRIV-002
   - Depends on: T005
   - Verification: `TESTS` with a fixed clock
-- [ ] T007 `usage_log.py` writes a scrubbed line to `<user>.commands.jsonl` for each `PreToolUse` Bash call while the opt-in is live, with `ran`, `refused` or `asked` from the guard's verdict, through `log_chain`, pruned like the usage log
+  - Done 2026-11-21: `opt_in()`, `detailed_path()` and `detailed_until()` in `usage_log.py`, `names.detailed_days()`; `Detailed` in [`tests/test_usage.py`](../../../tests/test_usage.py)
+- [x] T007 `usage_log.py` writes a scrubbed line to `<user>.commands.jsonl` for each `PreToolUse` Bash call while the opt-in is live, with `ran`, `refused` or `asked` from the guard's verdict, through `log_chain`, pruned like the usage log
   - Requirements: REQ-005
   - Acceptance: AC-004
   - Security: SEC-001
   - Depends on: T002, T006
   - Verification: `TESTS`
-- [ ] T008 No command line from a headless session or one whose `cwd` is inside [`projects/`](../../../projects/)
+  - Done 2026-11-21: `command_record()` and the Bash branch of `main()`; the guard is asked once per call; `prune()` covers the commands file
+- [x] T008 No command line from a headless session or one whose `cwd` is inside [`projects/`](../../../projects/)
   - Requirements: REQ-006
   - Acceptance: AC-004
   - Depends on: T007
   - Verification: `TESTS`
-- [ ] T009 At session start, an end date in the past removes the opt-in, writes `detailed_expired`, and adds one line to the setup message. A live one adds a line naming its end date
+  - Done 2026-11-21: `inside_projects()`, and `names.headless()` in `command_record()`
+- [x] T009 At session start, an end date in the past removes the opt-in, writes `detailed_expired`, and adds one line to the setup message. A live one adds a line naming its end date
   - Requirements: REQ-008
   - Acceptance: AC-003
   - Privacy: PRIV-002
   - Depends on: T006
   - Verification: `TESTS`
-- [ ] T010 The guard asks a person before a change to `.sanvio/export.json` and refuses one from a headless run, as it does `.sanvio/factory-floor/`. Confirm the commands and opt-in files are already read-only under `LOG_NAME`
+  - Done 2026-11-21: `usage_log.expire()`, called from `session_start.detailed_notes()`, which says it once; `report()` takes notes
+- [x] T010 The guard asks a person before a change to `.sanvio/export.json` and refuses one from a headless run, as it does `.sanvio/factory-floor/`. Confirm the commands and opt-in files are already read-only under `LOG_NAME`
   - Requirements: SEC-004
   - Depends on: None
   - Verification: `TESTS` in [`tests/test_agent_hooks.py`](../../../tests/test_agent_hooks.py)
-- [ ] T011 `export.py --mode detailed` adds the `commands` section from the commands file, and refuses with no live opt-in
+  - Done 2026-11-21: `EXPORT_FILE`, `OPT_IN` and `persons_verdict()` in `guard.py`; `TheUsageSettings` in [`tests/test_agent_hooks.py`](../../../tests/test_agent_hooks.py). The opt-in and commands files were already under `LOG_NAME`
+- [x] T011 `export.py --mode detailed` adds the `commands` section from the commands file, and refuses with no live opt-in
   - Requirements: REQ-003
   - Acceptance: AC-003
   - Depends on: T007, T009
   - Verification: `TESTS`
-- [ ] T012 Phase 2's CHANGELOG entry, and the pull request
+  - Done 2026-11-21: `bundle(..., mode)` and `--mode` in `export.py`; `DetailedBundle` in [`tests/test_export.py`](../../../tests/test_export.py)
+- [x] T012 Phase 2's CHANGELOG entry, and the pull request
   - Depends on: T006 to T011
   - Verification: the full suite
 
 ## Phase 3: Sender
 
-- [ ] T013 `send_usage.py FILE`: check the shape, refuse unknown keys, run the scrubber again and refuse the file if anything changes, then send its exact bytes through the cloud CLI's profile to `incoming/<node>/<user>/<mode>/<bundle_id>.json`
+  - Done 2026-11-21: the *Detailed mode for the usage bundle* entry, plus the README's *Detailed mode* section and its paste-ready message (part of T028) and the retention row
+- [x] T013 `send_usage.py FILE`: check the shape, refuse unknown keys, run the scrubber again and refuse the file if anything changes, then send its exact bytes through the cloud CLI's profile to `incoming/<node>/<user>/<mode>/<bundle_id>.json`
   - Requirements: REQ-009
   - Acceptance: AC-006
   - Security: SEC-002
   - Depends on: T012
   - Verification: `TESTS` with a stand-in CLI first on `PATH`
-- [ ] T014 No `.sanvio/export.json`, or no `store` in it: send nothing, open no connection, and say how to configure one
+  - Done 2026-11-21: `send_file()`, `check()`, `key_for()` and `deliver()` in `send_usage.py`; `Sending` in [`tests/test_send_usage.py`](../../../tests/test_send_usage.py), with a stand-in `aws` on `PATH`
+- [x] T014 No `.sanvio/export.json`, or no `store` in it: send nothing, open no connection, and say how to configure one
   - Requirements: REQ-010
   - Acceptance: AC-007
   - Depends on: T013
   - Verification: `TESTS` with a socket that fails the test when opened
-- [ ] T015 `--auto` builds and sends a general bundle only, and says so when detailed was asked for
+  - Done 2026-11-21: `store_of()`; a test that fails on any socket or process
+- [x] T015 `--auto` builds and sends a general bundle only, and says so when detailed was asked for
   - Requirements: REQ-011
   - Acceptance: AC-008
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T016 `--heartbeat`, per the plan's *Heartbeat*: lock pid, queue, running issue's tokens and budget, unlisted projects under a hashed label, no titles
+  - Done 2026-11-21: `send_auto()`; `export.bundle(..., last=)` so each day's bundle covers that day only
+- [x] T016 `--heartbeat`, per the plan's *Heartbeat*: lock pid, queue, running issue's tokens and budget, unlisted projects under a hashed label, no titles
   - Requirements: REQ-012
   - Acceptance: AC-009
   - Depends on: T013
   - Verification: `TESTS` over a fixture `.loop/` with one live and one dead lock
-- [ ] T017 `--opt-in detailed` and `--opt-out`, writing through T006
+  - Done 2026-11-21: `heartbeat()` and `beat()`; `Heartbeat` in [`tests/test_send_usage.py`](../../../tests/test_send_usage.py)
+- [x] T017 `--opt-in detailed` and `--opt-out`, writing through T006
   - Requirements: REQ-004
   - Depends on: T006, T013
   - Verification: `TESTS`
-- [ ] T018 `export_sent` and `export_refused` lines in the usage log, and the dashboard's last send and mode
+  - Done 2026-11-21: done early, in phase 2: `scripts/send_usage.py --opt-in detailed` and `--opt-out`; [`tests/test_send_usage.py`](../../../tests/test_send_usage.py)
+- [x] T018 `export_sent` and `export_refused` lines in the usage log, and the dashboard's last send and mode
   - Requirements: OBS-001, OBS-002
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T019 `factory-trends`'s *Sprint run* offers the period's general bundle after the report, shows it, and sends only on a yes. A failed send never stops the report
+  - Done 2026-11-21: `export_sent` and `export_refused` lines, `.sanvio/usage/last-send`, `last_send()` in `dashboard_data.py`, and the factory-dashboard mod's line (0.10.0)
+- [x] T019 `factory-trends`'s *Sprint run* offers the period's general bundle after the report, shows it, and sends only on a yes. A failed send never stops the report
   - Requirements: REQ-018
   - Acceptance: AC-014
   - Depends on: T013
   - Verification: `TESTS` with a stand-in sender, then a reading of the skill
-- [ ] T031 A store with `kind: folder`: copy into its `incoming/<node>/` path after the same checks as T013, creating folders as needed
+  - Done 2026-11-21: step 8 of the sprint run; `FactoryTrendsSend` in [`tests/test_skills.py`](../../../tests/test_skills.py)
+- [x] T031 A store with `kind: folder`: copy into its `incoming/<node>/` path after the same checks as T013, creating folders as needed
   - Requirements: REQ-020
   - Acceptance: AC-016
   - Depends on: T013
   - Verification: `TESTS`
-- [ ] T020 Phase 3's CHANGELOG entry, and the pull request
+  - Done 2026-11-21: `deliver()` writes a folder store's `incoming/` path through a `.part` file
+- [x] T020 Phase 3's CHANGELOG entry, and the pull request
   - Depends on: T013 to T019, T031
   - Verification: the full suite
 
 ## Phase 4: Reference store
 
+  - Done 2026-11-21: the *Sending the usage bundle* entry, and the README's *Sending it* section (part of T028)
 - [ ] T030 Spike: run the DuckDB Grafana plugin's current release locally against a folder and against a test bucket through a CLI profile. Record the version, whether the bucket read worked, and which cloud data source the plan uses
   - Requirements: REQ-022
   - Depends on: T020
   - Verification: the spike's result, recorded here
-- [ ] T021 `examples/usage-store/cloud/`: bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
+  - Done 2026-11-21, local half: Grafana OSS 13.0.2 with motherduck-duckdb-datasource 0.4.6 (unsigned, allowed by name; carries DuckDB 1.5.6) reads a folder store through `read_json`, and all six RQ panels returned rows through Grafana's query API. Two findings went into the Dockerfile: the plugin's backend is built against glibc and won't start on the default Alpine image, so the image is the `-ubuntu` one; and `/var/lib/grafana` is a volume, so the plugin lives in `/opt/grafana-plugins`. The plugin's query `format` is a number (1, a table), not a string. The cloud data source is the same plugin over `s3://` with DuckDB's `httpfs` and `aws` extensions and a `credential_chain` secret, set by `USAGE_INIT`. **Bucket half open:** it needs a test account, which isn't named in local config yet
+- [x] T021 [`examples/usage-store/cloud/`](../../../examples/usage-store/cloud/): bucket, `incoming/`, `accepted/`, `rejected/`, a 90-day lifecycle, a key only the owner role can use for `detailed/`, and an example `export.json` with invented values
   - Requirements: REQ-013, REQ-014
   - Privacy: PRIV-004, PRIV-005
   - Depends on: T020
   - Verification: `terraform fmt -check` and `terraform validate`, recorded here
-- [ ] T022 Sender roles that may only put under their own `incoming/<node>/` and read nothing, with certificate-based workload identity for unattended nodes
+  - Done 2026-11-21: [`examples/usage-store/cloud/main.tf`](../../../examples/usage-store/cloud/main.tf), with [`export.example.json`](../../../examples/usage-store/cloud/export.example.json). The bucket policy refuses a detailed put without the detailed key, so `detailed_key` is the key's ARN. `terraform fmt -check -recursive` and `terraform validate` (offline, `-backend=false`) pass
+- [x] T022 Sender roles that may only put under their own `incoming/<node>/` and read nothing, with certificate-based workload identity for unattended nodes
   - Requirements: REQ-013, REQ-019
   - Security: SEC-003
   - Depends on: T021
   - Verification: `terraform validate`
-- [ ] T023 `validator.py`: imports `scripts/usage_shape.py`, moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
+  - Done 2026-11-21: nodes through an IAM Roles Anywhere trust anchor, each limited to `incoming/<its certificate's CN>/`, general and heartbeats only; people through a role limited to `incoming/<usage_node session tag>/`. Neither may read. `terraform validate` passes
+- [x] T023 `validator.py`: imports [`scripts/usage_shape.py`](../../../scripts/usage_shape.py), moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
   - Requirements: REQ-013, REQ-016, REQ-021
   - Depends on: T021
   - Verification: unit tests beside the function, with stand-in storage
-- [ ] T024 Grafana alert rules as provisioning files: a silent node past its window and a run past 80% of its budget, one alert each until it recovers. The contact point from the secret store by name, or an environment variable locally
+  - Done 2026-11-21: [`examples/usage-store/validator.py`](../../../examples/usage-store/validator.py), tested in [`tests/test_usage_store.py`](../../../tests/test_usage_store.py) over a folder store
+- [x] T024 Grafana alert rules as provisioning files: a silent node past its window and a run past 80% of its budget, one alert each until it recovers. The contact point from the secret store by name, or an environment variable locally
   - Requirements: REQ-015, REQ-022
   - Security: SEC-005
   - Depends on: T025
   - Verification: part of AC-011 and AC-016
-- [ ] T025 `queries/rq-1.sql` to `rq-6.sql`, and the dashboard with a panel per RQ, as a provisioning file
+  - Done 2026-11-21: written by [`render.py`](../../../examples/usage-store/render.py) from `alert-*.sql`, evaluated every minute, one notification per node or run (`group_by: ['...']`), not repeated while firing (`repeat_interval: 8760h`). Seen firing in AC-016's live run
+- [x] T025 `queries/rq-1.sql` to `rq-6.sql`, and the dashboard with a panel per RQ, as a provisioning file
   - Requirements: OBS-003, REQ-022
   - Acceptance: AC-017
   - Depends on: T023, T030
   - Verification: each file run with the DuckDB CLI over a folder of invented bundles, in a test that skips where DuckDB isn't installed
-- [ ] T032 `examples/usage-store/local/`: a compose file running Grafana and the plugin at pinned versions on `127.0.0.1`, the folder mounted read-only, and a README going from nothing to the dashboard
+  - Done 2026-11-21: `views.sql`, `views-detailed.sql`, `rq-1.sql` to `rq-6.sql`, and two dashboards (RQ-6 on the owner's), rendered from the SQL. The tests run each over a folder of invented bundles with DuckDB 1.5.6, and skip without it
+- [x] T032 [`examples/usage-store/local/`](../../../examples/usage-store/local/): a compose file running Grafana and the plugin at pinned versions on `127.0.0.1`, the folder mounted read-only, and a README going from nothing to the dashboard
   - Requirements: REQ-022, REQ-023
   - Acceptance: AC-016
   - Depends on: T024, T025
   - Verification: AC-016's live run
-- [ ] T033 Grafana in `cloud/`: behind the owner's identity provider, with the general and detailed data sources split by role
+  - Done 2026-11-21: [`local/compose.yaml`](../../../examples/usage-store/local/compose.yaml) and [`local/README.md`](../../../examples/usage-store/local/README.md)
+- [x] T033 Grafana in `cloud/`: behind the owner's identity provider, with the general and detailed data sources split by role
   - Requirements: REQ-023, REQ-014
   - Depends on: T021, T030
   - Verification: `terraform validate`, then part of AC-010
+  - Done 2026-11-21, with one change from the task's wording: the cloud Grafana has the general data source only. OSS Grafana can't limit a data source to a role, so the team's Grafana role gets no access to `detailed/` or its key, and the owner reads detailed bundles from a copy of `accepted/` in the local Grafana, which has the detailed data source. REQ-023's "only the owner's role" holds through the key. `terraform validate` passes. **Ruled by the owner 2026-11-21: keep this design**
 - [ ] T026 Live runs: AC-016 on one machine, then AC-010, AC-011, AC-015 and AC-017 in a test account, each recorded here with what it showed
   - Acceptance: AC-010, AC-011, AC-015, AC-016, AC-017
   - Depends on: T022 to T025, T032, T033
   - Verification: the live runs
+  - AC-016, 2026-11-21, on one machine with invented data: `send_usage.py --auto` and `--heartbeat` wrote two general bundles and a heartbeat into a folder, a hand-written heartbeat two hours old stood in for a node that stopped, and a detailed bundle went in through `send_usage.py FILE`. `validator.py` moved all to `accepted/`. `docker compose -f local/compose.yaml up --build` started Grafana 13.0.2, published on `127.0.0.1:3000` only (`docker compose port`); RQ-1 to RQ-6 each returned rows, running the panels' own queries from the dashboards Grafana provisioned; the silent-node rule fired for the stale node and not the fresh one, the budget rule fired for the run at 90%, and the webhook received one notification for each and no repeats while they stayed firing. Then the bench node's heartbeats stopped (last at 23:01:37 UTC) and its silent-node alert reached the webhook at 23:32, inside the 30-minute window plus one evaluation. A recreated container sends firing alerts once more, since Grafana's alert state lives in its own database. **AC-010, AC-011, AC-015 and AC-017's bucket half are open:** they need a test account
 - [ ] T027 Phase 4's CHANGELOG entry, and the pull request
   - Depends on: T021 to T026, T030, T032, T033
 
 ## Phase 5: Docs
 
-- [ ] T028 [`reports/usage/README.md`](../../../reports/usage/README.md): the sending flow, and the second paste-ready message for detailed mode. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md): the commands file and the store in the retention table, and deletion on request
+- [x] T028 [`reports/usage/README.md`](../../../reports/usage/README.md): the sending flow, and the second paste-ready message for detailed mode. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md): the commands file and the store in the retention table, and deletion on request
   - Requirements: REQ-017
   - Acceptance: AC-013
   - Privacy: PRIV-001, PRIV-004
   - Depends on: T020
   - Verification: a reading, and `TESTS`
-- [ ] T029 [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) and [`README.md`](../../../README.md) agree with what shipped
+  - Done 2026-11-21: the sending flow and the detailed-mode message went in with phase 3; this adds the schedule for an unattended machine's two commands. [`steering/data-and-tools.md`](../../../steering/data-and-tools.md) has the commands file in the retention table (phase 2), and now the store's 90 days, deletion of a person's prefix on request, and that the store sits in an approved system
+- [x] T029 [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) and [`README.md`](../../../README.md) agree with what shipped
   - Depends on: T027, T028
   - Verification: a reading, and `TESTS`
+  - Done 2026-11-21: [`HOW-IT-WORKS.md`](../../../HOW-IT-WORKS.md) says where the numbers can go and what's sent on its own, and [`README.md`](../../../README.md)'s usage log row names the sender and the store
 
 ## Requirement Traceability
 
@@ -212,3 +243,34 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 | REQ-021 | T023 | AC-016 | |
 | REQ-022 | T024, T025, T030, T032 | AC-016, AC-017 | |
 | REQ-023 | T032, T033 | AC-016, AC-010 | |
+
+## Review Findings
+
+review-spec, 2026-11-21, on `usage-export/phase-5` against `main`. Lenses run: correctness and the requirement walk (probe, standing in for `code-review`), security (viper), engineering quality and architecture (cto, covering atlas's and review-principles' questions). Skipped: a separate atlas run and `find-dead-code`, since cto covered structure and dead code in the same pass. Nothing was run against a cloud account.
+
+**Recommendation: Not Complete.** F01 to F18 block it.
+
+| ID | Severity | Finding | Where | Lens | Status |
+|---|---|---|---|---|---|
+| F01 | HIGH | A loop that dies while cron keeps sending heartbeats raises no alert: the silent-node rule reads only the newest `ts`, and `alive: false` shows only in RQ-5. AC-011 can't pass as written | `queries/alert-silent-node.sql`, `grafana/provisioning/alerting/rules.yaml` | probe | open |
+| F02 | HIGH | Overlapping bundles double count: two 14-day exports a day apart have different `bundle_id`s, so RQ-1 and RQ-4 sum the same lines twice | `queries/views.sql` | probe | open |
+| F03 | HIGH | A node name outside `[A-Za-z0-9._-]` is cleaned in the sender's key and not in the validator's check, so every bundle and heartbeat from it is rejected while the sender says `Sent:` | [`scripts/send_usage.py`](../../../scripts/send_usage.py) `safe()`, `validator.py` `expected_tail` | probe, cto | open |
+| F04 | HIGH | The scrubber keeps quoted flag values (`--password "x"`), slash-bearing secrets (a 40-character cloud secret key), `curl -u`, `-pPASS`, `sshpass -p`, `X-Api-Key:` headers and `*_PASS=` assignments. The send-side check runs the same function, so it can't catch a miss. SEC-001 | [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py) | viper (risk 7), probe | open |
+| F05 | HIGH | The guard misses writes to `export.json` that don't spell `.sanvio/export.json` (`cd .sanvio && ... > export.json`, `tee`, `python3 -c`), and `--opt-i`, which argparse accepts as `--opt-in`. An agent can repoint the store or turn on detailed mode. The send prints the key, not the store, so a repointed store goes unnoticed | [`.claude/hooks/guard.py`](../../../.claude/hooks/guard.py), [`scripts/send_usage.py`](../../../scripts/send_usage.py) | viper (risk 6), probe | open |
+| F06 | HIGH | The person-sender role trusts any listed principal to set its own `usage_node` session tag, so one person can write under another's node, including heartbeats | `cloud/main.tf` person trust policy | viper (risk 6, plausible) | open |
+| F07 | HIGH | One malformed accepted bundle (a date that isn't a date, an integer past range) breaks every panel until it expires; the validator catches only `ValueError`, reads objects of any size, and copies a KMS header onto a general bundle that Grafana then can't read | [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) `DAY`, `validator.py`, `queries/views.sql`, `cloud/main.tf` bucket policy | viper (risk 5) | open |
+| F08 | HIGH | The cloud Grafana sets no `GF_AUTH_BASIC_ENABLED=false` or admin password, and DuckDB's external access isn't locked, so a viewer posting SQL may read local files such as the task's environment | `cloud/grafana.tf`, the data sources' init SQL | viper (risk 6, plausible) | open |
+| F09 | HIGH | Skill and agent names an agent chooses reach general bundles as they are; a prompt-injected agent can put text into the store through them | [`.claude/hooks/usage_log.py`](../../../.claude/hooks/usage_log.py), [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) | viper (risk 4) | open |
+| F10 | HIGH | No way to revoke one node's certificate: no CRL on the trust anchor and no instructions. REQ-019, AC-015 | `cloud/main.tf`, `cloud/README.md` | probe | open |
+| F11 | HIGH | The SQL views hard-code their columns, and the only tie to the shape is a DuckDB test CI skips, so a renamed key reads as NULL with no failure | `queries/views.sql`, [`tests/test_usage_store.py`](../../../tests/test_usage_store.py), CI | cto | open |
+| F12 | HIGH | Version skew: the Lambda carries the `usage_shape.py` of the clone it was applied from, so a team that updates the factory has its bundles rejected with nothing raised; and nothing says to schedule `validator.py --folder`, without which a healthy local node reads as silent | `cloud/main.tf`, `cloud/README.md`, `local/README.md` | cto, probe | open |
+| F13 | HIGH | The cloud Grafana installs DuckDB's `httpfs` and `aws` extensions from the network at each start, unpinned | `cloud/grafana.tf` `USAGE_INIT` | cto | open |
+| F14 | HIGH | The cloud form is unverified: the T030 bucket half and AC-010, AC-011, AC-015, AC-017 haven't run, and no CI step runs `terraform validate` | T030, T026 | cto | open, waits on a test account |
+| F15 | MEDIUM | A headless session consumes an expired opt-in, so the person never sees the "detailed mode ended" notice. REQ-008 | [`.claude/hooks/session_start.py`](../../../.claude/hooks/session_start.py) `detailed_notes` | probe | open |
+| F16 | MEDIUM | `send_usage.py` crashes with no `export_refused` line on a folder store it can't write or a bundle file that isn't an object; the 500-character cut can land inside `[redacted]`, after which the send check refuses that day's detailed bundle on every export | [`scripts/send_usage.py`](../../../scripts/send_usage.py), [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py) | probe | open |
+| F17 | MEDIUM | Usage lines are dated in UTC and the bundle's `today` in local time, so a late-evening use west of UTC drops out of a manual bundle | [`scripts/export.py`](../../../scripts/export.py) | probe | open |
+| F18 | MEDIUM | PRIV-003: the path check is case-sensitive and misses `cd clients`, `ls projects`; the unlisted-project label is an unsalted hash a guess can reverse; an env-prefixed command's first word reaches the history `agent` field | [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), [`scripts/send_usage.py`](../../../scripts/send_usage.py), [`scripts/loop.py`](../../../scripts/loop.py) | viper (risk 3) | open |
+| F19 | MEDIUM | The detailed key delegates to the account root, so any principal there with IAM `kms:Decrypt` and bucket read can open detailed bundles; "owner only" holds only with an explicit deny | `cloud/main.tf` key policy | viper (risk 3) | open |
+| F20 | MEDIUM | Small repeats: `SHAPE_FILES` in the validator and in Terraform, `LAST_SEND` in two scripts, the `.part` write in three places, two `keep_days`; `usage_log.rule()` classifies by a substring of the guard's message; Dependabot doesn't watch the image digest, the plugin or the providers | several | cto | open |
+| F21 | LOW | Minor behaviour: the cloud example's `projects/app` label is dropped without an error; `send_usage.py`'s docstring says key alias where the ARN is needed; extra workers' budgets aren't in the heartbeat; a node with no loops drops out of RQ-5; RQ-3 uses the latest sender's version; stray `.part` files are never pruned | several | probe | open |
+| F22 | INFO | `local/compose.yaml` says an empty webhook means nowhere; its default is a dead local port | `local/compose.yaml` | cto | open |

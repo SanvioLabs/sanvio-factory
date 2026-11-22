@@ -1,0 +1,24 @@
+# The usage store's interface on one machine (SPEC-004 REQ-022, REQ-023): Grafana with the DuckDB data
+# source, on 127.0.0.1 only, reading a folder store read-only. Start it from examples/usage-store/:
+#
+#     USAGE_STORE=~/usage-store docker compose -f local/compose.yaml up -d --build
+#
+# then open http://127.0.0.1:3000. local/README.md has the rest.
+services:
+  grafana:
+    build:
+      context: ..
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - "${USAGE_STORE:?set USAGE_STORE to the store's folder}:/store:ro"
+      - "../grafana/local/datasources/detailed.yaml:/etc/grafana/provisioning/datasources/detailed.yaml:ro"
+      - "../grafana/local/dashboards/usage.yaml:/etc/grafana/provisioning/dashboards/detailed.yaml:ro"
+      - "../grafana/local/dashboards/detailed.json:/etc/grafana/local-dashboards/detailed.json:ro"
+    environment:
+      USAGE_ROOT: /store
+      # Where alerts go. Empty means nowhere: the rules still fire, in Grafana's own alert list.
+      USAGE_ALERT_WEBHOOK: "${USAGE_ALERT_WEBHOOK:-http://127.0.0.1:9/}"
+      # On loopback only, so anyone at this machine reads the dashboards without a login, and nobody else can.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer

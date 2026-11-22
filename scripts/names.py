@@ -9,6 +9,7 @@ old_names.py is beside this file to do it. Without it, only the new names are re
 Standard library only: everything here imports it, a fresh clone included, before any setup.
 """
 import os
+import re
 from pathlib import Path
 
 STATE = ".sanvio"
@@ -19,6 +20,10 @@ _STRICTER = "HARNESS_"
 PERSONAL = ("PULSE_FOLDER", "RETRO", "USAGE_LOG", "EVALS_HOME")
 # The values that switch the usage log off, under either name.
 OFF = ("off", "0", "false", "no")
+# The names of environment variables that hold a credential. The loop strips them from its agents'
+# environment, and usage_scrub.py redacts their values in a recorded command. Here, so both share one copy
+# and the usage log hook doesn't have to import loop.py.
+SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|^AWS_|^SSH_AUTH_SOCK$", re.I)
 # Set once this process has checked the real environment for old names, so it checks only once.
 _checked = False
 
@@ -68,6 +73,18 @@ def keep_days(environ=None):
     except ValueError:
         return KEEP_DAYS
     return days if days > 0 else KEEP_DAYS
+
+
+DETAILED_DAYS = 14  # how long one opt-in to detailed mode lasts, unless SANVIO_DETAILED_DAYS says
+
+
+def detailed_days(environ=None):
+    """SANVIO_DETAILED_DAYS as a whole number of days above 0, else DETAILED_DAYS."""
+    try:
+        days = int(env("DETAILED_DAYS", environ=environ).strip())
+    except ValueError:
+        return DETAILED_DAYS
+    return days if days > 0 else DETAILED_DAYS
 
 
 def logging_off(environ=None):

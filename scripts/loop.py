@@ -305,7 +305,7 @@ CLOSED_BY_QUERY = """query($owner: String!, $name: String!, $n: Int!) {
 # Left out of the environment the test command and every agent run in (env_for_tests, env_for_agents). The
 # tests run code an agent wrote, and the agent works from an issue. This keeps the easy reach to your accounts
 # out of both. It isn't a sandbox: on a Mac, Loop.own_command runs the test, generate and setup commands in one.
-SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|^AWS_|^SSH_AUTH_SOCK$", re.I)
+SECRET_ENV = names.SECRET_ENV  # one copy, in names.py, which usage_scrub.py reads too
 DEPENDS_ON = re.compile(r"(?im)^\s*depends on\b.*$")
 SCOPE = re.compile(r"(?ims)^##[ \t]+scope[ \t]*$(.*?)(?=^#{1,2}\s|\Z)")  # a ticket's Scope section
 SCOPE_IN = re.compile(r"(?is)\*\*in:\*\*(.*?)(?=\*\*out:\*\*|\Z)")  # the In half of it
