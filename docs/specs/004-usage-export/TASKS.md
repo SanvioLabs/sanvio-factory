@@ -18,28 +18,32 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 
 ## Phase 1: Shape and scrubber
 
-- [ ] T001 Add `scripts/usage_shape.py`: the v2 bundle's and the heartbeat's keys and types, `problems(obj)`, and the table mapping every key to RQ-1 to RQ-6
+- [x] T001 Add [`scripts/usage_shape.py`](../../../scripts/usage_shape.py): the v2 bundle's and the heartbeat's keys and types, `problems(obj)`, and the table mapping every key to RQ-1 to RQ-6
   - Requirements: REQ-001, REQ-009, REQ-013
   - Acceptance: AC-012
   - Depends on: None
   - Verification: `TESTS`; a test adds a key with no RQ and expects a failure
-- [ ] T002 Add `scripts/usage_scrub.py`, importing its patterns from `guard.py` and `loop.py`. Write AC-005's fixture of invented secrets first and watch it fail
+  - Done 2026-11-21: [`scripts/usage_shape.py`](../../../scripts/usage_shape.py) and `SERVES`; [`tests/test_usage_shape.py`](../../../tests/test_usage_shape.py)
+- [x] T002 Add [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), importing its patterns from `guard.py` and `loop.py`. Write AC-005's fixture of invented secrets first and watch it fail
   - Requirements: REQ-007
   - Acceptance: AC-005
   - Security: SEC-001
   - Depends on: None
   - Verification: `TESTS`; a timing test of 1,000 scrubs for NFR-004
-- [ ] T003 `export.py` writes `v: 2`: `mode`, `node`, `factory`, `loop_config`, `chain_head`, `period`, `bundle_id`, checked against `usage_shape.problems()` before it's written
+  - Done 2026-11-21: [`scripts/usage_scrub.py`](../../../scripts/usage_scrub.py), with `SECRET_ENV` moved to `names.py` so the hook needn't import `loop.py`; [`tests/test_usage_scrub.py`](../../../tests/test_usage_scrub.py), under 5 ms a call
+- [x] T003 `export.py` writes `v: 2`: `mode`, `node`, `factory`, `loop_config`, `chain_head`, `period`, `bundle_id`, checked against `usage_shape.problems()` before it's written
   - Requirements: REQ-001
   - Acceptance: AC-001
   - Depends on: T001
   - Verification: `TESTS`
-- [ ] T004 `export.py` reads `export_projects` from `.sanvio/export.json` and includes those projects' runs under their labels, and no others
+  - Done 2026-11-21: `export.bundle()` writes v2 and refuses a bundle off the shape; `Version2` in [`tests/test_export.py`](../../../tests/test_export.py)
+- [x] T004 `export.py` reads `export_projects` from `.sanvio/export.json` and includes those projects' runs under their labels, and no others
   - Requirements: REQ-002
   - Acceptance: AC-002
   - Privacy: PRIV-003
   - Depends on: T003
   - Verification: `TESTS`
+  - Done 2026-11-21: `config()` and `listed_projects()` in `export.py`; a listed project's runs from `.loop/projects/<folder>/` under its label
 - [ ] T005 Phase 1's CHANGELOG entry, and open the pull request
   - Depends on: T001 to T004
   - Verification: the full suite, `python3 -m unittest discover -s tests`
@@ -143,7 +147,7 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
   - Security: SEC-003
   - Depends on: T021
   - Verification: `terraform validate`
-- [ ] T023 `validator.py`: imports `scripts/usage_shape.py`, moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
+- [ ] T023 `validator.py`: imports [`scripts/usage_shape.py`](../../../scripts/usage_shape.py), moves each object to `accepted/` or `rejected/` with its reason, and marks a chain gap. One file, run as the cloud function and as `--folder PATH` locally
   - Requirements: REQ-013, REQ-016, REQ-021
   - Depends on: T021
   - Verification: unit tests beside the function, with stand-in storage
