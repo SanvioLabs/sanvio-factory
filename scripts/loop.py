@@ -1950,15 +1950,17 @@ def review_list():
         text = (ROOT / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
-    entries, inside = [], False
+    entries, kinds, inside = [], set(), False
     for line in text.splitlines():
         if line.startswith("5. "):
             inside = True
         elif inside and line.startswith("6. "):
             break
         elif inside and REVIEW_ENTRY.match(line):
+            # Stripped, an entry starts "- Blocks:", so the kind comes from the match, not the text.
             entries.append(line.strip())
-    return entries if any(entry.startswith("Blocks") for entry in entries) else None
+            kinds.add(REVIEW_ENTRY.match(line).group(1))
+    return entries if any(kind.startswith("Blocks") for kind in kinds) else None
 
 
 def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=(), controls=""):
