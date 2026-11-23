@@ -44,7 +44,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-23: All-in cost per issue in the usage store
 
-A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A cost the runs never recorded shows as empty, not as 0.
+A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. An issue with any run that recorded no cost, such as one the budget stopped, is left out of the cost columns rather than counted too low, and an `unpriced_issues` column counts those. A project with no priced issue shows empty, not 0.
 
 **Needs:** 2026-11-21: The usage store; 2026-11-21: Usage export review fixes
 

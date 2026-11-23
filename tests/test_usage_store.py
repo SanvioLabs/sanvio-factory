@@ -305,16 +305,18 @@ class Queries(Fixture):
         got = self.rq7([run_line(5, "2026-11-20T10:00:00", outcome="blocked", cost_usd=2.0),
                         run_line(5, "2026-11-21T10:00:00", cost_usd=1.5)])
         self.assertEqual(got, {"factory": {"project": "factory", "issues_with_pr": 1, "all_in_cost_usd": 3.5,
-                                           "usd_per_issue": 3.5, "no_pr_cost_usd": None, "no_pr_percent": None}})
+                                           "usd_per_issue": 3.5, "no_pr_cost_usd": None, "no_pr_percent": None,
+                                           "unpriced_issues": 0}})
 
     def test_rq7_keeps_one_issue_number_in_two_projects_apart(self):
         got = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=1.5)],
                        {"app": [run_line(5, "2026-11-20T11:00:00", project="app", outcome="blocked", cost_usd=3.0)]})
         self.assertEqual(got, {
             "factory": {"project": "factory", "issues_with_pr": 1, "all_in_cost_usd": 1.5, "usd_per_issue": 1.5,
-                        "no_pr_cost_usd": None, "no_pr_percent": None},
+                        "no_pr_cost_usd": None, "no_pr_percent": None, "unpriced_issues": 0},
             "app": {"project": "app", "issues_with_pr": 0, "all_in_cost_usd": None, "usd_per_issue": None,
-                    "no_pr_cost_usd": 3.0, "no_pr_percent": 100.0}})
+                    "no_pr_cost_usd": 3.0, "no_pr_percent": 100.0, "unpriced_issues": 0}})
+        self.assertEqual(list(got), ["factory", "app"])  # a project with no all-in cost sorts last
 
     def test_rq7_shows_spend_on_issues_with_no_pull_request_yet(self):
         (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=4.5),
@@ -325,9 +327,26 @@ class Queries(Fixture):
 
     def test_rq7_shows_a_cost_nobody_recorded_as_null_not_zero(self):
         (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=None)]).values()
-        self.assertEqual(row["issues_with_pr"], 1)
+        self.assertEqual((row["issues_with_pr"], row["unpriced_issues"]), (1, 1))
         for column in ("all_in_cost_usd", "usd_per_issue", "no_pr_cost_usd", "no_pr_percent"):
             self.assertIsNone(row[column], column)
+
+    def test_rq7_divides_only_by_issues_whose_cost_is_known(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=4.0),
+                           run_line(6, "2026-11-20T11:00:00", cost_usd=None)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["usd_per_issue"], row["unpriced_issues"]),
+                         (2, 4.0, 4.0, 1))
+
+    def test_rq7_leaves_out_an_issue_with_one_run_unpriced_rather_than_undercount_it(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", outcome="blocked", cost_usd=2.0),
+                           run_line(5, "2026-11-21T10:00:00", cost_usd=None),
+                           run_line(6, "2026-11-20T11:00:00", cost_usd=3.0)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["usd_per_issue"], row["unpriced_issues"]),
+                         (2, 3.0, 3.0, 1))
+
+    def test_rq7_counts_a_run_with_no_outcome_as_no_pull_request(self):
+        (row,) = self.rq7([run_line(7, "2026-11-20T10:00:00", outcome=None, cost_usd=1.0)]).values()
+        self.assertEqual((row["issues_with_pr"], row["no_pr_cost_usd"], row["no_pr_percent"]), (0, 1.0, 100.0))
 
     def test_rq4_pairs_asks_with_approvals(self):
         self.send_days()
