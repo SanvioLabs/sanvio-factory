@@ -18,7 +18,7 @@ Nothing here names a store, an account or a person. Senders point at a store fro
 
 | Path | What it is |
 |---|---|
-| [`queries/`](queries/) | The one copy of the SQL. `views.sql` reads `accepted/`, `views-detailed.sql` the detailed bundles, `rq-1.sql` to `rq-6.sql` answer the spec's six questions, the `alert-*.sql` files feed the alert rules, and `lock.sql`, last in every data source, limits DuckDB to the store. `${USAGE_ROOT}` is the folder or bucket |
+| [`queries/`](queries/) | The one copy of the SQL. `views.sql` reads `accepted/`, `views-detailed.sql` the detailed bundles, `rq-1.sql` to `rq-7.sql` answer the spec's seven questions, the `alert-*.sql` files feed the alert rules, and `lock.sql`, last in every data source, limits DuckDB to the store. `${USAGE_ROOT}` is the folder or bucket |
 | [`validator.py`](validator.py) | Moves each object from `incoming/` to `accepted/` or `rejected/`, checked against [`scripts/usage_shape.py`](../../scripts/usage_shape.py), and marks a chain that changed between sends. On a folder it also removes what's older than 90 days, as the bucket's lifecycle does in the cloud |
 | [`render.py`](render.py) | Writes Grafana's provisioning files from [`queries/`](queries/). Run it after changing a query; `--check` says if any is stale, and the tests run it |
 | [`grafana/`](grafana/) | What [`render.py`](render.py) writes: the data sources, the dashboards and the alert rules |
@@ -36,6 +36,7 @@ Nothing here names a store, an account or a person. Senders point at a store fro
 | RQ-4 | Where does the guard refuse or ask most, and which asks do people always say yes to? |
 | RQ-5 | Is every node's loop running, and when did each last report? |
 | RQ-6 | Which shell commands do agents run most, and which get refused or asked about? (detailed, owner only) |
+| RQ-7 | What does an issue that reached a pull request cost all in, counting every run on it, and how much spend sits on issues with no pull request yet, by project? A pull request the loop opened, not one that merged |
 
 Three alert rules come with it: a node whose last heartbeat is over 30 minutes old, a loop that stopped on
 a machine still sending heartbeats, and a run past 80% of its token budget. Each node's or run's alert goes once to the webhook in `USAGE_ALERT_WEBHOOK`, once more

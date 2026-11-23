@@ -112,6 +112,7 @@ that serves none is cut. AC-012 checks the mapping.
 | RQ-4 | Where does the guard refuse or ask most, and which asks do people always say yes to? |
 | RQ-5 | Is every node's loop running, and when did each last report? |
 | RQ-6 | Which shell commands do agents run most, and which ones get refused or asked about? (detailed only) |
+| RQ-7 | What does an issue that reached a pull request cost all in, counting every loop run on it, and how much loop spend sits on issues that have no pull request yet, by project? |
 
 ## Affected Areas
 
@@ -232,7 +233,7 @@ Not Affected:
 |---|---|
 | OBS-001 | `send_usage.py` writes one line per send to the usage log: `export_sent` or `export_refused`, with the mode and the bundle id, never the contents. |
 | OBS-002 | The factory dashboard shows when this machine last sent, and in which mode. |
-| OBS-003 | The reference store's SQL files answer RQ-1 to RQ-6, one per question (REQ-022). |
+| OBS-003 | The reference store's SQL files answer RQ-1 to RQ-7, one per question (REQ-022). |
 
 ## Non-Functional Requirements
 

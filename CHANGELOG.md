@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: All-in cost per issue in the usage store
+
+A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A cost the runs never recorded shows as empty, not as 0.
+
+**Needs:** 2026-11-21: The usage store; 2026-11-21: Usage export review fixes
+
+Files: [`examples/usage-store/queries/rq-7.sql`](examples/usage-store/queries/rq-7.sql), [`examples/usage-store/render.py`](examples/usage-store/render.py), [`examples/usage-store/grafana/dashboards/usage.json`](examples/usage-store/grafana/dashboards/usage.json), [`examples/usage-store/README.md`](examples/usage-store/README.md), [`docs/specs/004-usage-export/SPEC.md`](docs/specs/004-usage-export/SPEC.md), [`tests/test_usage_store.py`](tests/test_usage_store.py), `CHANGELOG.md`.
+
+**Do:** if you run a usage store, rerun python3 examples/usage-store/render.py and restart Grafana to get the RQ-7 panel.
+
 ## 2026-11-23: Install with an agent from the GitHub URL
 
 A new [`INSTALL.md`](INSTALL.md) is the procedure an agent follows to install the factory from a session outside it: it asks for the folder, checks for `git` and Python, clones, turns on the hooks, runs the setup check, offers a private copy on GitHub on a second yes, and says how to open the copy and run `/orientation`; the README has a line to paste into that session, and orientation points at it for the private copy.
