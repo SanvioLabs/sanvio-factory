@@ -554,6 +554,41 @@ class TestPureParts(unittest.TestCase):
         self.assertNotIn("worked around", plain)
         self.assertNotIn(EM_DASH, prompt)
 
+    MONEY_RULE = ("On a path that records, totals or shows money, prices, payments, sales or purchases, a change "
+                  "that skips a record, substitutes a default such as 0 or an empty string, or counts and carries "
+                  "on when required data is missing or blank is a problem that would cost something real "
+                  "(real-cost) and a reason for FIX.")
+    MONEY_NO_PASS = ("A problem of that kind in code the diff changes or newly calls, which you list among your "
+                     "findings, can't come with VERDICT: PASS.")
+    MONEY_UNTOUCHED = ("One in code the diff neither changes nor newly calls is a problem to list and doesn't make "
+                       "the verdict FIX.")
+
+    def test_the_reviewer_sends_back_a_silent_skip_of_required_money_data(self):
+        for prompt in (loop.review_prompt("Plan.", "+x", "ok", 0),
+                       loop.review_prompt("Plan.", "+x", "ok", 0, fixed=("tests/test_x.py",))):
+            self.assertIn(self.MONEY_RULE, prompt)
+            self.assertLess(prompt.index(self.MONEY_RULE), prompt.index("Your last line must be exactly VERDICT"))
+            # The rule adds a case of real-cost; it doesn't rewrite the list of reasons for FIX.
+            self.assertIn("Say VERDICT: FIX only for one of these: the tests didn't exit 0, a requirement in the "
+                          "plan has no test", prompt)
+            self.assertIn("or a problem that would cost something real if this merged, such as wrong behaviour, "
+                          "a security or privacy gap, or lost data. Otherwise say VERDICT: PASS.", prompt)
+
+    def test_a_listed_money_skip_in_changed_code_cant_come_with_a_pass(self):
+        self.assertIn(self.MONEY_NO_PASS, loop.review_prompt("Plan.", "+x", "ok", 0))
+
+    def test_a_money_skip_in_code_the_diff_leaves_alone_is_listed_not_sent_back(self):
+        self.assertIn(self.MONEY_UNTOUCHED, loop.review_prompt("Plan.", "+x", "ok", 0))
+
+    def test_the_money_rule_stays_out_of_the_other_prompts(self):
+        for other in (loop.build_prompt(4, "Plan."),
+                      loop.shape_prompt(issue(4)),
+                      loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest"),
+                      loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit")):
+            for part in (self.MONEY_RULE, self.MONEY_NO_PASS, self.MONEY_UNTOUCHED,
+                         "required data is missing or blank"):
+                self.assertNotIn(part, other)
+
     def test_the_new_asks_stay_out_of_the_build_and_tester_prompts(self):
         for prompt in (loop.build_prompt(4, "Plan."),
                        loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest")):

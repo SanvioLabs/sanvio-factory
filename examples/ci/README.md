@@ -400,7 +400,7 @@ the secret, then delete the old key.
 
 ## Testing the review
 
-[`examples/ci/evals/`](evals/) holds six made-up changes, each a diff in a `work.patch`
+[`examples/ci/evals/`](evals/) holds ten made-up changes, each a diff in a `work.patch`
 with a `case.json` that says what a good review of it finds:
 
 - `01-no-changelog-entry` adds a script people will use, with no entry in
@@ -417,6 +417,9 @@ with a `case.json` that says what a good review of it finds:
   user typed. A finding has to cover both the query and the comment.
 - `06-clean` is a small correct fix with its test and its changelog entry. The
   review may raise two findings at most, and none on the function it fixes.
+- `10-skipped-payment-record` skips imported payment rows with no `invoice_id`
+  and only counts them in its summary, so a payment goes missing without an
+  error. A finding has to name the skip and point at its line.
 
 Run them from the harness root after changing the skill, or the model it runs
 on:
