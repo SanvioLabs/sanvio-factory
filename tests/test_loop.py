@@ -11446,8 +11446,8 @@ class LabelCheck(unittest.TestCase):
     nothing taken, when its ready or blocked label is missing, and one WARN, and run goes on, when the labels
     can't be read (#717)."""
 
-    setUp, tearDown, lines, calls, go = (
-        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.calls, TestAPass.go)
+    setUp, tearDown, lines, raw_lines, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.calls, TestAPass.go)
 
     def named(self, repo="OWNER/NAME"):
         """origin() names repo, as a clone of a github.com repo's would: setUp's origin is a bare folder."""
@@ -11583,8 +11583,11 @@ class LabelCheckCaller(unittest.TestCase):
         self.assertFalse(any(c.startswith("issue list") for c in calls), calls)
         # With the factory's labels on the repo, and the project's gone, the check passes.
         (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
-        self.dry()
+        (self.state / "gh-calls").write_text("")
+        self.assertEqual(self.dry(), 0, self.log())
         self.assertEqual(len([l for l in self.log() if " ERROR " in l]), 1, self.log())
+        calls = (self.state / "gh-calls").read_text().splitlines()
+        self.assertTrue(any(c.startswith("issue list") for c in calls), calls)
 
 
 class LabelCheckReview(ReviewFixture, unittest.TestCase):
