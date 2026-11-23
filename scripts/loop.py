@@ -269,6 +269,7 @@ DIRTY_CAP = 10  # how many paths a block names, of those setup left behind or an
 REVIEW_KEEP = 200  # pull requests kept in status.json, newest first
 STATUS_KEEP = 20  # issues kept in status.json, newest first
 BLOCKED_RECHECK_SECONDS = 3600  # how long a blocked issue found open waits before it's looked up again
+LABEL_CHECK_TIMEOUT = 30  # seconds run's start waits for gh to list the repo's labels (#717)
 # For an agent reading someone else's pull request: read tools only, confined to the checkout.
 UNTRUSTED_CLAUDE = ["--restricted", "--strict-mcp-config", "--tools", "Read,Grep,Glob"]
 # What agent() returns when it won't start a reader it can't confine on someone else's files.
@@ -1247,6 +1248,25 @@ def sandbox_probe():
     where every command run through it would fail. Never raises."""
     try:
         done = subprocess.run([SANDBOX_EXEC, "-p", "(version 1)(allow default)", "/usr/bin/true"],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=SANDBOX_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "no answer in {} seconds".format(SANDBOX_PROBE_TIMEOUT)
+    except OSError as err:
+        return (str(err).strip().splitlines() or [type(err).__name__])[0][:200]
+    if done.returncode == 0:
+        return None
+    said = (done.stderr + done.stdout).decode("utf-8", "replace").strip()
+    return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
+
+
+def bwrap_probe():
+    """None when `bwrap --ro-bind / / --dev /dev --unshare-net -- /bin/true` can make a network namespace here,
+    or why not: the first line of what it said, at most 200 characters, or "exit N" when it said nothing.
+    Claude Code's sandbox on Linux is bwrap, so where this
+    fails, as inside another sandbox or a container, every agent run with network_allow would. A pass doesn't
+    prove Claude Code's sandbox will start. Never raises."""
+    try:
+        done = subprocess.run(["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "--", "/bin/true"],
                               stdin=subprocess.DEVNULL, capture_output=True, timeout=SANDBOX_PROBE_TIMEOUT)
     except subprocess.TimeoutExpired:
         return "no answer in {} seconds".format(SANDBOX_PROBE_TIMEOUT)
@@ -3302,6 +3322,22 @@ class Loop:
                 self.sandbox_error = sandbox_probe()
         return self.sandbox_error is None
 
+    def sandbox_start_error(self, platform=None):
+        """Why Claude Code's sandbox can't start here for network_allow, or None (#718): bwrap_probe() on Linux,
+        and sandbox_probe() on macOS, whose answer is kept in sandbox_error so it runs at most once a Loop.
+        None when network_allow is unset, and on any other platform, which sandbox_problem() already refuses."""
+        if self.cfg.get("network_allow") is None:
+            return None
+        platform = platform or sys.platform
+        if platform.startswith("linux"):
+            return bwrap_probe()
+        if platform == "darwin":
+            with self.probe_lock:
+                if self.sandbox_error is NOT_PROBED:
+                    self.sandbox_error = sandbox_probe()
+                return self.sandbox_error
+        return None
+
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
         environment. Where sandboxed() says so, inside sandbox-exec, which can't read or write what
@@ -3760,7 +3796,7 @@ class Loop:
     def git(self, *args, cwd=None):
         return self.sh(["git"] + list(args), cwd=cwd or self.repo)
 
-    def gh(self, *args, stdin=None):
+    def gh(self, *args, stdin=None, timeout=None):
         """In self.repo, so {owner}/{repo} and every list, edit and pull request are its GitHub repo's. Once a
         review has pinned the repo to origin's, every call names it: gh would otherwise take a repo from
         gh repo set-default or an upstream remote, and post a review on another repo's pull request."""
@@ -3770,7 +3806,48 @@ class Loop:
             args = [arg.replace("{owner}", owner).replace("{repo}", name) for arg in args]
             if args[:1] in (["pr"], ["issue"]):
                 args += ["-R", self.pinned]
-        return self.sh(["gh"] + args, cwd=self.repo, stdin=stdin)
+        return self.sh(["gh"] + args, cwd=self.repo, stdin=stdin, timeout=timeout)
+
+    def missing_labels(self):
+        """([those of ready_label and blocked_label the repo lacks, in that order], '') or (None, why) when its
+        labels couldn't be read. Every page of them, each line one JSON string, so a stray line is never
+        taken for a label: a timeout, a failure or any other line is (None, why). GitHub's label names match
+        whatever their case, so they're compared casefolded (#717)."""
+        code, out = self.gh("api", "--paginate", "repos/{owner}/{repo}/labels?per_page=100", "--jq",
+                            ".[].name | @json", timeout=LABEL_CHECK_TIMEOUT)
+        if code == 124:
+            return None, "timed out after {}s".format(LABEL_CHECK_TIMEOUT)
+        shown = " ".join(out.split())[:100] or "gh exited {}".format(code)
+        if code != 0:
+            return None, shown
+        names = set()
+        for line in out.splitlines():
+            try:
+                name = json.loads(line)
+            except ValueError:
+                return None, shown
+            if not isinstance(name, str):
+                return None, shown
+            names.add(name.casefold())
+        wanted = dict.fromkeys(str(self.cfg[key]) for key in ("ready_label", "blocked_label"))
+        return [label for label in wanted if label.casefold() not in names], ""
+
+    def labels_problem(self):
+        """missing_labels()'s check, as work() logs it: 1 with one ERROR line naming each missing label and the
+        gh label create command that makes it, else None, with one WARN line when the labels couldn't be read.
+        The repo is the one gh asks: pinned, else origin's, else the folder, where the command needs no -R."""
+        missing, why = self.missing_labels()
+        if missing == []:
+            return None
+        repo = self.pinned or origin(self.repo)[0]
+        where = repo or str(self.repo)
+        if missing is None:
+            self.log("WARN", "couldn't check {}'s labels ({}), so run goes on without the check".format(where, why))
+            return None
+        made = ["gh label create {}{}".format(shell_quote(label), " -R " + repo if repo else "") for label in missing]
+        self.log("ERROR", "{} has no {} label: {} {}, so no issue is taken".format(
+            where, " or ".join(missing), " and ".join(made), "makes it" if len(made) == 1 else "make them")[:300])
+        return 1
 
     def stopped(self):
         return (self.dir / "STOP").exists()
@@ -5722,6 +5799,13 @@ class Loop:
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
+        # Not cut to 200 as a whole, so the cause and the null advice survive; why is already at most 200 (#718).
+        why = self.sandbox_start_error()
+        if why:
+            self.log("ERROR", "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The likely "
+                     "cause is running inside another sandbox or a container; setting network_allow to null leaves "
+                     "containment to the outer sandbox, so no issue is taken".format(why))
+            return 1
         if self.caller() and not self.sandboxed():
             if self.cfg.get("sandbox_commands") is not True:
                 why = "sandbox_commands is false"
@@ -5743,6 +5827,10 @@ class Loop:
             if not self.pinned:
                 self.log("ERROR", "fork in loop.json: {}, so no issue is taken".format(why)[:200])
                 return 1
+        # After the fork's pin, which settles whose labels gh lists. Without the ready label nothing is ever
+        # listed, and without the blocked one every block fails, so neither waits for an issue to show it (#717).
+        if self.labels_problem():
+            return 1
         if limit:
             for which in dict.fromkeys(agents):
                 if not reports_usage(command(self.cfg, which)[0]):

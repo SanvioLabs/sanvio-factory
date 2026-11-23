@@ -22,6 +22,8 @@ review. [Set up](#set-up) says where the guard stops, and
 
 **On this page:** [Set up](#set-up) · [Where things live](#where-things-live) · [The five layers](#the-five-layers-one-step-at-a-time) · [One file, three tools](#one-file-three-tools) · [Rules versus enforcement](#rules-versus-enforcement) · [Gates](#gates-done-is-a-scripts-call) · [Beyond the five layers](#beyond-the-five-layers) · [The main loop](#the-main-loop-and-four-inside-it) · [Borrowing skills](#borrowing-other-peoples-skills) · [People to follow](#people-to-follow) · [Guides](#guides) · [Your turn](#your-turn) · [Licence and credit](#licence-and-credit) · [Who made this](#who-made-this)
 
+To have an agent install it, start a new Claude Code session in any folder and paste this line: `Install Sanvio Factory by following https://github.com/SanvioLabs/sanvio-factory/blob/main/INSTALL.md. Read it before running anything.`
+
 The first two pictures are the harness: what one session inside the factory
 works in. The third is the factory, and the idea the rest of this page keeps
 coming back to: the flywheel. Each issue is one turn through five phases,
@@ -60,6 +62,8 @@ git clone <this repo> my-factory && cd my-factory
 git config core.hooksPath .githooks
 python3 scripts/check_setup.py
 ```
+
+To have an agent do it, see [`INSTALL.md`](INSTALL.md).
 
 **Don't skip the middle line.** Git won't run the hook in [`.githooks/`](.githooks/) unless
 you point it there, and the setting doesn't travel with a clone. Skip it and

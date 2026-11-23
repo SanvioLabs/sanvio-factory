@@ -72,7 +72,10 @@ it gets read before it's labelled.
 
 1. Run `python3 scripts/check_setup.py`. Fix or name any FAIL before going on.
 2. Run `python3 scripts/loop.py run --dry-run` and say which issue it would
-   take. Nothing ready means say so and stop.
+   take. Nothing ready means say so and stop. A repo missing the ready or
+   blocked label stops it with an `ERROR` line naming the `gh label create`
+   command that makes the label. Ask the person before running that command,
+   then dry-run again.
 3. Ask: one issue (`--once`, or `--issue <N>` for a particular one) or every
    ready issue (`run` alone, which keeps polling once the queue is empty: it
    idles and picks up anything labelled later, until it's stopped; `--once` and
