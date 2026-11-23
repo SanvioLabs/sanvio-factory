@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
+
+With `network_allow` set, `run`, `--dry-run` included, now checks before it takes anything that the sandbox can start here (`bwrap` on Linux, `sandbox-exec` on macOS) and, where it can't, as inside another sandbox or a container, stops with one `ERROR` line naming the cause.
+
+**Needs:** 2026-11-11: The build agent's shell can run in Claude Code's sandbox; 2026-11-15: Keeping the loop to its own work
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** On a machine whose loop now stops with this `ERROR`, set `network_allow` to `null` in `loop.json`, which leaves containment to the outer sandbox or container, then restart the loop.
+
 ## 2026-11-23: The loop stops at start when its ready or blocked label is missing
 
 Before it takes anything, `run`, `--dry-run`, `--once` and `--issue` included, lists every label on the repo and stops with one `ERROR` line naming the `gh label create` command for each of `ready_label` and `blocked_label` the repo lacks, or logs one `WARN` and goes on when the labels can't be read.
