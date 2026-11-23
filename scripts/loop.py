@@ -1938,28 +1938,59 @@ def controls_line(found):
     return "Controls touched: {}\n".format(", ".join(said) or "(no output)")
 
 
+REVIEW_ENTRY = re.compile(r"^     - (Blocks|Blocks \(loop lists\)|Nit): \S")
+
+
+def review_list():
+    """The Blocks and Nit entries in step 5 of skills/review-pr/SKILL.md, one string each, from ROOT's copy: the
+    factory's own, never self.root's or a worktree's, which the change under review could edit. ROOT is looked up
+    here, when it's called, so a test can point it elsewhere. None when the file is missing or unreadable or
+    step 5 has no Blocks entry."""
+    try:
+        text = (ROOT / "skills" / "review-pr" / "SKILL.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    entries, kinds, inside = [], set(), False
+    for line in text.splitlines():
+        if line.startswith("5. "):
+            inside = True
+        elif inside and line.startswith("6. "):
+            break
+        elif inside and REVIEW_ENTRY.match(line):
+            # Stripped, an entry starts "- Blocks:", so the kind comes from the match, not the text.
+            entries.append(line.strip())
+            kinds.add(REVIEW_ENTRY.match(line).group(1))
+    return entries if any(kind.startswith("Blocks") for kind in kinds) else None
+
+
 def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=(), controls=""):
     """fixed is the files a separate agent's tests are in, when one wrote them first. controls is
-    controls_line()'s line, or "" for a checkout with no register, which leaves the prompt as it was."""
+    controls_line()'s line, or "" for a checkout with no register, which leaves the prompt as it was.
+    review_list()'s entries go in after the opening line; work() won't start without them."""
     held = (" A separate agent wrote these tests before the build: {}. Judge whether the build worked around "
             "them, for example with a skip or a mock that makes them meaningless, and say FIX if it "
             "did.".format(", ".join(fixed))) if fixed else ""
     # With tests written first, working around them is a reason for FIX too, so the list says so.
     worked = ", the build worked around the tests a separate agent wrote first" if fixed else ""
+    entries = review_list()
+    # Through a placeholder, so a brace in the skill can't break format().
+    listing = ("What blocks a change and what is a nit, from skills/review-pr/SKILL.md step 5:\n"
+               + "".join(entry + "\n" for entry in entries)) if entries else ""
     return rules + (
         "You are the reviewer, in a fresh context. Do not edit any file.\n"
+        "{listing}"
+        "A finding of any Blocks entry not marked (loop lists) is a problem that would cost something real "
+        "(real-cost) and a reason for FIX. A finding of the entry marked (loop lists), or of a Nit entry, is a "
+        "problem to list and doesn't make the verdict FIX, an untested extra the plan didn't ask for included. "
+        "A record skipped, a default such as 0 or an empty string put in, or a count kept and the run carried "
+        "on, when required data on a path that records, totals or shows money is missing or blank, in code the "
+        "diff neither changes nor newly calls, is a problem to list and doesn't make the verdict FIX.\n"
         "Below are the plan, the diff, and the test output (the tests exited {code}). Say "
         "whether the change does what the plan asks, and list the problems that matter, "
         "most important first, one line each.\n"
         "If the change adds a value to a state, status or kind, such as a new status, "
         "search the whole worktree for every place that reads or filters on that field, including code the "
         "diff doesn't touch, and name each place that doesn't handle the new value. Any such place is a FIX.\n"
-        "On a path that records, totals or shows money, prices, payments, sales or purchases, a change that "
-        "skips a record, substitutes a default such as 0 or an empty string, or counts and carries on when "
-        "required data is missing or blank is a problem that would cost something real (real-cost) and a "
-        "reason for FIX. A problem of that kind in code the diff changes or newly calls, which you list among "
-        "your findings, can't come with VERDICT: PASS. One in code the diff neither changes nor newly calls is "
-        "a problem to list and doesn't make the verdict FIX.\n"
         "Below the problems, write a table with the columns Requirement and Test and one row for "
         "each requirement in the plan, filled in from the diff, not from what the plan says the "
         "tests will be. A requirement with no test in the diff gets none in the Test column, and "
@@ -1974,13 +2005,12 @@ def review_prompt(plan, diff, tests, code, rules="", generate="", fixed=(), cont
         "around tests written before it), real-cost (a problem that would cost something real). On a PASS "
         "the line is REASONS: none.\n"
         "Your last line must be exactly VERDICT: PASS or VERDICT: FIX. Say VERDICT: FIX only for one of "
-        "these: the tests didn't exit 0, a requirement in the plan has no test{worked}, or a problem that would cost "
-        "something real if this merged, such as wrong behaviour, a security or privacy gap, or lost data. "
-        "Otherwise say VERDICT: PASS. A departure from the plan that changes no requirement's outcome is a "
+        "these: the tests didn't exit 0, a requirement in the plan has no test{worked}, or a finding of a Blocks "
+        "entry above not marked (loop lists). Otherwise say VERDICT: PASS. A departure from the plan that changes no requirement's outcome is a "
         "problem to list, not a reason for FIX.{generate}{held}\n\n"
         "PLAN:\n{plan}\n\nDIFF:\n{diff}\n{controls}\nTEST OUTPUT:\n{tests}\n"
     ).format(code=code, plan=plan.strip(), diff=tail(diff, 60_000), tests=tail(tests), held=held, worked=worked,
-             controls=controls,
+             controls=controls, listing=listing,
              generate=generated(generate, "Its files in the diff aren't outside the plan, and don't ask for it to be "
                                           "run by hand."))
 
@@ -5647,6 +5677,12 @@ class Loop:
         waits for each worker, which stops itself before its next round. The end of --for starts
         nothing new either, and waits for each worker to finish its issue."""
         self.started_with = fingerprint()
+        # The loop's review sorts findings by this list, so without it nothing is taken. Here, not in
+        # start_checks(): the review watcher and review --pr start as they did.
+        if review_list() is None:
+            self.log("ERROR", "review-pr's list in {} is missing or has no Blocks entries in step 5, so no issue "
+                     "is taken".format(ROOT / "skills" / "review-pr" / "SKILL.md"))
+            return 1
         if not dry_run:
             self.forget_old_issues()
         test_first = self.cfg.get("test_first") is True
