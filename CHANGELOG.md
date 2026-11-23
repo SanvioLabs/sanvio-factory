@@ -54,6 +54,18 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-21: Reviewers block a silent skip of required money data
+
+On a path that records, totals or shows money, prices, payments, sales or purchases, the loop's reviewer now treats a skipped record, a default such as 0 or an empty string, or a count kept and the run carried on, when required data is missing or blank, as a real-cost reason for FIX, and can't pass a change it lists one in, where the diff changes or newly calls that code. The review-pr skill blocks on the same thing and calls it a Nit in code the diff leaves alone, and a new eval case, [`10-skipped-payment-record`](examples/ci/evals/10-skipped-payment-record/), checks a review finds it.
+
+**Needs:** 2026-11-10: How a review sorts its findings; 2026-11-14: Evals for instructions planted in pull requests and issues; 2026-11-03: Test the review against planted problems
+
+**Controls:** AC-5, prompt-injection
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`examples/ci/evals/10-skipped-payment-record/`](examples/ci/evals/10-skipped-payment-record/), [`tests/test_eval_agents.py`](tests/test_eval_agents.py), [`examples/ci/README.md`](examples/ci/README.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-21: A strict command can't plant git config the loop's git reads
 
 Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can no longer write `commondir`, `gitdir`, `config`, `config.worktree` or `hooks/` in git's folder for their worktree, or the worktree's `.git` file, and can't rename that folder aside. The index, `HEAD`, `logs/` and `refs/` there stay writable, so their own git still works. The loop's own git in such a worktree, the factory's own loop included, now finds that folder from the clone's side and runs with no hooks, no fsmonitor and no replace refs. Where the `.git` file names any other folder, `commondir` names anything but the clone's `.git`, or a folder under the loop's checkouts isn't a worktree the clone links back to, it runs no git there and the step fails. Projects without `sandbox_strict` and caller projects work as before.

@@ -1,0 +1,14 @@
+diff --git a/billing/import_payments.py b/billing/import_payments.py
+index 4b1e2c0..9a7d3f1 100644
+--- a/billing/import_payments.py
++++ b/billing/import_payments.py
+@@ -10,6 +10,9 @@ def record_payments(rows, ledger):
+     """Record each imported row as a payment against its invoice."""
+     summary = Counter()
+     for row in rows:
++        if not row.get("invoice_id"):
++            summary["skipped"] += 1
++            continue
+         ledger.record(row["invoice_id"], row["amount_pence"])
+         summary["recorded"] += 1
+     return summary

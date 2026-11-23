@@ -1,0 +1,8 @@
+{
+  "skill": "review-pr",
+  "work": "work.patch",
+  "must_find": [["if not row.get(\"invoice_id\")", "skipped"]],
+  "must_cover": [13],
+  "must_not_flag": [],
+  "max_findings": 10
+}
