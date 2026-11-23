@@ -1057,6 +1057,26 @@ with open(os.path.join(state, "gh-cwds"), "a") as f:  # where each call ran, whi
     f.write(os.getcwd() + "\\n")
 if args[:2] == ["api", "user"]:
     print("pat")
+elif args[0] == "api" and any("/labels" in a for a in args):
+    # The repo's labels as --jq ".[].name | @json" prints them: labels.json, the loop's two default labels when a
+    # test doesn't set it. Without --paginate only the first page, of per_page (30 when not given), as gh does.
+    # labels-fail fails it, labels-garbage answers a page that isn't JSON strings, labels-hang never answers.
+    import json, re, time
+    if os.path.exists(os.path.join(state, "labels-fail")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    if os.path.exists(os.path.join(state, "labels-garbage")):
+        print("<html>")
+        sys.exit(0)
+    if os.path.exists(os.path.join(state, "labels-hang")):
+        time.sleep(30)
+    path = os.path.join(state, "labels.json")
+    names = json.load(open(path)) if os.path.exists(path) else ["loop-ready", "loop:blocked"]
+    if "--paginate" not in args:
+        page = re.search(r"per_page=(\\d+)", " ".join(args))
+        names = names[:int(page.group(1)) if page else 30]
+    for name in names:
+        print(json.dumps(name))
 elif args[:2] == ["api", "graphql"] and any("closedByPullRequestsReferences" in a for a in args):
     # The pull requests that close issue N: its "closed_by" in deps.json, [{"merged": ...}], none by default.
     import json
@@ -10599,6 +10619,8 @@ class TestCallerIntake(unittest.TestCase):
         # A caller's own commands run only in sandbox-exec (#596), so its runs here have the stand-in.
         stand_in_sandbox(self, Path(self.tmp.name) / "bin")
         self.cfg["sandbox_commands"] = True
+        # The repo has the caller's labels, which run checks for before it takes anything (#717).
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
         self.submit(12)
 
     def submit(self, *numbers, accepted=()):
@@ -10950,6 +10972,8 @@ class TestCallerCommands(unittest.TestCase):
         (self.state / "issues.json").write_text(json.dumps([
             dict(issue(12, labels=("factory:submit", "factory:accepted")), body=WORK_ORDER)]))
         (self.state / "graphql-12.json").write_text(json.dumps(as_github_has_it(events=[accept_event()])))
+        # The repo has the caller's labels, which run checks for before it takes anything (#717).
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
 
     def caller(self, **entry):
         self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
@@ -11571,6 +11595,171 @@ class TestCallerCommands(unittest.TestCase):
         for name in ("own-setup", "own-test", "factory-setup", "factory-test"):
             self.assertFalse(self.ran(name), name)
         self.assertFalse((self.state / "agents-started").exists())
+
+
+class LabelCheck(unittest.TestCase):
+    """run, before it takes anything, lists the repo's labels: one ERROR naming the gh label create command, and
+    nothing taken, when its ready or blocked label is missing, and one WARN, and run goes on, when the labels
+    can't be read (#717)."""
+
+    setUp, tearDown, lines, raw_lines, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.calls, TestAPass.go)
+
+    def named(self, repo="OWNER/NAME"):
+        """origin() names repo, as a clone of a github.com repo's would: setUp's origin is a bare folder."""
+        patcher = mock.patch.object(loop, "origin", return_value=(repo, "", None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def labels(self, *names):
+        (self.state / "labels.json").write_text(json.dumps(list(names)))
+
+    def logged(self, kind):
+        return [l for l in self.lines() if l.split()[2] == kind]
+
+    def label_calls(self):
+        return [c for c in self.calls() if "/labels" in c]
+
+    def took(self):
+        return any(c.startswith("pr create") for c in self.calls())
+
+    def test_a_dry_run_lists_every_label_before_it_lists_any_issue(self):
+        self.assertEqual(self.go(dry_run=True), 0)
+        calls = self.calls()
+        self.assertEqual(len(self.label_calls()), 1, calls)
+        at = calls.index(self.label_calls()[0])
+        self.assertTrue(at < min(i for i, c in enumerate(calls) if c.startswith("issue list")), calls)
+        self.assertTrue(calls[at].startswith("api --paginate repos/{owner}/{repo}/labels?per_page=100 --jq "), calls[at])
+        self.assertEqual(self.logged("ERROR") + [l for l in self.logged("WARN") if "labels" in l], [])
+        self.assertEqual(len(self.logged("DISCOVER")), 1, self.lines())
+
+    def test_a_ready_label_past_the_first_pages_is_found(self):
+        self.labels(*["label-{}".format(n) for n in range(150)], "loop:blocked", "loop-ready")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_a_missing_label_stops_run_with_one_error_naming_the_command_that_makes_it(self):
+        self.named()
+        for present, missing in ((["loop:blocked"], ["loop-ready"]), (["loop-ready"], ["loop:blocked"]),
+                                 ([], ["loop-ready", "loop:blocked"])):
+            with self.subTest(missing=missing):
+                (self.state / "gh-calls").unlink(missing_ok=True)
+                (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
+                self.labels(*present)
+                self.assertEqual(self.go(), 1)
+                errors = self.logged("ERROR")
+                self.assertEqual(len(errors), 1, self.lines())
+                self.assertIn(" ERROR OWNER/NAME has no {} label: ".format(" or ".join(missing)), errors[0])
+                for label in missing:
+                    self.assertIn("gh label create {} -R OWNER/NAME".format(label), errors[0])
+                for label in present:
+                    self.assertNotIn("create " + label, errors[0])
+                self.assertTrue(errors[0].endswith(", so no issue is taken"), errors[0])
+                for kind in ("issue list", "issue edit", "label "):
+                    self.assertFalse(any(c.startswith(kind) for c in self.calls()), self.calls())
+                self.assertFalse((self.state / "agents-started").exists())
+
+    def test_without_a_github_origin_the_error_names_the_folder_and_its_command_names_no_repo(self):
+        self.labels("loop:blocked")
+        self.assertEqual(self.go(), 1)
+        errors = self.logged("ERROR")
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertIn(" has no loop-ready label: gh label create loop-ready makes it, so no issue is taken", errors[0])
+        self.assertIn(self.work.name, errors[0])
+        self.assertNotIn(" -R ", errors[0])
+
+    def unread(self, switch, said):
+        """Labels gh can't list, as switch makes it: one WARN quoting said, no ERROR, and the issue taken."""
+        self.named()
+        (self.state / switch).write_text("")
+        self.assertEqual(self.go(), 0)
+        warns = [l for l in self.logged("WARN") if "labels" in l]
+        self.assertEqual(len(warns), 1, self.lines())
+        self.assertIn(" WARN couldn't check OWNER/NAME's labels ({}".format(said), warns[0])
+        self.assertTrue(warns[0].endswith("), so run goes on without the check"), warns[0])
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_a_failed_listing_warns_and_run_goes_on(self):
+        self.unread("labels-fail", "HTTP 502)")
+
+    def test_a_listing_that_isnt_json_strings_warns_and_is_never_read_as_labels(self):
+        self.unread("labels-garbage", "<html>)")
+
+    def test_a_listing_that_hangs_is_cut_off_warns_and_run_goes_on(self):
+        with mock.patch.object(loop, "LABEL_CHECK_TIMEOUT", 1):
+            self.unread("labels-hang", "timed out after 1s)")
+
+    def test_a_label_in_another_case_counts(self):
+        self.labels("Loop-Ready", "LOOP:BLOCKED")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_with_fork_set_the_labels_listed_are_origins_and_never_the_forks(self):
+        self.named()
+        self.cfg["fork"] = "pat/r"
+        self.labels("loop:blocked")
+        self.assertEqual(self.go(), 1)
+        self.assertEqual(len(self.label_calls()), 1, self.calls())
+        self.assertTrue(self.label_calls()[0].startswith("api --paginate repos/OWNER/NAME/labels?per_page=100 "),
+                        self.label_calls())
+        self.assertFalse(any("pat/r" in c for c in self.calls()), self.calls())
+        errors = self.logged("ERROR")
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertIn("OWNER/NAME has no loop-ready label: gh label create loop-ready -R OWNER/NAME makes it", errors[0])
+        self.assertNotIn("pat/r", errors[0])
+
+
+class LabelCheckCaller(unittest.TestCase):
+    """A caller project's check is for the labels load_project_config() gives it, the factory's, and never those
+    its own loop.json names (#717)."""
+
+    setUp, tearDown, commit, harness_config, caller, log = (
+        TestCallerCommands.setUp, TestCallerCommands.tearDown, TestCallerCommands.commit,
+        TestCallerCommands.harness_config, TestCallerCommands.caller, TestCallerCommands.log)
+    OWN, FACTORY = TestCallerCommands.OWN, TestCallerCommands.FACTORY
+
+    def dry(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return loop.Loop(self.harness, project=self.project).run(once=True, dry_run=True)
+
+    def test_the_check_is_for_the_factorys_labels_and_not_the_projects_own(self):
+        (self.project / "loop.json").write_text(json.dumps(dict(self.OWN, base="develop", ready_label="mine",
+                                                                blocked_label="mine-too")))
+        self.caller(**self.FACTORY)
+        (self.state / "labels.json").write_text(json.dumps(["mine", "mine-too"]))
+        self.assertEqual(self.dry(), 1)
+        errors = [l for l in self.log() if " ERROR " in l]
+        self.assertEqual(len(errors), 1, self.log())
+        self.assertIn(" has no factory:submit or factory:stopped label: gh label create factory:submit", errors[0])
+        self.assertNotIn("create mine", errors[0])
+        calls = (self.state / "gh-calls").read_text().splitlines()
+        self.assertFalse(any(c.startswith("issue list") for c in calls), calls)
+        # With the factory's labels on the repo, and the project's gone, the check passes.
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
+        (self.state / "gh-calls").write_text("")
+        self.assertEqual(self.dry(), 0, self.log())
+        self.assertEqual(len([l for l in self.log() if " ERROR " in l]), 1, self.log())
+        calls = (self.state / "gh-calls").read_text().splitlines()
+        self.assertTrue(any(c.startswith("issue list") for c in calls), calls)
+
+
+class LabelCheckReview(ReviewFixture, unittest.TestCase):
+    """review, review --pr and grade never list the repo's labels: the check is run's alone (#717)."""
+
+    def test_review_review_pr_and_grade_make_no_labels_call(self):
+        self.list_prs()
+        self.go()
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            loop.Loop(self.work, self.cfg).review(pr=7)
+            loop.Loop(self.work, self.cfg).grade_pr(7, "ready")
+        calls = self.calls()
+        self.assertGreaterEqual(len([c for c in calls if c.startswith("pr view 7")]), 2, calls)
+        self.assertFalse(any("/labels" in c for c in calls), calls)
 
 
 class TestCallerConfinement(unittest.TestCase):
