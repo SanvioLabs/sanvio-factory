@@ -1563,7 +1563,7 @@ class TestAPass(unittest.TestCase):
         self.addCleanup(patcher.stop)
         return skill
 
-    def assert_nothing_taken(self, skill):
+    def assert_no_issue_taken_without_the_list(self, skill):
         self.assertEqual(self.go(), 1)
         errors = [line for line in self.lines() if line.split()[2] == "ERROR"]
         self.assertEqual(len(errors), 1, errors)
@@ -1574,10 +1574,10 @@ class TestAPass(unittest.TestCase):
         self.assertFalse((self.state / "agents-started").exists())
 
     def test_with_no_review_pr_skill_under_root_no_issue_is_taken(self):
-        self.assert_nothing_taken(self.root_with(None))
+        self.assert_no_issue_taken_without_the_list(self.root_with(None))
 
     def test_with_no_entries_in_step_5_no_issue_is_taken(self):
-        self.assert_nothing_taken(self.root_with(
+        self.assert_no_issue_taken_without_the_list(self.root_with(
             "5. **Sort each finding, then decide.** Every finding is one of two kinds:\n"
             "   - **Blocks:** it would cost something real if it merged as it is. Wrong behaviour.\n"
             "   - **Nit:** worth fixing.\n6. **Grade it (only when a person runs this).**\n"))
