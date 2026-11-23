@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
+
+On an issue labelled `bug`, the loop's planner now writes a `## Diagnosis` section. It gives the input, the wrong result and the result the ticket expects, then every function, parser or check on the path to the symptom, each cleared or not. A first round with no earlier work writes a test from it before the fix. With `builder_runs_tests` on, the build agent sees that test fail, tries the suspects in turn, and ends with `Diagnosis unresolved:` when none holds. The loop then throws away that round's changes and blocks the issue with the reply quoted. It does that for any first-round reply with that line, and with `test_first` on the tester's commit stays. After a round whose tests failed, the next is told to check the other suspects first. Issues without the label get the same prompts as before.
+
+**Needs:** 2026-10-31: Tests written first; 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-11-07: The build agent can run the tests itself
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** Nothing. To use it, label a bug's issue `bug` before you put it on the loop. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-22: The secret scan skips nothing again
 
 The two findings `.gitleaksignore` let the secret scan skip, made-up headers in one SPEC-004 commit, are gone with that commit: SPEC-004 landed as squashed commits that split those strings. So the file is removed, and the scan skips no finding.
