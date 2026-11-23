@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: Install with an agent from the GitHub URL
+
+A new [`INSTALL.md`](INSTALL.md) is the procedure an agent follows to install the factory from a session outside it: it asks for the folder, checks for `git` and Python, clones, turns on the hooks, runs the setup check, offers a private copy on GitHub on a second yes, and says how to open the copy and run `/orientation`; the README has a line to paste into that session, and orientation points at it for the private copy.
+
+**Controls:** AT-2
+
+Files: [`INSTALL.md`](INSTALL.md), [`README.md`](README.md), [`skills/orientation/SKILL.md`](skills/orientation/SKILL.md), [`tests/test_steering.py`](tests/test_steering.py), [`tests/test_install.py`](tests/test_install.py), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-23: sandbox_strict isn't yet a boundary
 
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) now says plainly that `sandbox_strict` isn't yet a boundary against a command written to get out. A security review found ways such a command can still change what the loop's own git and the next agent do in its worktree, outside the sandbox. Until a fix lands, it limits what a test touches by mistake, and a project whose branches or commands you don't trust needs its loop run as a separate user, or on a machine, with nothing you'd mind them reaching. Nothing in how the loop runs changes.
