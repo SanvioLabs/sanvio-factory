@@ -126,6 +126,25 @@ security or privacy gap, or lost data. Anything else it finds, such as an
 untested extra the plan didn't ask for, goes in its table on the pull request
 for the person who merges, and costs no round.
 
+**A bug's plan starts with a diagnosis.** On an issue labelled `bug`, Shape
+writes a `## Diagnosis` section into the plan. It holds the input that shows
+the bug, the wrong result it gives today and the result the ticket expects,
+word for word where the ticket gives them. It also lists every function,
+parser or check on the path from that input to the symptom, each with what in
+the code makes it the cause or clears it. If the ticket gives no input or no
+expected result, the section says which one is missing, and the build writes
+no test from it. A first round with no earlier work (no open pull request, no
+`test_first` commit and nothing ahead of the base) writes a test from the
+Diagnosis before the fix. With `builder_runs_tests` on, the build agent runs
+the tests and sees that test fail, fixes the planned cause, and tries each
+other suspect in turn while the test still fails. If the test passes on
+today's code, or no suspect's fix makes it pass, the agent ends its reply with
+a line starting `Diagnosis unresolved:`. The loop then throws away what that
+round changed and blocks the issue, with the reply quoted on it. With
+`builder_runs_tests` off, the loop's own test run is the reproduction. If it
+fails, round 2 is told to check the plan's other suspects before it changes
+the same code again.
+
 ![scripts/loop.py takes issue #12 through five steps. Discover picks the loop-ready issue and writes ticket.md. Shape: a fresh agent writes plan.md. Build: another fresh agent makes the change in a worktree outside the clone. Validate: the script runs the tests and a second agent reads the diff; round 1 fails with review FIX, so it goes back to Build. Round 2 passes the tests and the review says PASS. Scale opens a pull request that closes #12 and doesn't merge it, and what went wrong goes to lessons.md. Each step writes one line to .loop/loop.log as it happens.](docs/one-issue-through-the-loop.gif)
 
 **Watch it** with `tail -f .loop/loop.log`, or run it in tmux and attach: the `loop-control` skill starts it that way when tmux is installed, and a run inside tmux logs a `START` line with the attach command. One line per event, the issue
