@@ -11779,8 +11779,9 @@ class TestSandboxStarts(unittest.TestCase):
     """network_allow set: run, --dry-run included, checks before it takes anything that Claude Code's sandbox can
     start here, bwrap on Linux and sandbox-exec on macOS, and stops with one ERROR line where it can't (#718)."""
 
-    setUp, tearDown, lines, go, claude_agents = (
-        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.go, TestAPass.claude_agents)
+    setUp, tearDown, lines, raw_lines, go, claude_agents = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.go,
+        TestAPass.claude_agents)
 
     NO_NAMESPACE = "bwrap: Creating new namespace failed: Operation not permitted"
     DENIED = "sandbox_apply: Operation not permitted"
@@ -11815,6 +11816,7 @@ class TestSandboxStarts(unittest.TestCase):
         self.assertEqual(self.probed(side_effect=subprocess.TimeoutExpired(self.BWRAP, 10))[0],
                          "no answer in 10 seconds")
         self.assertIn("No such file", self.probed(side_effect=FileNotFoundError(2, "No such file or directory"))[0])
+        self.assertEqual(self.probed(side_effect=OSError("the first line\nthe second line"))[0], "the first line")
 
     def errors(self):
         return [l.split(" ERROR ", 1)[1] for l in self.lines() if " ERROR " in l]
