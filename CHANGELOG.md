@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** Nothing. To use it, label a bug's issue `bug` before you put it on the loop. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
 
+## 2026-11-22: The secret scan skips nothing again
+
+The two findings `.gitleaksignore` let the secret scan skip, made-up headers in one SPEC-004 commit, are gone with that commit: SPEC-004 landed as squashed commits that split those strings. So the file is removed, and the scan skips no finding.
+
+Files: `.gitleaksignore` (removed), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-21: Reviewers block a silent skip of required money data
 
 On a path that records, totals or shows money, prices, payments, sales or purchases, the loop's reviewer now treats a skipped record, a default such as 0 or an empty string, or a count kept and the run carried on, when required data is missing or blank, as a real-cost reason for FIX, and can't pass a change it lists one in, where the diff changes or newly calls that code. The review-pr skill blocks on the same thing and calls it a Nit in code the diff leaves alone, and a new eval case, [`10-skipped-payment-record`](examples/ci/evals/10-skipped-payment-record/), checks a review finds it.
