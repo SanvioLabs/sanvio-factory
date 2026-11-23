@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: Gemini CLI loads the factory's rules
+
+A new root [`GEMINI.md`](GEMINI.md) imports [`AGENTS.md`](AGENTS.md), so a Gemini CLI session started at the factory root loads [`AGENTS.md`](AGENTS.md) and its three steering files. The guard and the mods remain Claude Code only.
+
+Files: [`GEMINI.md`](GEMINI.md), [`tests/test_steering.py`](tests/test_steering.py), [`README.md`](README.md), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
 
 With `network_allow` set, `run`, `--dry-run` included, now checks before it takes anything that the sandbox can start here (`bwrap` on Linux, `sandbox-exec` on macOS) and, where it can't, as inside another sandbox or a container, stops with one `ERROR` line naming the cause.

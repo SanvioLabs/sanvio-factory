@@ -49,8 +49,8 @@ the example, then build your own job the same way at the root. For code,
 [`examples/typescript/`](examples/typescript/) is a TypeScript project the loop can test with Node
 alone.
 
-The rules, skills and gates work in Claude Code, Codex and Kiro. The guard, the
-mods and [`bin/factory`](bin/factory) need Claude Code.
+The rules, skills and gates work in Claude Code, Codex, Kiro and Gemini CLI.
+The guard, the mods and [`bin/factory`](bin/factory) need Claude Code.
 
 At the Humanbulb talk on 15 October 2026? [The slides are here](https://github.com/SanvioLabs/sanvio-factory/releases/tag/talk-humanbulb-2026-10-15),
 as a PDF, a PowerPoint and an offline web page.
@@ -277,6 +277,7 @@ file and the others point at it:
 | Codex | [`AGENTS.md`](AGENTS.md) | The real file |
 | Claude Code | [`CLAUDE.md`](CLAUDE.md) | `@AGENTS.md`, plus one warning for a session started in the wrong folder |
 | Kiro | [`.kiro/steering/`](.kiro/steering/) | Symlinks to [`AGENTS.md`](AGENTS.md) and the steering files it loads every session |
+| Gemini CLI | [`GEMINI.md`](GEMINI.md) | `@AGENTS.md`, which loads the steering files it imports |
 
 Skills and agents work the same way: the real file lives in [`skills/`](skills/) or
 [`agents/`](agents/), and [`AGENTS.md`](AGENTS.md) names it so every tool can find it. Claude Code also
@@ -355,8 +356,8 @@ every day.
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) explains what's running underneath: where the loops are, how
 context is kept separate, and how little of it is code.
 
-The in-agent guards are Claude Code only. Codex and Kiro have their own hook
-systems; the git hook is the check all three share.
+The in-agent guards are Claude Code only. Codex, Kiro and Gemini CLI have their
+own hook systems; the git hook is the check all four share.
 
 **Where something new goes.** A rule, a fact about your company, a check:
 each has one home, and a second copy drifts. [`skills/learn/`](skills/learn/) picks the home
