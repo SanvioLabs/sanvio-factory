@@ -516,8 +516,8 @@ class TestPureParts(unittest.TestCase):
         for part in ("columns Requirement and Test", "from the diff", "gets none in the Test column",
                      "the verdict is VERDICT: FIX",
                      "Say VERDICT: FIX only for one of these: the tests didn't exit 0, a requirement in the plan "
-                     "has no test, or a problem that would cost something real if this merged, such as wrong "
-                     "behaviour, a security or privacy gap, or lost data. Otherwise say VERDICT: PASS.",
+                     "has no test, or a finding of a Blocks entry above not marked (loop lists). Otherwise say "
+                     "VERDICT: PASS.",
                      "A departure from the plan that changes no requirement's outcome is a problem to list, "
                      "not a reason for FIX.",
                      "names that file in the Test column instead"):
@@ -554,39 +554,113 @@ class TestPureParts(unittest.TestCase):
         self.assertNotIn("worked around", plain)
         self.assertNotIn(EM_DASH, prompt)
 
-    MONEY_RULE = ("On a path that records, totals or shows money, prices, payments, sales or purchases, a change "
-                  "that skips a record, substitutes a default such as 0 or an empty string, or counts and carries "
-                  "on when required data is missing or blank is a problem that would cost something real "
-                  "(real-cost) and a reason for FIX.")
-    MONEY_NO_PASS = ("A problem of that kind in code the diff changes or newly calls, which you list among your "
-                     "findings, can't come with VERDICT: PASS.")
-    MONEY_UNTOUCHED = ("One in code the diff neither changes nor newly calls is a problem to list and doesn't make "
-                       "the verdict FIX.")
+    MONEY_BLOCKS = ("Blocks: On a path that records, totals or shows money, prices, payments, sales or purchases, "
+                    "a record skipped, a default such as 0 or an empty string put in, or a count kept and the run "
+                    "carried on, when required data is missing or blank, in code the diff changes or newly calls.")
+    REAL_COST = ("A finding of any Blocks entry not marked (loop lists) is a problem that would cost something real "
+                 "(real-cost) and a reason for FIX.")
+    LOOP_LISTS = ("A finding of the entry marked (loop lists), or of a Nit entry, is a problem to list and doesn't "
+                  "make the verdict FIX, an untested extra the plan didn't ask for included.")
+    MONEY_UNTOUCHED = ("A record skipped, a default such as 0 or an empty string put in, or a count kept and the run "
+                       "carried on, when required data on a path that records, totals or shows money is missing or "
+                       "blank, in code the diff neither changes nor newly calls, is a problem to list and doesn't "
+                       "make the verdict FIX.")
+    OPENING = "You are the reviewer, in a fresh context. Do not edit any file.\n"
+    LISTED = "What blocks a change and what is a nit, from skills/review-pr/SKILL.md step 5:\n"
 
     def test_the_reviewer_sends_back_a_silent_skip_of_required_money_data(self):
         for prompt in (loop.review_prompt("Plan.", "+x", "ok", 0),
                        loop.review_prompt("Plan.", "+x", "ok", 0, fixed=("tests/test_x.py",))):
-            self.assertIn(self.MONEY_RULE, prompt)
-            self.assertLess(prompt.index(self.MONEY_RULE), prompt.index("Your last line must be exactly VERDICT"))
-            # The rule adds a case of real-cost; it doesn't rewrite the list of reasons for FIX.
+            for part in (self.MONEY_BLOCKS, self.REAL_COST):
+                self.assertIn(part, prompt)
+                self.assertLess(prompt.index(part), prompt.index("Your last line must be exactly VERDICT"))
+            # The entry is a case of real-cost; the list of reasons for FIX points at the Blocks entries.
             self.assertIn("Say VERDICT: FIX only for one of these: the tests didn't exit 0, a requirement in the "
                           "plan has no test", prompt)
-            self.assertIn("or a problem that would cost something real if this merged, such as wrong behaviour, "
-                          "a security or privacy gap, or lost data. Otherwise say VERDICT: PASS.", prompt)
+            self.assertIn("or a finding of a Blocks entry above not marked (loop lists). Otherwise say VERDICT: "
+                          "PASS.", prompt)
 
     def test_a_listed_money_skip_in_changed_code_cant_come_with_a_pass(self):
-        self.assertIn(self.MONEY_NO_PASS, loop.review_prompt("Plan.", "+x", "ok", 0))
+        prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertIn(self.MONEY_BLOCKS + "\n", prompt)
+        self.assertIn(self.REAL_COST, prompt)
 
     def test_a_money_skip_in_code_the_diff_leaves_alone_is_listed_not_sent_back(self):
         self.assertIn(self.MONEY_UNTOUCHED, loop.review_prompt("Plan.", "+x", "ok", 0))
 
     def test_the_money_rule_stays_out_of_the_other_prompts(self):
-        for other in (loop.build_prompt(4, "Plan."),
-                      loop.shape_prompt(issue(4)),
-                      loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest"),
-                      loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit")):
-            for part in (self.MONEY_RULE, self.MONEY_NO_PASS, self.MONEY_UNTOUCHED,
+        for other in self.other_prompts():
+            for part in (self.MONEY_BLOCKS, self.REAL_COST, self.MONEY_UNTOUCHED,
                          "required data is missing or blank"):
+                self.assertNotIn(part, other)
+
+    def other_prompts(self):
+        return (loop.build_prompt(4, "Plan."),
+                loop.shape_prompt(issue(4)),
+                loop.tester_prompt(issue(4), "Plan.", ["tests/**"], test_command="python3 -m unittest"),
+                loop.pr_review_prompt(3, "A title", "main", "+x", "abc A commit", skill=""))
+
+    def step_5_entries(self, text):
+        """The lines of step 5 in text that sit where an entry does: five spaces, then a dash."""
+        step = text[text.index("\n5. "):text.index("\n6. ")]
+        return [line for line in step.splitlines() if line.startswith("     - ")]
+
+    def test_every_entry_in_review_prs_step_5_is_one_line_the_loop_can_read(self):
+        entries = self.step_5_entries((Path(loop.ROOT) / "skills" / "review-pr" / "SKILL.md").read_text())
+        self.assertTrue(entries)
+        for line in entries:
+            self.assertRegex(line, r"^     - (Blocks|Blocks \(loop lists\)|Nit): \S")
+        self.assertEqual(loop.review_list(), [line.strip() for line in entries])
+        listed = [line for line in entries if line.startswith("     - Blocks (loop lists): ")]
+        self.assertEqual(len(listed), 1, listed)
+        self.assertIn('"New behaviour with no test that would fail if it broke" also fits', listed[0])
+        self.assertTrue(any(line.startswith("     - Nit: ") for line in entries))
+        # The plain prompt carries none of these, which other tests check.
+        for line in entries:
+            for word in ("worked around", "separate agent", EM_DASH):
+                self.assertNotIn(word, line)
+
+    def test_the_review_prompt_carries_review_prs_list_after_its_opening_line(self):
+        entries = loop.review_list()
+        for fixed in ((), ("tests/test_x.py",)):
+            prompt = loop.review_prompt("Plan.", "+x", "ok", 0, fixed=fixed)
+            self.assertTrue(prompt.startswith(self.OPENING + self.LISTED))
+            plan = prompt.index("PLAN:")
+            for part in [entry + "\n" for entry in entries] + [self.REAL_COST, self.LOOP_LISTS,
+                                                               self.MONEY_UNTOUCHED]:
+                with self.subTest(part=part[:40]):
+                    self.assertLess(len(self.OPENING), prompt.index(part))
+                    self.assertLess(prompt.index(part), plan)
+
+    def test_the_list_is_read_from_the_factorys_own_copy_of_the_skill(self):
+        real = (Path(loop.ROOT) / "skills" / "review-pr" / "SKILL.md").read_text()
+        extra = "     - Blocks: A widget left unpolished.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            skill = Path(tmp) / "skills" / "review-pr" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text(real.replace("     - Blocks: Wrong behaviour.\n", "     - Blocks: Wrong behaviour.\n"
+                                          + extra, 1))
+            with mock.patch.object(loop, "ROOT", Path(tmp)):
+                prompt = loop.review_prompt("Plan.", "+x", "ok", 0)
+        self.assertIn(extra.strip() + "\n", prompt[:prompt.index("PLAN:")])
+        self.assertNotIn(extra.strip(), loop.review_prompt("Plan.", "+x", "ok", 0))
+
+    def test_no_list_means_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(loop, "ROOT", Path(tmp)):
+                self.assertIsNone(loop.review_list())
+                skill = Path(tmp) / "skills" / "review-pr" / "SKILL.md"
+                skill.parent.mkdir(parents=True)
+                for text in ("5. **Sort each finding.**\n   - **Blocks:** prose only.\n6. **Grade it.**\n",
+                             "5. **Sort each finding.**\n     - Nit: A small duplication.\n6. **Grade it.**\n",
+                             "4. **Read.**\n     - Blocks: Outside step 5.\n6. **Grade it.**\n"):
+                    with self.subTest(text=text):
+                        skill.write_text(text)
+                        self.assertIsNone(loop.review_list())
+
+    def test_the_list_and_its_sentences_stay_out_of_the_other_prompts(self):
+        for other in self.other_prompts():
+            for part in [self.LISTED, self.REAL_COST, self.LOOP_LISTS, self.MONEY_UNTOUCHED] + loop.review_list():
                 self.assertNotIn(part, other)
 
     def test_the_new_asks_stay_out_of_the_build_and_tester_prompts(self):
@@ -893,6 +967,11 @@ if step == "build" and os.path.exists(os.path.join(state, "build-nests-repo")):
     os.utime("vendor/x/f", (1000, 1000))
     subprocess.run(["git", "update-index", "--add", "--cacheinfo", "160000," + head + ",vendor/x"], env=quiet)
     open(".gitmodules", "w").write('[submodule "x"]\\n\\tpath = vendor/x\\n\\turl = ./x\\n\\tignore = none\\n')
+if step == "build" and os.path.exists(os.path.join(state, "build-files")):
+    # Writes each file in build-files, a JSON object of path to text, over whatever is there.
+    for path, text in json.load(open(os.path.join(state, "build-files"))).items():
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        open(path, "w").write(text)
 if step == "retro":
     if os.path.exists(os.path.join(state, "retro-edits")):
         open("retro-sneaky.txt", "w").write("x")
@@ -1455,6 +1534,53 @@ class TestAPass(unittest.TestCase):
         self.assertIsNone(runner.agent_git_dir(None))
         with runner.unattended(self.work):
             self.assertEqual(list((self.work / ".git").glob(loop.UNATTENDED_MARKER + "*")), [])
+
+    def test_the_reviewer_gets_the_factorys_list_not_the_one_in_the_worktree(self):
+        real = (Path(loop.ROOT) / "skills" / "review-pr" / "SKILL.md").read_text()
+        extra = "     - Blocks: A widget left unpolished.\n"
+        planted = real.replace("     - Blocks: Wrong behaviour.\n", "     - Blocks: Wrong behaviour.\n" + extra, 1)
+        self.assertIn(extra, planted)
+        (self.state / "build-files").write_text(json.dumps({"skills/review-pr/SKILL.md": planted}))
+        self.assertEqual(self.go(), 0)
+        prompt = (self.state / "review-prompt").read_text()
+        listed = prompt[:prompt.index("PLAN:")]
+        self.assertIn("Blocks: Wrong behaviour.\n", listed)
+        self.assertNotIn(extra.strip(), listed)
+        # The build did write it: the diff the reviewer reads has it.
+        self.assertIn("+" + extra.rstrip("\n"), prompt[prompt.index("DIFF:"):])
+
+    def root_with(self, text):
+        """Points ROOT at a folder of its own holding skills/review-pr/SKILL.md as text, or no skill when text
+        is None. Returns the skill's path."""
+        root = Path(self.tmp.name) / "root"
+        skill = root / "skills" / "review-pr" / "SKILL.md"
+        root.mkdir()
+        if text is not None:
+            skill.parent.mkdir(parents=True)
+            skill.write_text(text)
+        patcher = mock.patch.object(loop, "ROOT", root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return skill
+
+    def assert_nothing_taken(self, skill):
+        self.assertEqual(self.go(), 1)
+        errors = [line for line in self.lines() if line.split()[2] == "ERROR"]
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("review-pr's list in {} is missing or has no Blocks entries in step 5, so no issue is "
+                      "taken".format(skill), errors[0])
+        calls = self.calls() if (self.state / "gh-calls").exists() else []
+        self.assertEqual([call for call in calls if "issue" in call], [])
+        self.assertFalse((self.state / "agents-started").exists())
+
+    def test_with_no_review_pr_skill_under_root_no_issue_is_taken(self):
+        self.assert_nothing_taken(self.root_with(None))
+
+    def test_with_no_entries_in_step_5_no_issue_is_taken(self):
+        self.assert_nothing_taken(self.root_with(
+            "5. **Sort each finding, then decide.** Every finding is one of two kinds:\n"
+            "   - **Blocks:** it would cost something real if it merged as it is. Wrong behaviour.\n"
+            "   - **Nit:** worth fixing.\n6. **Grade it (only when a person runs this).**\n"))
 
     def test_a_build_that_runs_the_tests_itself_has_no_tokens_to_hand_them(self):
         self.cfg.update(builder_runs_tests=True)
@@ -9515,6 +9641,36 @@ class TestReview(ReviewFixture, unittest.TestCase):
 
 
 RUBRIC = {"ready": 10, "ready with nits": 8, "changes needed": 3, "failing": 0, "unreadable": 0}
+
+
+class TestReviewWithoutTheFactorysList(ReviewFixture, unittest.TestCase):
+    """With no review-pr list under ROOT, which stops run, the review watcher and review --pr run as before."""
+
+    def setUp(self):
+        super().setUp()
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
+        patcher = mock.patch.object(loop, "ROOT", Path(empty.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.assertIsNone(loop.review_list())
+
+    def test_the_watcher_still_reviews(self):
+        sha = self.push(7, "thing.txt")
+        self.list_prs(self.pr(7, sha))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(len(self.comments()), 1)
+        self.assertTrue(self.reviews()[0].endswith(" - REVIEW #7 {} posted".format(sha[:7])), self.reviews())
+        self.assertFalse([line for line in self.lines() if line.split()[2] == "ERROR"])
+
+    def test_review_pr_still_takes_its_own_roots_skill(self):
+        sha = self.push(7, "thing.txt")
+        self.view_pr(7, sha)
+        self.assertEqual(self.alone(7)["state"], "posted")
+        prompts = self.prompts()
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("The review procedure, version A.", prompts[0])
+        self.assertNotIn("What blocks a change and what is a nit", prompts[0])
 
 
 class TestReviewLabel(ReviewFixture, unittest.TestCase):

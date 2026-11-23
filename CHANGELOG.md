@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: The loop's review blocks on review-pr's list
+
+Step 5 of the review-pr skill now lists what blocks and what is a nit, one entry per line. The loop's reviewer gets that list from the factory's own copy of the skill, never from the worktree under review. It sends a build back for any Blocks entry except the one marked `(loop lists)`, behaviour the plan didn't ask for, which it lists for the person who merges, as it does every Nit. A silent skip of required money data blocks in code the diff changes or newly calls, and is a Nit elsewhere. If the list is missing, or has no Blocks entry, `run` logs one ERROR and takes no issue. The review watcher and `review --pr` start as before.
+
+**Needs:** 2026-11-21: Reviewers block a silent skip of required money data
+
+**Controls:** AC-5
+
+Files: [`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
 
 On an issue labelled `bug`, the loop's planner now writes a `## Diagnosis` section. It gives the input, the wrong result and the result the ticket expects, then every function, parser or check on the path to the symptom, each cleared or not. A first round with no earlier work writes a test from it before the fix. With `builder_runs_tests` on, the build agent sees that test fail, tries the suspects in turn, and ends with `Diagnosis unresolved:` when none holds. The loop then throws away that round's changes and blocks the issue with the reply quoted. It does that for any first-round reply with that line, and with `test_first` on the tester's commit stays. After a round whose tests failed, the next is told to check the other suspects first. Issues without the label get the same prompts as before.
