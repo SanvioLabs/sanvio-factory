@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: Test counts in the pull request
+
+A loop pull request's Tests section now leads with how many tests passed, failed and were skipped, read from each unittest, `node --test` and pytest summary in the output, up to five, one line each. When there's none it can read, it says so. The last test lines follow as before. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) also says what to do when a project's suite already fails before any change: keep those tests out of `test_command`, each named with its reason, since the loop passes a run only when the command exits 0.
+
+**Needs:** 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-10-31: Loop merges CHANGELOG.md conflicts
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
 
 On an issue labelled `bug`, the loop's planner now writes a `## Diagnosis` section. It gives the input, the wrong result and the result the ticket expects, then every function, parser or check on the path to the symptom, each cleared or not. A first round with no earlier work writes a test from it before the fix. With `builder_runs_tests` on, the build agent sees that test fail, tries the suspects in turn, and ends with `Diagnosis unresolved:` when none holds. The loop then throws away that round's changes and blocks the issue with the reply quoted. It does that for any first-round reply with that line, and with `test_first` on the tester's commit stays. After a round whose tests failed, the next is told to check the other suspects first. Issues without the label get the same prompts as before.
