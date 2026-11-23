@@ -1,8 +1,8 @@
 ---
 spec: SPEC-004
-status: draft
+status: complete
 created: 2026-11-21
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # Tasks: SPEC-004
@@ -231,29 +231,29 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
 
 | Requirement | Tasks | Acceptance | Done |
 |---|---|---|---|
-| REQ-001 | T001, T003 | AC-001 | |
-| REQ-002 | T004 | AC-002 | |
-| REQ-003 | T011 | AC-003 | |
-| REQ-004 | T006, T017 | AC-003 | |
-| REQ-005 | T007 | AC-004 | |
-| REQ-006 | T008 | AC-004 | |
-| REQ-007 | T002 | AC-005 | |
-| REQ-008 | T009 | AC-003 | |
-| REQ-009 | T001, T013 | AC-006 | |
-| REQ-010 | T014 | AC-007 | |
-| REQ-011 | T015 | AC-008 | |
-| REQ-012 | T016 | AC-009 | |
-| REQ-013 | T001, T021, T022, T023 | AC-010 | |
-| REQ-014 | T021 | AC-010 | |
-| REQ-015 | T024 | AC-011, AC-016 | |
-| REQ-016 | T023 | AC-010 | |
-| REQ-017 | T028 | AC-013 | |
-| REQ-018 | T019 | AC-014 | |
-| REQ-019 | T022 | AC-015 | |
-| REQ-020 | T031 | AC-016 | |
-| REQ-021 | T023 | AC-016 | |
-| REQ-022 | T024, T025, T030, T032 | AC-016, AC-017 | |
-| REQ-023 | T032, T033 | AC-016, AC-010 | |
+| REQ-001 | T001, T003 | AC-001 | 2026-11-21 |
+| REQ-002 | T004 | AC-002 | 2026-11-21 |
+| REQ-003 | T011 | AC-003 | 2026-11-21 |
+| REQ-004 | T006, T017 | AC-003 | 2026-11-21 |
+| REQ-005 | T007 | AC-004 | 2026-11-21 |
+| REQ-006 | T008 | AC-004 | 2026-11-21 |
+| REQ-007 | T002 | AC-005 | 2026-11-21 |
+| REQ-008 | T009 | AC-003 | 2026-11-21 |
+| REQ-009 | T001, T013 | AC-006 | 2026-11-21 |
+| REQ-010 | T014 | AC-007 | 2026-11-21 |
+| REQ-011 | T015 | AC-008 | 2026-11-21 |
+| REQ-012 | T016 | AC-009 | 2026-11-21 |
+| REQ-013 | T001, T021, T022, T023 | AC-010 | 2026-11-21; AC-010 at the first cloud deployment |
+| REQ-014 | T021 | AC-010 | 2026-11-21; AC-010 at the first cloud deployment |
+| REQ-015 | T024 | AC-011, AC-016 | 2026-11-21; AC-011 at the first cloud deployment |
+| REQ-016 | T023 | AC-010 | 2026-11-21; AC-010 at the first cloud deployment |
+| REQ-017 | T028 | AC-013 | 2026-11-21 |
+| REQ-018 | T019 | AC-014 | 2026-11-21 |
+| REQ-019 | T022 | AC-015 | 2026-11-21; AC-015 at the first cloud deployment |
+| REQ-020 | T031 | AC-016 | 2026-11-21 |
+| REQ-021 | T023 | AC-016 | 2026-11-21 |
+| REQ-022 | T024, T025, T030, T032 | AC-016, AC-017 | 2026-11-21; AC-017 at the first cloud deployment |
+| REQ-023 | T032, T033 | AC-016, AC-010 | 2026-11-21; AC-010 at the first cloud deployment |
 
 ## Review Findings
 
