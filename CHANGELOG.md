@@ -42,7 +42,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-21: The index is checked under sandbox_strict
+## 2026-11-22: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.
 
@@ -53,6 +53,14 @@ Under `sandbox_strict`, before any git of the loop's that reads or writes a work
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** nothing
+
+## 2026-11-22: The secret scan skips nothing again
+
+The two findings `.gitleaksignore` let the secret scan skip, made-up headers in one SPEC-004 commit, are gone with that commit: SPEC-004 landed as squashed commits that split those strings. So the file is removed, and the scan skips no finding.
+
+Files: `.gitleaksignore` (removed), `CHANGELOG.md`.
+
+**Do:** nothing.
 
 ## 2026-11-21: Reviewers block a silent skip of required money data
 
