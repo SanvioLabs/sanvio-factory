@@ -52,6 +52,30 @@ Files: [`examples/usage-store/queries/rq-7.sql`](examples/usage-store/queries/rq
 
 **Do:** if you run a usage store, rerun python3 examples/usage-store/render.py and restart Grafana to get the RQ-7 panel.
 
+## 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
+
+With `network_allow` set, `run`, `--dry-run` included, now checks before it takes anything that the sandbox can start here (`bwrap` on Linux, `sandbox-exec` on macOS) and, where it can't, as inside another sandbox or a container, stops with one `ERROR` line naming the cause.
+
+**Needs:** 2026-11-11: The build agent's shell can run in Claude Code's sandbox; 2026-11-15: Keeping the loop to its own work
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** On a machine whose loop now stops with this `ERROR`, set `network_allow` to `null` in `loop.json`, which leaves containment to the outer sandbox or container, then restart the loop.
+
+## 2026-11-23: The loop stops at start when its ready or blocked label is missing
+
+Before it takes anything, `run`, `--dry-run`, `--once` and `--issue` included, lists every label on the repo and stops with one `ERROR` line naming the `gh label create` command for each of `ready_label` and `blocked_label` the repo lacks, or logs one `WARN` and goes on when the labels can't be read.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), `CHANGELOG.md`.
+
+**Do:** A copy or project without the two labels now has to create them, with the `gh label create` command the `ERROR` line names, before `run` takes anything. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-23: Install with an agent from the GitHub URL
 
 A new [`INSTALL.md`](INSTALL.md) is the procedure an agent follows to install the factory from a session outside it: it asks for the folder, checks for `git` and Python, clones, turns on the hooks, runs the setup check, offers a private copy on GitHub on a second yes, and says how to open the copy and run `/orientation`; the README has a line to paste into that session, and orientation points at it for the private copy.
