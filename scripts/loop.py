@@ -1259,6 +1259,25 @@ def sandbox_probe():
     return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
 
 
+def bwrap_probe():
+    """None when `bwrap --ro-bind / / --dev /dev --unshare-net -- /bin/true` can make a network namespace here,
+    or why not: the first line of what it said, at most 200 characters, or "exit N" when it said nothing.
+    Claude Code's sandbox on Linux is bwrap, so where this
+    fails, as inside another sandbox or a container, every agent run with network_allow would. A pass doesn't
+    prove Claude Code's sandbox will start. Never raises."""
+    try:
+        done = subprocess.run(["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "--", "/bin/true"],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=SANDBOX_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "no answer in {} seconds".format(SANDBOX_PROBE_TIMEOUT)
+    except OSError as err:
+        return (str(err).strip().splitlines() or [type(err).__name__])[0][:200]
+    if done.returncode == 0:
+        return None
+    said = (done.stderr + done.stdout).decode("utf-8", "replace").strip()
+    return said.splitlines()[0][:200] if said else "exit {}".format(done.returncode)
+
+
 def sandbox_env(env, allow=()):
     """A copy of env for a command run in the sandbox: GIT_CONFIG_GLOBAL=/dev/null, so git reads no global
     config rather than stopping on the denied ~/.gitconfig, and SANDBOX_GIT_CONFIG as GIT_CONFIG_KEY_n and
@@ -3302,6 +3321,22 @@ class Loop:
             if self.sandbox_error is NOT_PROBED:
                 self.sandbox_error = sandbox_probe()
         return self.sandbox_error is None
+
+    def sandbox_start_error(self, platform=None):
+        """Why Claude Code's sandbox can't start here for network_allow, or None (#718): bwrap_probe() on Linux,
+        and sandbox_probe() on macOS, whose answer is kept in sandbox_error so it runs at most once a Loop.
+        None when network_allow is unset, and on any other platform, which sandbox_problem() already refuses."""
+        if self.cfg.get("network_allow") is None:
+            return None
+        platform = platform or sys.platform
+        if platform.startswith("linux"):
+            return bwrap_probe()
+        if platform == "darwin":
+            with self.probe_lock:
+                if self.sandbox_error is NOT_PROBED:
+                    self.sandbox_error = sandbox_probe()
+                return self.sandbox_error
+        return None
 
     def own_command(self, command, tree, partial=False):
         """sh for test_command, generate_command or setup_command: in tree, with test_timeout and the test
@@ -5763,6 +5798,13 @@ class Loop:
         why = sandbox_problem(self.cfg)
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
+            return 1
+        # Not cut to 200 as a whole, so the cause and the null advice survive; why is already at most 200 (#718).
+        why = self.sandbox_start_error()
+        if why:
+            self.log("ERROR", "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The likely "
+                     "cause is running inside another sandbox or a container; setting network_allow to null leaves "
+                     "containment to the outer sandbox, so no issue is taken".format(why))
             return 1
         if self.caller() and not self.sandboxed():
             if self.cfg.get("sandbox_commands") is not True:

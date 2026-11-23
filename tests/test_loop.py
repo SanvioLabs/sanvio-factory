@@ -1624,7 +1624,10 @@ class TestAPass(unittest.TestCase):
     def test_network_allow_puts_the_build_in_the_sandbox_and_not_the_readers(self):
         self.claude_agents()
         self.cfg.update(network_allow=["pypi.org"])
-        with mock.patch.object(loop, "sandbox_problem", return_value=None):
+        # No real bwrap or sandbox-exec: the start check has tests of its own (#718).
+        with mock.patch.object(loop, "sandbox_problem", return_value=None), \
+                mock.patch.object(loop, "bwrap_probe", return_value=None), \
+                mock.patch.object(loop, "sandbox_probe", return_value=None):
             self.go()
         box = self.settings_for("build")["sandbox"]
         self.assertEqual(box["network"]["allowedDomains"], ["pypi.org"])
@@ -10612,7 +10615,8 @@ class TestCallerIntake(unittest.TestCase):
                         max_issue_tokens=4_000_000, ready_label="factory:submit", blocked_label="factory:stopped")
         # The stand-in agent isn't claude, which Claude Code's sandbox needs and a caller's reader has to be (#644):
         # those checks have tests of their own.
-        for name in ("sandbox_problem", "reader_unheld"):
+        # No real bwrap either, where Claude Code's sandbox start check would run it (#718).
+        for name in ("sandbox_problem", "reader_unheld", "bwrap_probe"):
             held = mock.patch.object(loop, name, return_value=None)
             held.start()
             self.addCleanup(held.stop)
@@ -10775,22 +10779,29 @@ class TestCallerIntake(unittest.TestCase):
     def test_a_caller_is_refused_where_its_commands_wouldnt_run_in_sandbox_exec(self):
         self.submit(12, accepted=(12,))
         self.github(events=[accept_event()])
-        for change, patched, why in (
-                (dict(sandbox_commands=False), {}, "sandbox_commands is false"),
-                ({}, {"sandbox_available": False}, "this machine has no sandbox-exec"),
-                ({}, {"sandbox_probe": "sandbox_apply: Operation not permitted"},
-                 "sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted)")):
+        # The stand-in is a Mac's sandbox-exec, so Claude Code's sandbox start check runs as on a Mac, wherever
+        # this runs. There a caller, which always sets network_allow, whose sandbox-exec can't apply a profile is
+        # stopped by that check first, with its reason (#718).
+        start_error = loop.Loop.sandbox_start_error
+        for change, patched, key, why in (
+                (dict(sandbox_commands=False), {}, "sandbox_commands", "sandbox_commands is false"),
+                ({}, {"sandbox_available": False}, "sandbox_commands", "this machine has no sandbox-exec"),
+                ({}, {"sandbox_probe": "sandbox_apply: Operation not permitted"}, "network_allow",
+                 "Claude Code's sandbox can't start here (sandbox_apply: Operation not permitted)")):
             with self.subTest(why=why):
                 (self.state / "gh-calls").unlink(missing_ok=True)
                 (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
                 self.cfg["sandbox_commands"] = True
                 self.cfg.update(change)
                 with contextlib.ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(
+                        loop.Loop, "sandbox_start_error", lambda runner, platform=None: start_error(runner, "darwin")))
                     for name, value in patched.items():
                         stack.enter_context(mock.patch.object(loop, name, return_value=value))
                     self.assertEqual(self.go(), 1)
                 last = self.lines()[-1]
-                self.assertIn("ERROR sandbox_commands in loop.json: ", last)
+                self.assertIn("ERROR {} in loop.json: ".format(key), last)
+                self.assertEqual(len([l for l in self.lines() if " ERROR " in l]), 1, self.lines())
                 self.assertIn(why, last)
                 self.assertIn("so no issue is taken", last)
                 # The one line says it: no WARN about the sandbox before it.
@@ -10962,9 +10973,11 @@ class TestCallerCommands(unittest.TestCase):
         TestProject.setUp(self)
         stand_in_sandbox(self, Path(self.tmp.name) / "bin")
         # The stand-in agent can't start Claude Code's sandbox: that check has tests of its own.
-        sandbox = mock.patch.object(loop, "sandbox_problem", return_value=None)
-        sandbox.start()
-        self.addCleanup(sandbox.stop)
+        # Nor run a real bwrap, where the start check would (#718); stand_in_sandbox has sandbox_probe pass.
+        for name in ("sandbox_problem", "bwrap_probe"):
+            sandbox = mock.patch.object(loop, name, return_value=None)
+            sandbox.start()
+            self.addCleanup(sandbox.stop)
         self.sibling = self.harness / "projects" / "other"
         self.sibling.mkdir()
         (self.sibling / "notes.txt").write_text("made-up text\n")
@@ -11760,6 +11773,177 @@ class LabelCheckReview(ReviewFixture, unittest.TestCase):
         calls = self.calls()
         self.assertGreaterEqual(len([c for c in calls if c.startswith("pr view 7")]), 2, calls)
         self.assertFalse(any("/labels" in c for c in calls), calls)
+
+
+class TestSandboxStarts(unittest.TestCase):
+    """network_allow set: run, --dry-run included, checks before it takes anything that Claude Code's sandbox can
+    start here, bwrap on Linux and sandbox-exec on macOS, and stops with one ERROR line where it can't (#718)."""
+
+    setUp, tearDown, lines, raw_lines, go, claude_agents = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.go,
+        TestAPass.claude_agents)
+
+    NO_NAMESPACE = "bwrap: Creating new namespace failed: Operation not permitted"
+    DENIED = "sandbox_apply: Operation not permitted"
+    BWRAP = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "--", "/bin/true"]
+
+    def probed(self, **kwargs):
+        """bwrap_probe()'s answer with subprocess.run faked by kwargs, and the fake, to read its calls."""
+        with mock.patch.object(loop.subprocess, "run", **kwargs) as run:
+            return loop.bwrap_probe(), run
+
+    @staticmethod
+    def done(code, stderr=b"", stdout=b""):
+        return subprocess.CompletedProcess([], code, stdout=stdout, stderr=stderr)
+
+    def test_bwrap_probe_runs_bwrap_once_to_make_a_network_namespace(self):
+        why, run = self.probed(return_value=self.done(0))
+        self.assertIsNone(why)
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], self.BWRAP)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["capture_output"], True)
+        self.assertEqual(kwargs["timeout"], 10)
+
+    def test_bwrap_probe_gives_the_first_line_it_said_cut_to_200(self):
+        said = ("x" * 300 + "\nthe second line").encode()
+        self.assertEqual(self.probed(return_value=self.done(1, stderr=said))[0], "x" * 200)
+        self.assertEqual(self.probed(return_value=self.done(1, stdout=b"out\n"))[0], "out")
+
+    def test_bwrap_probe_gives_a_reason_when_it_says_nothing_hangs_or_cant_start(self):
+        self.assertEqual(self.probed(return_value=self.done(3))[0], "exit 3")
+        self.assertEqual(self.probed(side_effect=subprocess.TimeoutExpired(self.BWRAP, 10))[0],
+                         "no answer in 10 seconds")
+        self.assertIn("No such file", self.probed(side_effect=FileNotFoundError(2, "No such file or directory"))[0])
+        self.assertEqual(self.probed(side_effect=OSError("the first line\nthe second line"))[0], "the first line")
+
+    def errors(self):
+        return [l.split(" ERROR ", 1)[1] for l in self.lines() if " ERROR " in l]
+
+    def listed(self):
+        """Whether the loop listed issues, which it does only once every check before taking one has passed."""
+        path = self.state / "gh-calls"
+        return any(c.startswith("issue list") for c in (path.read_text().splitlines() if path.exists() else []))
+
+    def run_on(self, platform, bwrap=None, mac=None, found=("bwrap", "socat"), runner=None):
+        """A dry run with the sandbox's checks as on platform and only the tools in found among bwrap and socat
+        installed, bwrap_probe() answering bwrap and sandbox_probe() mac. Each probe is kept, as self.bwrap and
+        self.mac, to count calls. The platform goes to the two checks, not sys.platform, which the rest of the run
+        and shutil.which read; test_the_platform_defaults_to_this_machines covers the default."""
+        problem, start_error = loop.sandbox_problem, loop.Loop.sandbox_start_error
+        with mock.patch.object(loop, "sandbox_problem", lambda cfg, platform_=None, which=None: problem(
+                    cfg, platform, lambda name: "/usr/bin/" + name if name in found else None)), \
+                mock.patch.object(loop.Loop, "sandbox_start_error",
+                                  lambda runner_, platform_=None: start_error(runner_, platform)), \
+                mock.patch.object(loop, "bwrap_probe", return_value=bwrap) as self.bwrap, \
+                mock.patch.object(loop, "sandbox_probe", return_value=mac) as self.mac, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return (runner or loop.Loop(self.work, self.cfg)).run(once=True, dry_run=True)
+
+    def assert_cant_start(self, why):
+        """One ERROR line, Claude Code's sandbox can't start here for why, and no issue taken."""
+        errors = self.errors()
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertEqual(errors[0], "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The "
+                         "likely cause is running inside another sandbox or a container; setting network_allow to "
+                         "null leaves containment to the outer sandbox, so no issue is taken".format(why))
+        self.assertFalse(self.listed())
+        self.assertFalse((self.state / "agents-started").exists())
+
+    def test_on_linux_a_bwrap_that_cant_make_a_namespace_stops_a_dry_run_with_one_error(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.assertEqual(self.run_on("linux", bwrap=self.NO_NAMESPACE), 1)
+        self.assert_cant_start(self.NO_NAMESPACE)
+        self.bwrap.assert_called_once_with()
+        self.mac.assert_not_called()
+
+    def test_on_linux_a_bwrap_that_works_lets_the_run_go_on(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.run_on("linux")
+        self.bwrap.assert_called_once_with()
+        self.assertFalse(any("can't start here" in l for l in self.lines()), self.lines())
+        self.assertTrue(self.listed(), self.lines())
+
+    def test_on_a_mac_a_probe_already_answered_is_not_run_again_and_its_reason_stops_the_run(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = []
+        runner = loop.Loop(self.work, self.cfg)
+        runner.sandbox_error = self.DENIED
+        self.assertEqual(self.run_on("darwin", runner=runner), 1)
+        self.mac.assert_not_called()
+        self.bwrap.assert_not_called()
+        self.assert_cant_start(self.DENIED)
+
+    def test_on_a_mac_the_probe_runs_once_in_a_run_with_network_allow_set_or_not(self):
+        # sandbox_commands true has the loop's start probe for its own commands, which this check shares.
+        self.claude_agents()
+        self.cfg["sandbox_commands"] = True
+        for allow in (["pypi.org"], None):
+            with self.subTest(network_allow=allow):
+                (self.state / "gh-calls").unlink(missing_ok=True)
+                self.cfg["network_allow"] = allow
+                with mock.patch.object(loop, "sandbox_available", return_value=True):
+                    self.run_on("darwin")
+                self.assertEqual(self.mac.call_count, 1)
+                self.bwrap.assert_not_called()
+                self.assertTrue(self.listed(), self.lines())
+
+    def test_without_network_allow_neither_probe_runs(self):
+        runner = loop.Loop(self.work, self.cfg)
+        with mock.patch.object(loop, "bwrap_probe") as bwrap, mock.patch.object(loop, "sandbox_probe") as mac:
+            for platform in ("linux", "darwin"):
+                self.assertIsNone(runner.sandbox_start_error(platform=platform))
+            with mock.patch.object(loop.sys, "platform", "linux"):
+                self.assertIsNone(runner.sandbox_start_error())
+        bwrap.assert_not_called()
+        mac.assert_not_called()
+        self.assertIs(runner.sandbox_error, loop.NOT_PROBED)
+
+    def test_the_platform_defaults_to_this_machines(self):
+        self.cfg["network_allow"] = []
+        with mock.patch.object(loop.sys, "platform", "linux"), \
+                mock.patch.object(loop, "bwrap_probe", return_value=self.NO_NAMESPACE) as bwrap:
+            self.assertEqual(loop.Loop(self.work, self.cfg).sandbox_start_error(), self.NO_NAMESPACE)
+        bwrap.assert_called_once_with()
+        with mock.patch.object(loop.sys, "platform", "freebsd"), mock.patch.object(loop, "bwrap_probe") as bwrap:
+            self.assertIsNone(loop.Loop(self.work, self.cfg).sandbox_start_error())
+        bwrap.assert_not_called()
+
+    def test_where_sandbox_problem_refuses_bwrap_probe_is_never_run(self):
+        for platform, found, agent, why in (
+                ("linux", ("socat",), None, "needs bwrap and socat on Linux, and bwrap isn't installed"),
+                ("win32", ("bwrap", "socat"), None, "Claude Code's sandbox doesn't run on Windows"),
+                ("linux", ("bwrap", "socat"), "codex", "only a claude build agent runs in Claude Code's sandbox")):
+            with self.subTest(why=why):
+                (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
+                self.claude_agents()
+                if agent:
+                    self.cfg["agent"] = agent
+                self.cfg["network_allow"] = ["pypi.org"]
+                self.assertEqual(self.run_on(platform, found=found), 1)
+                errors = self.errors()
+                self.assertEqual(len(errors), 1, self.lines())
+                self.assertTrue(errors[0].startswith("network_allow in loop.json: "), errors[0])
+                self.assertIn(why, errors[0])
+                self.assertNotIn("can't start here", errors[0])
+                self.bwrap.assert_not_called()
+                self.mac.assert_not_called()
+                self.assertFalse(self.listed())
+
+
+class TestSandboxStartsReview(ReviewFixture, unittest.TestCase):
+    """The review watcher doesn't check that Claude Code's sandbox can start: the check is run's alone (#718)."""
+
+    def test_the_review_watcher_never_asks(self):
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.list_prs()
+        with mock.patch.object(loop.Loop, "sandbox_start_error", return_value="it can't") as asked:
+            self.go()
+        asked.assert_not_called()
+        self.assertFalse(any("can't start here" in l for l in self.lines()), self.lines())
 
 
 class TestCallerConfinement(unittest.TestCase):
