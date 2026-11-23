@@ -137,8 +137,8 @@ Say these out loud when they show up:
 - **Remote WARN on the public Sanvio Factory.** Everything in `company/` is
   gitignored, so the company record and the data map stay on their machine
   either way. Their own job's files (the five layers) are tracked, though, and
-  before they push those anywhere they need their own private copy. On GitHub
-  that's *Use this template* with the visibility set to private. If `gh` is
+  before they push those anywhere they need their own private copy. Step 5 of
+  [`INSTALL.md`](../../INSTALL.md) makes one on GitHub. If `gh` is
   installed and `origin` is on GitHub, run
   `gh repo view --json visibility -q .visibility` and say what it returns.
 - **Gate or quick check FAIL.** On a clean clone of `main` these pass, so
