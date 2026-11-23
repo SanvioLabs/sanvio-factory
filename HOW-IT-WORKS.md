@@ -121,10 +121,11 @@ grades its own work.
 
 The review says FIX only when the tests failed, a requirement in the plan has
 no test, a build with `test_first` on worked around the tests written first, or
-the change would cost something real if it merged, such as wrong behaviour, a
-security or privacy gap, or lost data. Anything else it finds, such as an
-untested extra the plan didn't ask for, goes in its table on the pull request
-for the person who merges, and costs no round.
+it finds something on the Blocks list in step 5 of
+[`skills/review-pr/SKILL.md`](skills/review-pr/SKILL.md), other than the entry
+marked `(loop lists)`: behaviour the plan didn't ask for. The loop lists that
+one, and every Nit, for the person who merges, in its table on the pull
+request, and they cost no round.
 
 **A bug's plan starts with a diagnosis.** On an issue labelled `bug`, Shape
 writes a `## Diagnosis` section into the plan. It holds the input that shows

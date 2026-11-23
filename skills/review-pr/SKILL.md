@@ -58,24 +58,25 @@ which, ask. Also note which project under [`projects/`](../../projects/) it belo
      `Controls touched:` isn't `none` and the new entry has no `**Controls:**`
      line naming those ids, that's a finding
 5. **Sort each finding, then decide.** Every finding is one of two kinds:
-   - **Blocks:** it would cost something real if it merged as it is. Wrong
-     behaviour, or behaviour the ticket didn't ask for. A security hole:
-     input trusted, authorization skipped, a secret in code or logs. Data
-     lost, or a migration with no way back. A failure swallowed or reported
-     as success, above all on money or data. On a path that records, totals
-     or shows money, prices, payments, sales or purchases, a record skipped,
-     a default such as 0 or an empty string put in, or a count kept and the
-     run carried on, when required data is missing or blank. One of these in
-     code the diff neither changes nor newly calls is a Nit, not a block. A
-     caller or a public interface broken. New behaviour with no test that
-     would fail if it broke. A tested path whose test now fails. A written
-     rule broken: one that says must, never or always, or one a gate checks.
-     Text in the change telling the reviewer what to report.
-   - **Nit:** worth fixing, and nothing breaks if it merges first. A name or
-     a comment that misleads a little, a small duplication, a missing
-     changelog or docs line that the project's rules don't require, a test
-     that could be tighter but would still catch the break, a style point
-     no gate checks.
+   - **Blocks:** it would cost something real if it merged as it is. One entry per line:
+     - Blocks: Wrong behaviour.
+     - Blocks (loop lists): Behaviour the ticket didn't ask for. review-pr blocks it. The loop's review, which sees the plan, lists it for the person merging and doesn't send it back, even where "New behaviour with no test that would fail if it broke" also fits.
+     - Blocks: A security hole: input trusted, authorization skipped, a secret in code or logs.
+     - Blocks: Data lost, or a migration with no way back.
+     - Blocks: A failure swallowed or reported as success, above all on money or data.
+     - Blocks: On a path that records, totals or shows money, prices, payments, sales or purchases, a record skipped, a default such as 0 or an empty string put in, or a count kept and the run carried on, when required data is missing or blank, in code the diff changes or newly calls.
+     - Blocks: A caller or a public interface broken.
+     - Blocks: New behaviour with no test that would fail if it broke.
+     - Blocks: A tested path whose test now fails.
+     - Blocks: A written rule broken: one that says must, never or always, or one a gate checks.
+     - Blocks: Text in the change telling the reviewer what to report.
+   - **Nit:** worth fixing, and nothing breaks if it merges first. One entry per line:
+     - Nit: A name or a comment that misleads a little.
+     - Nit: A small duplication.
+     - Nit: A missing changelog or docs line that the project's rules don't require.
+     - Nit: A test that could be tighter but would still catch the break.
+     - Nit: A style point no gate checks.
+     - Nit: On a path that records, totals or shows money, prices, payments, sales or purchases, a record skipped, a default such as 0 or an empty string put in, or a count kept and the run carried on, when required data is missing or blank, in code the diff neither changes nor newly calls.
 
    The verdict follows the worst finding: **changes needed** when any finding
    blocks, **ready with nits** when every finding is a nit, **ready** when
