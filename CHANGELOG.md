@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-23: The loop stops at start when its ready or blocked label is missing
+
+Before it takes anything, `run`, `--dry-run`, `--once` and `--issue` included, lists every label on the repo and stops with one `ERROR` line naming the `gh label create` command for each of `ready_label` and `blocked_label` the repo lacks, or logs one `WARN` and goes on when the labels can't be read.
+
+**Needs:** 2026-11-08: The loop takes a round on an open pull request
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`skills/loop-control/SKILL.md`](skills/loop-control/SKILL.md), `CHANGELOG.md`.
+
+**Do:** A copy or project without the two labels now has to create them, with the `gh label create` command the `ERROR` line names, before `run` takes anything. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
 
 On an issue labelled `bug`, the loop's planner now writes a `## Diagnosis` section. It gives the input, the wrong result and the result the ticket expects, then every function, parser or check on the path to the symptom, each cleared or not. A first round with no earlier work writes a test from it before the fix. With `builder_runs_tests` on, the build agent sees that test fail, tries the suspects in turn, and ends with `Diagnosis unresolved:` when none holds. The loop then throws away that round's changes and blocks the issue with the reply quoted. It does that for any first-round reply with that line, and with `test_first` on the tester's commit stays. After a round whose tests failed, the next is told to check the other suspects first. Issues without the label get the same prompts as before.
