@@ -147,6 +147,34 @@
           "rawQuery": true
         }
       ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "RQ-7 All-in cost of an issue that reached a pull request, by project",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- RQ-7: What does an issue that reached a pull request cost all in, counting every loop run on it, and how much\n-- loop spend sits on issues that have no pull request yet, by project? A pull request here is one the loop\n-- opened, not one that merged. Cost is the loop's estimate at API prices. A run with no cost, such as one the\n-- budget stopped, is in no sum: unpriced_runs counts them, and where it isn't 0, all_in_cost_usd,\n-- no_pr_cost_usd and no_pr_percent are lower than the real spend. usd_per_issue averages only the issues whose\n-- every run recorded a cost, so an unpriced run never pulls it down. An issue whose runs recorded no cost\n-- still counts in issues_with_pr, and a sum with no cost in it shows null, not 0. A run with no outcome counts\n-- as no pull request, and a run with no issue stands alone. As in RQ-2, a project named factory shares the\n-- factory's own row.\nSELECT coalesce(project, 'factory') AS project, count(*) FILTER (WHERE reached) AS issues_with_pr,\n       round(sum(cost) FILTER (WHERE reached), 2) AS all_in_cost_usd,\n       round(sum(cost) FILTER (WHERE reached AND priced)\n             / nullif(count(*) FILTER (WHERE reached AND priced), 0), 2) AS usd_per_issue,\n       round(sum(cost) FILTER (WHERE NOT reached), 2) AS no_pr_cost_usd,\n       round(100 * sum(cost) FILTER (WHERE NOT reached) / nullif(sum(cost), 0), 1) AS no_pr_percent,\n       CAST(sum(unpriced) AS BIGINT) AS unpriced_runs\nFROM (\n    SELECT project, coalesce(bool_or(outcome = 'pr'), false) AS reached, sum(cost_usd) AS cost,\n           bool_and(cost_usd IS NOT NULL) AS priced, count(*) FILTER (WHERE cost_usd IS NULL) AS unpriced\n    FROM loop_runs\n    GROUP BY project, issue, CASE WHEN issue IS NULL THEN run END\n)\nGROUP BY coalesce(project, 'factory')\nORDER BY all_in_cost_usd DESC NULLS LAST, project;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ]
     }
   ],
   "tags": [
