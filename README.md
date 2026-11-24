@@ -22,6 +22,8 @@ review. [Set up](#set-up) says where the guard stops, and
 
 **On this page:** [Set up](#set-up) · [Where things live](#where-things-live) · [The five layers](#the-five-layers-one-step-at-a-time) · [One file, three tools](#one-file-three-tools) · [Rules versus enforcement](#rules-versus-enforcement) · [Gates](#gates-done-is-a-scripts-call) · [Beyond the five layers](#beyond-the-five-layers) · [The main loop](#the-main-loop-and-four-inside-it) · [Borrowing skills](#borrowing-other-peoples-skills) · [People to follow](#people-to-follow) · [Guides](#guides) · [Your turn](#your-turn) · [Licence and credit](#licence-and-credit) · [Who made this](#who-made-this)
 
+To have an agent install it, start a new Claude Code session in any folder and paste this line: `Install Sanvio Factory by following https://github.com/SanvioLabs/sanvio-factory/blob/main/INSTALL.md. Read it before running anything.`
+
 The first two pictures are the harness: what one session inside the factory
 works in. The third is the factory, and the idea the rest of this page keeps
 coming back to: the flywheel. Each issue is one turn through five phases,
@@ -47,8 +49,8 @@ the example, then build your own job the same way at the root. For code,
 [`examples/typescript/`](examples/typescript/) is a TypeScript project the loop can test with Node
 alone.
 
-The rules, skills and gates work in Claude Code, Codex and Kiro. The guard, the
-mods and [`bin/factory`](bin/factory) need Claude Code.
+The rules, skills and gates work in Claude Code, Codex, Kiro and Gemini CLI.
+The guard, the mods and [`bin/factory`](bin/factory) need Claude Code.
 
 At the Humanbulb talk on 15 October 2026? [The slides are here](https://github.com/SanvioLabs/sanvio-factory/releases/tag/talk-humanbulb-2026-10-15),
 as a PDF, a PowerPoint and an offline web page.
@@ -60,6 +62,8 @@ git clone <this repo> my-factory && cd my-factory
 git config core.hooksPath .githooks
 python3 scripts/check_setup.py
 ```
+
+To have an agent do it, see [`INSTALL.md`](INSTALL.md).
 
 **Don't skip the middle line.** Git won't run the hook in [`.githooks/`](.githooks/) unless
 you point it there, and the setting doesn't travel with a clone. Skip it and
@@ -273,6 +277,7 @@ file and the others point at it:
 | Codex | [`AGENTS.md`](AGENTS.md) | The real file |
 | Claude Code | [`CLAUDE.md`](CLAUDE.md) | `@AGENTS.md`, plus one warning for a session started in the wrong folder |
 | Kiro | [`.kiro/steering/`](.kiro/steering/) | Symlinks to [`AGENTS.md`](AGENTS.md) and the steering files it loads every session |
+| Gemini CLI | [`GEMINI.md`](GEMINI.md) | `@AGENTS.md`, which loads the steering files it imports |
 
 Skills and agents work the same way: the real file lives in [`skills/`](skills/) or
 [`agents/`](agents/), and [`AGENTS.md`](AGENTS.md) names it so every tool can find it. Claude Code also
@@ -351,8 +356,8 @@ every day.
 [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) explains what's running underneath: where the loops are, how
 context is kept separate, and how little of it is code.
 
-The in-agent guards are Claude Code only. Codex and Kiro have their own hook
-systems; the git hook is the check all three share.
+The in-agent guards are Claude Code only. Codex, Kiro and Gemini CLI have their
+own hook systems; the git hook is the check all four share.
 
 **Where something new goes.** A rule, a fact about your company, a check:
 each has one home, and a second copy drifts. [`skills/learn/`](skills/learn/) picks the home

@@ -31,6 +31,26 @@ class Steering(unittest.TestCase):
             link = ROOT / ".kiro" / "steering" / name
             self.assertEqual(link.resolve(), (ROOT / "steering" / name).resolve(), name)
 
+    def test_gemini_loads_the_same_files_claude_code_imports(self):
+        gemini = ROOT / "GEMINI.md"
+        lines = [line.strip() for line in gemini.read_text().splitlines() if line.strip()]
+        self.assertEqual(lines, ["@AGENTS.md"])
+        loaded = []
+
+        def follow(path):
+            for target in IMPORT.findall(path.read_text()):
+                found = (path.parent / target).resolve()
+                if found.suffix != ".md":
+                    continue
+                name = found.relative_to(ROOT).as_posix()
+                seen = name in loaded
+                loaded.append(name)
+                if not seen:
+                    follow(found)
+
+        follow(gemini)
+        self.assertEqual(loaded, ["AGENTS.md"] + IMPORT.findall(AGENTS))
+
 
 class Compliance(unittest.TestCase):
     def test_compliance_steering_names_the_baseline(self):
@@ -131,7 +151,7 @@ SHIPPED = ["steering/*.md", "examples/**/*", "skills/orientation/*", "skills/lea
            "skills/whats-new/*", "CHANGELOG.md",
            "agents/reviewer.md", "agents/security-reviewer.md", "agents/ceo.md", "agents/cto.md",
            "agents/cmo.md", "agents/gc.md", "gates/README.md",
-           "projects/README.md", "README.md", "HOW-IT-WORKS.md",
+           "projects/README.md", "README.md", "HOW-IT-WORKS.md", "INSTALL.md",
            "EXERCISES.md", "STARTER-SKILLS.md", "scripts/*", "tests/*", ".claude/**/*",
            ".githooks/*", ".github/**/*"]
 

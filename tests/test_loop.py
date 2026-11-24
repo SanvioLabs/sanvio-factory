@@ -1123,6 +1123,26 @@ with open(os.path.join(state, "gh-cwds"), "a") as f:  # where each call ran, whi
     f.write(os.getcwd() + "\\n")
 if args[:2] == ["api", "user"]:
     print("pat")
+elif args[0] == "api" and any("/labels" in a for a in args):
+    # The repo's labels as --jq ".[].name | @json" prints them: labels.json, the loop's two default labels when a
+    # test doesn't set it. Without --paginate only the first page, of per_page (30 when not given), as gh does.
+    # labels-fail fails it, labels-garbage answers a page that isn't JSON strings, labels-hang never answers.
+    import json, re, time
+    if os.path.exists(os.path.join(state, "labels-fail")):
+        print("HTTP 502", file=sys.stderr)
+        sys.exit(1)
+    if os.path.exists(os.path.join(state, "labels-garbage")):
+        print("<html>")
+        sys.exit(0)
+    if os.path.exists(os.path.join(state, "labels-hang")):
+        time.sleep(30)
+    path = os.path.join(state, "labels.json")
+    names = json.load(open(path)) if os.path.exists(path) else ["loop-ready", "loop:blocked"]
+    if "--paginate" not in args:
+        page = re.search(r"per_page=(\\d+)", " ".join(args))
+        names = names[:int(page.group(1)) if page else 30]
+    for name in names:
+        print(json.dumps(name))
 elif args[:2] == ["api", "graphql"] and any("closedByPullRequestsReferences" in a for a in args):
     # The pull requests that close issue N: its "closed_by" in deps.json, [{"merged": ...}], none by default.
     import json
@@ -1670,7 +1690,10 @@ class TestAPass(unittest.TestCase):
     def test_network_allow_puts_the_build_in_the_sandbox_and_not_the_readers(self):
         self.claude_agents()
         self.cfg.update(network_allow=["pypi.org"])
-        with mock.patch.object(loop, "sandbox_problem", return_value=None):
+        # No real bwrap or sandbox-exec: the start check has tests of its own (#718).
+        with mock.patch.object(loop, "sandbox_problem", return_value=None), \
+                mock.patch.object(loop, "bwrap_probe", return_value=None), \
+                mock.patch.object(loop, "sandbox_probe", return_value=None):
             self.go()
         box = self.settings_for("build")["sandbox"]
         self.assertEqual(box["network"]["allowedDomains"], ["pypi.org"])
@@ -10661,13 +10684,16 @@ class TestCallerIntake(unittest.TestCase):
                         max_issue_tokens=4_000_000, ready_label="factory:submit", blocked_label="factory:stopped")
         # The stand-in agent isn't claude, which Claude Code's sandbox needs and a caller's reader has to be (#644):
         # those checks have tests of their own.
-        for name in ("sandbox_problem", "reader_unheld"):
+        # No real bwrap either, where Claude Code's sandbox start check would run it (#718).
+        for name in ("sandbox_problem", "reader_unheld", "bwrap_probe"):
             held = mock.patch.object(loop, name, return_value=None)
             held.start()
             self.addCleanup(held.stop)
         # A caller's own commands run only in sandbox-exec (#596), so its runs here have the stand-in.
         stand_in_sandbox(self, Path(self.tmp.name) / "bin")
         self.cfg["sandbox_commands"] = True
+        # The repo has the caller's labels, which run checks for before it takes anything (#717).
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
         self.submit(12)
 
     def submit(self, *numbers, accepted=()):
@@ -10822,22 +10848,29 @@ class TestCallerIntake(unittest.TestCase):
     def test_a_caller_is_refused_where_its_commands_wouldnt_run_in_sandbox_exec(self):
         self.submit(12, accepted=(12,))
         self.github(events=[accept_event()])
-        for change, patched, why in (
-                (dict(sandbox_commands=False), {}, "sandbox_commands is false"),
-                ({}, {"sandbox_available": False}, "this machine has no sandbox-exec"),
-                ({}, {"sandbox_probe": "sandbox_apply: Operation not permitted"},
-                 "sandbox-exec can't apply a profile here (sandbox_apply: Operation not permitted)")):
+        # The stand-in is a Mac's sandbox-exec, so Claude Code's sandbox start check runs as on a Mac, wherever
+        # this runs. There a caller, which always sets network_allow, whose sandbox-exec can't apply a profile is
+        # stopped by that check first, with its reason (#718).
+        start_error = loop.Loop.sandbox_start_error
+        for change, patched, key, why in (
+                (dict(sandbox_commands=False), {}, "sandbox_commands", "sandbox_commands is false"),
+                ({}, {"sandbox_available": False}, "sandbox_commands", "this machine has no sandbox-exec"),
+                ({}, {"sandbox_probe": "sandbox_apply: Operation not permitted"}, "network_allow",
+                 "Claude Code's sandbox can't start here (sandbox_apply: Operation not permitted)")):
             with self.subTest(why=why):
                 (self.state / "gh-calls").unlink(missing_ok=True)
                 (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
                 self.cfg["sandbox_commands"] = True
                 self.cfg.update(change)
                 with contextlib.ExitStack() as stack:
+                    stack.enter_context(mock.patch.object(
+                        loop.Loop, "sandbox_start_error", lambda runner, platform=None: start_error(runner, "darwin")))
                     for name, value in patched.items():
                         stack.enter_context(mock.patch.object(loop, name, return_value=value))
                     self.assertEqual(self.go(), 1)
                 last = self.lines()[-1]
-                self.assertIn("ERROR sandbox_commands in loop.json: ", last)
+                self.assertIn("ERROR {} in loop.json: ".format(key), last)
+                self.assertEqual(len([l for l in self.lines() if " ERROR " in l]), 1, self.lines())
                 self.assertIn(why, last)
                 self.assertIn("so no issue is taken", last)
                 # The one line says it: no WARN about the sandbox before it.
@@ -11009,9 +11042,11 @@ class TestCallerCommands(unittest.TestCase):
         TestProject.setUp(self)
         stand_in_sandbox(self, Path(self.tmp.name) / "bin")
         # The stand-in agent can't start Claude Code's sandbox: that check has tests of its own.
-        sandbox = mock.patch.object(loop, "sandbox_problem", return_value=None)
-        sandbox.start()
-        self.addCleanup(sandbox.stop)
+        # Nor run a real bwrap, where the start check would (#718); stand_in_sandbox has sandbox_probe pass.
+        for name in ("sandbox_problem", "bwrap_probe"):
+            sandbox = mock.patch.object(loop, name, return_value=None)
+            sandbox.start()
+            self.addCleanup(sandbox.stop)
         self.sibling = self.harness / "projects" / "other"
         self.sibling.mkdir()
         (self.sibling / "notes.txt").write_text("made-up text\n")
@@ -11019,6 +11054,8 @@ class TestCallerCommands(unittest.TestCase):
         (self.state / "issues.json").write_text(json.dumps([
             dict(issue(12, labels=("factory:submit", "factory:accepted")), body=WORK_ORDER)]))
         (self.state / "graphql-12.json").write_text(json.dumps(as_github_has_it(events=[accept_event()])))
+        # The repo has the caller's labels, which run checks for before it takes anything (#717).
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
 
     def caller(self, **entry):
         self.harness_config({"agent": "claude", "reader_agent": "claude", "max_rounds": 2, "poll_seconds": 0,
@@ -11640,6 +11677,342 @@ class TestCallerCommands(unittest.TestCase):
         for name in ("own-setup", "own-test", "factory-setup", "factory-test"):
             self.assertFalse(self.ran(name), name)
         self.assertFalse((self.state / "agents-started").exists())
+
+
+class LabelCheck(unittest.TestCase):
+    """run, before it takes anything, lists the repo's labels: one ERROR naming the gh label create command, and
+    nothing taken, when its ready or blocked label is missing, and one WARN, and run goes on, when the labels
+    can't be read (#717)."""
+
+    setUp, tearDown, lines, raw_lines, calls, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.calls, TestAPass.go)
+
+    def named(self, repo="OWNER/NAME"):
+        """origin() names repo, as a clone of a github.com repo's would: setUp's origin is a bare folder."""
+        patcher = mock.patch.object(loop, "origin", return_value=(repo, "", None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def labels(self, *names):
+        (self.state / "labels.json").write_text(json.dumps(list(names)))
+
+    def logged(self, kind):
+        return [l for l in self.lines() if l.split()[2] == kind]
+
+    def label_calls(self):
+        return [c for c in self.calls() if "/labels" in c]
+
+    def took(self):
+        return any(c.startswith("pr create") for c in self.calls())
+
+    def test_a_dry_run_lists_every_label_before_it_lists_any_issue(self):
+        self.assertEqual(self.go(dry_run=True), 0)
+        calls = self.calls()
+        self.assertEqual(len(self.label_calls()), 1, calls)
+        at = calls.index(self.label_calls()[0])
+        self.assertTrue(at < min(i for i, c in enumerate(calls) if c.startswith("issue list")), calls)
+        self.assertTrue(calls[at].startswith("api --paginate repos/{owner}/{repo}/labels?per_page=100 --jq "), calls[at])
+        self.assertEqual(self.logged("ERROR") + [l for l in self.logged("WARN") if "labels" in l], [])
+        self.assertEqual(len(self.logged("DISCOVER")), 1, self.lines())
+
+    def test_a_ready_label_past_the_first_pages_is_found(self):
+        self.labels(*["label-{}".format(n) for n in range(150)], "loop:blocked", "loop-ready")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_a_missing_label_stops_run_with_one_error_naming_the_command_that_makes_it(self):
+        self.named()
+        for present, missing in ((["loop:blocked"], ["loop-ready"]), (["loop-ready"], ["loop:blocked"]),
+                                 ([], ["loop-ready", "loop:blocked"])):
+            with self.subTest(missing=missing):
+                (self.state / "gh-calls").unlink(missing_ok=True)
+                (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
+                self.labels(*present)
+                self.assertEqual(self.go(), 1)
+                errors = self.logged("ERROR")
+                self.assertEqual(len(errors), 1, self.lines())
+                self.assertIn(" ERROR OWNER/NAME has no {} label: ".format(" or ".join(missing)), errors[0])
+                for label in missing:
+                    self.assertIn("gh label create {} -R OWNER/NAME".format(label), errors[0])
+                for label in present:
+                    self.assertNotIn("create " + label, errors[0])
+                self.assertTrue(errors[0].endswith(", so no issue is taken"), errors[0])
+                for kind in ("issue list", "issue edit", "label "):
+                    self.assertFalse(any(c.startswith(kind) for c in self.calls()), self.calls())
+                self.assertFalse((self.state / "agents-started").exists())
+
+    def test_without_a_github_origin_the_error_names_the_folder_and_its_command_names_no_repo(self):
+        self.labels("loop:blocked")
+        self.assertEqual(self.go(), 1)
+        errors = self.logged("ERROR")
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertIn(" has no loop-ready label: gh label create loop-ready makes it, so no issue is taken", errors[0])
+        self.assertIn(self.work.name, errors[0])
+        self.assertNotIn(" -R ", errors[0])
+
+    def unread(self, switch, said):
+        """Labels gh can't list, as switch makes it: one WARN quoting said, no ERROR, and the issue taken."""
+        self.named()
+        (self.state / switch).write_text("")
+        self.assertEqual(self.go(), 0)
+        warns = [l for l in self.logged("WARN") if "labels" in l]
+        self.assertEqual(len(warns), 1, self.lines())
+        self.assertIn(" WARN couldn't check OWNER/NAME's labels ({}".format(said), warns[0])
+        self.assertTrue(warns[0].endswith("), so run goes on without the check"), warns[0])
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_a_failed_listing_warns_and_run_goes_on(self):
+        self.unread("labels-fail", "HTTP 502)")
+
+    def test_a_listing_that_isnt_json_strings_warns_and_is_never_read_as_labels(self):
+        self.unread("labels-garbage", "<html>)")
+
+    def test_a_listing_that_hangs_is_cut_off_warns_and_run_goes_on(self):
+        with mock.patch.object(loop, "LABEL_CHECK_TIMEOUT", 1):
+            self.unread("labels-hang", "timed out after 1s)")
+
+    def test_a_label_in_another_case_counts(self):
+        self.labels("Loop-Ready", "LOOP:BLOCKED")
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.logged("ERROR"), [])
+        self.assertTrue(self.took(), self.calls())
+
+    def test_with_fork_set_the_labels_listed_are_origins_and_never_the_forks(self):
+        self.named()
+        self.cfg["fork"] = "pat/r"
+        self.labels("loop:blocked")
+        self.assertEqual(self.go(), 1)
+        self.assertEqual(len(self.label_calls()), 1, self.calls())
+        self.assertTrue(self.label_calls()[0].startswith("api --paginate repos/OWNER/NAME/labels?per_page=100 "),
+                        self.label_calls())
+        self.assertFalse(any("pat/r" in c for c in self.calls()), self.calls())
+        errors = self.logged("ERROR")
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertIn("OWNER/NAME has no loop-ready label: gh label create loop-ready -R OWNER/NAME makes it", errors[0])
+        self.assertNotIn("pat/r", errors[0])
+
+
+class LabelCheckCaller(unittest.TestCase):
+    """A caller project's check is for the labels load_project_config() gives it, the factory's, and never those
+    its own loop.json names (#717)."""
+
+    setUp, tearDown, commit, harness_config, caller, log = (
+        TestCallerCommands.setUp, TestCallerCommands.tearDown, TestCallerCommands.commit,
+        TestCallerCommands.harness_config, TestCallerCommands.caller, TestCallerCommands.log)
+    OWN, FACTORY = TestCallerCommands.OWN, TestCallerCommands.FACTORY
+
+    def dry(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return loop.Loop(self.harness, project=self.project).run(once=True, dry_run=True)
+
+    def test_the_check_is_for_the_factorys_labels_and_not_the_projects_own(self):
+        (self.project / "loop.json").write_text(json.dumps(dict(self.OWN, base="develop", ready_label="mine",
+                                                                blocked_label="mine-too")))
+        self.caller(**self.FACTORY)
+        (self.state / "labels.json").write_text(json.dumps(["mine", "mine-too"]))
+        self.assertEqual(self.dry(), 1)
+        errors = [l for l in self.log() if " ERROR " in l]
+        self.assertEqual(len(errors), 1, self.log())
+        self.assertIn(" has no factory:submit or factory:stopped label: gh label create factory:submit", errors[0])
+        self.assertNotIn("create mine", errors[0])
+        calls = (self.state / "gh-calls").read_text().splitlines()
+        self.assertFalse(any(c.startswith("issue list") for c in calls), calls)
+        # With the factory's labels on the repo, and the project's gone, the check passes.
+        (self.state / "labels.json").write_text(json.dumps(["factory:submit", "factory:stopped"]))
+        (self.state / "gh-calls").write_text("")
+        self.assertEqual(self.dry(), 0, self.log())
+        self.assertEqual(len([l for l in self.log() if " ERROR " in l]), 1, self.log())
+        calls = (self.state / "gh-calls").read_text().splitlines()
+        self.assertTrue(any(c.startswith("issue list") for c in calls), calls)
+
+
+class LabelCheckReview(ReviewFixture, unittest.TestCase):
+    """review, review --pr and grade never list the repo's labels: the check is run's alone (#717)."""
+
+    def test_review_review_pr_and_grade_make_no_labels_call(self):
+        self.list_prs()
+        self.go()
+        sha = self.push(7, "seven.txt")
+        self.view_pr(7, sha)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            loop.Loop(self.work, self.cfg).review(pr=7)
+            loop.Loop(self.work, self.cfg).grade_pr(7, "ready")
+        calls = self.calls()
+        self.assertGreaterEqual(len([c for c in calls if c.startswith("pr view 7")]), 2, calls)
+        self.assertFalse(any("/labels" in c for c in calls), calls)
+
+
+class TestSandboxStarts(unittest.TestCase):
+    """network_allow set: run, --dry-run included, checks before it takes anything that Claude Code's sandbox can
+    start here, bwrap on Linux and sandbox-exec on macOS, and stops with one ERROR line where it can't (#718)."""
+
+    setUp, tearDown, lines, raw_lines, go, claude_agents = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines, TestAPass.go,
+        TestAPass.claude_agents)
+
+    NO_NAMESPACE = "bwrap: Creating new namespace failed: Operation not permitted"
+    DENIED = "sandbox_apply: Operation not permitted"
+    BWRAP = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--unshare-net", "--", "/bin/true"]
+
+    def probed(self, **kwargs):
+        """bwrap_probe()'s answer with subprocess.run faked by kwargs, and the fake, to read its calls."""
+        with mock.patch.object(loop.subprocess, "run", **kwargs) as run:
+            return loop.bwrap_probe(), run
+
+    @staticmethod
+    def done(code, stderr=b"", stdout=b""):
+        return subprocess.CompletedProcess([], code, stdout=stdout, stderr=stderr)
+
+    def test_bwrap_probe_runs_bwrap_once_to_make_a_network_namespace(self):
+        why, run = self.probed(return_value=self.done(0))
+        self.assertIsNone(why)
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], self.BWRAP)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["capture_output"], True)
+        self.assertEqual(kwargs["timeout"], 10)
+
+    def test_bwrap_probe_gives_the_first_line_it_said_cut_to_200(self):
+        said = ("x" * 300 + "\nthe second line").encode()
+        self.assertEqual(self.probed(return_value=self.done(1, stderr=said))[0], "x" * 200)
+        self.assertEqual(self.probed(return_value=self.done(1, stdout=b"out\n"))[0], "out")
+
+    def test_bwrap_probe_gives_a_reason_when_it_says_nothing_hangs_or_cant_start(self):
+        self.assertEqual(self.probed(return_value=self.done(3))[0], "exit 3")
+        self.assertEqual(self.probed(side_effect=subprocess.TimeoutExpired(self.BWRAP, 10))[0],
+                         "no answer in 10 seconds")
+        self.assertIn("No such file", self.probed(side_effect=FileNotFoundError(2, "No such file or directory"))[0])
+        self.assertEqual(self.probed(side_effect=OSError("the first line\nthe second line"))[0], "the first line")
+
+    def errors(self):
+        return [l.split(" ERROR ", 1)[1] for l in self.lines() if " ERROR " in l]
+
+    def listed(self):
+        """Whether the loop listed issues, which it does only once every check before taking one has passed."""
+        path = self.state / "gh-calls"
+        return any(c.startswith("issue list") for c in (path.read_text().splitlines() if path.exists() else []))
+
+    def run_on(self, platform, bwrap=None, mac=None, found=("bwrap", "socat"), runner=None):
+        """A dry run with the sandbox's checks as on platform and only the tools in found among bwrap and socat
+        installed, bwrap_probe() answering bwrap and sandbox_probe() mac. Each probe is kept, as self.bwrap and
+        self.mac, to count calls. The platform goes to the two checks, not sys.platform, which the rest of the run
+        and shutil.which read; test_the_platform_defaults_to_this_machines covers the default."""
+        problem, start_error = loop.sandbox_problem, loop.Loop.sandbox_start_error
+        with mock.patch.object(loop, "sandbox_problem", lambda cfg, platform_=None, which=None: problem(
+                    cfg, platform, lambda name: "/usr/bin/" + name if name in found else None)), \
+                mock.patch.object(loop.Loop, "sandbox_start_error",
+                                  lambda runner_, platform_=None: start_error(runner_, platform)), \
+                mock.patch.object(loop, "bwrap_probe", return_value=bwrap) as self.bwrap, \
+                mock.patch.object(loop, "sandbox_probe", return_value=mac) as self.mac, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return (runner or loop.Loop(self.work, self.cfg)).run(once=True, dry_run=True)
+
+    def assert_cant_start(self, why):
+        """One ERROR line, Claude Code's sandbox can't start here for why, and no issue taken."""
+        errors = self.errors()
+        self.assertEqual(len(errors), 1, self.lines())
+        self.assertEqual(errors[0], "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The "
+                         "likely cause is running inside another sandbox or a container; setting network_allow to "
+                         "null leaves containment to the outer sandbox, so no issue is taken".format(why))
+        self.assertFalse(self.listed())
+        self.assertFalse((self.state / "agents-started").exists())
+
+    def test_on_linux_a_bwrap_that_cant_make_a_namespace_stops_a_dry_run_with_one_error(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.assertEqual(self.run_on("linux", bwrap=self.NO_NAMESPACE), 1)
+        self.assert_cant_start(self.NO_NAMESPACE)
+        self.bwrap.assert_called_once_with()
+        self.mac.assert_not_called()
+
+    def test_on_linux_a_bwrap_that_works_lets_the_run_go_on(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.run_on("linux")
+        self.bwrap.assert_called_once_with()
+        self.assertFalse(any("can't start here" in l for l in self.lines()), self.lines())
+        self.assertTrue(self.listed(), self.lines())
+
+    def test_on_a_mac_a_probe_already_answered_is_not_run_again_and_its_reason_stops_the_run(self):
+        self.claude_agents()
+        self.cfg["network_allow"] = []
+        runner = loop.Loop(self.work, self.cfg)
+        runner.sandbox_error = self.DENIED
+        self.assertEqual(self.run_on("darwin", runner=runner), 1)
+        self.mac.assert_not_called()
+        self.bwrap.assert_not_called()
+        self.assert_cant_start(self.DENIED)
+
+    def test_on_a_mac_the_probe_runs_once_in_a_run_with_network_allow_set_or_not(self):
+        # sandbox_commands true has the loop's start probe for its own commands, which this check shares.
+        self.claude_agents()
+        self.cfg["sandbox_commands"] = True
+        for allow in (["pypi.org"], None):
+            with self.subTest(network_allow=allow):
+                (self.state / "gh-calls").unlink(missing_ok=True)
+                self.cfg["network_allow"] = allow
+                with mock.patch.object(loop, "sandbox_available", return_value=True):
+                    self.run_on("darwin")
+                self.assertEqual(self.mac.call_count, 1)
+                self.bwrap.assert_not_called()
+                self.assertTrue(self.listed(), self.lines())
+
+    def test_without_network_allow_neither_probe_runs(self):
+        runner = loop.Loop(self.work, self.cfg)
+        with mock.patch.object(loop, "bwrap_probe") as bwrap, mock.patch.object(loop, "sandbox_probe") as mac:
+            for platform in ("linux", "darwin"):
+                self.assertIsNone(runner.sandbox_start_error(platform=platform))
+            with mock.patch.object(loop.sys, "platform", "linux"):
+                self.assertIsNone(runner.sandbox_start_error())
+        bwrap.assert_not_called()
+        mac.assert_not_called()
+        self.assertIs(runner.sandbox_error, loop.NOT_PROBED)
+
+    def test_the_platform_defaults_to_this_machines(self):
+        self.cfg["network_allow"] = []
+        with mock.patch.object(loop.sys, "platform", "linux"), \
+                mock.patch.object(loop, "bwrap_probe", return_value=self.NO_NAMESPACE) as bwrap:
+            self.assertEqual(loop.Loop(self.work, self.cfg).sandbox_start_error(), self.NO_NAMESPACE)
+        bwrap.assert_called_once_with()
+        with mock.patch.object(loop.sys, "platform", "freebsd"), mock.patch.object(loop, "bwrap_probe") as bwrap:
+            self.assertIsNone(loop.Loop(self.work, self.cfg).sandbox_start_error())
+        bwrap.assert_not_called()
+
+    def test_where_sandbox_problem_refuses_bwrap_probe_is_never_run(self):
+        for platform, found, agent, why in (
+                ("linux", ("socat",), None, "needs bwrap and socat on Linux, and bwrap isn't installed"),
+                ("win32", ("bwrap", "socat"), None, "Claude Code's sandbox doesn't run on Windows"),
+                ("linux", ("bwrap", "socat"), "codex", "only a claude build agent runs in Claude Code's sandbox")):
+            with self.subTest(why=why):
+                (self.work / ".loop" / "loop.log").unlink(missing_ok=True)
+                self.claude_agents()
+                if agent:
+                    self.cfg["agent"] = agent
+                self.cfg["network_allow"] = ["pypi.org"]
+                self.assertEqual(self.run_on(platform, found=found), 1)
+                errors = self.errors()
+                self.assertEqual(len(errors), 1, self.lines())
+                self.assertTrue(errors[0].startswith("network_allow in loop.json: "), errors[0])
+                self.assertIn(why, errors[0])
+                self.assertNotIn("can't start here", errors[0])
+                self.bwrap.assert_not_called()
+                self.mac.assert_not_called()
+                self.assertFalse(self.listed())
+
+
+class TestSandboxStartsReview(ReviewFixture, unittest.TestCase):
+    """The review watcher doesn't check that Claude Code's sandbox can start: the check is run's alone (#718)."""
+
+    def test_the_review_watcher_never_asks(self):
+        self.cfg["network_allow"] = ["pypi.org"]
+        self.list_prs()
+        with mock.patch.object(loop.Loop, "sandbox_start_error", return_value="it can't") as asked:
+            self.go()
+        asked.assert_not_called()
+        self.assertFalse(any("can't start here" in l for l in self.lines()), self.lines())
 
 
 class TestCallerConfinement(unittest.TestCase):
