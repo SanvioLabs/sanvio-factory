@@ -1287,6 +1287,9 @@ elif args[:2] == ["issue", "list"]:
         listed = [i for i in listed if label in [l["name"] for l in i["labels"]]]
     limit = int(args[args.index("--limit") + 1]) if "--limit" in args else 30
     print(json.dumps(sorted(listed, key=lambda i: -i["number"])[:limit]))
+elif args[:2] == ["issue", "edit"] and os.path.exists(os.path.join(state, "edit-fails")):
+    print("HTTP 502")  # on stdout, as gh prints its errors
+    sys.exit(1)
 elif args[:2] == ["issue", "edit"] and "--remove-label" in args and os.path.exists(os.path.join(state, "labels-follow")):
     # Off the listed issue too, as on GitHub, so a loop that keeps polling doesn't take it again.
     # Only when a test sets labels-follow. Locked and replaced whole: two workers can edit at once
@@ -1301,6 +1304,14 @@ elif args[:2] == ["issue", "edit"] and "--remove-label" in args and os.path.exis
                 i["labels"] = [l for l in i["labels"] if l["name"] != args[args.index("--remove-label") + 1]]
         open(path + ".part", "w").write(json.dumps(listed))
         os.replace(path + ".part", path)
+elif args[:2] == ["issue", "view"] and "--json" in args and "labels" in args[args.index("--json") + 1].split(","):
+    # The issue's labels as issues.json lists them, none for one it doesn't. issue-labels-fail fails it.
+    import json
+    if os.path.exists(os.path.join(state, "issue-labels-fail")):
+        print("HTTP 502")  # on stdout, as gh prints its errors
+        sys.exit(1)
+    listed = [i for i in json.load(open(os.path.join(state, "issues.json"))) if i["number"] == int(args[2])]
+    print(json.dumps({"labels": listed[0]["labels"] if listed else []}))
 elif args[:2] == ["issue", "view"]:
     if os.path.exists(os.path.join(state, "issue-view-fails")):
         print("HTTP 502")  # on stdout, as gh prints its errors
@@ -8051,6 +8062,195 @@ class TestNewestReview(unittest.TestCase):
         self.assertEqual(loop.newest_review(out, ["pat"], "abcdef0123")[1], "ready")  # and optional
 
 
+class TestBlockRetry(unittest.TestCase):
+    """A block GitHub didn't get is retried before each pick, and its issue isn't taken meanwhile (#739)."""
+
+    setUp, tearDown, lines, status, comments, go = (TestAPass.setUp, TestAPass.tearDown, TestAPass.lines,
+                                                    TestAPass.status, TestAPass.comments, TestAPass.go)
+    WHY = "the tests kept failing"
+    ALL = ["remove_label", "add_label", "comment"]
+
+    def quietly(self, call, *args, **kwargs):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return call(*args, **kwargs)
+
+    def sent(self):
+        """Each gh call since the last forget(), or since the test began."""
+        path = self.state / "gh-calls"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def forget(self):
+        (self.state / "gh-calls").unlink(missing_ok=True)
+
+    def github_answers(self):
+        for name in ("edit-fails", "comment-fails"):
+            (self.state / name).unlink(missing_ok=True)
+
+    def failed_block(self, number=5, said=None):
+        """Issue number blocked while every issue edit and comment fails, by the Loop this returns."""
+        (self.state / "edit-fails").write_text("")
+        (self.state / "comment-fails").write_text("")
+        runner = loop.Loop(self.work, self.cfg)
+        self.quietly(runner.block, number, self.WHY, said=said)
+        return runner
+
+    def seeded(self, *rows):
+        """status.json holding these rows, newest first, each a blocked one with what it sets."""
+        folder = self.work / ".loop"
+        folder.mkdir(exist_ok=True)
+        full = [dict({"title": "", "step": "", "state": "blocked", "round": 0, "tests": None, "review": None,
+                      "pr": None, "note": self.WHY, "block_at": "2026-11-24T09:00:00"}, **row) for row in rows]
+        (folder / "status.json").write_text(json.dumps({"queue": [], "issues": full, "reviews": {}}))
+
+    def row(self, number=5):
+        return next(r for r in self.status()["issues"] if r["number"] == number)
+
+    def kept(self, number=5):
+        return self.work / ".loop" / "issue-{}".format(number) / "block-comment.md"
+
+    def test_an_issue_whose_block_github_didnt_get_is_never_picked_even_by_a_new_run(self):
+        # The Diagnosis's input: GitHub still lists issue 5 with loop-ready and without loop:blocked.
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block()
+        self.assertEqual(self.row()["state"], "blocked")
+        self.assertIsNone(self.quietly(runner.discover))
+        self.assertIsNone(self.quietly(loop.Loop(self.work, self.cfg).discover))
+        self.assertEqual(self.status()["queue"], [])
+
+    def test_a_block_lists_each_step_github_didnt_take_by_its_exit_code(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        self.failed_block(said="SAID-MARKER from the build")
+        row = self.row()
+        self.assertEqual((row["block_todo"], row["block_done"]), (self.ALL, []))
+        self.assertTrue(row["block_at"])
+        text = self.kept().read_text()
+        self.assertIn(self.WHY, text)
+        self.assertIn("SAID-MARKER from the build", text)
+        # A block that gets through replaces both lists, and the kept comment goes.
+        self.github_answers()
+        self.quietly(loop.Loop(self.work, self.cfg).block, 5, self.WHY)
+        row = self.row()
+        self.assertEqual((row["block_todo"], row["block_done"]), ([], ["remove_label", "add_label"]))
+        self.assertFalse(self.kept().exists())
+
+    def test_the_retry_sends_the_steps_in_order_and_posts_the_kept_comment(self):
+        # Neither label step was done, and loop-ready is still on it: the retry goes on.
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block(said="SAID-MARKER from the build")
+        text = self.kept().read_text()
+        self.github_answers()
+        self.forget()
+        self.quietly(runner.retry_blocks, ())
+        calls = self.sent()
+        order = [calls.index(c) for c in ("issue view 5 --json labels", "issue edit 5 --remove-label loop-ready",
+                                          "issue edit 5 --add-label loop:blocked")]
+        order.append(next(i for i, c in enumerate(calls) if c.startswith("issue comment 5 --body ")))
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(self.comments(), [text + "\n"])
+
+    def test_a_retry_that_gets_through_logs_once_and_clears_the_row(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        self.failed_block()
+        self.github_answers()
+        (self.state / "labels-follow").write_text("")  # the retry's edit takes loop-ready off the list too
+        self.assertEqual(self.go(), 0)
+        self.assertEqual([l.split(" ", 1)[1] for l in self.lines() if "reached GitHub" in l],
+                         ["#5 BLOCKED the block reached GitHub"])
+        self.assertFalse(self.kept().exists())
+        row = self.row()
+        self.assertEqual((row["block_todo"], row["block_done"], row["state"]), ([], [], "blocked"))
+
+    def test_a_label_already_right_sends_no_edit(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block()
+        # GitHub took both edits after all, though gh said it failed.
+        (self.state / "issues.json").write_text(json.dumps([issue(5, labels=("loop:blocked",))]))
+        self.github_answers()
+        self.forget()
+        self.quietly(runner.retry_blocks, ())
+        self.assertFalse(any(c.startswith("issue edit") for c in self.sent()), self.sent())
+        self.assertEqual(len(self.comments()), 1)
+        self.assertEqual(self.row()["block_todo"], [])
+
+    def test_a_failed_label_read_sends_nothing_that_pass(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block()
+        self.github_answers()
+        (self.state / "issue-labels-fail").write_text("")
+        self.forget()
+        self.quietly(runner.retry_blocks, ())
+        self.assertEqual(self.sent(), ["issue view 5 --json labels"])
+        self.assertEqual(self.row()["block_todo"], self.ALL)
+        self.assertTrue(self.kept().exists())
+
+    def test_a_dry_run_sends_no_retry(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        self.failed_block()
+        self.github_answers()
+        self.forget()
+        self.go(dry_run=True)
+        self.assertFalse(any(c.startswith(("issue edit", "issue comment", "issue view 5 --json labels"))
+                             for c in self.sent()), self.sent())
+        self.assertEqual(self.row()["block_todo"], self.ALL)
+        self.assertNotIn("would pick", "\n".join(self.lines()))
+
+    def test_a_retry_that_keeps_failing_logs_one_error_without_ghs_output(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block()
+        for _ in range(3):
+            self.quietly(runner.retry_blocks, ())
+        errors = [l for l in self.lines() if l.split()[2] == "ERROR"]
+        retried = [l for l in errors if "hasn't reached GitHub" in l]
+        self.assertEqual(len(retried), 1, errors)
+        self.assertIn("the block of {} hasn't reached GitHub; it's retried before each pick".format(
+            self.row()["block_at"]), retried[0])
+        self.assertFalse(any("HTTP 502" in l for l in errors), errors)
+        self.assertEqual(self.row()["block_todo"], self.ALL)
+
+    def test_putting_the_issue_back_by_its_labels_ends_the_retry(self):
+        # The block took loop-ready off, and its other steps failed; then a person put loop-ready back.
+        self.seeded({"number": 5, "block_todo": ["add_label", "comment"], "block_done": ["remove_label"]})
+        self.kept().parent.mkdir(parents=True)
+        self.kept().write_text("kept")
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = loop.Loop(self.work, self.cfg)
+        self.quietly(runner.retry_blocks, ())
+        self.assertFalse(any(c.startswith(("issue edit", "issue comment")) for c in self.sent()), self.sent())
+        self.assertEqual([l.split(" ", 1)[1] for l in self.lines() if " #5 " in l],
+                         ["#5 BLOCKED a person put the issue back, so the block's retry ended"])
+        self.assertFalse(self.kept().exists())
+        self.assertEqual((self.row()["block_todo"], self.row()["block_done"]), ([], []))
+        self.assertEqual(self.quietly(runner.discover)["number"], 5)
+
+    def test_other_issues_are_left_alone_and_another_ready_one_is_still_picked(self):
+        # 6 is blocked from before #739, with no block_todo; a worker is on 7.
+        self.seeded({"number": 5, "block_todo": self.ALL, "block_done": []}, {"number": 6},
+                    {"number": 7, "block_todo": self.ALL, "block_done": []})
+        (self.state / "issues.json").write_text(json.dumps([issue(5), issue(7), issue(8)]))
+        (self.state / "edit-fails").write_text("")
+        runner = loop.Loop(self.work, self.cfg)
+        self.quietly(runner.retry_blocks, {7: None})
+        touched = {c.split()[2] for c in self.sent() if c.startswith("issue ")}
+        self.assertEqual(touched, {"5"})
+        self.assertEqual(self.quietly(runner.discover, busy={7: None})["number"], 8)
+        self.assertEqual([q["number"] for q in self.status()["queue"]], [8])
+
+    def test_an_old_row_whose_block_hasnt_reached_github_outlasts_the_cut_with_its_folder(self):
+        rows = [{"number": n} for n in range(25, 1, -1)] + [{"number": 1, "block_todo": ["comment"]}]
+        self.seeded(*rows)
+        old = time.time() - 100 * 86400
+        for n in (1, 2):
+            folder = self.work / ".loop" / "issue-{}".format(n)
+            folder.mkdir()
+            (folder / "block-comment.md").write_text("x")
+            os.utime(folder / "block-comment.md", (old, old))
+        runner = loop.Loop(self.work, self.cfg)
+        self.quietly(runner.save_status)
+        self.assertEqual([r["number"] for r in self.status()["issues"]], list(range(25, 5, -1)) + [1])
+        self.assertEqual(self.quietly(runner.forget_old_issues), [2])
+        self.assertTrue((self.work / ".loop" / "issue-1").is_dir())
+
+
 class TestProject(unittest.TestCase):
     """--project: a clone under the harness's projects/, worked from the harness."""
 
@@ -8232,6 +8432,24 @@ class TestProject(unittest.TestCase):
         self.assertTrue(any(c.startswith("pr create --base develop --head loop/issue-12") for c in calls))
         self.assertIn("refs/heads/loop/issue-12", git(self.project, "ls-remote", "origin", "loop/issue-12").stdout)
         self.assertEqual(git(self.harness, "branch", "--list", "loop/*").stdout.strip(), "")
+
+    def test_a_block_github_didnt_get_is_kept_and_retried_in_the_project(self):
+        (self.state / "edit-fails").write_text("")
+        (self.state / "comment-fails").write_text("")
+        runner = loop.Loop(self.harness, project=self.project)
+        state = self.harness / ".loop" / "projects" / "app"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            runner.block(12, "the tests kept failing")
+            self.assertTrue((state / "issue-12" / "block-comment.md").exists())
+            self.assertFalse((self.harness / ".loop" / "issue-12").exists())
+            for name in ("edit-fails", "comment-fails"):
+                (self.state / name).unlink()
+            runner.retry_blocks(())
+        ran = {Path(line).resolve() for line in (self.state / "gh-cwds").read_text().splitlines()}
+        self.assertEqual(ran, {self.project.resolve()})
+        row = json.loads((state / "status.json").read_text())["issues"][0]
+        self.assertEqual((row["number"], row["block_todo"]), (12, []))
+        self.assertFalse((state / "issue-12" / "block-comment.md").exists())
 
     def test_its_state_stays_in_the_harness_and_its_lock_is_its_own(self):
         held = self.harness / ".loop" / "lock"

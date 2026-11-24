@@ -267,7 +267,8 @@ NO_SESSION_LOG = "**Evidence:** no session log\n"
 SAID_CAP = 2_000  # how much of the build agent's last reply a block comment quotes, from its end
 DIRTY_CAP = 10  # how many paths a block names, of those setup left behind or an agent wrote where it shouldn't
 REVIEW_KEEP = 200  # pull requests kept in status.json, newest first
-STATUS_KEEP = 20  # issues kept in status.json, newest first
+STATUS_KEEP = 20  # issues kept in status.json, newest first, and every older one whose block hasn't reached GitHub
+BLOCK_COMMENT = "block-comment.md"  # in .loop/issue-N/: a block's comment GitHub didn't take, until it's posted
 BLOCKED_RECHECK_SECONDS = 3600  # how long a blocked issue found open waits before it's looked up again
 LABEL_CHECK_TIMEOUT = 30  # seconds run's start waits for gh to list the repo's labels (#717)
 # For an agent reading someone else's pull request: read tools only, confined to the checkout.
@@ -3310,7 +3311,10 @@ class Loop:
         with self.write_lock:
             self.status.update(fields)
             self.status["updated"] = datetime.now().isoformat(timespec="seconds")
-            self.status["issues"] = self.status["issues"][:STATUS_KEEP]
+            # A row whose block hasn't reached GitHub stays, and so does its folder: forget_old_issues() skips it.
+            rows = self.status["issues"]
+            self.status["issues"] = rows[:STATUS_KEEP] + [r for r in rows[STATUS_KEEP:]
+                                                       if isinstance(r, dict) and r.get("block_todo")]
             reviews = self.status["reviews"]
             if len(reviews) > REVIEW_KEEP:
                 newest = sorted(reviews, key=lambda n: reviews[n].get("updated", ""), reverse=True)[:REVIEW_KEEP]
@@ -4364,7 +4368,9 @@ class Loop:
         if code != 0:
             self.log("ERROR", "could not list issues: " + out.strip()[:200])
             return None
-        waiting = ready(json.loads(out or "[]"), self.whoami(), self.cfg)
+        # An issue whose block GitHub didn't get still looks ready there: it's neither queued nor picked (#739).
+        unsent = self.unsent_blocks()
+        waiting = ready([i for i in json.loads(out or "[]") if i.get("number") not in unsent], self.whoami(), self.cfg)
         self.save_status(queue=[{"number": i["number"], "title": i["title"]} for i in waiting])
         # Only an issue with nothing left to wait for may be picked; the queue still shows the rest.
         # Acceptance first: an issue no one here has accepted gets nothing else, not even a dependency's block.
@@ -4828,11 +4834,13 @@ class Loop:
         found = newest_review(out, logins, head) if code == 0 else None
         return found[0][len(REVIEW_MARKER):].strip()[:REVIEW_CAP] if found else ""
 
-    def comment(self, number, text):
-        """One comment on the issue, so it tells its story without this machine. A failure is logged, not fatal."""
+    def comment(self, number, text, quiet=False):
+        """One comment on the issue, so it tells its story without this machine. Whether it was posted: a failure
+        is logged, unless quiet, and not fatal."""
         code, out = self.gh("issue", "comment", str(number), "--body", text)
-        if code != 0:
+        if code != 0 and not quiet:
             self.log("ERROR", "could not comment on the issue: " + out.strip()[:200], number)
+        return code == 0
 
     def setup(self, number, tree):
         """Run setup_command in the worktree unless it already succeeded there. False when it blocked the issue.
@@ -4892,14 +4900,28 @@ class Loop:
     def block(self, number, why, rounds=None, said=None):
         """Take the issue off the queue: drop the ready label first, then mark it blocked.
 
-        said, the build agent's reply, goes on the issue's comment only, never the log or status.
+        said, the build agent's reply, goes on the issue's comment only, never the log or status; a comment that
+        wasn't posted keeps it in the issue's block-comment.md, for retry_blocks() to post.
+
+        Each step that GitHub didn't take is in the row's block_todo, and each label step it took in block_done,
+        both written on every block. Until block_todo is empty the issue is never picked (#739).
         """
         self.halt_if_interrupted()  # whatever failed, a Ctrl-C caused it: the issue stays as it was
-        self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
-        self.gh("issue", "edit", str(number), "--add-label", self.cfg["blocked_label"])
+        removed, _ = self.gh("issue", "edit", str(number), "--remove-label", self.cfg["ready_label"])
+        added, _ = self.gh("issue", "edit", str(number), "--add-label", self.cfg["blocked_label"])
         self.log("BLOCKED", why, number)
-        self.comment(number, block_comment(number, why, rounds, self.cfg, said, self.usage(number)))
-        self.mark(number, state="blocked", note=why)
+        text = block_comment(number, why, rounds, self.cfg, said, self.usage(number))
+        commented = self.comment(number, text)
+        kept = self.dir / "issue-{}".format(number) / BLOCK_COMMENT
+        if commented:
+            kept.unlink(missing_ok=True)  # an earlier block's, which this one replaces
+        else:
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            write_unfollowed(kept, text)
+        steps = (("remove_label", removed == 0), ("add_label", added == 0), ("comment", commented))
+        self.mark(number, state="blocked", note=why, block_at=now_stamp(),
+                  block_todo=[step for step, ok in steps if not ok],
+                  block_done=[step for step, ok in steps[:2] if ok])
 
     def lesson(self, number, rounds, problems, passed):
         """Append an entry in the shape the learn skill reads: what went wrong, what should have happened.
@@ -5561,6 +5583,74 @@ class Loop:
             else:
                 self.open_checked[number] = time.monotonic()
 
+    def unsent_blocks(self):
+        """The issues whose row still has a step of its block that GitHub didn't take (#739)."""
+        with self.write_lock:
+            return {row.get("number") for row in self.status["issues"]
+                    if isinstance(row, dict) and row.get("block_todo")}
+
+    def retry_blocks(self, busy=()):
+        """Send again each step of a block that GitHub didn't take, for each issue no worker in busy is on.
+
+        Runs before each pick. The issue's labels are read first, and a failed read leaves it for the next pass.
+        A person who has since put the issue back by its labels (the ready label there again after the block took
+        it off, or the blocked label gone after the block added it) ends its retry. Otherwise the steps go in
+        their order: a label step that already holds sends nothing, the comment is block-comment.md's, and the
+        first that fails ends the issue's pass, logged once per block. Each step taken is saved as it's taken.
+        The row is changed in place, not by mark(): the issue isn't being worked, so it keeps its place.
+        """
+        ready_label, blocked_label = self.cfg["ready_label"], self.cfg["blocked_label"]
+        for row in list(self.status["issues"]):  # a worker's mark() reorders the rows
+            if not (isinstance(row, dict) and row.get("block_todo")) or row.get("number") in busy:
+                continue
+            number = row["number"]
+            code, out = self.gh("issue", "view", str(number), "--json", "labels")
+            try:
+                # GitHub's label names match whatever their case, as missing_labels() compares them.
+                labels = {str(l["name"]).casefold() for l in json.loads(out)["labels"]} if code == 0 else None
+            except (ValueError, KeyError, TypeError):
+                labels = None
+            if labels is None:
+                continue
+            ready_on, blocked_on = ready_label.casefold() in labels, blocked_label.casefold() in labels
+            done = list(row.get("block_done") or [])
+            kept = self.dir / "issue-{}".format(number) / BLOCK_COMMENT
+            if ("remove_label" in done and ready_on) or ("add_label" in done and not blocked_on):
+                self.set_block_steps(row, [], [])
+                kept.unlink(missing_ok=True)
+                self.log("BLOCKED", "a person put the issue back, so the block's retry ended", number)
+                continue
+            for step in list(row["block_todo"]):
+                if step == "remove_label":
+                    ok = not ready_on or self.gh("issue", "edit", str(number), "--remove-label", ready_label)[0] == 0
+                elif step == "add_label":
+                    ok = blocked_on or self.gh("issue", "edit", str(number), "--add-label", blocked_label)[0] == 0
+                elif step == "comment":
+                    try:
+                        text = kept.read_text(encoding="utf-8", errors="replace")
+                    except OSError:  # gone: the reason is still on the row, without the agent's reply
+                        text = block_comment(number, row.get("note") or "", None, self.cfg)
+                    ok = self.comment(number, text, quiet=True)
+                else:
+                    ok = True  # not a step this loop takes, so there's nothing to send
+                if not ok:
+                    self.log_once("ERROR", "the block of {} hasn't reached GitHub; it's retried before each "
+                                           "pick".format(row.get("block_at")), number)
+                    break
+                if step in ("remove_label", "add_label"):
+                    done.append(step)  # so a person putting it back on a later pass is seen
+                self.set_block_steps(row, [s for s in row["block_todo"] if s != step], done)
+            if not row["block_todo"]:
+                self.set_block_steps(row, [], [])
+                kept.unlink(missing_ok=True)
+                self.log("BLOCKED", "the block reached GitHub", number)
+
+    def set_block_steps(self, row, todo, done):
+        """Write a row's block_todo and block_done, and save."""
+        with self.write_lock:
+            row["block_todo"], row["block_done"] = todo, done
+            self.save_status()
+
     def update_prs(self):
         """Merge the base into each open loop pull request whose only conflict with it is CHANGELOG.md.
 
@@ -5976,6 +6066,8 @@ class Loop:
                     else:
                         time.sleep(self.cfg["poll_seconds"])
                     continue
+                if not dry_run:
+                    self.retry_blocks(running)  # a block GitHub didn't get, before the pick that would retake it
                 issue = self.discover(only, dry_run, busy=running)
                 if issue is None:
                     if running:

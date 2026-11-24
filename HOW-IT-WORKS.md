@@ -112,6 +112,7 @@ the next. Nothing runs until you start it, and `run` never merges.
 
 Build and Validate repeat up to five rounds. After that the issue is labelled
 `loop:blocked` and the loop moves on without it.
+When GitHub doesn't take a block's label changes or its comment, in an outage say, the loop tries each step it missed again before each pick, in the same order, and logs one `ERROR` line for that block until they're through, then `BLOCKED the block reached GitHub`. Meanwhile it doesn't take the issue again, even after a restart and though GitHub still lists it with `loop-ready`: the issue's row in `status.json` lists the missed steps in `block_todo`, and a comment that wasn't posted waits in `.loop/issue-N/block-comment.md`. Putting the issue back by its labels ends the retry: `loop-ready` on again after the block took it off, or `loop:blocked` off after the block added it.
 If the issue is closed later, for example when a person merges the loop's commit by hand, the loop marks its row `skipped` with the note `issue closed while blocked` while it's idle, within an hour, so the dashboard stops listing it. The `loop:blocked` label stays on the issue.
 A round after the first that
 adds nothing new ends the run there, blocked, with the agent's reply quoted on
@@ -177,6 +178,9 @@ step that has finished, by step name, with rounds summed. `step_seconds` covers
 the current run only and starts empty on each new run, unlike `tokens` and
 `cost_usd`, which count every run. A row from before these fields, or one no run
 has started since, has neither.
+A row blocked since #739 also has `block_todo`, the steps of its block GitHub
+hasn't taken yet (`remove_label`, `add_label`, `comment`), `block_done`, the
+label steps it has, and `block_at`, when it blocked.
 It's rewritten whole at each step, so a reader never sees half of it.
 
 In Claude Code, `/factory-floor` draws it in a pane beside the conversation, in
