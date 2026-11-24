@@ -11121,10 +11121,32 @@ class TestCallerIntake(unittest.TestCase):
                 self.assertEqual(len([l for l in self.lines() if " ERROR " in l]), 1, self.lines())
                 self.assertIn(why, last)
                 self.assertIn("so no issue is taken", last)
+                if key == "network_allow":
+                    # A caller can't set network_allow to null, so it isn't told to (#740).
+                    self.assertIn("a caller project's agents run only in Claude Code's sandbox", last)
+                    self.assertNotIn("null", last)
                 # The one line says it: no WARN about the sandbox before it.
                 self.assertEqual([l for l in self.lines() if " WARN " in l and "sandbox" in l], [])
                 self.assertFalse(any(c.startswith("issue list") for c in self.calls()), self.calls())
                 self.assertEqual(self.agents(), [])
+
+    def test_a_caller_whose_sandbox_cant_start_is_told_it_cant_run_here(self):
+        # As on Linux, through the real check: bwrap can't make a namespace, and a caller can't set network_allow
+        # to null, so the one line says it can't run on this machine rather than suggest it (#740).
+        self.submit(12, accepted=(12,))
+        self.github(events=[accept_event()])
+        why = "bwrap: Creating new namespace failed: Operation not permitted"
+        start_error = loop.Loop.sandbox_start_error
+        with mock.patch.object(loop, "bwrap_probe", return_value=why), mock.patch.object(
+                loop.Loop, "sandbox_start_error", lambda runner, platform=None: start_error(runner, "linux")):
+            self.assertEqual(self.go(), 1)
+        errors = [l.split(" ERROR ", 1)[1] for l in self.lines() if " ERROR " in l]
+        self.assertEqual(errors, [
+            "network_allow in loop.json: Claude Code's sandbox can't start here ({}); a caller project's agents run "
+            "only in Claude Code's sandbox, so it can't run on this machine, so no issue is taken".format(why)])
+        self.assertNotIn("null", errors[0])
+        self.assertFalse(any(c.startswith("issue list") for c in self.calls()), self.calls())
+        self.assertEqual(self.agents(), [])
 
     def test_empty_acceptors_starts_with_a_warning_and_accepts_nothing(self):
         self.cfg["acceptors"] = []

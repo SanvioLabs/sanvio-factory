@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-24: A caller project is told it can't run where the sandbox can't start
+
+Where Claude Code's sandbox can't start, a caller project's `ERROR` line now says its agents run only in that sandbox, so it can't run on this machine, instead of suggesting `network_allow` be set to `null`, which a caller can't do; every other project's line is unchanged.
+
+**Needs:** 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** restart a running loop to take it.
+
 ## 2026-11-23: All-in cost per issue in the usage store
 
 A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A project whose runs recorded no cost shows empty, not 0.
