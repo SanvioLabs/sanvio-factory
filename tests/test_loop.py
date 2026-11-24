@@ -12437,11 +12437,21 @@ class TestCallerConfinement(unittest.TestCase):
                                                 enabledPlugins={"theirs@m": False}, **SYNC_OFF))
 
     def test_a_reader_or_an_agent_that_isnt_claude_gets_none_of_it(self):
-        self.layout()
+        tree = self.layout()
         # A claude reader gets the plugin keys alone (#743), none of a caller's build's.
         cmd = self.runner().argv("reader_agent")[0]
         self.assertEqual(cmd.count("--settings"), 1)
         self.assertEqual(json.loads(cmd[cmd.index("--settings") + 1]), SYNC_OFF)
+        # Once start_checks() has listed the plugins, a confined reader's one --settings is the plugin keys and
+        # nothing else: no hooks, sandbox or permissions.
+        runner = self.runner()
+        runner.plugins = {"theirs@m"}
+        cmd = runner.argv("reader_agent", confine=True, checkout=tree)[0]
+        self.assertEqual(cmd.count("--settings"), 1)
+        settings = json.loads(cmd[cmd.index("--settings") + 1])
+        self.assertEqual(settings, dict(SYNC_OFF, enabledPlugins={"theirs@m": False}))
+        for key in ("hooks", "sandbox", "permissions"):
+            self.assertNotIn(key, settings)
         cmd = self.runner(agent="codex", generate_command="").argv("agent")[0]
         self.assertNotIn("--settings", cmd)
 

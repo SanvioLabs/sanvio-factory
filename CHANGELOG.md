@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-24: The loop's agents load only the factory's plugins
+
+Every `claude` agent the loop starts turns off each plugin the factory's `.claude/settings.json` doesn't enable, except, in a project's loop that isn't a caller's, one the checkout's own settings enable, and loads nothing synced from claude.ai. A `plugins:` WARN says so when the loop can't read the machine's plugin list, or when an agent's `loop.json` command gives its own `--settings`.
+
+**Controls:** AC-5, SA-9
+
+Files: `scripts/loop.py`, `tests/test_loop.py`, `HOW-IT-WORKS.md`, `steering/data-and-tools.md`, `CHANGELOG.md`
+
+**Do:** restart a running loop, so its agents start with the new settings.
+
 ## 2026-11-23: All-in cost per issue in the usage store
 
 A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A project whose runs recorded no cost shows empty, not 0.
