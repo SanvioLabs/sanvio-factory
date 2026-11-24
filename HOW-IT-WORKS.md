@@ -141,10 +141,20 @@ the tests and sees that test fail, fixes the planned cause, and tries each
 other suspect in turn while the test still fails. If the test passes on
 today's code, or no suspect's fix makes it pass, the agent ends its reply with
 a line starting `Diagnosis unresolved:`. The loop then throws away what that
-round changed and blocks the issue, with the reply quoted on it. With
-`builder_runs_tests` off, the loop's own test run is the reproduction. If it
-fails, round 2 is told to check the plan's other suspects before it changes
-the same code again.
+round changed. With `builder_runs_tests` off, the loop's own test run is the
+reproduction. If it fails, round 2 is told to check the plan's other suspects
+before it changes the same code again.
+
+**A bug whose first diagnosis didn't hold is planned once more.** After a
+first round that ends `Diagnosis unresolved:`, Shape runs again. The planner
+gets the ticket, the first plan and the end of the build's reply, as evidence,
+and writes a new `## Diagnosis` that says what that evidence rules out. The new
+plan is `plan.md` and the first is kept as `plan-1.md`. The next build is round
+2, and it writes its test from the new Diagnosis first, as round 1 did. The
+loop blocks the issue instead, with the reply quoted on it, when `test_first`
+is on, `max_rounds` is 1 or the issue's token budget is spent. It also blocks
+when the build after the replan ends `Diagnosis unresolved:` too: it replans
+only once.
 
 ![scripts/loop.py takes issue #12 through five steps. Discover picks the loop-ready issue and writes ticket.md. Shape: a fresh agent writes plan.md. Build: another fresh agent makes the change in a worktree outside the clone. Validate: the script runs the tests and a second agent reads the diff; round 1 fails with review FIX, so it goes back to Build. Round 2 passes the tests and the review says PASS. Scale opens a pull request that closes #12 and doesn't merge it, and what went wrong goes to lessons.md. Each step writes one line to .loop/loop.log as it happens.](docs/one-issue-through-the-loop.gif)
 

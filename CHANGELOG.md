@@ -54,6 +54,18 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-23: A bug replans once when its diagnosis didn't hold
+
+When a bug's first build ends its reply with `Diagnosis unresolved:`, the loop now plans the issue once more instead of blocking it. The planner gets the ticket, the first plan and the end of the build's reply as evidence, and writes a new `## Diagnosis` that says what that evidence rules out. The new plan is `plan.md`, the first is kept as `plan-1.md`, and the next build is round 2, with its test written first as in round 1. The pull request's Usage table shows the second plan as `plan 2`. The issue still blocks as before when `test_first` is on, `max_rounds` is 1 or the token budget is spent, and blocks when the build after the replan says its diagnosis didn't hold either.
+
+**Needs:** 2026-11-22: A bug's plan lists its suspects and the build reproduces it first
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** Nothing. If the loop is running, restart it so it runs this version: `python3 scripts/loop.py stop`, then start it as you did.
+
 ## 2026-11-23: Gemini CLI loads the factory's rules
 
 A new root [`GEMINI.md`](GEMINI.md) imports [`AGENTS.md`](AGENTS.md), so a Gemini CLI session started at the factory root loads [`AGENTS.md`](AGENTS.md) and its three steering files. The guard and the mods remain Claude Code only.
