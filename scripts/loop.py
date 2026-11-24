@@ -2459,6 +2459,75 @@ def plan_decisions(plan):
     return "\n".join(found or []).strip()
 
 
+NO_TEST_COUNTS = "The test output had no test counts the loop could read."
+TEST_COUNTS_CAP = 5  # how many runner summaries the pull request lists
+UNITTEST_RAN = re.compile(r"Ran (\d+) tests? in \S+")
+UNITTEST_END = re.compile(r"(OK|FAILED)(?: \((.*)\))?")
+UNITTEST_ITEM = re.compile(r"([a-z ]+)=(\d+)")
+NODE_LINE = re.compile(r"(?:ℹ|#) ([a-z_]+) (\d+(?:\.\d+)?)")
+# pytest adds the clock time after a run over a minute: "in 75.12s (0:01:15)". Digits only, so it carries nothing.
+PYTEST_LINE = re.compile(r"(\d+ [a-z]+(?:, \d+ [a-z]+)*) in \d+(?:\.\d+)?s(?: \(\d+:\d\d:\d\d\))?")
+
+
+def test_counts(text):
+    """The passed, failed and skipped counts from each unittest, `node --test` or pytest summary in text.
+
+    One line per summary, in the order they appear, at most TEST_COUNTS_CAP, each built only from the
+    numbers parsed and a fixed runner name, so nothing the tests printed reaches the pull request this way.
+    """
+    lines = [line.rstrip("\r") for line in text.splitlines()]
+    found = []  # (line index, summary)
+
+    def line(index, runner, passed, failed, skipped):
+        found.append((index, "{}: {} passed, {} failed, {} skipped".format(runner, max(passed, 0), failed, skipped)))
+
+    for index, text_line in enumerate(lines):
+        ran = UNITTEST_RAN.fullmatch(text_line.strip())
+        if ran:
+            for later in lines[index + 1:]:
+                if UNITTEST_RAN.fullmatch(later.strip()):
+                    break  # another run started before this one said OK or FAILED
+                end = UNITTEST_END.fullmatch(later.strip())
+                if end:
+                    keys = {}
+                    for item in (end.group(2) or "").split(","):
+                        pair = UNITTEST_ITEM.fullmatch(item.strip())
+                        if pair:
+                            keys[pair.group(1)] = int(pair.group(2))
+                    failed = keys.get("failures", 0) + keys.get("errors", 0)
+                    skipped = keys.get("skipped", 0)
+                    line(index, "unittest", int(ran.group(1)) - failed - skipped - keys.get("expected failures", 0),
+                         failed, skipped)
+                    break
+            continue
+        stripped = text_line.strip().strip("=").strip()
+        counts = PYTEST_LINE.fullmatch(stripped)
+        if counts:
+            words = {}
+            for item in counts.group(1).split(", "):
+                number, word = item.split(" ")
+                words[word] = words.get(word, 0) + int(number)
+            if {"passed", "failed", "skipped", "error", "errors"} & set(words):
+                line(index, "pytest", words.get("passed", 0),
+                     words.get("failed", 0) + words.get("error", 0) + words.get("errors", 0), words.get("skipped", 0))
+
+    run, start = {}, None
+    for index, text_line in enumerate(lines + [""]):  # the blank at the end closes a run on the last line
+        node = NODE_LINE.fullmatch(text_line)
+        if node:
+            if not run:
+                start = index
+            if node.group(2).isdigit():
+                run[node.group(1)] = int(node.group(2))
+            else:
+                run.setdefault(node.group(1), None)
+            continue
+        if {"pass", "fail", "skipped"} <= {key for key, value in run.items() if value is not None}:
+            line(start, "node --test", run["pass"], run["fail"] + (run.get("cancelled") or 0), run["skipped"])
+        run = {}
+    return [summary for _, summary in sorted(found, key=lambda pair: pair[0])][:TEST_COUNTS_CAP]
+
+
 def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=None, tests_first=(), merges=None):
     """The pull request's description: what a reviewer on GitHub needs without this machine.
 
@@ -2467,7 +2536,8 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     usage.json entries; with none, there is no Usage section. tests_first is the files a separate
     agent's tests are in; with none, there is no section for them. merges is auto_merge's min_grade while it's
     on, and None while it's off: who_merges() says which. A plan's Decisions section also
-    shows above the folded plan. The agents' text goes out with its mentions made harmless. Over
+    shows above the folded plan. The Tests section leads with test_counts()'s lines, then the last
+    PR_TEST_LINES lines of the output. The agents' text goes out with its mentions made harmless. Over
     PR_BODY_CAP, the plan is cut first, then the review, then the Decisions.
     """
     def missing(name):
@@ -2494,6 +2564,9 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     else:
         last = [line for line in tests.splitlines() if line.strip()][-PR_TEST_LINES:]
         shown = "~~~~\n{}\n~~~~".format(safe_to_post("\n".join(last))) if last else "The tests printed nothing."
+        # List items, so the lines don't run together into one paragraph on GitHub.
+        counts = "\n".join("- " + summary for summary in test_counts(tests)) or NO_TEST_COUNTS
+        shown = "{}\n\n{}".format(counts, shown)
     head = ("Closes #{n}.\n\nOpened by the loop after {r} round{s}. {who}\n\n"
             "## Files\n\n{files}\n\n## Tests\n\n`{cmd}`\n\n{shown}\n\n").format(
         n=number, r=rounds, s="" if rounds == 1 else "s", who=who_merges(merges, "The loop doesn't merge."),
