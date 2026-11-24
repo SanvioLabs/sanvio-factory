@@ -6000,12 +6000,18 @@ class Loop:
         if why:
             self.log("ERROR", "network_allow in loop.json: {}, so no issue is taken".format(why)[:200])
             return 1
-        # Not cut to 200 as a whole, so the cause and the null advice survive; why is already at most 200 (#718).
+        # Neither line is cut to 200 as a whole, so the cause and the advice survive; why is already at most 200
+        # (#718). A caller can't set network_allow to null, so its line says it can't run here instead (#740).
         why = self.sandbox_start_error()
         if why:
-            self.log("ERROR", "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The likely "
-                     "cause is running inside another sandbox or a container; setting network_allow to null leaves "
-                     "containment to the outer sandbox, so no issue is taken".format(why))
+            if self.caller():
+                self.log("ERROR", "network_allow in loop.json: Claude Code's sandbox can't start here ({}); a caller "
+                         "project's agents run only in Claude Code's sandbox, so it can't run on this machine, so no "
+                         "issue is taken".format(why))
+            else:
+                self.log("ERROR", "network_allow in loop.json: Claude Code's sandbox can't start here ({}). The likely "
+                         "cause is running inside another sandbox or a container; setting network_allow to null "
+                         "leaves containment to the outer sandbox, so no issue is taken".format(why))
             return 1
         if self.caller() and not self.sandboxed():
             if self.cfg.get("sandbox_commands") is not True:
