@@ -829,6 +829,72 @@ class TestPureParts(unittest.TestCase):
         # A stray fence in the output can't close the block the lines sit in.
         self.assertIn("~~~~\n```\nRan", self.body(tests="```\nRan 1 test\n"))
 
+    UNITTEST_FAILED = "Ran 5 tests in 0.000s\n\nFAILED (failures=1, errors=1, skipped=1)\n"
+    NODE_SPEC = ("ℹ tests 3\nℹ suites 0\nℹ pass 1\nℹ fail 1\nℹ cancelled 0\nℹ skipped 1\nℹ todo 0\n"
+                 "ℹ duration_ms 32.35725\n")
+    NODE_TAP = ("1..3\n# tests 3\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 1\n# todo 0\n"
+                "# duration_ms 32.796959\n")
+
+    def test_test_counts_reads_each_runners_summary(self):
+        # Ran 5 with failures=1, errors=1, skipped=1 is 5 - 1 - 1 - 1 = 2 passed, by the ticket's formula.
+        table = [
+            (self.UNITTEST_FAILED, "unittest: 2 passed, 2 failed, 1 skipped"),
+            ("Ran 2 tests in 0.000s\n\nOK (skipped=1)\n", "unittest: 1 passed, 0 failed, 1 skipped"),
+            ("Ran 1 test in 0.001s\n\nOK", "unittest: 1 passed, 0 failed, 0 skipped"),
+            (self.NODE_SPEC, "node --test: 1 passed, 1 failed, 1 skipped"),
+            (self.NODE_TAP, "node --test: 1 passed, 1 failed, 1 skipped"),
+            (self.NODE_TAP.replace("# cancelled 0", "# cancelled 2"), "node --test: 1 passed, 3 failed, 1 skipped"),
+            ("============== 1 failed, 2 passed, 1 skipped, 1 warning in 0.02s ===============",
+             "pytest: 2 passed, 1 failed, 1 skipped"),
+            ("1 failed, 2 passed, 1 skipped, 1 warning in 0.01s", "pytest: 2 passed, 1 failed, 1 skipped"),
+            ("3 passed, 1 error in 0.1s", "pytest: 3 passed, 1 failed, 0 skipped"),
+        ]
+        for text, line in table:
+            self.assertEqual(loop.test_counts(text), [line], text)
+
+    def test_test_counts_keeps_the_order_and_stops_at_five(self):
+        self.assertEqual(loop.test_counts(self.UNITTEST_FAILED + "\n" + self.NODE_SPEC),
+                         ["unittest: 2 passed, 2 failed, 1 skipped", "node --test: 1 passed, 1 failed, 1 skipped"])
+        six = "".join("{} passed in 0.1s\n".format(n) for n in range(1, 7))
+        self.assertEqual(loop.test_counts(six), ["pytest: {} passed, 0 failed, 0 skipped".format(n) for n in range(1, 6)])
+
+    def test_test_counts_finds_nothing_in_warnings_and_log_lines(self):
+        text = ("/x.py:3: DeprecationWarning: old\n  warnings.warn('old')\nINFO started 3 workers\n"
+                "no tests ran in 0.01s\n")
+        self.assertEqual(loop.test_counts(text), [])
+
+    def test_a_pull_request_leads_its_tests_with_the_counts(self):
+        body = self.body(tests=self.UNITTEST_OUTPUT + self.UNITTEST_FAILED)
+        command = body.index("`python3 -m unittest`")
+        counts = body.index("- unittest: 3 passed, 0 failed, 0 skipped\n- unittest: 2 passed, 2 failed, 1 skipped")
+        fence = body.index("~~~~")
+        self.assertLess(command, counts)
+        self.assertLess(counts, fence)
+        # The last lines are still the last PR_TEST_LINES lines, as before.
+        self.assertIn("~~~~\n" + "-" * 70 + "\nRan 3 tests in 0.004s\nOK\nRan 5 tests in 0.000s\n"
+                      "FAILED (failures=1, errors=1, skipped=1)\n~~~~", body)
+
+    def test_a_pull_request_says_when_it_found_no_counts(self):
+        body = self.body(tests="something went wrong\n")
+        sentence = body.index("The test output had no test counts the loop could read.")
+        self.assertLess(body.index("`python3 -m unittest`"), sentence)
+        self.assertLess(sentence, body.index("~~~~"))
+
+    def test_test_counts_add_no_mention_or_link(self):
+        for tests in ("1 failed, 2 passed in 0.1s @someone\n", "Ran 3 tests in 0.1s\n\nFAILED (failures=1, @someone=2)\n",
+                      "1 failed, 2 passed in 0.1s [x](https://evil.example)\n"):
+            body = self.body(tests=tests)
+            between = body[body.index("`python3 -m unittest`") + len("`python3 -m unittest`"):body.index("~~~~")]
+            self.assertNotIn("@", between, tests)
+            self.assertNotIn("http", between, tests)
+        self.assertIn("- unittest: 2 passed, 1 failed, 0 skipped",
+                      self.body(tests="Ran 3 tests in 0.1s\n\nFAILED (failures=1, @someone=2)\n"))
+
+    def test_test_counts_leave_the_missing_file_line_alone(self):
+        body = self.body(tests=None)
+        tests = body[body.index("## Tests"):body.index("## Review")]
+        self.assertEqual(tests, "## Tests\n\n`python3 -m unittest`\n\n`test-output.txt` wasn't there.\n\n")
+
     def test_a_pull_request_carries_the_review_in_full_and_the_plan_folded(self):
         review = "Line one.\n\nLine two.\nVERDICT: PASS"
         body = self.body(review=review, plan="Plan: add x.\nThen y.")
@@ -4105,7 +4171,7 @@ class TestAPass(unittest.TestCase):
         tree, before = self.changelog_conflict()
         base = git(self.origin, "rev-parse", "main").stdout.strip()
         runs = self.state / "update-runs"
-        self.cfg["test_command"] = ('echo ran >> "{}"; printf "gone\\n1\\n2\\n3\\n4\\nTESTS-BROKE ping @someone\\n"; '
+        self.cfg["test_command"] = ('echo ran >> "{}"; printf "gone\\n1\\n2\\nRan 1 test in 0.1s\\nOK\\nTESTS-BROKE ping @someone\\n"; '
                                     "exit 1").format(runs)
         self.go()
         self.go()
@@ -4122,6 +4188,9 @@ class TestAPass(unittest.TestCase):
         self.assertEqual(len(comments), 1)
         self.assertIn("TESTS-BROKE ping @​someone", comments[0])
         self.assertNotIn("gone", comments[0])  # the last PR_TEST_LINES lines only
+        self.assertIn("Ran 1 test in 0.1s\nOK\n", comments[0])
+        self.assertNotIn("unittest:", comments[0])  # the counts are the pull request's, not this comment's
+        self.assertNotIn(loop.NO_TEST_COUNTS, comments[0])
 
     def test_a_new_commit_on_the_base_is_tried_after_the_last_one_failed(self):
         self.changelog_conflict()
