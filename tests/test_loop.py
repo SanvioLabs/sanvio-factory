@@ -8251,6 +8251,41 @@ class TestBlockRetry(unittest.TestCase):
         self.assertEqual(self.quietly(runner.forget_old_issues), [2])
         self.assertTrue((self.work / ".loop" / "issue-1").is_dir())
 
+    def test_a_kept_comment_thats_gone_is_rebuilt_from_the_rows_reason_without_the_reply(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block(said="SAID-MARKER from the build")
+        self.kept().unlink()
+        self.github_answers()
+        self.forget()
+        self.quietly(runner.retry_blocks, ())
+        posted = self.comments()
+        self.assertEqual(len(posted), 1, posted)
+        self.assertIn(self.WHY, posted[0])
+        self.assertNotIn("SAID-MARKER", posted[0])
+        self.assertEqual(self.row()["block_todo"], [])
+
+    def test_a_step_this_loop_doesnt_know_is_cleared_without_sending_anything(self):
+        # A row written by a later loop, read by this one: the step names nothing this loop sends.
+        self.seeded({"number": 5, "block_todo": ["a_later_step"], "block_done": []})
+        (self.state / "issues.json").write_text(json.dumps([issue(5, labels=("loop:blocked",))]))
+        runner = loop.Loop(self.work, self.cfg)
+        self.quietly(runner.retry_blocks, ())
+        self.assertEqual(self.sent(), ["issue view 5 --json labels"])
+        self.assertEqual(self.row()["block_todo"], [])
+        self.assertIn("#5 BLOCKED the block reached GitHub", [l.split(" ", 1)[1] for l in self.lines()])
+
+    def test_labels_are_read_whatever_their_case(self):
+        # GitHub lists the labels as a person typed them; loop.json names them in lower case.
+        (self.state / "issues.json").write_text(json.dumps([issue(5)]))
+        runner = self.failed_block()
+        (self.state / "issues.json").write_text(json.dumps([issue(5, labels=("Loop-Ready", "LOOP:BLOCKED"))]))
+        self.github_answers()
+        self.forget()
+        self.quietly(runner.retry_blocks, ())
+        self.assertEqual([c for c in self.sent() if c.startswith("issue edit")],
+                         ["issue edit 5 --remove-label loop-ready"])
+        self.assertEqual(self.row()["block_todo"], [])
+
 
 class TestProject(unittest.TestCase):
     """--project: a clone under the harness's projects/, worked from the harness."""
