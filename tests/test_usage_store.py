@@ -162,7 +162,7 @@ class Provisioning(unittest.TestCase):
 
     def test_every_panel_and_rule_runs_a_query_file_unchanged(self):
         texts = "".join(path.read_text() for path in render.files())
-        for name in ["rq-{}.sql".format(n) for n in range(1, 7)] + [a[0] for a in render.ALERTS]:
+        for name in ["rq-{}.sql".format(n) for n in range(1, 8)] + [a[0] for a in render.ALERTS]:
             body = render.sql(name).splitlines()[-1].strip()
             self.assertIn(body, texts, name)
 
@@ -267,7 +267,7 @@ class Queries(Fixture):
 
     def test_an_empty_store_reads_as_no_rows_not_an_error(self):
         validator.sort_all(validator.FolderStore(self.store))
-        for n in range(1, 6):
+        for n in (1, 2, 3, 4, 5, 7):
             self.assertEqual(self.rows("rq-{}.sql".format(n)), [], n)
         self.assertEqual(self.rows("rq-6.sql", detailed=True), [])
 
@@ -287,6 +287,82 @@ class Queries(Fixture):
         self.assertEqual((cost["pull_requests"], cost["cost_usd"]), (2, 4.0))
         (rounds,) = self.rows("rq-3.sql")
         self.assertEqual((rounds["runs"], rounds["mean_rounds"]), (2, 3.0))
+
+    def rq7(self, runs, projects=None):
+        """RQ-7's rows after one bundle holding these factory runs, and {folder: runs} for each listed project."""
+        write_lines(self.repo / ".loop" / "history.jsonl", runs)
+        if projects:
+            cfg = json.loads((self.repo / ".sanvio" / "export.json").read_text())
+            (self.repo / ".sanvio" / "export.json").write_text(json.dumps(dict(cfg, export_projects={f: f for f in projects})))
+            for folder, lines in projects.items():
+                write_lines(self.repo / ".loop" / "projects" / folder / "history.jsonl", lines)
+        found = export.bundle(self.repo, "2026-11-01", "2026-11-21")
+        send_usage.send_bundle(self.repo, json.dumps(found).encode("utf-8"), send_usage.store_of(export.config(self.repo)))
+        validator.sort_all(validator.FolderStore(self.store))
+        return {r["project"]: r for r in self.rows("rq-7.sql")}
+
+    def test_rq7_counts_every_run_on_an_issue_that_reached_a_pull_request(self):
+        got = self.rq7([run_line(5, "2026-11-20T10:00:00", outcome="blocked", cost_usd=2.0),
+                        run_line(5, "2026-11-21T10:00:00", cost_usd=1.5)])
+        self.assertEqual(got, {"factory": {"project": "factory", "issues_with_pr": 1, "all_in_cost_usd": 3.5,
+                                           "usd_per_issue": 3.5, "no_pr_cost_usd": None, "no_pr_percent": None,
+                                           "unpriced_runs": 0}})
+
+    def test_rq7_keeps_one_issue_number_in_two_projects_apart(self):
+        got = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=1.5)],
+                       {"app": [run_line(5, "2026-11-20T11:00:00", project="app", outcome="blocked", cost_usd=3.0)]})
+        self.assertEqual(got, {
+            "factory": {"project": "factory", "issues_with_pr": 1, "all_in_cost_usd": 1.5, "usd_per_issue": 1.5,
+                        "no_pr_cost_usd": None, "no_pr_percent": None, "unpriced_runs": 0},
+            "app": {"project": "app", "issues_with_pr": 0, "all_in_cost_usd": None, "usd_per_issue": None,
+                    "no_pr_cost_usd": 3.0, "no_pr_percent": 100.0, "unpriced_runs": 0}})
+        self.assertEqual(list(got), ["factory", "app"])  # a project with no all-in cost sorts last
+
+    def test_rq7_shows_spend_on_issues_with_no_pull_request_yet(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=4.5),
+                           run_line(6, "2026-11-20T11:00:00", outcome="blocked", cost_usd=1.0),
+                           run_line(6, "2026-11-21T10:00:00", outcome="blocked", cost_usd=0.5)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["usd_per_issue"]), (1, 4.5, 4.5))
+        self.assertEqual((row["no_pr_cost_usd"], row["no_pr_percent"]), (1.5, 25.0))
+
+    def test_rq7_shows_a_cost_nobody_recorded_as_null_not_zero(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=None)]).values()
+        self.assertEqual(row["issues_with_pr"], 1)
+        for column in ("all_in_cost_usd", "usd_per_issue", "no_pr_cost_usd", "no_pr_percent"):
+            self.assertIsNone(row[column], column)
+        self.assertEqual(row["unpriced_runs"], 1)
+
+    def test_rq7_averages_only_issues_whose_every_run_recorded_a_cost(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=4.0),
+                           run_line(6, "2026-11-20T11:00:00", cost_usd=None)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["usd_per_issue"]), (2, 4.0, 4.0))
+        self.assertEqual(row["unpriced_runs"], 1)
+
+    def test_rq7_counts_the_unpriced_runs_a_partly_priced_issue_leaves_out_of_its_cost(self):
+        (row,) = self.rq7([run_line(5, "2026-11-20T10:00:00", outcome="blocked", cost_usd=2.0),
+                           run_line(5, "2026-11-21T10:00:00", cost_usd=None),
+                           run_line(6, "2026-11-20T11:00:00", outcome="blocked", cost_usd=1.0),
+                           run_line(6, "2026-11-21T11:00:00", outcome="blocked", cost_usd=None),
+                           run_line(8, "2026-11-20T12:00:00", cost_usd=3.0)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["unpriced_runs"]), (2, 5.0, 2))
+        self.assertEqual(row["usd_per_issue"], 3.0)  # issue 5's partial $2.00 isn't averaged as if it were whole
+        self.assertEqual((row["no_pr_cost_usd"], row["no_pr_percent"]), (1.0, 16.7))
+
+    def test_rq7_puts_a_project_named_factory_in_the_factorys_row_with_its_issues_apart(self):
+        got = self.rq7([run_line(5, "2026-11-20T10:00:00", cost_usd=1.5)],
+                       {"factory": [run_line(5, "2026-11-20T11:00:00", project="factory", cost_usd=2.5)]})
+        self.assertEqual(list(got), ["factory"])
+        row = got["factory"]
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["usd_per_issue"]), (2, 4.0, 2.0))
+
+    def test_rq7_keeps_each_run_with_no_issue_apart(self):
+        (row,) = self.rq7([run_line(None, "2026-11-20T10:00:00", cost_usd=1.0),
+                           run_line(None, "2026-11-20T11:00:00", outcome="blocked", cost_usd=3.0)]).values()
+        self.assertEqual((row["issues_with_pr"], row["all_in_cost_usd"], row["no_pr_cost_usd"]), (1, 1.0, 3.0))
+
+    def test_rq7_counts_a_run_with_no_outcome_as_no_pull_request(self):
+        (row,) = self.rq7([run_line(7, "2026-11-20T10:00:00", outcome=None, cost_usd=1.0)]).values()
+        self.assertEqual((row["issues_with_pr"], row["no_pr_cost_usd"], row["no_pr_percent"]), (0, 1.0, 100.0))
 
     def test_rq4_pairs_asks_with_approvals(self):
         self.send_days()

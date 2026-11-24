@@ -54,6 +54,16 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-23: All-in cost per issue in the usage store
+
+A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A project whose runs recorded no cost shows empty, not 0.
+
+**Needs:** 2026-11-21: The usage store; 2026-11-21: Usage export review fixes
+
+Files: [`examples/usage-store/queries/rq-7.sql`](examples/usage-store/queries/rq-7.sql), [`examples/usage-store/render.py`](examples/usage-store/render.py), [`examples/usage-store/grafana/dashboards/usage.json`](examples/usage-store/grafana/dashboards/usage.json), [`examples/usage-store/README.md`](examples/usage-store/README.md), [`docs/specs/004-usage-export/SPEC.md`](docs/specs/004-usage-export/SPEC.md), [`tests/test_usage_store.py`](tests/test_usage_store.py), `CHANGELOG.md`.
+
+**Do:** if you run a usage store, rerun python3 examples/usage-store/render.py and restart Grafana to get the RQ-7 panel.
+
 ## 2026-11-23: Test counts in the pull request
 
 A loop pull request's Tests section now leads with how many tests passed, failed and were skipped, read from each unittest, `node --test` and pytest summary in the output, up to five, one line each. When there's none it can read, it says so. The last test lines follow as before. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) also says what to do when a project's suite already fails before any change: keep those tests out of `test_command`, each named with its reason, since the loop passes a run only when the command exits 0.

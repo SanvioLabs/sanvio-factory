@@ -30,6 +30,7 @@ PANELS = [
     ("rq-3.sql", "RQ-3 Fix rounds by agent, reviewer and factory version", GENERAL),
     ("rq-4.sql", "RQ-4 Guard refusals and asks", GENERAL),
     ("rq-5.sql", "RQ-5 Nodes and their loops", GENERAL),
+    ("rq-7.sql", "RQ-7 All-in cost of an issue that reached a pull request, by project", GENERAL),
 ]
 DETAILED_PANELS = [("rq-6.sql", "RQ-6 Shell commands agents ran", DETAILED)]
 
