@@ -8065,8 +8065,9 @@ class TestNewestReview(unittest.TestCase):
 class TestBlockRetry(unittest.TestCase):
     """A block GitHub didn't get is retried before each pick, and its issue isn't taken meanwhile (#739)."""
 
-    setUp, tearDown, lines, status, comments, go = (TestAPass.setUp, TestAPass.tearDown, TestAPass.lines,
-                                                    TestAPass.status, TestAPass.comments, TestAPass.go)
+    setUp, tearDown, lines, raw_lines, status, comments, go = (
+        TestAPass.setUp, TestAPass.tearDown, TestAPass.lines, TestAPass.raw_lines,
+        TestAPass.status, TestAPass.comments, TestAPass.go)
     WHY = "the tests kept failing"
     ALL = ["remove_label", "add_label", "comment"]
 
