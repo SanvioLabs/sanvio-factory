@@ -44,11 +44,11 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-24: The loop's agents load only the factory's plugins
 
-Every `claude` agent the loop starts turns off each plugin the factory's `.claude/settings.json` doesn't enable, except, in a project's loop that isn't a caller's, one the checkout's own settings enable, and loads nothing synced from claude.ai. A `plugins:` WARN says so when the loop can't read the machine's plugin list, or when an agent's `loop.json` command gives its own `--settings`.
+Every `claude` agent the loop starts turns off each plugin the factory's [`.claude/settings.json`](.claude/settings.json) doesn't enable, except, in a project's loop that isn't a caller's, one the checkout's own settings enable, and loads nothing synced from claude.ai. A `plugins:` WARN says so when the loop can't read the machine's plugin list, or when an agent's `loop.json` command gives its own `--settings`.
 
 **Controls:** AC-5, SA-9
 
-Files: `scripts/loop.py`, `tests/test_loop.py`, `HOW-IT-WORKS.md`, `steering/data-and-tools.md`, `CHANGELOG.md`
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
 
 **Do:** restart a running loop, so its agents start with the new settings.
 
