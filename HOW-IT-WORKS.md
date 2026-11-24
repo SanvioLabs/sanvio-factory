@@ -547,7 +547,14 @@ steering files it loads every session, and says
 the project's own `AGENTS.md` or `CLAUDE.md` adds to them and never loosens them. A `claude` build agent also
 gets the harness's [`.claude/hooks/guard.py`](.claude/hooks/guard.py) through `--settings`. Another
 build agent, such as `codex`, has no hook to put it in, so it builds without
-the guard. The loop pane shows the factory's own loop only.
+the guard. Every `claude` agent the loop starts, the factory's or a project's, also loads only
+the factory's plugins: at start the loop asks `claude plugin list --json` once,
+and its `--settings` turns off each plugin the factory's [`.claude/settings.json`](.claude/settings.json)
+doesn't enable, leaves on, for a project that isn't a caller's, the ones the checkout's own
+settings enable, and syncs nothing from claude.ai. A plugin someone has enabled
+for all their sessions stays out of them. If the list can't be had, a `plugins:` WARN says the
+agents load every plugin the machine enables that run, and an agent whose `loop.json`
+command gives its own `--settings` is left as it was, with a WARN naming it. The loop pane shows the factory's own loop only.
 
 **From a conversation,** the [`skills/loop-control/`](skills/loop-control/) skill does the same jobs:
 it checks an issue is ready before labelling it, starts the loop, says what

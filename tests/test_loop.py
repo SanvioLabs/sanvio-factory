@@ -28,6 +28,28 @@ sys.path.append(str(Path(__file__).resolve().parent))  # last, so nothing here s
 from test_changelog import problems  # noqa: E402 (the rule whats-new reads CHANGELOG.md by)
 
 REAL_ORIGIN = loop.origin if hasattr(loop, "origin") else None  # the fixture names its bare origin o/r
+REAL_PLUGIN_IDS = loop.Loop.plugin_ids  # the one asking `claude plugin list --json`, for the tests of it (#743)
+
+
+def plugin_ids_here(exe):
+    """Loop.plugin_ids for every test in this file, so no test starts a real claude (#743). A stand-in under the
+    temp folder that answers plugin list (one holding PLUGIN_LIST, as AGENT and REVIEW_AGENT do) is asked as the
+    loop would ask it. Anything else, a stand-in that only sleeps, say, or this machine's own claude, isn't run, and
+    it answers as a claude with no plugins."""
+    found = shutil.which(exe)
+    if found is None or not os.path.realpath(found).startswith(os.path.realpath(tempfile.gettempdir()) + os.sep):
+        return set()
+    try:
+        ours = PLUGIN_LIST in Path(found).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        ours = False
+    return REAL_PLUGIN_IDS(exe) if ours else set()
+
+
+def setUpModule():
+    patcher = mock.patch.object(loop.Loop, "plugin_ids", staticmethod(plugin_ids_here))
+    patcher.start()
+    unittest.addModuleCleanup(patcher.stop)
 # A made-up credential, built from parts so no scanner reads it as one (#413).
 TOKEN = "made" + "up" + "tok" + "en42"
 CREDENTIAL_URL = "https://" + "someone" + ":" + TOKEN + "@" + "gitlab.example/o/r.git"
@@ -1002,10 +1024,21 @@ class TestPureParts(unittest.TestCase):
         self.assertIn("`.loop/issue-12/review.md`", self.above_the_fold(body))
 
 
+# How a stand-in claude answers `claude plugin list --json`, which the loop asks once a start (#743), before it
+# reads a prompt or records anything, so it's never counted as an agent run. It prints plugins.json from the state
+# folder when a test writes one, and an empty list otherwise, and adds a line to plugin-calls each time.
+PLUGIN_LIST = """if sys.argv[1:4] == ["plugin", "list", "--json"]:
+    _listed = os.path.join(os.environ["LOOP_TEST_STATE"], "plugins.json")
+    with open(os.path.join(os.environ["LOOP_TEST_STATE"], "plugin-calls"), "a") as _calls:
+        _calls.write(" ".join(sys.argv[1:]) + "\\n")
+    sys.stdout.write(open(_listed).read() if os.path.exists(_listed) else "[]")
+    sys.exit(0)
+"""
+
 # A stand-in agent and a stand-in gh, so a whole pass runs with no network and no model.
 AGENT = """#!/usr/bin/env python3
 import json, os, sys
-prompt = sys.stdin.read()
+""" + PLUGIN_LIST + """prompt = sys.stdin.read()
 state = os.environ["LOOP_TEST_STATE"]
 if "--output-format" in sys.argv and sys.argv[sys.argv.index("--output-format") + 1:][:1] in (["json"], ["stream-json"]):
     # As claude -p --output-format json, or stream-json: the reply once, at the end, in a result object
@@ -1760,6 +1793,22 @@ class TestAPass(unittest.TestCase):
         self.go()
         for step in ("plan", "build", "review"):
             self.assertNotIn("sandbox", self.settings_for(step), step)
+
+    def test_plugin_list_is_asked_once_a_start_and_every_claude_agent_gets_only_the_plugin_keys(self):
+        # #743: the stand-in lists one plugin, under two scopes. This factory's clone enables none, so it's off.
+        self.retro_setup()
+        (self.state / "plugins.json").write_text(json.dumps([{"id": "theirs@m", "scope": "user"},
+                                                             {"id": "theirs@m", "scope": "project"}]))
+        self.assertEqual(self.go(), 0)
+        self.assertEqual((self.state / "plugin-calls").read_text().splitlines(), ["plugin list --json"])
+        started = (self.state / "agents-started").read_text().splitlines()
+        self.assertEqual([line for line in started if line.startswith("plugin ")], [])  # not an agent run
+        self.assertIn("retro", self.started_steps())
+        for step in ("plan", "build", "review", "retro"):
+            argv = json.loads((self.state / (step + "-argv")).read_text())
+            with self.subTest(step=step):
+                self.assertEqual(argv.count("--settings"), 1)
+                self.assertEqual(self.settings_for(step), dict(SYNC_OFF, enabledPlugins={"theirs@m": False}))
 
     def test_a_sandbox_that_cant_run_takes_no_issue(self):
         self.claude_agents()
@@ -3128,7 +3177,10 @@ class TestAPass(unittest.TestCase):
         self.assertTrue((self.state / "review-prompt").read_text().startswith("You are the reviewer"))
         built = loop.Loop(self.work, dict(loop.DEFAULTS, agent="claude"))
         self.assertEqual((built.repo, built.dir, built.rules), (self.work, self.work / ".loop", ""))
-        self.assertEqual(built.argv("agent"), (["claude", "-p", "--permission-mode", "acceptEdits"], None))
+        # Not started, so no plugins are listed yet: only claude.ai's sync is off (#743).
+        sync = json.dumps({"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False})
+        self.assertEqual(built.argv("agent"), (["claude", "-p", "--permission-mode", "acceptEdits", "--settings", sync],
+                                               None))
 
     def test_a_lock_held_by_another_users_process_is_respected(self):
         original = os.kill
@@ -8821,10 +8873,14 @@ class TestProject(unittest.TestCase):
         built = json.loads((self.state / "build-argv").read_text())
         guard = self.harness.absolute() / ".claude" / "hooks" / "guard.py"
         command = shlex.quote(sys.executable) + " " + shlex.quote(str(guard))
-        self.assertEqual(json.loads(built[built.index("--settings") + 1]), {"hooks": {"PreToolUse": [
-            {"matcher": "Read|Bash", "hooks": [{"type": "command", "command": command, "timeout": 10}]}]}})
+        # And the plugin keys (#743): the stand-in lists no plugins, so the map is empty.
+        plugins = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False, "enabledPlugins": {}}
+        self.assertEqual(json.loads(built[built.index("--settings") + 1]), dict({"hooks": {"PreToolUse": [
+            {"matcher": "Read|Bash", "hooks": [{"type": "command", "command": command, "timeout": 10}]}]}}, **plugins))
         for step in ("plan", "review"):
-            self.assertNotIn("--settings", json.loads((self.state / (step + "-argv")).read_text()), step)
+            argv = json.loads((self.state / (step + "-argv")).read_text())
+            self.assertEqual(argv.count("--settings"), 1, step)
+            self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), plugins, step)
         cfg = dict(loop.load_config(self.project), agent="codex", generate_command="")
         self.assertNotIn("--settings", loop.Loop(self.harness, cfg, project=self.project).argv("agent")[0])
         cfg["tester_agent"] = "claude"  # it edits as the build agent does, so it's held the same way
@@ -8961,9 +9017,15 @@ elif args[:2] == ["pr", "comment"]:
     save()
 """
 
+# Every claude agent's plugin keys before the loop has listed this machine's plugins (#743): nothing synced from
+# claude.ai. And a confined reader's --settings once it has: every plugin the stand-in lists turned off, where it
+# lists none.
+SYNC_OFF = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False}
+READER_PLUGINS = json.dumps(dict(SYNC_OFF, enabledPlugins={}))
+
 REVIEW_AGENT = """#!/usr/bin/env python3
 import os, sys
-prompt = sys.stdin.read()
+""" + PLUGIN_LIST + """prompt = sys.stdin.read()
 state = os.environ["LOOP_TEST_STATE"]
 open(os.path.join(state, "argv"), "w").write(" ".join(sys.argv[1:]))
 open(os.path.join(state, "retro-switch"), "w").write(os.environ.get("SANVIO_RETRO", "unset"))
@@ -9794,7 +9856,7 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.list_prs(self.pr(7, sha))
         self.go()
         self.assertEqual((self.state / "argv").read_text(),
-                         "-p --restricted --strict-mcp-config --tools Read,Grep,Glob")
+                         "-p --restricted --strict-mcp-config --tools Read,Grep,Glob --settings " + READER_PLUGINS)
 
     def test_a_reader_given_more_is_still_held_to_read_tools(self):
         self.cfg["reader_agent"] = (str(self.bin / "claude") + " -p --restricted --tools Bash,Read "
@@ -9803,7 +9865,7 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.list_prs(self.pr(7, sha))
         self.go()
         self.assertEqual((self.state / "argv").read_text(),
-                         "-p --restricted --strict-mcp-config --tools Read,Grep,Glob")
+                         "-p --restricted --strict-mcp-config --tools Read,Grep,Glob --settings " + READER_PLUGINS)
 
     def test_a_reader_that_isnt_claude_is_never_started_on_a_pull_request(self):
         for command in ("{} {}".format(sys.executable, self.bin / "claude"), "env claude -p", "codex exec"):
@@ -9828,7 +9890,8 @@ class TestReview(ReviewFixture, unittest.TestCase):
         self.go()
         self.assertEqual(self.agents_started(), 1)
         self.assertEqual((self.state / "argv").read_text(),
-                         "-p --model other --restricted --strict-mcp-config --tools Read,Grep,Glob")
+                         "-p --model other --restricted --strict-mcp-config --tools Read,Grep,Glob --settings "
+                         + READER_PLUGINS)
         self.assertEqual(len(self.comments()), 1)
 
     def test_a_review_agent_that_isnt_claude_is_never_started_on_a_pull_request(self):
@@ -12349,16 +12412,36 @@ class TestCallerConfinement(unittest.TestCase):
         self.layout()
         runner = self.runner(caller=False)
         guard = json.loads(runner.guard_settings())
+        # And claude.ai's sync off, as for every claude agent (#743): not started, so no plugin map.
         for which in ("agent", "tester_agent"):
             self.assertEqual(self.settings(runner, which),
-                             dict(guard, sandbox=loop.sandbox_settings(["pypi.org"])), which)
+                             dict(guard, sandbox=loop.sandbox_settings(["pypi.org"]), **SYNC_OFF), which)
         runner = self.runner(caller=False, network_allow=None)
-        self.assertEqual(self.settings(runner), guard)
+        self.assertEqual(self.settings(runner), dict(guard, **SYNC_OFF))
+
+    def test_the_plugin_keys_join_a_builds_one_settings_and_leave_its_guard_sandbox_and_deny_rules(self):
+        tree = self.layout()
+        runner = self.runner()
+        runner.plugins = {"theirs@m"}  # as start_checks() leaves them (#743)
+        denied = loop.caller_denied(self.harness, self.project)
+        box = loop.sandbox_settings(["pypi.org"])
+        box["filesystem"]["denyRead"] += denied
+        for which in ("agent", "tester_agent"):
+            held = runner.held_to(which, tree)
+            cmd = runner.argv(which, folders=held, checkout=tree)[0]
+            settings = json.loads(cmd[cmd.index("--settings") + 1])
+            with self.subTest(which=which):
+                self.assertEqual(cmd.count("--settings"), 1)
+                self.assertEqual(settings, dict(json.loads(runner.guard_settings(held)), sandbox=box,
+                                                permissions={"deny": loop.caller_deny_rules(denied)},
+                                                enabledPlugins={"theirs@m": False}, **SYNC_OFF))
 
     def test_a_reader_or_an_agent_that_isnt_claude_gets_none_of_it(self):
         self.layout()
+        # A claude reader gets the plugin keys alone (#743), none of a caller's build's.
         cmd = self.runner().argv("reader_agent")[0]
-        self.assertNotIn("--settings", cmd)
+        self.assertEqual(cmd.count("--settings"), 1)
+        self.assertEqual(json.loads(cmd[cmd.index("--settings") + 1]), SYNC_OFF)
         cmd = self.runner(agent="codex", generate_command="").argv("agent")[0]
         self.assertNotIn("--settings", cmd)
 
@@ -12405,7 +12488,7 @@ class TestCallerConfinement(unittest.TestCase):
             (self.harness / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"][0]["matcher"],
             "hooks": [{"type": "command", "command": shlex.quote(sys.executable) + " " + shlex.quote(
                 str(self.harness.absolute() / ".claude" / "hooks" / "guard.py")), "timeout": 10}]}]},
-            "sandbox": loop.sandbox_settings(["pypi.org"])})
+            "sandbox": loop.sandbox_settings(["pypi.org"]), **SYNC_OFF})  # and claude.ai's sync off (#743)
         want = {"agent": ["claude", "-p", "--permission-mode", "acceptEdits", "--settings", settings],
                 "tester_agent": ["claude", "-p", "--settings", settings]}
         runner = self.runner(caller=False)
@@ -12446,13 +12529,167 @@ class TestCallerConfinement(unittest.TestCase):
             self.assertNotIn("SANVIO_CONFINE", environ)
             runner.agent("reader_agent", "You are planning", tree, number=12, step="plan")
             argv, environ = self.seen("plan")
-            self.assertNotIn("--settings", argv)
+            self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), SYNC_OFF)  # the plugin keys alone (#743)
             self.assertNotIn("SANVIO_CONFINE", environ)
             self.runner(caller=False).agent("agent", "PLAN: add it", tree, number=12, step="build")
             argv, environ = self.seen("build")
             self.assertNotIn("--confine", self.guard_words(argv))
             self.assertNotIn("--setting-sources", argv)
             self.assertNotIn("--strict-mcp-config", argv)
+
+
+class TestPluginSettings(unittest.TestCase):
+    """#743: the loop's claude agents load only the factory's plugins, plus a project's own for its checkout where
+    the project isn't a caller's, and nothing synced from claude.ai, so a plugin someone enabled for all their own
+    sessions stays out of them. plugin list is mocked here or answered by the stand-in: no real claude starts."""
+
+    setUp, tearDown, commit, harness_config = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config)
+
+    LISTED = {"factory@m", "mine@m", "elsewhere@m"}
+
+    def enable(self, folder, plugins):
+        """folder/.claude/settings.json with this enabledPlugins, keeping what else it holds."""
+        path = Path(folder) / ".claude" / "settings.json"
+        data = json.loads(path.read_text()) if path.exists() else {}
+        data["enabledPlugins"] = plugins
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
+    def layout(self):
+        """The factory enables factory@m and sets elsewhere@m false, and an issue's checkout enables mine@m.
+        Returns the checkout."""
+        self.enable(self.harness, {"factory@m": True, "elsewhere@m": False})
+        checkout = Path(self.tmp.name) / "checkout"
+        self.enable(checkout, {"mine@m": True})
+        return checkout
+
+    def runner(self, where, listed=True, **extra):
+        """A Loop for the factory itself, a project that isn't a caller's, or a caller's. With listed, LISTED is
+        this machine's plugins, as start_checks() leaves them."""
+        if where == "factory":
+            runner = loop.Loop(self.harness, dict(loop.load_config(self.harness), **extra))
+        else:
+            cfg = dict(loop.load_project_config(self.harness, self.project), caller=where == "caller", **extra)
+            runner = loop.Loop(self.harness, cfg, project=self.project)
+        if listed:
+            runner.plugins = set(self.LISTED)
+        return runner
+
+    def answer(self, stdout, code=0):
+        """subprocess.run as `claude plugin list --json` answering stdout with exit code code."""
+        return mock.Mock(return_value=subprocess.CompletedProcess(["claude"], code, stdout=stdout, stderr=""))
+
+    def started(self, runner, run):
+        """runner.start_checks() with the real plugin_ids and run as subprocess.run: (step, text) for each line it
+        logged about plugins."""
+        out = io.StringIO()
+        with mock.patch.object(loop.Loop, "plugin_ids", staticmethod(REAL_PLUGIN_IDS)), \
+                mock.patch.object(loop.subprocess, "run", run), contextlib.redirect_stdout(out):
+            self.assertIsNone(runner.start_checks())
+        lines = [line.split(" ", 3)[2:] for line in out.getvalue().splitlines()]
+        return [tuple(words) for words in lines if len(words) == 2 and words[1].startswith("plugins:")]
+
+    def test_a_factory_loop_takes_the_map_from_the_factorys_settings_alone(self):
+        checkout = self.layout()
+        runner = self.runner("factory")
+        want = {"elsewhere@m": False, "mine@m": False}  # mine@m too: the checkout enabling it doesn't count here
+        self.assertEqual(runner.plugin_settings(checkout), dict(SYNC_OFF, enabledPlugins=want))
+        self.assertEqual(runner.plugin_settings(), dict(SYNC_OFF, enabledPlugins=want))
+
+    def test_a_project_loop_leaves_out_what_its_checkout_enables(self):
+        checkout = self.layout()
+        runner = self.runner("project")
+        self.assertEqual(runner.plugin_settings(checkout)["enabledPlugins"], {"elsewhere@m": False})
+        # Given no checkout, the factory's file alone.
+        self.assertEqual(runner.plugin_settings()["enabledPlugins"], {"elsewhere@m": False, "mine@m": False})
+
+    def test_a_callers_checkout_enables_nothing(self):
+        checkout = self.layout()
+        self.assertEqual(self.runner("caller").plugin_settings(checkout)["enabledPlugins"],
+                         {"elsewhere@m": False, "mine@m": False})
+
+    def test_a_settings_file_that_cant_be_read_enables_nothing(self):
+        checkout = self.layout()
+        (self.harness / ".claude" / "settings.json").write_text("{not json")
+        (checkout / ".claude" / "settings.json").write_text(json.dumps({"enabledPlugins": ["mine@m"]}))
+        self.assertEqual(self.runner("project").plugin_settings(checkout)["enabledPlugins"],
+                         {plugin: False for plugin in self.LISTED})
+
+    def test_a_loop_that_hasnt_started_gives_only_the_sync_keys(self):
+        checkout = self.layout()
+        runner = self.runner("project", listed=False)
+        self.assertIsNone(runner.plugins)
+        self.assertEqual(runner.plugin_settings(checkout), SYNC_OFF)
+        self.assertEqual(runner.argv("reader_agent", confine=True, checkout=checkout)[0],
+                         loop.confined(["claude", "-p"]) + ["--settings", json.dumps(SYNC_OFF)])
+
+    def test_start_asks_claude_once_with_no_stdin_and_keeps_each_id_once(self):
+        runner = self.runner("project", listed=False)
+        run = self.answer(json.dumps([{"id": "mine@m", "scope": "user"}, {"id": "mine@m", "scope": "project"},
+                                      {"id": "elsewhere@m", "scope": "user"}]))
+        self.assertEqual(self.started(runner, run), [])
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0], ["claude", "plugin", "list", "--json"])
+        self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+        self.assertEqual(runner.plugins, {"mine@m", "elsewhere@m"})
+        cmd = runner.argv("reader_agent", confine=True)[0]
+        self.assertEqual(cmd[-2:], ["--settings", json.dumps(dict(SYNC_OFF, enabledPlugins={
+            "elsewhere@m": False, "mine@m": False}))])
+
+    def test_start_asks_nothing_when_no_agent_is_claude(self):
+        runner = self.runner("project", listed=False, agent="codex", reader_agent="ollama:qwen3",
+                             review_agent="ollama:qwen3", tester_agent="codex")
+        run = self.answer("[]")
+        self.assertEqual(self.started(runner, run), [])
+        run.assert_not_called()
+        self.assertIsNone(runner.plugins)
+
+    def test_a_list_that_cant_be_had_warns_once_and_the_agents_get_only_the_sync_keys(self):
+        answers = {"exits 1": self.answer("[]", code=1),
+                   "times out": mock.Mock(side_effect=subprocess.TimeoutExpired(["claude"], 30)),
+                   "isn't installed": mock.Mock(side_effect=FileNotFoundError("claude")),
+                   "not JSON": self.answer("No plugins installed."),
+                   "not a list": self.answer(json.dumps({"id": "mine@m"})),
+                   "an item with no id": self.answer(json.dumps([{"id": "mine@m"}, {"name": "x"}])),
+                   "an id that isn't a string": self.answer(json.dumps([{"id": 3}]))}
+        for why, run in answers.items():
+            runner = self.runner("project", listed=False)
+            with self.subTest(why=why):
+                said = self.started(runner, run)
+                self.assertEqual(len(said), 1, said)
+                self.assertEqual(said[0][0], "WARN")
+                self.assertIn("the agents load every plugin the machine enables this run", said[0][1])
+                self.assertIsNone(runner.plugins)
+                cmd = runner.argv("reader_agent", confine=True)[0]
+                self.assertEqual(json.loads(cmd[-1]), SYNC_OFF)
+
+    def test_an_agent_with_its_own_settings_is_warned_of_and_left_as_it_was(self):
+        for words in (["--settings", "/x/own.json"], ["--settings=/x/own.json"]):
+            given = "claude -p " + " ".join(words)
+            with self.subTest(words=words):
+                runner = self.runner("factory", listed=False, agent=given, reader_agent="codex")
+                said = self.started(runner, self.answer(json.dumps([{"id": "mine@m"}])))
+                self.assertEqual(len(said), 1, said)
+                self.assertEqual(said[0][0], "WARN")
+                self.assertTrue(said[0][1].startswith("plugins: agent in loop.json"), said)
+                self.assertEqual(runner.argv("agent")[0], ["claude", "-p"] + words)
+                # A project's build keeps the guard's --settings, as it always had, and gets no plugin keys.
+                project = self.runner("project", agent=given)
+                self.assertEqual(project.argv("agent")[0],
+                                 ["claude", "-p"] + words + ["--settings", project.guard_settings()])
+                # A confined reader is held as it always was.
+                reader = self.runner("project", reader_agent=given)
+                self.assertEqual(reader.argv("reader_agent", confine=True)[0], loop.confined(["claude", "-p"] + words))
+
+    def test_codex_and_ollama_get_no_plugin_settings(self):
+        runner = self.runner("factory", agent="codex", reader_agent="ollama:qwen3", tester_agent="codex")
+        for which in ("agent", "tester_agent"):
+            self.assertEqual(runner.argv(which)[0], loop.command(runner.cfg, which)[0], which)
+        self.assertEqual(runner.argv("reader_agent", confine=True)[0], ["ollama", "run", "qwen3"])
+        project = self.runner("project", agent="codex", generate_command="")
+        self.assertEqual(project.argv("agent")[0], loop.command(project.cfg, "agent")[0])
 
 
 class TestGrade(unittest.TestCase):

@@ -63,6 +63,8 @@ row names.
 | `factory-floor` | The loop's `.loop/` records, including each issue's pull request link, which it opens in your browser when you click it, and, over SSH, the `.loop/` files of the machines listed in `.sanvio/factory-floor/machines.json`, and the test suite runs [`scripts/run_tests.py`](../scripts/run_tests.py) records in `.sanvio/tests/`. **Watch** on another machine's issue checks over SSH that its tmux session is there, then copies an SSH command that attaches to it read-only, for you to run | So you can watch the loop work |
 | `stelliad` | Nothing until one of its skills runs. It's pinned to one reviewed commit in [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) | Its `create-ticket` and `create-spec` skills write the issues the loop takes |
 
+The loop's agents load only the plugins the factory's [`.claude/settings.json`](../.claude/settings.json) enables, plus, in a project that isn't a caller's, the ones its own checkout enables, so a plugin someone has enabled for all their own sessions, or synced from claude.ai, stays out of them.
+
 `claude plugin disable <name>@sanvio-factory --scope local` switches one off
 for you, and `"<name>@sanvio-factory": false` in [`.claude/settings.json`](../.claude/settings.json) switches it
 off for everyone. A plugin added to that list gets a row here in the same
