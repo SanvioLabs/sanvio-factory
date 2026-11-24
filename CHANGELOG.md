@@ -54,6 +54,18 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-23: Test counts in the pull request
+
+A loop pull request's Tests section now leads with how many tests passed, failed and were skipped, read from each unittest, `node --test` and pytest summary in the output, up to five, one line each. When there's none it can read, it says so. The last test lines follow as before. [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md) also says what to do when a project's suite already fails before any change: keep those tests out of `test_command`, each named with its reason, since the loop passes a run only when the command exits 0.
+
+**Needs:** 2026-10-31: Decisions and requirement tests in loop pull requests; 2026-10-31: Loop merges CHANGELOG.md conflicts
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-23: A bug replans once when its diagnosis didn't hold
 
 When a bug's first build ends its reply with `Diagnosis unresolved:`, the loop now plans the issue once more instead of blocking it. The planner gets the ticket, the first plan and the end of the build's reply as evidence, and writes a new `## Diagnosis` that says what that evidence rules out. The new plan is `plan.md`, the first is kept as `plan-1.md`, and the next build is round 2, with its test written first as in round 1. The pull request's Usage table shows the second plan as `plan 2`. The issue still blocks as before when `test_first` is on, `max_rounds` is 1 or the token budget is spent, and blocks when the build after the replan says its diagnosis didn't hold either.
