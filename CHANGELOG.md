@@ -42,7 +42,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-23: The index is checked under sandbox_strict
+## 2026-11-24: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.
 
@@ -53,6 +53,28 @@ Under `sandbox_strict`, before any git of the loop's that reads or writes a work
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** nothing
+
+## 2026-11-24: A block GitHub didn't get is retried
+
+When GitHub doesn't take a block's label changes or its comment, the loop now tries each missed step again before each pick, and doesn't take the issue meanwhile, even after a restart, though GitHub still lists it as ready. Before, the next poll picked it again. The missed steps are `block_todo` on the issue's row in `.loop/status.json`, a comment that wasn't posted waits in `.loop/issue-N/block-comment.md`, and the log has one `ERROR` line for the block until it's through, then `BLOCKED the block reached GitHub`. Putting the issue back by its labels ends the retry. Such a row, and its folder, stay past the 20 rows `status.json` keeps.
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** if the loop is running, run python3 scripts/loop.py stop, then start it again.
+
+## 2026-11-24: A caller project is told it can't run where the sandbox can't start
+
+Where Claude Code's sandbox can't start, a caller project's `ERROR` line now says its agents run only in that sandbox, so it can't run on this machine, instead of suggesting `network_allow` be set to `null`, which a caller can't do; every other project's line is unchanged.
+
+**Needs:** 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** restart a running loop to take it.
 
 ## 2026-11-23: All-in cost per issue in the usage store
 
