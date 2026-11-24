@@ -52,6 +52,28 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** restart a running loop, so its agents start with the new settings.
 
+## 2026-11-24: A block GitHub didn't get is retried
+
+When GitHub doesn't take a block's label changes or its comment, the loop now tries each missed step again before each pick, and doesn't take the issue meanwhile, even after a restart, though GitHub still lists it as ready. Before, the next poll picked it again. The missed steps are `block_todo` on the issue's row in `.loop/status.json`, a comment that wasn't posted waits in `.loop/issue-N/block-comment.md`, and the log has one `ERROR` line for the block until it's through, then `BLOCKED the block reached GitHub`. Putting the issue back by its labels ends the retry. Such a row, and its folder, stay past the 20 rows `status.json` keeps.
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** if the loop is running, run python3 scripts/loop.py stop, then start it again.
+
+## 2026-11-24: A caller project is told it can't run where the sandbox can't start
+
+Where Claude Code's sandbox can't start, a caller project's `ERROR` line now says its agents run only in that sandbox, so it can't run on this machine, instead of suggesting `network_allow` be set to `null`, which a caller can't do; every other project's line is unchanged.
+
+**Needs:** 2026-11-23: The loop stops at start when Claude Code's sandbox can't start
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** restart a running loop to take it.
+
 ## 2026-11-23: All-in cost per issue in the usage store
 
 A new RQ-7 panel in the usage store's dashboard counts every loop run on an issue that reached a pull request, so an issue's blocked and fix runs count toward its cost, and shows, by project, how much loop spend sits on issues with no pull request yet. A pull request here is one the loop opened, not one that merged. A project whose runs recorded no cost shows empty, not 0.
