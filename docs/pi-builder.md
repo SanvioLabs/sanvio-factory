@@ -246,8 +246,9 @@ skills: `loop-control` starts, stops and explains the loop, and
 
 ## What this doesn't do
 
-- **The front lights.** The carriers have holes for four LEDs, and wiring them
-  is outside this guide.
+- **The front lights.** The carriers have holes for four LEDs: network, disk,
+  the loop and the AI. [`examples/pi-lights/`](../examples/pi-lights/) has the wiring, the boot config
+  and a service that drives them, all run by the person since they need sudo.
 - **Survive a reboot.** The loop runs in tmux. A systemd service owned by
   `agent` is the next step once they trust it.
 - **A private copy of the factory.** [`INSTALL.md`](../INSTALL.md) step 5 covers it, and it
