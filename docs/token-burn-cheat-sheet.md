@@ -2,8 +2,8 @@
 
 **Spend tokens on judgment, not on re-reading.**
 
-Eight habits that decide what your agents spend, from the factory this repo
-is. The same sheet as a PDF to share, with a diagram for each:
+Eight habits that decide what your agents spend, from the factory Sanvio Labs
+runs on, which is this repo. The same sheet as a PDF to share, with a diagram for each:
 [`token-burn-cheat-sheet.pdf`](token-burn-cheat-sheet.pdf).
 
 Every turn, your agent re-reads everything it's carrying. Most of what you pay
@@ -55,7 +55,7 @@ everything that has nothing to do with the task in front of it.
 - **Point at a section, not a file.** Clear headings let the agent read the
   part it needs instead of the whole document.
 
-Loading all 39 of my rule files up front would cost about 46,000 tokens
+Loading all 39 of our rule files up front would cost about 46,000 tokens
 before anyone typed a word.
 
 ## 5. Scale with parallel copies, not more agents

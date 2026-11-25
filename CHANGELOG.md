@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-24: Set up a Raspberry Pi builder
+
+A procedure your coding agent follows to set up a Raspberry Pi 5 as a builder for one repo: it works over SSH as an account with no sudo, and stops for you at the print, the flash, sudo, the sign-ins, the token and the firewall. It ends with a dry run of the loop.
+
+Files: [`docs/pi-builder.md`](docs/pi-builder.md), [`README.md`](README.md), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-24: Token Burn Cheat Sheet
 
 Eight habits that decide what your agents spend, each with a diagram: fewer agents with one job each, skills and gates, split instruction files, parallel copies, the flywheel, measuring cost per merged change, and the quick signs. As a page and as a PDF to share.
