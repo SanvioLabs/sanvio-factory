@@ -42,7 +42,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-24: The index is checked under sandbox_strict
+## 2026-11-25: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.
 
@@ -53,6 +53,14 @@ Under `sandbox_strict`, before any git of the loop's that reads or writes a work
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** nothing
+
+## 2026-11-25: Specs list forbidden shortcuts
+
+`stelliad:create-spec` now writes a Forbidden Shortcuts section after Acceptance Criteria: each way a build could pass every criterion without meeting the spec's Goals, with the Goal or requirement it fakes, so the plan, the build and the review treat it as not done. The Stelliad pin moves from `9f0b8cf` to `65632a3`, which also brings Stelliad's corrected descriptions for `coverage-gaps`, `generate-svg` and `triage-alert` (plugin 0.8.1). Specs already written are unchanged.
+
+Files: [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), `CHANGELOG.md`.
+
+**Do:** accept the plugin update the next time you start in the harness. A spec you write after that gets the new section.
 
 ## 2026-11-24: Steering agrees with itself, and an investigation hold
 

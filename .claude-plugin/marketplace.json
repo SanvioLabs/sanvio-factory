@@ -30,7 +30,7 @@
       "source": {
         "source": "github",
         "repo": "Stelliad/stelliad-skills",
-        "sha": "9f0b8cf498eb2a60e21bccdca6ac4d09876d13ed"
+        "sha": "65632a3ba2c9610a672fe3806667e1ed52babb5e"
       },
       "description": "Stelliad's skills, pinned to a reviewed commit. Move the pin by editing sha after reading the diff"
     }
