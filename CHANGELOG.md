@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-24: Token Burn Cheat Sheet
+
+Eight habits that decide what your agents spend, each with a diagram: fewer agents with one job each, skills and gates, split instruction files, parallel copies, the flywheel, measuring cost per merged change, and the quick signs. As a page and as a PDF to share.
+
+Files: [`docs/token-burn-cheat-sheet.md`](docs/token-burn-cheat-sheet.md), [`docs/token-burn-cheat-sheet.pdf`](docs/token-burn-cheat-sheet.pdf), [`README.md`](README.md), `CHANGELOG.md`.
+
+**Do:** nothing.
+
 ## 2026-11-24: The loop's agents load only the factory's plugins
 
 Every `claude` agent the loop starts turns off each plugin the factory's [`.claude/settings.json`](.claude/settings.json) doesn't enable, except, in a project's loop that isn't a caller's, one the checkout's own settings enable, and loads nothing synced from claude.ai. A `plugins:` WARN says so when the loop can't read the machine's plugin list, or when an agent's `loop.json` command gives its own `--settings`.
