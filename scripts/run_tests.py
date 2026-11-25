@@ -12,11 +12,13 @@ lands beside one in the clone. The file holds where the run is and how it ended:
 paths, a branch name and counts, never test output. It's written whole each
 time, by a rename, so a reader never sees half of one.
 
-Each start removes status files whose `updated` is over 30 days old. If the
+Each start removes status files whose `updated` is over 30 days old, unless
+SANVIO_HOLD is on. If the
 file can't be written, or this isn't a git repo, the tests run anyway and one
 line on stderr says the run won't show.
 """
 import datetime
+import importlib.util
 import json
 import os
 import subprocess
@@ -51,14 +53,27 @@ def status_folder():
     return os.path.join(os.path.dirname(common), FOLDER), None
 
 
+def factory_names():
+    """scripts/names.py, loaded under a private name: a repo under test may have its own `names`
+    module, and the suite this runs has to import that one, not this."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "names.py")
+    spec = importlib.util.spec_from_file_location("_factory_names", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def prune(folder, days=KEEP_DAYS):
-    """Remove status files last updated over `days` ago. Anything else stays."""
+    """Remove status files last updated over `days` ago. Anything else stays, and under SANVIO_HOLD
+    everything does."""
+    if factory_names().held(os.environ):  # environ given, so it never imports old_names from here
+        return
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     try:
-        names = os.listdir(folder)
+        entries = os.listdir(folder)
     except OSError:
         return
-    for name in names:
+    for name in entries:
         if not name.endswith(".json"):
             continue
         path = os.path.join(folder, name)

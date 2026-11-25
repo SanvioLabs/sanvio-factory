@@ -243,7 +243,10 @@ def record_off(root, now=None):
 
 def prune(root, now=None, days=None):
     """Rewrite this person's log without the entries older than days (SANVIO_KEEP_DAYS, 90 by default).
-    The new file replaces the old in one step, so a reader never sees half a log."""
+    The new file replaces the old in one step, so a reader never sees half a log. Under SANVIO_HOLD it
+    removes nothing."""
+    if names.held():
+        return
     for path in (log_path(root), commands_path(root)):
         if path.is_file():
             with log_chain.locked(path):

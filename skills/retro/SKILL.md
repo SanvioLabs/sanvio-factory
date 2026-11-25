@@ -51,6 +51,9 @@ is kept, and this skill reads the current session only.
   The fresh agent reads them.
 - Nothing from a session log, a prompt file or a lessons entry goes into a
   tracked file, a pull request, an issue, or anything that leaves this machine.
+- Under an incident hold (`SANVIO_HOLD=on`, [`steering/incidents.md`](../../steering/incidents.md)),
+  `record` and `drop` refuse and delete nothing. Say the hold is on and stop
+  at step 2.
 - If the person says a kept session needs no retro, run
   `python3 .claude/hooks/session_retro.py drop <session id>`. It deletes the
   copy and writes nothing.

@@ -13,8 +13,8 @@ run copies it again, so a session that compacted and then ended keeps all of it.
 or scripts/loop.py started is never copied: nobody corrected it. Nothing here leaves this machine.
 
 Each run also deletes whatever in local-data/retro/ is older than KEEP_DAYS, on or off, so turning it
-off doesn't keep old copies forever. It never blocks, never prints, and never stops a session if it
-fails.
+off doesn't keep old copies forever. Under SANVIO_HOLD, an investigation's hold, it deletes nothing.
+It never blocks, never prints, and never stops a session if it fails.
 
 skills/retro/ runs the rest through this file:
 
@@ -183,8 +183,9 @@ def write_listed(folder, ids):
 
 
 def prune(folder, now=None):
-    """Delete each file in the folder older than KEEP_DAYS, and list only sessions whose copy is left."""
-    if not folder.is_dir():
+    """Delete each file in the folder older than KEEP_DAYS, and list only sessions whose copy is left.
+    Under SANVIO_HOLD it deletes nothing."""
+    if not folder.is_dir() or names().held():
         return
     cutoff = (now if now is not None else time.time()) - KEEP_DAYS * 86400
     for path in folder.iterdir():
@@ -337,8 +338,14 @@ def forget(folder, session):
     write_listed(folder, [one for one in listed(folder) if one != session])
 
 
+HELD = "SANVIO_HOLD is on, so the kept copy stays: nothing written, nothing deleted\n"
+
+
 def drop(root, session, out=sys.stdout):
-    """Forget a kept session without an entry. 0 when it was kept, 1 when it wasn't."""
+    """Forget a kept session without an entry. 0 when it was kept, 1 when it wasn't or a hold is on."""
+    if names().held():
+        out.write(HELD)
+        return 1
     folder = retro_folder(root)
     if not isinstance(session, str) or not SESSION_ID.fullmatch(session) or session not in listed(folder):
         out.write("Not a kept session: nothing deleted\n")
@@ -353,7 +360,10 @@ def record(root, session, out=sys.stdout, today=None):
     .loop/lessons.md, then delete the session's kept copy, prompt and reply. 0 when it wrote one, 1 when
     there's no log to check against or no reply. Every line it prints besides the entry is fixed text,
     and the entry cites each correction by its record, never in the person's words: lessons.md is
-    never pruned."""
+    never pruned. Under SANVIO_HOLD it does nothing and returns 1."""
+    if names().held():
+        out.write(HELD)
+        return 1
     path = log_for(root, session)
     if path is None:
         out.write("No log for that session: nothing written\n")
