@@ -54,6 +54,16 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-24: The loop's agents load only the factory's plugins
+
+Every `claude` agent the loop starts turns off each plugin the factory's [`.claude/settings.json`](.claude/settings.json) doesn't enable, except, in a project's loop that isn't a caller's, one the checkout's own settings enable, and loads nothing synced from claude.ai. A `plugins:` WARN says so when the loop can't read the machine's plugin list, or when an agent's `loop.json` command gives its own `--settings`.
+
+**Controls:** AC-5, SA-9
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), `CHANGELOG.md`.
+
+**Do:** restart a running loop, so its agents start with the new settings.
+
 ## 2026-11-24: A block GitHub didn't get is retried
 
 When GitHub doesn't take a block's label changes or its comment, the loop now tries each missed step again before each pick, and doesn't take the issue meanwhile, even after a restart, though GitHub still lists it as ready. Before, the next poll picked it again. The missed steps are `block_todo` on the issue's row in `.loop/status.json`, a comment that wasn't posted waits in `.loop/issue-N/block-comment.md`, and the log has one `ERROR` line for the block until it's through, then `BLOCKED the block reached GitHub`. Putting the issue back by its labels ends the retry. Such a row, and its folder, stay past the 20 rows `status.json` keeps.
