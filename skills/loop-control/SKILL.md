@@ -110,6 +110,22 @@ it gets read before it's labelled.
    psmux new-session -d -s $name -c "$PWD" "python scripts/loop.py run <flags>; echo ''; Read-Host 'The loop has exited. Press Enter to close'"
    ```
 
+   During an incident hold ([`steering/incidents.md`](../../steering/incidents.md)), the hold goes inside
+   the quoted command, so the loop removes no old issue folder. A tmux or psmux
+   session takes its server's environment, not your shell's. In tmux:
+
+   ```bash
+   tmux new-session -d -s "$name" -c "$PWD" \
+     "SANVIO_HOLD=on python3 scripts/loop.py run <flags>; echo; echo 'The loop has exited. Press Enter to close.'; read _"
+   ```
+
+   In psmux, the backtick keeps PowerShell from reading `$env:` before psmux
+   gets the command:
+
+   ```powershell
+   psmux new-session -d -s $name -c "$PWD" "`$env:SANVIO_HOLD='on'; python scripts/loop.py run <flags>; echo ''; Read-Host 'The loop has exited. Press Enter to close'"
+   ```
+
    If `tmux new-session` says `duplicate session`, a loop is probably
    running there: say so and give the attach command rather than starting a
    second. The loop's lock refuses a second run in one clone anyway.

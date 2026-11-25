@@ -1510,6 +1510,17 @@ class TestKeepingIssueFolders(unittest.TestCase):
                 self.assertEqual(loop.Loop(tmp, dict(CFG)).forget_old_issues(), [])
             self.assertTrue(folder.is_dir())
 
+    def test_a_hold_keeps_every_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / ".loop" / "issue-5"
+            folder.mkdir(parents=True)
+            old = time.time() - 100 * 86400
+            (folder / "agent.log").write_text("x")
+            os.utime(folder / "agent.log", (old, old))
+            with mock.patch.dict(os.environ, {"SANVIO_HOLD": "on"}), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(loop.Loop(tmp, dict(CFG)).forget_old_issues(), [])
+            self.assertTrue(folder.is_dir())
+
 
 class TestSandboxSettings(unittest.TestCase):
     """network_allow: the build and tester agents' shell in Claude Code's sandbox."""

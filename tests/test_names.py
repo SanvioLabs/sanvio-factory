@@ -42,6 +42,13 @@ class Folders(unittest.TestCase):
 
 
 class Variables(unittest.TestCase):
+    def test_the_hold_is_on_only_when_switched_on(self):
+        for value in ("on", "1", "true", "YES", " on "):
+            self.assertTrue(names.held({"SANVIO_HOLD": value}), value)
+        for value in ("", "off", "0", "no", "later"):
+            self.assertFalse(names.held({"SANVIO_HOLD": value}), value)
+        self.assertFalse(names.held({}))
+
     def test_the_new_name_is_read_first(self):
         environ = {"SANVIO_RETRO": "off", "HARNESS_RETRO": "on"}
         self.assertEqual(names.env("RETRO", environ=environ), "off")

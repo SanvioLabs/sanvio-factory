@@ -43,7 +43,9 @@ Every record is one of five kinds: a **fact**, a **positioning** choice, a
 When two records disagree, check their kinds first. Most contradictions are a
 snapshot or a positioning choice read as a fact, and they go away once you see
 it. Where one source governs another (a template over a filled-in copy, a file
-over the index that points at it), the governing one wins.
+over the index that points at it), the governing one wins. [`AGENTS.md`](../AGENTS.md) is
+both: its rules outrank a steering file, and its tables only point, so where a
+row and the file it names differ, the file wins.
 
 Where neither outranks the other, hold it open. Tell the human, record both
 readings with their sources, and act on neither until they decide. Quietly

@@ -236,6 +236,13 @@ class Keeping(unittest.TestCase):
         for bad in ("0", "-5", "ninety", ""):
             self.assertEqual(usage_log.names.keep_days({"SANVIO_KEEP_DAYS": bad}), 90, bad)
 
+    def test_a_hold_keeps_every_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(tmp, "2020-01-01T00:00:00Z", "2099-01-01T00:00:00Z")
+            result = self.start(tmp, SANVIO_HOLD="on")
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("2020-01-01T00:00:00Z", self.stamps(path))
+
     def test_it_keeps_old_entries_out_even_with_the_log_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = self.write(tmp, "2020-01-01T00:00:00Z")
