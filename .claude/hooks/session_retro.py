@@ -338,8 +338,14 @@ def forget(folder, session):
     write_listed(folder, [one for one in listed(folder) if one != session])
 
 
+HELD = "SANVIO_HOLD is on, so the kept copy stays: nothing written, nothing deleted\n"
+
+
 def drop(root, session, out=sys.stdout):
-    """Forget a kept session without an entry. 0 when it was kept, 1 when it wasn't."""
+    """Forget a kept session without an entry. 0 when it was kept, 1 when it wasn't or a hold is on."""
+    if names().held():
+        out.write(HELD)
+        return 1
     folder = retro_folder(root)
     if not isinstance(session, str) or not SESSION_ID.fullmatch(session) or session not in listed(folder):
         out.write("Not a kept session: nothing deleted\n")
@@ -354,7 +360,10 @@ def record(root, session, out=sys.stdout, today=None):
     .loop/lessons.md, then delete the session's kept copy, prompt and reply. 0 when it wrote one, 1 when
     there's no log to check against or no reply. Every line it prints besides the entry is fixed text,
     and the entry cites each correction by its record, never in the person's words: lessons.md is
-    never pruned."""
+    never pruned. Under SANVIO_HOLD it does nothing and returns 1."""
+    if names().held():
+        out.write(HELD)
+        return 1
     path = log_for(root, session)
     if path is None:
         out.write("No log for that session: nothing written\n")

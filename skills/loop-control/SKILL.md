@@ -102,6 +102,10 @@ it gets read before it's labelled.
      "python3 scripts/loop.py run <flags>; echo; echo 'The loop has exited. Press Enter to close.'; read _"
    ```
 
+   During an incident hold ([`steering/incidents.md`](../../steering/incidents.md)), put `SANVIO_HOLD=on`
+   inside the quotes before `python3` (in psmux, `$env:SANVIO_HOLD='on';` first),
+   so the loop removes no old issue folder.
+
    On Windows, start it in psmux when `Get-Command psmux` finds it, the same
    way:
 

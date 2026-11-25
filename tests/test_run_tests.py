@@ -300,6 +300,15 @@ class RunTests(unittest.TestCase):
             self.assertIn(name, left)
         self.assertEqual(len(left), 5)
 
+    def test_a_repo_with_its_own_names_module_imports_its_own(self):
+        repo = self.repo(files={"test_x.py": "import unittest\nimport names\n\n\n"
+                                              "class T(unittest.TestCase):\n"
+                                              "    def test_a(self):\n"
+                                              "        self.assertEqual(names.WHO, 'project')\n"})
+        (repo / "names.py").write_text("WHO = 'project'\n")
+        result = self.run_script(repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_hold_keeps_every_status_file(self):
         repo = self.repo()
         folder = repo / ".sanvio" / "tests"

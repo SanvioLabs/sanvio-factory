@@ -18,14 +18,13 @@ file can't be written, or this isn't a git repo, the tests run anyway and one
 line on stderr says the run won't show.
 """
 import datetime
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import threading
 import unittest
-
-import names  # beside this file: the hold switch
 
 KEEP_DAYS = 30
 HEARTBEAT = 10.0  # seconds between writes while one test runs long
@@ -54,10 +53,20 @@ def status_folder():
     return os.path.join(os.path.dirname(common), FOLDER), None
 
 
+def factory_names():
+    """scripts/names.py, loaded under a private name: a repo under test may have its own `names`
+    module, and the suite this runs has to import that one, not this."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "names.py")
+    spec = importlib.util.spec_from_file_location("_factory_names", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def prune(folder, days=KEEP_DAYS):
     """Remove status files last updated over `days` ago. Anything else stays, and under SANVIO_HOLD
     everything does."""
-    if names.held():
+    if factory_names().held(os.environ):  # environ given, so it never imports old_names from here
         return
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     try:
