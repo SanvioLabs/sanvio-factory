@@ -1,0 +1,16 @@
+[Unit]
+Description=Front lights for a Raspberry Pi builder: network, disk, loop and AI
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/pi-lights/pi_lights.py --factory /home/agent/factory --user agent
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

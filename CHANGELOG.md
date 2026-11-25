@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing
 
+## 2026-11-24: Front lights for a Pi builder
+
+Four LEDs on a Pi builder's front: green for the network, blue for the disk, orange while the loop works an issue, and white while a `claude` process runs as the agent account, dimmed in software. The example has the wiring, the four boot-config lines, a check that lights each LED in turn, a `--show` mode that prints what each would show without touching them, and a systemd service.
+
+Files: [`examples/pi-lights/`](examples/pi-lights/), [`tests/test_pi_lights.py`](tests/test_pi_lights.py), [`docs/pi-builder.md`](docs/pi-builder.md), `CHANGELOG.md`.
+
+**Do:** nothing. Only for a Pi builder that has the LEDs.
+
 ## 2026-11-24: Set up a Raspberry Pi builder
 
 A procedure your coding agent follows to set up a Raspberry Pi 5 as a builder for one repo: it works over SSH as an account with no sudo, and stops for you at the print, the flash, sudo, the sign-ins, the token and the firewall. It ends with a dry run of the loop.

@@ -10,6 +10,8 @@ it, and stop wherever a step says to.
 The Pi doesn't run the model. It runs the factory and the coding tools, and
 they call the model over the network, so a Pi 5 with 8 GB is enough.
 
+![Four Raspberry Pi 5s standing upright in a grey 3D-printed stand on a desk, each on its own carrier with green lights on its front tab](pi-builder/pi-factory.jpg)
+
 ```mermaid
 flowchart LR
   person([The person]) -- "print, flash, sudo, sign-ins, firewall" --> pi
@@ -65,6 +67,15 @@ Stop here and give the person this list. Go on only when they say the Pi is up.
   goes on the card.
 - **First contact:** they run `ssh <admin>@<host>.local` once themselves and
   accept the host key, so you never accept one for them.
+
+What they're building, in order: the printed stand, one Pi bolted to its
+carrier, and the carriers slid into the stand.
+
+![The empty printed stand: two end walls and four bays with rails for the carriers](pi-builder/stand-empty.jpg)
+
+![One Raspberry Pi 5 bolted to its printed carrier, the power cable plugged straight in, with two lights lit on the carrier's front tab](pi-builder/carrier.jpg)
+
+![The stand from the front with four carriers in place, each showing a green light](pi-builder/stand-front.jpg)
 
 ## 3. Check you can reach it, and that it has power
 
@@ -235,8 +246,9 @@ skills: `loop-control` starts, stops and explains the loop, and
 
 ## What this doesn't do
 
-- **The front lights.** The carriers have holes for four LEDs, and wiring them
-  is outside this guide.
+- **The front lights.** The carriers have holes for four LEDs: network, disk,
+  the loop and the AI. [`examples/pi-lights/`](../examples/pi-lights/) has the wiring, the boot config
+  and a service that drives them, all run by the person since they need sudo.
 - **Survive a reboot.** The loop runs in tmux. A systemd service owned by
   `agent` is the next step once they trust it.
 - **A private copy of the factory.** [`INSTALL.md`](../INSTALL.md) step 5 covers it, and it

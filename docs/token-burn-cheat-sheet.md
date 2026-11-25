@@ -12,6 +12,8 @@ need, redoing work a script could do, or circling in a loop nobody stopped.
 
 ## 1. More agents can mean more cost and less done
 
+![One agent reads its context once and is done. Four agents on the same job each re-read their own context, and every handoff gets summarized and sometimes redone.](token-burn/1-more-agents.png)
+
 Every agent is its own session, re-reading its own context. Every handoff gets
 summarized, re-read and sometimes redone. Add agents and you multiply the
 reading, not the output.
@@ -20,6 +22,8 @@ Start with one agent inside a good factory. Add a second only when you can
 name the job the first one can't do.
 
 ## 2. Fewer agents, each with one job
+
+![Plan on the strongest model, build, review by a different agent, and anything a customer reads on the strongest model. Search, sweeps and checks go to a smaller model. One model per session, because the prompt cache belongs to the model.](token-burn/2-one-job-each.png)
 
 - **One role each.** One plans, one builds, one reviews. A reviewer that
   didn't write the code catches what the builder can't.
@@ -34,6 +38,8 @@ name the job the first one can't do.
 
 ## 3. Skills, rules and gates keep it on task
 
+![A new task with the same input and the same output becomes a script written once. A task that needs judgment goes to a skill and an agent, then a gate, then the next phase. A failed gate sends it back while rework is still cheap.](token-burn/3-skills-rules-gates.png)
+
 - **Put repeat procedures in skills.** A skill's steps load when its job comes
   up, not in every session.
 - **Make deterministic work a script.** Same input, same output? Write the
@@ -42,6 +48,8 @@ name the job the first one can't do.
   requirements costs less than three builds.
 
 ## 4. Split your instruction files so the agent reads only what applies
+
+![Before: one big file with rules, pricing, infra, writing, security and 39 files in all, about 46,000 tokens every turn. After: an index that is always read, then only the file that applies, such as infra.md when touching infra, and only the heading needed.](token-burn/4-split-instruction-files.png)
 
 One big instructions file gets read in full on every turn, including
 everything that has nothing to do with the task in front of it.
@@ -60,6 +68,8 @@ before anyone typed a word.
 
 ## 5. Scale with parallel copies, not more agents
 
+![Three tickets, each in its own copy of the repo, each planned, built and reviewed into its own pull request, each with a cap on rounds and tokens. Throughput goes up and each run carries only its own ticket.](token-burn/5-parallel-copies.png)
+
 Run the same small crew on several tickets at once, each in its own copy of
 the repo. Each copy carries only its own ticket, so throughput goes up and
 every run stays cheap.
@@ -69,11 +79,15 @@ stuck agent will happily retry all night.
 
 ## 6. The flywheel: discover, shape, build, validate, scale, repeat
 
+![Discover and Shape are cheap, Build is expensive on an unclear ask, then Validate and Scale, with a gate between each. The next workflow starts its own Discover.](token-burn/6-flywheel.png)
+
 Each turn starts small and ends at a gate. Discover and shape are cheap. A
 build on an unclear ask is the most expensive thing you can run. One workflow
 at a time, and the next one starts its own discover.
 
 ## 7. Measure where the tokens go, then tighten
+
+![A headless run writes a usage report of tokens, cache reads and estimated cost, logged by ticket and step, to find the heavy step and tighten it by scripting, splitting or gating earlier. Rerun the same job and compare the estimate.](token-burn/7-measure.png)
 
 You can't cut what you can't see. Every run should leave a record of what it
 spent.
@@ -95,6 +109,8 @@ Estimates are list price, not your bill. Use them to compare runs.
 
 ## 8. Quick signs your factory is burning tokens, and the fix
 
+![Eight signs your factory is burning tokens, each with its fix, as listed below.](token-burn/8-quick-signs.png)
+
 - **Sessions get slower and pricier the longer they run.** Start fresh and
   carry a short summary.
 - **The agent re-reads the same files every turn.** Split them and load on
@@ -109,6 +125,8 @@ Estimates are list price, not your bill. Use them to compare runs.
 - **Cost per call drops while the bill climbs.** Measure cost per merged
   change, failed runs included (section 7).
 - **You can't say what loads into every session.** Start there.
+
+![A real run: plan, tests first by a separate agent, build round 1, build round 2, review, pull request.](token-burn/real-run.png)
 
 **A real run, for scale:** one small feature on a demo app. Planned, tests
 written first by a separate agent, built in two rounds, reviewed, pull request
