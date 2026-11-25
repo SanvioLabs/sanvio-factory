@@ -67,7 +67,8 @@ breaks. One that passes whatever the code does is decoration.
   `python3 scripts/run_tests.py`, so a pane can show the run while it goes, and
   show the output.
 - [`skills/review-pr/`](../skills/review-pr/) has read the change before a human does.
-- A human merges.
+- A human merges, unless the factory's owner has turned on `auto_merge`
+  ([`decisions.md`](decisions.md) has who decides that).
 
 ## Never
 

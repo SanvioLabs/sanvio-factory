@@ -17,6 +17,7 @@ Bundles for different periods aren't compared on counts: they'd differ anyway.
 
 A folder store also drops files older than 90 days (SANVIO_KEEP_DAYS) from accepted/, rejected/ and marks/
 each time --folder runs: the same 90 days the bucket's lifecycle keeps in the cloud (SPEC-004 PRIV-004).
+With SANVIO_HOLD on, an investigation's hold, it removes nothing.
 
 The first run also writes the _shape/ files the store's views read, so a query over an empty store returns
 no rows rather than an error. They hold no numbers and every view leaves them out.
@@ -107,6 +108,12 @@ class FolderStore(Store):
                     path.unlink()
                     gone.append(key)
         return sorted(gone)
+
+
+def held():
+    """SANVIO_HOLD is on, as for the local logs: an investigation's hold, so the folder store removes
+    nothing. The bucket's lifecycle in the cloud doesn't read it."""
+    return os.environ.get("SANVIO_HOLD", "").strip().lower() in ("on", "1", "true", "yes")
 
 
 def keep_days():
@@ -281,9 +288,13 @@ def main(argv=None):
     results = sort_all(store)
     for dest, reason in results:
         print("{}{}".format(dest, "  ({})".format(reason) if reason else ""))
+    rejected = sum(1 for _, r in results if r)
+    if held():
+        print("{} sorted, {} rejected, nothing removed: SANVIO_HOLD is on.".format(len(results), rejected))
+        return 0
     gone = store.prune(keep_days())
     print("{} sorted, {} rejected, {} older than {} days removed.".format(
-        len(results), sum(1 for _, r in results if r), len(gone), keep_days()))
+        len(results), rejected, len(gone), keep_days()))
     return 0
 
 

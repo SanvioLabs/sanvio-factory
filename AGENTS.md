@@ -32,8 +32,9 @@ Read these when their moment comes:
 | [`steering/decisions.md`](steering/decisions.md) | Before a send, merge, deploy, delete or any other step a person decides, or asked what the agent can't decide alone |
 
 Add your own the same way: one topic per file, and a row here saying when it
-applies. Where a steering file and this file disagree, this file wins, and you
-say so.
+applies. Where a steering file and this file's rules disagree, this file wins,
+and you say so. The tables here only point: where a row and the file it names
+differ, the file wins.
 
 ## Who you work for
 

@@ -52,8 +52,12 @@ false in [`.claude/settings.json`](../.claude/settings.json), so Claude Code ask
 
 Five plugins come switched on in [`.claude/settings.json`](../.claude/settings.json). NIST SP 800-53 CM-7
 asks that only what's needed runs, so each one's reason is here. They read and
-show: none writes to your project, and none reaches anything beyond what its
-row names.
+show, and none reaches anything beyond what its row names. None of the four
+mods changes a tracked file: what they keep, such as `github-status`'s
+`.sanvio/project/` and `factory-dashboard`'s caches, goes under `.sanvio/`,
+which git ignores. Stelliad writes only when you run one of its skills: an
+issue from `create-ticket`, a spec from `create-spec`, code from
+`implement-spec`.
 
 | Plugin | What it reads | Why it's on |
 |---|---|---|
@@ -147,10 +151,14 @@ owner does it without asking why. The store sits in a system the owner has
 approved for the team's data, the same as any other tool here, and a hosted
 analytics service isn't one unless it's been approved like any other.
 
-`SANVIO_KEEP_DAYS` changes the 90 days for the first two. An investigation
-holds everything: [`incidents.md`](incidents.md) says what to keep, and a
-period never outranks it. Stop the loop and set a longer period until the
-contact says the investigation has what it needs.
+`SANVIO_KEEP_DAYS` changes the 90 days for the usage log, detailed mode's
+commands and the loop's issue folders. An investigation holds everything:
+[`incidents.md`](incidents.md) says what to keep, and a period never outranks
+it. `SANVIO_HOLD=on` is that hold: while it's set, none of the removals in the
+table runs, whatever its period, and the retro skill's `record` and `drop`
+refuse to delete a kept copy. Where the owner runs a usage store,
+`validator.py --folder` holds too, but the bucket's lifecycle in the cloud
+doesn't read the variable: the owner suspends that rule by hand.
 
 Orientation is the factory's training, and who went through it is recorded in
 the `## Onboarding` table of `company/COMPANY.md`, which the company keeps, not

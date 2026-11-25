@@ -147,6 +147,16 @@ class Validator(Fixture):
             os.utime(self.store / key, (0, 0))
         self.assertEqual(store.prune(90), [])
 
+    def test_a_hold_keeps_what_is_older_than_its_days(self):
+        self.send_days()
+        store = validator.FolderStore(self.store)
+        validator.sort_all(store)
+        old = self.store / sorted(store.keys("accepted/bench/"))[0]
+        os.utime(old, (0, 0))
+        with mock.patch.dict(os.environ, {"SANVIO_HOLD": "on"}), mock.patch("sys.stdout"):
+            self.assertEqual(validator.main(["--folder", str(self.store)]), 0)
+        self.assertTrue(old.exists())
+
     def test_the_command_runs_over_a_folder(self):
         self.send_days()
         with mock.patch("sys.stdout"):

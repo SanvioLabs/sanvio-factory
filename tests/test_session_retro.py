@@ -169,6 +169,16 @@ class Capture(Base):
         self.assertEqual(self.kept(), [])
         self.assertEqual(session_retro.listed(self.folder), [])
 
+    def test_a_hold_keeps_an_old_copy(self):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
+            session_retro.capture(self.root, self.event(self.log(CORRECTED)))
+        old = time.time() - 31 * 86400
+        os.utime(self.folder / (SESSION + ".jsonl"), (old, old))
+        result = self.run_hook(json.dumps(self.event(self.log(QUIET, name="other"), session="other")),
+                               SANVIO_HOLD="on")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.kept(), [SESSION + ".jsonl"])
+
 
 class Kept(Base):
     """A transcripts folder of its own, and no session id from the session running the tests."""
@@ -225,6 +235,16 @@ class PromptAndRecord(Kept):
         self.assertEqual(session_retro.listed(self.folder), [])
         self.assertFalse((self.root / ".loop" / "lessons.md").exists())
         self.assertEqual(session_retro.drop(self.root, SESSION, out=io.StringIO()), 1)
+
+    def test_a_hold_stops_drop_and_record_deleting_anything(self):
+        self.keep()
+        self.replied("FINDING: UNLOADED | r3 | this repo | steering | loop.json | The setting's home was never read.\n")
+        with mock.patch.dict(os.environ, {"SANVIO_HOLD": "on"}):
+            self.assertEqual(session_retro.drop(self.root, SESSION, out=io.StringIO()), 1)
+            self.assertEqual(session_retro.record(self.root, SESSION, out=io.StringIO()), 1)
+        self.assertEqual(self.kept(), [SESSION + ".jsonl"])
+        self.assertEqual(session_retro.listed(self.folder), [SESSION])
+        self.assertFalse((self.root / ".loop" / "lessons.md").exists())
 
     def test_record_appends_a_session_entry_and_deletes_the_copy(self):
         self.keep()
