@@ -1004,6 +1004,24 @@ def confined(cmd):
     return out + UNTRUSTED_CLAUDE
 
 
+def own_settings(cmd):
+    """Whether a command line carries a --settings of its own, as --settings X or --settings=X (#743)."""
+    return any(word == "--settings" or word.startswith("--settings=") for word in cmd or ())
+
+
+def enabled_plugins(folder):
+    """The plugin ids folder/.claude/settings.json's enabledPlugins sets true (#743). A file that can't be read or
+    parsed, or holds no such map, enables nothing."""
+    try:
+        data = json.loads((Path(folder) / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    plugins = data.get("enabledPlugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, dict):
+        return set()
+    return {name for name, on in plugins.items() if on is True}
+
+
 def named(value):
     """(name, model) when value is claude, codex or ollama with an optional :model, else (None, "").
 
@@ -3230,6 +3248,9 @@ class Loop:
         self.hours_from = "hours in loop.json"  # where that setting came from, for an error; main() may say --hours
         self.outside = False  # outside the hours and logged so, until they begin again
         self.started_with = None  # fingerprint() when work() or watch() began, so stale() can compare
+        # The plugin ids `claude plugin list --json` gave at start (start_checks()), or None until then or when it
+        # gave none: plugin_settings() turns off each one the factory doesn't enable (#743).
+        self.plugins = None
 
     # -- plumbing ---------------------------------------------------------
 
@@ -4043,7 +4064,8 @@ class Loop:
         confine asks for the same where it can be had, and runs any other command as it is: for an
         issue the loop has already checked the author of.
         """
-        cmd, why = self.argv(which, untrusted, confine, folders=self.held_to(which, cwd, untrusted or confine))
+        cmd, why = self.argv(which, untrusted, confine, folders=self.held_to(which, cwd, untrusted or confine),
+                             checkout=cwd)
         if cmd is None:
             self.record_usage(number, step, round_no, None, configured_model(self.cfg, which))
             return REFUSED, why
@@ -4076,20 +4098,26 @@ class Loop:
             return None
         return [os.path.realpath(str(cwd)), os.path.realpath(str(self.repo / ".git"))]
 
-    def argv(self, which, untrusted=False, confine=False, folders=None):
+    def argv(self, which, untrusted=False, confine=False, folders=None, checkout=None):
         """(the command agent() runs for which, None), or (None, why it won't run it). See agent().
 
         folders is what held_to() gives: a caller's claude build or tester agent needs it, and is refused
         without it, since its guard would hold it to nothing. The reasons are fixed strings: review_run()
         logs them on one line.
+
+        checkout is the folder the agent runs in, for plugin_settings(), which every claude command gets in its
+        one --settings (#743). A claude command loop.json gives a --settings of its own is left as it always was:
+        start_checks() says so.
         """
         cmd, why = command(self.cfg, which)
         if cmd is None:
             return None, "{} can't run: {}".format(which, why)
         name = named(self.cfg[which])[0]
+        claude = Path(cmd[0]).name == "claude"
+        plugins = self.plugin_settings(checkout) if claude and not own_settings(cmd) else {}
         held = confined(cmd)
         if (untrusted or confine) and held is not None:
-            return held, None
+            return held + (["--settings", json.dumps(plugins)] if plugins else []), None
         if untrusted and name == "codex":
             return None, ("{} is codex, whose read-only sandbox can still read files outside the checkout, "
                           "which could end up in a posted comment").format(which)
@@ -4097,7 +4125,7 @@ class Loop:
             return None, "{} isn't a claude command, so it can't be confined to the checkout".format(which)
         settings = {}
         sources = []
-        if which in ("agent", "tester_agent") and Path(cmd[0]).name == "claude":
+        if which in ("agent", "tester_agent") and claude:
             if self.caller() and not folders:
                 return None, "{} is a caller's build, and nothing says which worktree to hold it to".format(which)
             if self.project:
@@ -4116,6 +4144,8 @@ class Loop:
                 # hook, which runs outside the sandbox, the deny rules and the guard, or an allow rule. User
                 # settings are this machine's; what --settings passes still applies.
                 sources = ["--setting-sources", "user", "--strict-mcp-config"]
+        # After the guard, the sandbox and the deny rules, so they stay and there's one --settings.
+        settings.update(plugins)
         if settings:
             cmd = cmd + ["--settings", json.dumps(settings)]
         cmd = cmd + sources
@@ -4150,6 +4180,21 @@ class Loop:
             command += " --confine " + shlex.quote(folder)
         hook = {"type": "command", "command": command, "timeout": 10}
         return json.dumps({"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [hook]}]}})
+
+    def plugin_settings(self, checkout=None):
+        """The plugin keys for a claude agent's --settings (#743): no plugins or skills synced from claude.ai, and,
+        once start_checks() has listed this machine's plugins, each one turned off unless the factory's
+        .claude/settings.json enables it. So a plugin someone enabled for all their own sessions stays out of
+        the loop's agents. In a project that isn't a caller's, one the checkout's own .claude/settings.json
+        enables is left on too; a caller's checkout enables nothing. An enabled id is left out of the map, not
+        set true, so nothing is turned on that wasn't."""
+        out = {"syncClaudeAiPlugins": False, "syncClaudeAiSkills": False}
+        if isinstance(self.plugins, set):
+            on = enabled_plugins(self.root)
+            if self.project and not self.caller() and checkout is not None:
+                on |= enabled_plugins(checkout)
+            out["enabledPlugins"] = {plugin: False for plugin in sorted(self.plugins - on)}
+        return out
 
     def stream(self, cmd, cwd, prompt, path, which, stderr=True, number=None, step="", round_no=0):
         """sh() for an agent, with each line it says appended to path as it arrives, for its window to show.
@@ -5925,7 +5970,8 @@ class Loop:
         start_problem() finds a key it can't act on, else None, with one WARN line naming each provider
         setting set here that no agent would get. Names only, never a value. Under sandbox_strict, where the
         sandbox can't start, it's 1 with one ERROR line too (#703): a caller's profile is its own, and work()
-        refuses a caller whose commands wouldn't run in the sandbox."""
+        refuses a caller whose commands wouldn't run in the sandbox. Last, check_plugins() lists this machine's
+        plugins for the agents' settings (#743)."""
         found = start_problem(self.cfg)
         if found:
             self.log("ERROR", "{}, so nothing is taken".format(found))
@@ -5945,7 +5991,56 @@ class Loop:
             one = len(dropped) == 1
             self.log("WARN", "{} {} set here but not passed to agents; list {} in agent_env in loop.json".format(
                 ", ".join(dropped), "is" if one else "are", "it" if one else "them"))
+        self.check_plugins()
         return None
+
+    def check_plugins(self):
+        """start_checks()'s part for #743: one WARN for each claude agent whose loop.json command gives its own
+        --settings, which argv() leaves as it is, and the plugin ids this machine's claude lists, kept for
+        plugin_settings(). Nothing is run when no agent is claude, and one WARN says so when the list can't be
+        had."""
+        claudes = []
+        for which in ("agent", "reader_agent", "review_agent", "tester_agent"):
+            if not self.cfg.get(which):
+                continue
+            try:
+                cmd = command(self.cfg, which)[0]
+            except ValueError:  # a command line shlex can't split; it can't run either
+                continue
+            if not cmd or Path(cmd[0]).name != "claude":
+                continue
+            claudes.append(cmd)
+            if own_settings(cmd):
+                self.log("WARN", "plugins: {} in loop.json gives its own --settings, so the loop adds no plugin "
+                         "settings to it, and it loads every plugin this machine enables".format(which))
+        if not claudes:
+            return
+        # They share this machine's install, so the first one's claude answers for all of them.
+        self.plugins = self.plugin_ids(claudes[0][0])
+        if self.plugins is None:
+            self.log("WARN", "plugins: `claude plugin list --json` didn't list this machine's plugins, so the agents "
+                     "load every plugin the machine enables this run")
+
+    @staticmethod
+    def plugin_ids(exe):
+        """The ids `exe plugin list --json` lists, each once though it may appear once per scope, or None when it
+        exits non-zero, can't start, takes over 30 seconds, or prints anything but a JSON list of objects that
+        each have a string id (#743). It never reads the loop's stdin."""
+        try:
+            done = subprocess.run([exe, "plugin", "list", "--json"], stdin=subprocess.DEVNULL, capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode != 0:
+            return None
+        try:
+            listed = json.loads(done.stdout)
+        except ValueError:
+            return None
+        if not isinstance(listed, list) or not all(isinstance(item, dict) and isinstance(item.get("id"), str)
+                                                   for item in listed):
+            return None
+        return {item["id"] for item in listed}
 
     def run(self, once=False, only=None, dry_run=False, until=None):
         return self.locked(lambda: self.work(once, only, dry_run), until)
