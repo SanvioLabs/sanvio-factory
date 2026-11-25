@@ -70,9 +70,9 @@ First set `SANVIO_HOLD=on` in your shell profile and start new sessions from
 a new terminal. While it's on, nothing removes a local record by its age, and
 the retro skill's `record` and `drop` refuse to delete a kept copy. A loop in
 tmux takes the tmux server's environment, not your profile's, so if the loop
-has to run before the hold comes off, put `SANVIO_HOLD=on` inside the quoted
-command [`skills/loop-control/SKILL.md`](../skills/loop-control/SKILL.md) starts it with, before `python3` (in
-psmux, `$env:SANVIO_HOLD='on';` first). Where the owner runs a usage store,
+has to run before the hold comes off, start it with the hold inside its
+command: [`skills/loop-control/SKILL.md`](../skills/loop-control/SKILL.md) *Start it*, step 4, has the tmux
+and the psmux line. Where the owner runs a usage store,
 the bucket's lifecycle in the cloud doesn't read the hold: ask the owner to
 suspend it. Take the hold off only when the contact says the investigation
 has what it needs.
