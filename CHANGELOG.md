@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-25: Specs list forbidden shortcuts
+
+`stelliad:create-spec` now writes a Forbidden Shortcuts section after Acceptance Criteria: each way a build could pass every criterion without meeting the spec's Goals, with the Goal or requirement it fakes, so the plan, the build and the review treat it as not done. The Stelliad pin moves from `9f0b8cf` to `65632a3`, which also brings Stelliad's corrected descriptions for `coverage-gaps`, `generate-svg` and `triage-alert` (plugin 0.8.1). Specs already written are unchanged.
+
+Files: [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), `CHANGELOG.md`.
+
+**Do:** accept the plugin update the next time you start in the harness. A spec you write after that gets the new section.
+
 ## 2026-11-24: Steering agrees with itself, and an investigation hold
 
 Four places where the steering said two things now say one. `SANVIO_HOLD=on` is the investigation hold [`incidents.md`](steering/incidents.md) asks for: while it's set, nothing removes a local record by its age (the usage log, detailed mode's commands, the loop's issue folders, retro copies, test run status files), the retro skill's `record` and `drop` refuse to delete a kept copy, and the usage store's `validator.py --folder` removes nothing. The bucket's lifecycle in the cloud doesn't read it, and `incidents.md` says to ask the owner to suspend it. Before, raising `SANVIO_KEEP_DAYS` was the only lever, and it never reached the retro copies or the test run files. [`AGENTS.md`](AGENTS.md)'s rules outrank a steering file while its tables only point, and [`operating.md`](steering/operating.md) says so too, where the two disagreed about which wins. [`data-and-tools.md`](steering/data-and-tools.md) no longer says the default plugins never write: the mods keep their files under the ignored `.sanvio/`, and Stelliad writes when you run its skills. [`building-and-testing.md`](steering/building-and-testing.md) says a human merges unless the owner turned on `auto_merge`, as [`decisions.md`](steering/decisions.md) already did.
