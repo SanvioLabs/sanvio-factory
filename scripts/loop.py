@@ -3265,7 +3265,9 @@ class Loop:
     def forget_old_issues(self, now=None):
         """Remove each issue-N folder here whose newest file is older than SANVIO_KEEP_DAYS (90 by default)
         and whose issue status.json no longer lists, and return their numbers. A folder it can't read or
-        remove is left as it is."""
+        remove is left as it is. Under SANVIO_HOLD it removes nothing."""
+        if names.held():
+            return []
         listed = {row.get("number") for row in self.status.get("issues", []) if isinstance(row, dict)}
         cutoff = (now or time.time()) - names.keep_days() * 86400
         gone = []

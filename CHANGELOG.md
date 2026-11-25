@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-24: Steering agrees with itself, and an investigation hold
+
+Four places where the steering said two things now say one. `SANVIO_HOLD=on` is the investigation hold [`incidents.md`](steering/incidents.md) asks for: while it's set, nothing removes a local record by its age (the usage log, detailed mode's commands, the loop's issue folders, retro copies, test run status files). Before, raising `SANVIO_KEEP_DAYS` was the only lever, and it never reached the retro copies or the test run files. [`AGENTS.md`](AGENTS.md)'s rules outrank a steering file while its tables only point, and [`operating.md`](steering/operating.md) says so too, where the two disagreed about which wins. [`data-and-tools.md`](steering/data-and-tools.md) no longer says the default plugins never write: what the mods keep goes under the ignored `.sanvio/`, and Stelliad writes when you run its skills. [`building-and-testing.md`](steering/building-and-testing.md) says a human merges unless the owner turned on `auto_merge`, as [`decisions.md`](steering/decisions.md) already did.
+
+**Needs:** 2026-10-31: Session retro; 2026-11-11: Local records are kept for 90 days; 2026-11-12: Why each default plugin is on; 2026-11-20: A status file for each test suite run
+
+**Controls:** AC-5, SA-9
+
+Files: [`scripts/names.py`](scripts/names.py), [`.claude/hooks/usage_log.py`](.claude/hooks/usage_log.py), [`.claude/hooks/session_retro.py`](.claude/hooks/session_retro.py), [`scripts/loop.py`](scripts/loop.py), [`scripts/run_tests.py`](scripts/run_tests.py), [`AGENTS.md`](AGENTS.md), [`steering/operating.md`](steering/operating.md), [`steering/data-and-tools.md`](steering/data-and-tools.md), [`steering/incidents.md`](steering/incidents.md), [`steering/building-and-testing.md`](steering/building-and-testing.md), [`tests/test_names.py`](tests/test_names.py), [`tests/test_usage.py`](tests/test_usage.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_session_retro.py`](tests/test_session_retro.py), [`tests/test_run_tests.py`](tests/test_run_tests.py), `CHANGELOG.md`.
+
+**Do:** if your own [`AGENTS.md`](AGENTS.md) still says "Where a steering file and this file disagree, this file wins", bring over its new two sentences. Nothing else until you need a hold; [`incidents.md`](steering/incidents.md) says how to set one.
+
 ## 2026-11-24: Front lights for a Pi builder
 
 Four LEDs on a Pi builder's front: green for the network, blue for the disk, orange while the loop works an issue, and white while a `claude` process runs as the agent account, dimmed in software. The example has the wiring, the four boot-config lines, a check that lights each LED in turn, a `--show` mode that prints what each would show without touching them, and a systemd service.

@@ -300,6 +300,15 @@ class RunTests(unittest.TestCase):
             self.assertIn(name, left)
         self.assertEqual(len(left), 5)
 
+    def test_a_hold_keeps_every_status_file(self):
+        repo = self.repo()
+        folder = repo / ".sanvio" / "tests"
+        folder.mkdir(parents=True)
+        old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=31)).isoformat()
+        (folder / "old.json").write_text(json.dumps({"updated": old}))
+        self.run_script(repo, env=dict(self.env, SANVIO_HOLD="on"))
+        self.assertIn("old.json", [p.name for p in folder.iterdir()])
+
 
 if __name__ == "__main__":
     unittest.main()

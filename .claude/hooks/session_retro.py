@@ -13,8 +13,8 @@ run copies it again, so a session that compacted and then ended keeps all of it.
 or scripts/loop.py started is never copied: nobody corrected it. Nothing here leaves this machine.
 
 Each run also deletes whatever in local-data/retro/ is older than KEEP_DAYS, on or off, so turning it
-off doesn't keep old copies forever. It never blocks, never prints, and never stops a session if it
-fails.
+off doesn't keep old copies forever. Under SANVIO_HOLD, an investigation's hold, it deletes nothing.
+It never blocks, never prints, and never stops a session if it fails.
 
 skills/retro/ runs the rest through this file:
 
@@ -183,8 +183,9 @@ def write_listed(folder, ids):
 
 
 def prune(folder, now=None):
-    """Delete each file in the folder older than KEEP_DAYS, and list only sessions whose copy is left."""
-    if not folder.is_dir():
+    """Delete each file in the folder older than KEEP_DAYS, and list only sessions whose copy is left.
+    Under SANVIO_HOLD it deletes nothing."""
+    if not folder.is_dir() or names().held():
         return
     cutoff = (now if now is not None else time.time()) - KEEP_DAYS * 86400
     for path in folder.iterdir():

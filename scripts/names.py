@@ -75,6 +75,15 @@ def keep_days(environ=None):
     return days if days > 0 else KEEP_DAYS
 
 
+ON = ("on", "1", "true", "yes")
+
+
+def held(environ=None):
+    """SANVIO_HOLD is on: an investigation is holding every local record, so nothing that prunes removes
+    one, whatever its period says. steering/incidents.md says when to set it and who lifts it."""
+    return env("HOLD", environ=environ).strip().lower() in ON
+
+
 DETAILED_DAYS = 14  # how long one opt-in to detailed mode lasts, unless SANVIO_DETAILED_DAYS says
 
 

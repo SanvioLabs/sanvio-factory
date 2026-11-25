@@ -12,7 +12,8 @@ lands beside one in the clone. The file holds where the run is and how it ended:
 paths, a branch name and counts, never test output. It's written whole each
 time, by a rename, so a reader never sees half of one.
 
-Each start removes status files whose `updated` is over 30 days old. If the
+Each start removes status files whose `updated` is over 30 days old, unless
+SANVIO_HOLD is on. If the
 file can't be written, or this isn't a git repo, the tests run anyway and one
 line on stderr says the run won't show.
 """
@@ -23,6 +24,8 @@ import subprocess
 import sys
 import threading
 import unittest
+
+import names  # beside this file: the hold switch
 
 KEEP_DAYS = 30
 HEARTBEAT = 10.0  # seconds between writes while one test runs long
@@ -52,13 +55,16 @@ def status_folder():
 
 
 def prune(folder, days=KEEP_DAYS):
-    """Remove status files last updated over `days` ago. Anything else stays."""
+    """Remove status files last updated over `days` ago. Anything else stays, and under SANVIO_HOLD
+    everything does."""
+    if names.held():
+        return
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
     try:
-        names = os.listdir(folder)
+        entries = os.listdir(folder)
     except OSError:
         return
-    for name in names:
+    for name in entries:
         if not name.endswith(".json"):
             continue
         path = os.path.join(folder, name)

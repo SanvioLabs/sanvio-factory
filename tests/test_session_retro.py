@@ -169,6 +169,16 @@ class Capture(Base):
         self.assertEqual(self.kept(), [])
         self.assertEqual(session_retro.listed(self.folder), [])
 
+    def test_a_hold_keeps_an_old_copy(self):
+        with mock.patch.dict(os.environ, {"SANVIO_RETRO": "on"}):
+            session_retro.capture(self.root, self.event(self.log(CORRECTED)))
+        old = time.time() - 31 * 86400
+        os.utime(self.folder / (SESSION + ".jsonl"), (old, old))
+        result = self.run_hook(json.dumps(self.event(self.log(QUIET, name="other"), session="other")),
+                               SANVIO_HOLD="on")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.kept(), [SESSION + ".jsonl"])
+
 
 class Kept(Base):
     """A transcripts folder of its own, and no session id from the session running the tests."""

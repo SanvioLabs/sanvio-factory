@@ -66,6 +66,13 @@ and don't open a file to see its value.
 
 ## What to keep
 
+First set `SANVIO_HOLD=on` in your shell profile and start new sessions from
+a new terminal. While it's on, nothing removes a record by its age. A loop
+started in tmux doesn't read the profile, so if the loop has to run before the
+hold comes off, put `SANVIO_HOLD=on` at the front of its command. Don't run the
+retro skill's `record` or `drop` either: both delete a kept copy. Take the hold
+off only when the contact says the investigation has what it needs.
+
 Before anything is cleaned up, keep every record above, plus the worktree and
 branch of the issue involved, and its pull request and comments. Don't delete
 or rewrite any of them, even to remove what was exposed, until the contact
