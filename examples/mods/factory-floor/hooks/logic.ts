@@ -517,9 +517,10 @@ export function sameSeen(a: Seen | null, b: Seen | null): boolean {
 
 // A timer's work that never runs twice at once: a call made while the last one is still running does
 // nothing. A tick fires on the clock whatever the last one is doing, so a surface slow to answer would
-// otherwise stack ticks up and slow itself down further (#759). A run that hasn't settled after
-// `giveUpAfter` calls have been turned away is given up on, so one host call that never answers can't
-// stop the timer's work for good: the next call runs, and the run given up on can't free its slot.
+// otherwise stack ticks up and slow itself down further (#759). A run still unsettled at the
+// `giveUpAfter`-th call made while it runs is given up on, and that call starts a new run, so one host
+// call that never answers can't stop the timer's work for good. The run given up on can't free the new
+// run's slot when it does settle.
 // Counting calls, not reading a clock, keeps the guard from waiting on another host call.
 export function single(work: () => Promise<void>, giveUpAfter: number): () => Promise<void> {
   let running: number | null = null
