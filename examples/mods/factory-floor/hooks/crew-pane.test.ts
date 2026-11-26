@@ -556,6 +556,26 @@ group('redraws (#759)', () => {
     await ui.unmount()
     await close()
   })
+  test('a redraw missed behind another pane and a change found on showing it draw once between them', async ($, on) => {
+    const files = working(counting())
+    const { clock, invalidated, panes, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    // The moving time's redraw falls due behind the other pane, and the step changes there too.
+    await clock.advance(30_000)
+    await drain()
+    files.set(STATUS, statusText(counting({ step: 'TEST' })))
+    panes[0]!.isShown = true
+    await clock.advance(2000)
+    await drain()
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
   test('a poll that never settles is given up on, and the Crew reads again', async ($, on) => {
     const files = working(job(12, 'BUILD'))
     const { clock, reads, flip, close } = world(on, files)

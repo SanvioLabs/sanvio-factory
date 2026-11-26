@@ -827,7 +827,8 @@ group('project loops', () => {
     invalidated.length = 0
     written.length = 0
     files.set(`${HARNESS}/status.json`, statusText('factory job', { issues: [{ ...JOB, state: 'pr', pr: 'https://x/pull/2' }] }))
-    for (let i = 0; i < 8; i++) await clock.advance(500)
+    // Nine ticks, so the tick after them isn't one of the List's every-fourth reads.
+    for (let i = 0; i < 9; i++) await clock.advance(500)
     // Nothing stored and nothing asked for, so nothing redraws, and the pane still shows the job working.
     expect(written).toEqual([])
     expect(renders(invalidated)).toBe(0)
