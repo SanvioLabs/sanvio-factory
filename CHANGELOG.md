@@ -42,6 +42,16 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-26: factory-floor redraws only as often as it changes
+
+The factory-floor pane does less work while it's open, so a VS Code or desktop window with it open on a working loop no longer slows down over time. A List tick or a Crew poll that starts while the last one is still reading now does nothing, so slow answers no longer pile up. In VS Code and the desktop app the List view's pulsing dot and running clock redraw at most once a second, where before it was every half second; the terminal is unchanged. While the pane is behind another one, neither view redraws for its pulse, its clock or its figures, and the reads go on, so the pane is current when it's shown again. What the pane shows and how it looks are unchanged.
+
+**Needs:** 2026-11-09: Factory floor mod; 2026-11-09: Crew view in factory-floor; 2026-11-14: Factory floor on other machines; 2026-11-15: All loops in factory-floor; 2026-11-20: factory-floor shows test suite runs; 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
+
+Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), `CHANGELOG.md`.
+
+**Do:** run `/plugin update factory-floor@sanvio-factory`
+
 ## 2026-11-25: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.

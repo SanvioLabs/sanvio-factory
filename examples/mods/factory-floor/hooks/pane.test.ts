@@ -754,6 +754,24 @@ group('project loops', () => {
       await close()
     })
   }
+  test('on vscode, redrawn once a second, the job\'s dot still alternates bright and dim', async ($, on) => {
+    const { clock, close } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+    await clock.advance(POLL)
+    type Node = { props?: Record<string, unknown>; children?: (Node | string)[] }
+    const first = (n: Node | string | undefined): Node => (n as Node).children![0] as Node
+    const dotProps = async () => JSON.stringify(first(first((await ui.find({ key: 'issue-12' })) as unknown as Node)).props)
+    const seen: string[] = []
+    for (let i = 0; i < 4; i++) {
+      await clock.advance(1000)
+      seen.push(await dotProps())
+    }
+    // Each redraw turns the beat, so one redraw's dot differs from the last.
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1])
+    await ui.unmount()
+    await close()
+  })
   test('behind another pane the List redraws for nothing, and still reads', async ($, on) => {
     const { clock, close, invalidated, panes, reads } = world(on, workingHere())
     await open($ as unknown as Dollar)
