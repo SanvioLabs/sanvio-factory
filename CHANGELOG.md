@@ -52,6 +52,14 @@ Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-
 
 **Do:** run `/plugin update factory-floor@sanvio-factory`
 
+## 2026-11-26: The cloud usage store's Grafana reads its bucket
+
+The cloud Grafana's DuckDB plugin now gets the task's environment, so it finds the task role's credentials and reads the bucket. Before this, Grafana passed the plugin almost none of its environment, the bucket's secret failed to create, and every panel and alert rule errored from the first deploy. The plugin now holds the two secrets too; the data source's lock keeps them from any query, and the cloud README's check 7 now tests that.
+
+Files: [`examples/usage-store/cloud/grafana.tf`](examples/usage-store/cloud/grafana.tf), [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md), `CHANGELOG.md`.
+
+**Do:** if you deployed the cloud store, apply it again, then run checks 4, 6 and 7. Its alert rules have errored since the first deploy, so none of its alerts has ever fired.
+
 ## 2026-11-25: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.
