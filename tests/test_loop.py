@@ -7145,7 +7145,8 @@ class TestSandboxStrict(unittest.TestCase):
                 other = loop.Loop(factory, cfg, project=site)
                 self.assertNotEqual(other.tampered_mark(), lp.tampered_mark())
                 self.assertEqual(self.git_ran(other, None, "status")[2],
-                                 [(["git", *(loop.CALLER_GIT_SAFE if strict else ()), "status"], None)])
+                                 [(["git", *(loop.CALLER_GIT_SAFE if strict else ()), "status",
+                                    *(loop.CALLER_GIT_FLAGS["status"] if strict else ())], None)])
         self.assertEqual(self.git_ran(lp, None, "status"), (1, self.marked_refusal(lp), []))
 
     # -- the log when the loop starts ------------------------------------------
