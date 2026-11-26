@@ -640,7 +640,13 @@ git of the loop's that reads or writes the worktree from its index, it checks
 the index, as it does for a caller project: an entry whose path leaves the
 worktree, names a `.git` in any case, or is a submodule's means it runs no git
 there, and the step fails. A merged or closed pull request's worktree with such
-an index is kept, with one `ERROR` line naming the entry. Where the sandbox can't
+an index is kept, with one `ERROR` line naming the entry. That check comes once,
+before git starts, so the three commands run with nothing on stdin, in a session
+of their own, as a caller's do: when one ends or times out, the loop kills every
+process still in its session before its own git runs in that worktree, so
+nothing a command started can put an index in place after the check. One that
+starts a session of its own, with `setsid`, isn't found and keeps running, as
+for a caller's commands. Where the sandbox can't
 apply, off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't
 apply a profile, `run`, `review` and `review --pr` stop with one `ERROR` line
 and take nothing, rather than run the commands without it. A cache a command fills outside the worktree, such as

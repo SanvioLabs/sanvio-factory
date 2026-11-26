@@ -6703,7 +6703,37 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertIn('(deny file-write-unlink (literal "{}"))'.format(loop.sbpl(git_dir.resolve())),
                               expected)
                 self.assertEqual(seen["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
-                self.assertNotIn("held", seen["kwargs"])
+                # #753: held, as a caller's is, so nothing it started outlives it.
+                self.assertIs(seen["kwargs"].get("held"), True)
+
+    def test_under_strict_what_the_command_left_running_is_gone_when_it_returns(self):
+        # #753: a background child of a strict command could rename a planted index into place after the #721
+        # check, while the loop's own git runs outside the sandbox. A stand-in sandbox-exec drops -p and its
+        # profile, so this runs where a nested sandbox-exec can't, as inside the loop's own sandbox.
+        factory, own, tree = self.factory_project()
+        stub = self.root / "sandbox-exec"
+        stub.write_text('#!/bin/sh\nshift 2\nexec "$@"\n')
+        os.chmod(stub, 0o755)
+        pid_file = tree / "bg.pid"
+
+        def kill_it():
+            if pid_file.exists():
+                try:
+                    os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass
+
+        self.addCleanup(kill_it)
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True), project=own)
+        with mock.patch.object(loop, "SANDBOX_EXEC", str(stub)), \
+                mock.patch.object(lp, "sandboxed", return_value=True):
+            code, out = lp.own_command("sleep 60 >/dev/null 2>&1 & echo $! > bg.pid; echo done", tree)
+        self.assertEqual((code, out.strip()), (0, "done"))
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 5
+        while loop.pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(loop.pid_alive(pid), "a strict command's background child outlived it")
 
     def test_under_strict_a_sandbox_allow_of_gits_config_lifts_its_git_setting_too(self):
         factory, own, tree = self.factory_project()
@@ -6730,6 +6760,7 @@ class TestSandboxStrict(unittest.TestCase):
                                                loop.sandbox_profile(Path.home(), factory, allow=allow),
                                                "/bin/sh", "-c", "true"])
                 self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
+                self.assertNotIn("held", seen["kwargs"])
 
     def test_strict_for_one_project_leaves_another_projects_profile_alone(self):
         factory, own, tree = self.factory_project()
