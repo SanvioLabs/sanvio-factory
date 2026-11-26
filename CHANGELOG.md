@@ -44,7 +44,7 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 ## 2026-11-26: A strict command's leftover processes are ended
 
-Under `sandbox_strict`, a project's `test_command`, `setup_command` and `generate_command` now run as a caller's do: with nothing on stdin, in a session of their own, and once one ends or times out the loop kills every process still in that session before its own git runs in the worktree. Before, a background child could outlive the command and put an index in place after the loop had checked it. A process that starts a session of its own, with `setsid`, still isn't found. Projects without `sandbox_strict` and caller projects work as before.
+Under `sandbox_strict`, a project's `test_command`, `setup_command` and `generate_command` now run as a caller's do: with nothing on stdin, in a session of their own, and once one ends or times out the loop kills every process still in that session before its own git runs in the worktree. Before, a background child could outlive the command and put an index in place after the loop had checked it. This narrows that race rather than closing it: a process that starts a session of its own with `setsid`, one that moves to a process group of its own and keeps forking, and one handed outside the sandbox through launchd, `open` or a tmux server still aren't found. A command's output now keeps any `\r` it prints, as a caller's does. Projects without `sandbox_strict` and caller projects work as before.
 
 **Needs:** 2026-11-18: A caller's commands are held to their own folders; 2026-11-21: A strict sandbox for one project's commands; 2026-11-25: The index is checked under sandbox_strict
 
