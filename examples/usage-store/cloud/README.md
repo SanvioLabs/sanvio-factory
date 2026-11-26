@@ -86,8 +86,11 @@ AC-011, AC-015 and AC-017.
    sign-in is refused. It holds no access key on disk at any point.
 6. **The same rows from the bucket as from a folder.** Copy `accepted/` to a folder, start the local
    Grafana on it, and compare each panel with the cloud Grafana's.
-7. **Nothing else is reachable.** In the cloud Grafana, a query of `read_text('/proc/self/environ')` is
-   refused, and the API refuses basic auth.
+7. **Nothing else is reachable.** The DuckDB plugin holds the task's whole environment, the two secrets
+   included, because it needs the task role's credentials from it. In the cloud Grafana, queries of
+   `read_text('/proc/self/environ')`, `read_text('/proc/1/environ')`, `glob('/proc/*')` and
+   `getenv('USAGE_ALERT_WEBHOOK')` are refused, `duckdb_secrets(redact=false)` is refused, and the API refuses
+   basic auth. Ask for a length, never the value, so a check that fails shows nothing.
 
 Then delete the test bundles, or leave them to expire.
 
