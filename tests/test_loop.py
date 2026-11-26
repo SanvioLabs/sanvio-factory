@@ -6518,6 +6518,22 @@ class TestSandbox(unittest.TestCase):
             self.assertEqual(lp.own_command("cat f", tree), (0, "CHECKOUT"))
 
 
+def raw_index(project, tree, entries):
+    """Writes the index of tree, a worktree of project's clone, by hand, as a command could: (path, sha) or
+    (path, sha, mode) entries that git's own commands would refuse to add. mode is 0o100644 unless given."""
+    import hashlib
+    import struct
+    body = b""
+    for path, sha, mode in sorted(tuple(entry) + (0o100644,) * (3 - len(entry)) for entry in entries):
+        name = path.encode()
+        entry = struct.pack(">10I", 0, 0, 0, 0, 0, 0, mode, 0, 0, 0) + bytes.fromhex(sha) + \
+            struct.pack(">H", len(name)) + name
+        body += entry + b"\0" * (8 - len(entry) % 8)
+    data = b"DIRC" + struct.pack(">II", 2, len(entries)) + body
+    index = loop.worktree_git_dir(tree, project) / "index"
+    index.write_bytes(data + hashlib.sha1(data).digest())
+
+
 class TestSandboxStrict(unittest.TestCase):
     """sandbox_strict (#696): on a Mac, a project's own test_command, generate_command and setup_command may
     write only their worktree, a temp folder of their own, git's folder for it and what sandbox_write_allow
@@ -6869,6 +6885,137 @@ class TestSandboxStrict(unittest.TestCase):
             shutil.rmtree(str(self.root / "factory"))
         self.assertEqual(runs[0], runs[1])
         self.assertIn("GIT_DIR", runs[1][2][-1][1])
+
+    # -- the worktree's index under strict (#721) ------------------------------
+
+    def indexed_worktree(self, **cfg):
+        """(a Loop, its clone holding one committed README.md, a real worktree of it where the loop keeps
+        checkouts, on loop/issue-3), with sandbox_strict on unless cfg says otherwise. The setup's git runs with
+        no global or system config, so nothing of this machine's own reaches it."""
+        factory, own, _ = self.factory_project()
+        trees = self.root / "trees"
+        tree = trees / "app" / "issue-3"
+        tree.parent.mkdir(parents=True)
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        (own / "README.md").write_text("x\n")
+        for args in (["init", "-q"], ["add", "README.md"],
+                     ["-c", "user.name=Loop", "-c", "user.email=loop@example.com", "commit", "-q", "-m", "one"],
+                     ["worktree", "add", "-q", "-b", "loop/issue-3", str(tree)]):
+            subprocess.run(["git", *args], cwd=str(own), env=env, check=True, capture_output=True)
+        cfg = dict(dict(loop.DEFAULTS, sandbox_strict=True, worktree_dir=str(trees)), **cfg)
+        return loop.Loop(factory, cfg, project=own), own, tree
+
+    def bad_entries(self, tree):
+        """[(the path index_problem() refuses, raw_index() entries holding README.md and it)], one for each kind:
+        a path out of the worktree, a .git, a .git in another case, and a submodule's."""
+        def out(*args, **kwargs):
+            return subprocess.run(["git", "-C", str(tree), *args], capture_output=True, text=True, check=True,
+                                  **kwargs).stdout.strip()
+
+        readme, head = out("rev-parse", "HEAD:README.md"), out("rev-parse", "HEAD")
+        blob = out("hash-object", "-w", "--stdin", input="planted\n")
+        return [(bad, [("README.md", readme), (bad, sha, mode)]) for bad, sha, mode in (
+            ("../escape-721", blob, 0o100644), ("sub/.git/config", blob, 0o100644), (".GIT/config", blob, 0o100644),
+            ("vendor", head, 0o160000))]
+
+    def test_under_strict_a_bad_index_stops_the_loops_git_before_it_writes_and_an_ordinary_one_goes_through(self):
+        lp, own, tree = self.indexed_worktree()
+        for bad, entries in self.bad_entries(tree):
+            with self.subTest(path=bad):
+                raw_index(own, tree, entries)
+                code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
+                self.assertEqual(code, 1)
+                self.assertEqual(out, "refused: the worktree's index names {}, so the loop runs no git "
+                                      "there".format(bad))
+                self.assertFalse(os.path.lexists(str(tree.parent / "escape-721")))
+                self.assertFalse(os.path.lexists(str(tree / "sub")))
+                # No mark: strict's git never reads one, so its "until a person deletes it" wouldn't hold.
+                self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+        # An ordinary index goes through, and the check leaves it as it was. The reset runs with no global config,
+        # so an fsmonitor of this machine's doesn't write an extension the loop's checkout then drops.
+        subprocess.run(["git", "-C", str(tree), "reset", "-q"], check=True,
+                       env=dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1"))
+        index = loop.worktree_git_dir(tree, own) / "index"
+        before = index.read_bytes()
+        code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(index.read_bytes(), before)
+
+    def test_under_strict_status_isnt_an_index_reader_so_a_bad_index_doesnt_stop_it(self):
+        lp, own, tree = self.indexed_worktree()
+        raw_index(own, tree, self.bad_entries(tree)[0][1])
+        code, out, calls = self.git_ran(lp, tree, "status", "--porcelain")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([cmd for cmd, _ in calls], [["git", *loop.CALLER_GIT_SAFE, "status", "--porcelain"]])
+        # An index reader asks ls-files first, the same as for a caller.
+        calls = self.git_ran(lp, tree, "checkout", "--", ".")[2]
+        self.assertEqual([cmd for cmd, _ in calls], [["git", *loop.CALLER_GIT_SAFE, "ls-files", "--stage", "-z"],
+                                                     ["git", *loop.CALLER_GIT_SAFE, "checkout", "--", "."]])
+
+    def test_off_and_for_a_project_without_it_an_index_reader_runs_with_no_check_first(self):
+        lp, own, tree = self.indexed_worktree(sandbox_strict=False)
+        self.assertEqual(self.git_ran(lp, tree, "checkout", "--", ".")[2], [(["git", "checkout", "--", "."], None)])
+        # Another project in the same factory, without it, while one has it.
+        factory = lp.root
+        site = factory / "projects" / "site"
+        site.mkdir()
+        (factory / "loop.json").write_text(json.dumps({"projects": {"app": {"sandbox_strict": True}, "site": {}}}))
+        cfg = dict(loop.load_project_config(factory, site), worktree_dir=lp.cfg["worktree_dir"])
+        site_tree = tree.parent.parent / "site" / "issue-3"
+        site_tree.mkdir(parents=True)
+        self.assertEqual(self.git_ran(loop.Loop(factory, cfg, project=site), site_tree, "checkout", "--", ".")[2],
+                         [(["git", "checkout", "--", "."], None)])
+
+    def test_under_strict_tidy_keeps_a_worktree_whose_index_is_bad_and_logs_it_once(self):
+        lp, own, tree = self.indexed_worktree()
+        raw_index(own, tree, self.bad_entries(tree)[0][1])
+        lp.status["issues"] = [{"number": 3, "state": "pr", "pr": "5"}]
+        removed, real = [], lp.git
+
+        def git(*args, **kwargs):
+            if "worktree" in args:
+                removed.append(args)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(lp, "gh", return_value=(0, "MERGED abc")), mock.patch.object(lp, "git", git):
+            lp.tidy()
+            lp.tidy()
+        self.assertEqual(removed, [])
+        self.assertTrue(tree.is_dir())
+        errors = [l for l in (lp.dir / "loop.log").read_text().splitlines() if " ERROR " in l]
+        self.assertEqual(len(errors), 1, errors)
+        self.assertTrue(errors[0].endswith(" #3 ERROR the worktree's index names ../escape-721, so the loop runs no "
+                                           "git there"), errors[0])
+        self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+
+    def test_under_strict_tidy_keeps_a_worktree_strict_git_env_refuses_and_logs_the_refusal_once(self):
+        lp, own, tree = self.indexed_worktree()
+        # #3: a real worktree whose .git file now names a folder of its own; #4: a folder under the checkouts the
+        # clone doesn't link back to.
+        (tree / ".git").write_text("gitdir: /nowhere-721\n")
+        unlinked = lp.worktrees() / "issue-4"
+        unlinked.mkdir()
+        lp.status["issues"] = [{"number": 3, "state": "pr", "pr": "5"}, {"number": 4, "state": "pr", "pr": "6"}]
+        ran = []
+
+        def git(*args, **kwargs):
+            ran.append(args)
+            return 0, ""
+
+        with mock.patch.object(lp, "gh", return_value=(0, "MERGED abc")), mock.patch.object(lp, "git", git):
+            lp.tidy()
+            lp.tidy()
+        self.assertEqual(ran, [])
+        self.assertTrue(tree.is_dir())
+        self.assertTrue(unlinked.is_dir())
+        errors = [l for l in (lp.dir / "loop.log").read_text().splitlines() if " ERROR " in l]
+        self.assertEqual(len(errors), 2, errors)
+        self.assertIn(" #3 ERROR refused: {}/.git names /nowhere-721, not the clone's own folder for this "
+                      "worktree".format(os.path.realpath(str(tree))), errors[0])
+        self.assertTrue(errors[1].endswith(" #4 ERROR refused: {} is under the loop's checkouts but isn't a worktree "
+                                           "the clone links back to, so the loop runs no git there".format(unlinked)),
+                        errors[1])
+        self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
 
     # -- the log when the loop starts ------------------------------------------
 
@@ -12096,21 +12243,6 @@ class TestCallerCommands(unittest.TestCase):
                         str(tree), "HEAD"], check=True, capture_output=True)
         return tree
 
-    def raw_index(self, tree, entries):
-        """Writes the worktree's index by hand, as a caller's command could: (path, blob) entries that git's own
-        commands would refuse to add."""
-        import hashlib
-        import struct
-        body = b""
-        for path, sha in sorted(entries):
-            name = path.encode()
-            entry = struct.pack(">10I", 0, 0, 0, 0, 0, 0, 0o100644, 0, 0, 0) + bytes.fromhex(sha) + \
-                struct.pack(">H", len(name)) + name
-            body += entry + b"\0" * (8 - len(entry) % 8)
-        data = b"DIRC" + struct.pack(">II", 2, len(entries)) + body
-        index = loop.worktree_git_dir(tree, self.project) / "index"
-        index.write_bytes(data + hashlib.sha1(data).digest())
-
     def test_an_index_naming_a_path_outside_the_worktree_stops_the_loops_git_before_it_writes_there(self):
         self.caller(**self.FACTORY)
         tree = self.linked()
@@ -12121,7 +12253,7 @@ class TestCallerCommands(unittest.TestCase):
                                 text=True, check=True).stdout.strip()
         for bad in ("../escape-640", "sub/../../escape-640", "sub/.git/config", ".GIT/config", "./dot"):
             with self.subTest(path=bad):
-                self.raw_index(tree, [("README.md", readme), (bad, blob)])
+                raw_index(self.project, tree, [("README.md", readme), (bad, blob)])
                 code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
                 self.assertNotEqual(code, 0)
                 self.assertIn(bad, out)
@@ -12133,6 +12265,13 @@ class TestCallerCommands(unittest.TestCase):
         # A clean index goes through.
         subprocess.run(["git", "-C", str(tree), "reset", "-q"], check=True)
         self.assertEqual(lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)[0], 0)
+
+    def test_with_sandbox_strict_on_a_callers_bad_index_is_refused_and_marked_as_it_was(self):
+        # #721 checks a strict project's index too, without a mark; a caller's still gets one.
+        caller = self.caller
+        with mock.patch.object(self, "caller", lambda **entry: caller(sandbox_strict=True, **entry)):
+            self.test_an_index_naming_a_path_outside_the_worktree_stops_the_loops_git_before_it_writes_there()
+        self.assertIs(loop.Loop(self.harness, project=self.project).cfg.get("sandbox_strict"), True)
 
     def test_the_loops_git_in_a_worktree_takes_its_folder_from_the_clone_not_from_the_worktrees_git_file(self):
         self.caller(**self.FACTORY)
