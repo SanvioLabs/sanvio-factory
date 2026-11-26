@@ -43,6 +43,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
 
+## 2026-11-26: A bad index stops the loop's git under sandbox_strict
+
+Under `sandbox_strict`, a worktree index the loop refuses now writes `git-tampered` in the project's state folder, as it does for a caller project, whether the loop finds it before its own git or before it removes a merged or closed pull request's worktree. While the file is there, the loop runs no git of its own in that project, in the clone or a worktree, with the caller's refusal line, even once the index is put right, until a person looks at the clone and its worktrees and deletes it. A worktree whose `.git` file or `commondir` the loop refuses still writes no mark. Projects without `sandbox_strict`, other projects in the same factory and caller projects work as before.
+
+**Needs:** 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-26: The cloud usage store's Grafana reads its bucket
 
 The cloud Grafana's DuckDB plugin now gets the task's environment, so it finds the task role's credentials and reads the bucket. Before this, Grafana passed the plugin almost none of its environment, the bucket's secret failed to create, and every panel and alert rule errored from the first deploy. The plugin now holds the two secrets too; the data source's lock keeps them from any query, and the cloud README's check 7 now tests that.
