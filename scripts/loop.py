@@ -60,18 +60,24 @@ Standard library only; needs git and the gh CLI, signed in.
 import argparse
 import contextlib
 import hashlib
+import http.client
+import ipaddress
 import json
 import os
 import re
 import shlex
 import shutil
 import signal
+import ssl
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -129,6 +135,16 @@ DEFAULTS = {
     # loopback addresses alone, and "none" nothing, unix sockets included. sandbox-exec matches addresses, not
     # domain names, so there's no list of domains here.
     "sandbox_network": "any",
+    # The command that starts the project's app in its worktree, run by this script after a round's tests pass
+    # and its review says PASS, under test_command's sandbox. Empty means no app is started. Set with app_url, or
+    # neither. A machine key, like the next two: a clone anyone can push to mustn't choose what starts and
+    # listens on this machine. Not for a caller project, which run refuses with it set.
+    "app_command": "",
+    # The URL the loop asks until the app answers, any HTTP status counting: http or https on localhost or a
+    # loopback address alone, never a deployed environment. Redirects aren't followed and no proxy is used.
+    "app_url": "",
+    # Seconds the app has to answer at app_url. One that doesn't is a round that failed, like a failing test.
+    "app_timeout": 60,
     # What a caller project's test_command, generate_command and setup_command may read under the home folder,
     # the factory and the loop's checkouts, besides their clone, worktree and the run's own temp folder: each an
     # absolute or ~ path, a folder with all it holds, or a file. The default is where version managers and uv
@@ -1213,6 +1229,67 @@ def caller_config_problem(cfg):
                                                                            os.path.isabs(path)) for path in paths)):
             return key, "{} isn't a list of absolute or ~ paths".format(repr(paths)[:100])
     return None
+
+
+def app_problem(cfg):
+    """(the key, why) when app_command, app_url and app_timeout can't start an app, or None: checked before any
+    issue is taken, as caller_config_problem() is. app_command and app_url are strings, set together or not at all;
+    app_url is http or https on localhost or an address ipaddress calls loopback (127.0.0.0/8, ::1), so the app the
+    loop starts is never one already deployed somewhere; app_timeout is a number above 0, a bool not counting; and a
+    caller project sets no app_command, since its app would be the caller's code listening on this machine."""
+    command_text, url = cfg.get("app_command", ""), cfg.get("app_url", "")
+    for key, value in (("app_command", command_text), ("app_url", url)):
+        if not isinstance(value, str):
+            return key, "{} isn't a string".format(repr(value)[:100])
+    wait = cfg.get("app_timeout", DEFAULTS["app_timeout"])
+    if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not wait > 0:
+        return "app_timeout", "{} isn't a number of seconds above 0".format(repr(wait)[:100])
+    if command_text.strip() and cfg.get("caller") is True:
+        return "app_command", "set for a caller project, and the loop starts no caller's app"
+    if command_text.strip() and not url.strip():
+        return "app_url", "unset, and app_command needs the URL the app answers at"
+    if url.strip() and not command_text.strip():
+        return "app_command", "unset, and app_url needs the command that starts the app"
+    if not url.strip():
+        return None
+    parts = urllib.parse.urlsplit(url.strip())
+    if parts.scheme not in ("http", "https"):
+        return "app_url", "{} isn't an http or https URL".format(repr(url)[:100])
+    try:
+        parts.port  # noqa: B018 (raises ValueError for a port that isn't one)
+    except ValueError:
+        return "app_url", "{} has a port that isn't a number from 0 to 65535".format(repr(url)[:100])
+    host = parts.hostname or ""
+    if host != "localhost":
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            return "app_url", ("{} isn't on localhost or a loopback address, and the loop checks an app only on "
+                               "this machine").format(repr(url)[:100])
+    return None
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect isn't followed, so app_up()'s ask stays on the loopback URL it was given: the 3xx comes back as
+    an HTTPError, which app_answers() counts as the app answering."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def app_answers(opener, url, timeout):
+    """Whether url answered through opener within timeout seconds, with any HTTP status: an HTTPError is a status
+    that came back. No connection, a reset, a timeout or a reply that isn't HTTP is no answer yet."""
+    try:
+        with opener.open(url, timeout=timeout):
+            return True
+    except urllib.error.HTTPError as err:  # before URLError, which it subclasses
+        err.close()
+        return True
+    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        return False
 
 
 def reader_unheld(cfg, which):
@@ -3461,7 +3538,7 @@ class Loop:
         before: only true turns the sandbox on, and work() refuses a caller where it's off. A sandbox_commands
         that isn't true or false runs nothing, and a sandbox_allow that isn't a list of denied names lets
         nothing through: the loop refuses both at start, and this holds for any path that reaches here anyway.
-        With sandbox_strict true, a sandboxed project that isn't a caller's runs through strict_command()."""
+        For a project that isn't a caller's, launch() builds what runs, so app_up() runs app_command the same way."""
         if not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
             return 126, "refused: sandbox_commands in loop.json isn't true or false"
         env, timeout = env_for_tests(os.environ), self.cfg["test_timeout"]
@@ -3469,18 +3546,70 @@ class Loop:
             # #640: what the loop's own git reads next is checked before and after.
             return self.held_git("a command the loop ran", tree,
                                  lambda: self.caller_command(command, tree, env, timeout, partial))
-        if self.sandboxed():
-            # sandbox_allow's names are let through here only: a caller's profile above never reads it.
-            allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
-            if self.cfg.get("sandbox_strict") is True:
-                return self.strict_command(command, tree, env, timeout, partial, allow)
-            profile = sandbox_profile(Path.home(), self.root, allow=allow)
-            argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
-            return self.sh(argv, cwd=tree, timeout=timeout, env=sandbox_env(env, allow), partial=partial)
         if self.caller():
             # work() refuses such a caller before any issue; this holds for any path that reaches here anyway.
             return 126, "refused: a caller project's commands run only in sandbox-exec, which can't run here"
-        return self.sh(command, cwd=tree, shell=True, timeout=timeout, env=env, partial=partial)
+        with self.launch(command, tree, env) as (cmd, shell, run_env):
+            if shell:
+                return self.sh(cmd, cwd=tree, shell=True, timeout=timeout, env=run_env, partial=partial)
+            return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial)
+
+    @contextlib.contextmanager
+    def launch(self, command, tree, env):
+        """(cmd, shell, env) for command, shell text, run in tree by own_command() or app_up(), for a project that
+        isn't a caller's: where sandboxed() says so, sandbox-exec's argv with sandbox_profile()'s denials less what
+        sandbox_allow lets through, and sandbox_env's git settings, or under sandbox_strict strict_launch()'s; else
+        command itself, for the shell, with env as it is. What it makes for the command, such as sandbox_strict's
+        temp folder, stays until the with block ends, so an app keeps it while it runs."""
+        if not self.sandboxed():
+            yield command, True, env
+            return
+        # sandbox_allow's names are let through here only: a caller's profile never reads it.
+        allow = () if sandbox_allow_problem(self.cfg) else tuple(self.cfg.get("sandbox_allow") or ())
+        if self.cfg.get("sandbox_strict") is True:
+            with self.strict_launch(command, tree, env, allow) as launched:
+                yield launched
+            return
+        profile = sandbox_profile(Path.home(), self.root, allow=allow)
+        yield [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command], False, sandbox_env(env, allow)
+
+    def app_up(self, tree):
+        """Start app_command in tree, under test_command's sandbox (launch()), and ask app_url until it answers or
+        app_timeout runs out: True once any HTTP status comes back, a 3xx, 4xx or 5xx included, False when none did
+        in time or a Ctrl-C (interrupted) stopped the wait. No proxy from the environment and no redirect, so the
+        ask never leaves loopback (app_problem() holds app_url there). The app gets no stdin, its output goes
+        nowhere, so a server nobody reads can't block on a full pipe, and it runs in a session of its own, which
+        end_session() kills, with all it started, before this returns. A caller project's app never starts: work()
+        refuses one with app_command set, and this holds for any path that reaches here anyway."""
+        if self.caller() or not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
+            return False
+        url, wait = self.cfg["app_url"].strip(), self.cfg.get("app_timeout", DEFAULTS["app_timeout"])
+        # A loopback app's certificate is usually its own: the ask is whether it's up, and it carries nothing.
+        context = ssl.create_default_context()
+        context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
+                                             urllib.request.HTTPSHandler(context=context))
+        with self.launch(self.cfg["app_command"], tree, env_for_tests(os.environ)) as (cmd, shell, env):
+            proc = subprocess.Popen(cmd, cwd=str(tree), env=env, shell=shell, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            try:
+                deadline = time.monotonic() + wait
+                while not self.interrupted.is_set():
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        return False
+                    if app_answers(opener, url, min(1.0, left)):
+                        return True
+                    self.interrupted.wait(max(0.0, min(0.25, deadline - time.monotonic())))
+                return False
+            finally:
+                if on_windows():
+                    kill_tree(proc)
+                else:
+                    end_session(proc.pid)
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
 
     def git_state(self, tree):
         """What the loop's own git reads in a caller's checkout, as {name: digest}: the clone's .git/config,
@@ -3775,13 +3904,15 @@ class Loop:
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
-    def strict_command(self, command, tree, env, timeout, partial, allow):
-        """own_command() under sandbox_strict, for a project that isn't a caller's (#696): sandbox_profile()'s
+    @contextlib.contextmanager
+    def strict_launch(self, command, tree, env, allow):
+        """launch() under sandbox_strict, for a project that isn't a caller's (#696): sandbox_profile()'s
         denials, with writes held to tree, a temp folder of its own (TMPDIR), removed after, git's folder for
         tree, each path sandbox_allow lets through, so it can still write them, and sandbox_write_allow; and the
         network as sandbox_network says. A sandbox_write_allow the loop refuses at start makes nothing more
         writable here, and a sandbox_network it refuses connects to nothing. In git's folder, STRICT_GIT_HELD
-        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714)."""
+        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714). Yields (argv, False,
+        env), and the temp folder goes when the with block ends."""
         home = Path.home()
         extra = [] if sandbox_strict_problem(self.cfg) else list(self.cfg.get("sandbox_write_allow") or ())
         let = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
@@ -3798,8 +3929,7 @@ class Loop:
                                       network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]),
                                       held=held, held_folders=[git_dir])
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
-            env = dict(sandbox_env(env, allow), TMPDIR=scratch)
-            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+            yield argv, False, dict(sandbox_env(env, allow), TMPDIR=scratch)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -5299,6 +5429,21 @@ class Loop:
             self.rounds[number]["tests_changed"].append(tests_changed)
             self.outcomes[number][round_no] = {"tests": "passed" if tcode == 0 else "failed", "verdict": verdict}
             self.mark(number, tests="passed" if tcode == 0 else "failed ({})".format(tcode), review=verdict)
+            # Only once the tests pass and the review says PASS: an app that doesn't answer sends the round back to
+            # the build, its line where the next build reads the test output. The review's PASS stays its verdict.
+            if passed and (self.cfg.get("app_command") or "").strip():
+                up = self.app_up(tree)
+                self.halt_if_interrupted()  # a Ctrl-C stopped the wait, which isn't an app that didn't answer
+                if up:
+                    self.log("APP", "round {} app_url {} answered".format(round_no, self.cfg["app_url"]), number)
+                else:
+                    line = "app_command {} didn't answer at app_url {} within app_timeout {}s".format(
+                        self.cfg["app_command"], self.cfg["app_url"], self.cfg.get("app_timeout"))
+                    self.log("APP", line, number)
+                    write_unfollowed(folder / "test-output.txt", "{}{}{}\n".format(
+                        tout, "\n" if tout and not tout.endswith("\n") else "", line)[-OUTPUT_CAP:])
+                    problems.append("round {}: {}".format(round_no, line))
+                    continue
             if passed:
                 return self.scale(issue, branch, round_no, problems, fixed, reviewed=reviewed)
             problems.append("round {}: {}".format(
@@ -6103,6 +6248,11 @@ class Loop:
         found = caller_config_problem(self.cfg)
         if found:
             self.log("ERROR", "{} in loop.json: {}, so no issue is taken".format(*found)[:200])
+            return 1
+        # Here alone, not in start_checks(): review never starts an app.
+        found = app_problem(self.cfg)
+        if found:
+            self.log("ERROR", "{} in loop.json: {}, so no issue is taken".format(*found)[:300])
             return 1
         if self.caller() and (self.tampered_mark().exists() or self.tampered_mark().is_symlink()):
             self.log("ERROR", "{}: a caller's command or agent changed what the loop's own git reads here, so no "

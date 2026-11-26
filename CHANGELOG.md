@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-26: The loop starts the app and checks it answers
+
+Three new keys, `app_command`, `app_url` and `app_timeout` (default 60 seconds), have the loop start a project's app in the worktree once a round's tests pass and its review says PASS. The loop then asks `app_url` until the app answers, with any HTTP status. The app runs under the same sandbox as `test_command`, and only on this machine: `app_url` has to be `http` or `https` on `localhost` or a loopback address. If the app doesn't answer within `app_timeout`, the loop logs one `APP` line saying so, the next build reads that line with the test output, and the round counts as failed. The loop stops the app and everything it started either way. Only the factory's `loop.json` sets these keys. The loop refuses to start, with one `ERROR` line, when only one of `app_command` and `app_url` is set, when `app_url` isn't on loopback, when `app_timeout` isn't a number above 0, or when a caller project sets `app_command`. Off by default, so nothing changes until you set them.
+
+**Needs:** 2026-11-21: A strict sandbox for one project's commands
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** to turn it on for a project, set `app_command` and `app_url` under `"projects"` in the factory's `loop.json`, such as `"projects": {"app": {"app_command": "npm start", "app_url": "http://localhost:3000/"}}`.
+
 ## 2026-11-25: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.

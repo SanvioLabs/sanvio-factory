@@ -505,6 +505,45 @@ that command in `test_command`, which the script runs itself. That includes
 end-to-end tests: `npm test && npx playwright test` runs them every round, and
 makes each round slower.
 
+**Whether the app starts.** Three keys have the script start the project's
+app and check that it answers:
+
+| Key | Default | Means |
+|---|---|---|
+| `app_command` | `""` | The command that starts the app, run in the issue's worktree. Empty starts nothing |
+| `app_url` | `""` | The URL the script asks until the app answers. Any HTTP status counts, a 404 or a 500 included |
+| `app_timeout` | `60` | Seconds the app has to answer |
+
+The app starts only after a round's tests pass and its review says PASS. If it
+doesn't answer in time, the log gets one `APP` line, `app_command <command>
+didn't answer at app_url <url> within app_timeout <n>s`. The same line goes at
+the end of the round's test output, which the next build reads. The round then
+counts as failed, like a failing test, and the review's PASS stays recorded as
+its verdict. Either way, the script then stops the app and everything it
+started. A process the app moved into a session of its own, with `setsid`,
+isn't found.
+
+The app runs only on this machine, never against a deployed environment.
+`app_url` has to be `http` or `https` on `localhost` or a loopback address
+(`127.0.0.0/8` or `::1`). The script asks it with no proxy and doesn't follow
+redirects, and it doesn't check an `https` certificate. The app runs under the
+same sandbox as `test_command`, with no input and its output thrown away.
+Under `sandbox_strict`, `sandbox_network` limits what the app can connect to,
+for example a database. It doesn't stop the app listening, so the script can
+reach it under `"none"` too.
+
+Set `app_command` and `app_url` together. They and `app_timeout` belong to
+the factory's `loop.json`, at its top level or under `"projects"` for one
+project. A project's own `loop.json` that sets one is refused. The loop refuses
+to start, with one `ERROR` line and before it takes any issue, when:
+
+- only one of `app_command` and `app_url` is set;
+- `app_url` isn't on loopback;
+- `app_timeout` isn't a number above 0;
+- a caller project sets `app_command`.
+
+`review` never starts the app.
+
 **Coverage, if you want it.** Put it in `test_command`, for instance
 `"test_command": "uv run pytest --cov --cov-fail-under=80"`. The number is
 the project's to choose, and a round below it fails like any other test

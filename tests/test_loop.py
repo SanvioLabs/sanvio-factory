@@ -10660,6 +10660,244 @@ class TestReviewLabelIsAMachineKey(unittest.TestCase):
                 built.assert_not_called()
 
 
+class TestAppIsAMachineKey(unittest.TestCase):
+    """A project's own loop.json can't set app_command, app_url or app_timeout: only the factory's may (#756)."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_they_are_machine_keys_and_off_by_default(self):
+        self.assertEqual((loop.DEFAULTS["app_command"], loop.DEFAULTS["app_url"], loop.DEFAULTS["app_timeout"]),
+                         ("", "", 60))
+        for key in ("app_command", "app_url", "app_timeout"):
+            self.assertIn(key, loop.MACHINE_KEYS)
+            self.assertNotIn(key, loop.PROJECT_KEYS)
+
+    def test_a_project_whose_loop_json_sets_app_command_is_refused_naming_it(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS, "app_command": "npm start"}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("app_command", err)
+        built.assert_not_called()
+
+
+# The script TestApp starts as the app: it writes the folder it started in, forks a child that sleeps, writes both
+# pids, then serves HTTP on 127.0.0.1 at the port it's given, or with no port never listens. BaseHTTPRequestHandler
+# answers a GET with 501, which counts as an answer.
+APP = r"""
+import http.server, os, sys, time
+state = sys.argv[1]
+open(os.path.join(state, "app-cwd"), "w").write(os.getcwd())
+child = os.fork()
+if child == 0:
+    time.sleep(120)
+    os._exit(0)
+with open(os.path.join(state, "app-pids"), "a") as f:
+    f.write("{} {}\n".format(os.getpid(), child))
+if len(sys.argv) > 2:
+    http.server.HTTPServer(("127.0.0.1", int(sys.argv[2])), http.server.BaseHTTPRequestHandler).serve_forever()
+time.sleep(120)
+"""
+
+
+def free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@unittest.skipIf(sys.platform == "win32", "the app forks, and its session is ended with killpg")
+class TestApp(unittest.TestCase):
+    """app_command, app_url and app_timeout (#756): after a round's tests pass and its review says PASS, the loop
+    starts the project's app in the worktree and asks app_url, on loopback alone, until it answers. One that
+    doesn't answer within app_timeout sends the round back to the build, and nothing the app started outlives it."""
+
+    lines, raw_lines, calls, go, tearDown = (
+        TestAPass.lines, TestAPass.raw_lines, TestAPass.calls, TestAPass.go, TestAPass.tearDown)
+
+    def setUp(self):
+        TestAPass.setUp(self)
+        self.bystanders = []
+        self.addCleanup(self.stop_bystanders)
+
+    def stop_bystanders(self):
+        for proc in self.bystanders:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+
+    def app(self, port=None):
+        """APP as app_command, one line as the log keeps it: serving on port, or never listening with none."""
+        script = Path(self.tmp.name) / "app.py"
+        script.write_text(APP)
+        words = [sys.executable, str(script), str(self.state)] + ([str(port)] if port else [])
+        return " ".join(shlex.quote(word) for word in words)
+
+    def app_pids(self):
+        text = (self.state / "app-pids").read_text() if (self.state / "app-pids").exists() else ""
+        return [int(word) for word in text.split()]
+
+    def assert_gone(self, pids):
+        """Each pid is gone within 10 seconds: a killed child is reaped by init, not at once."""
+        self.assertTrue(pids)
+        deadline = time.monotonic() + 10
+        for pid in pids:
+            while True:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                if time.monotonic() > deadline:
+                    self.fail("pid {} is still running".format(pid))
+                time.sleep(0.05)
+
+    def errors(self):
+        return [line for line in self.lines() if line.split()[2] == "ERROR"]
+
+    def app_lines(self):
+        return [line for line in self.lines() if line.split()[2] == "APP"]
+
+    def created_pr(self):
+        return any(c.startswith("pr create") for c in self.calls())
+
+    # -- unset ------------------------------------------------------------------
+
+    def test_with_no_app_keys_no_app_starts_and_no_app_line_is_logged(self):
+        with mock.patch.object(loop.Loop, "app_up", autospec=True, return_value=True) as up:
+            self.assertEqual(self.go(), 0)
+        up.assert_not_called()
+        self.assertEqual(self.app_lines(), [])
+        self.assertTrue(self.created_pr())
+
+    # -- what loop.json may say --------------------------------------------------
+
+    REFUSED = (
+        ({"app_command": "npm start"}, "app_url"),
+        ({"app_url": "http://localhost:8000/"}, "app_command"),
+        ({"app_command": "npm start", "app_url": "ftp://localhost"}, "app_url"),
+        ({"app_command": "npm start", "app_url": "http://example.com"}, "app_url"),
+        ({"app_command": "npm start", "app_url": "http://10.0.0.5"}, "app_url"),
+        ({"app_command": "npm start", "app_url": "http://localhost.example.com"}, "app_url"),
+        ({"app_command": "npm start", "app_url": "http://127.0.0.1.nip.io"}, "app_url"),
+        ({"app_timeout": 0}, "app_timeout"),
+        ({"app_timeout": -1}, "app_timeout"),
+        ({"app_timeout": "60"}, "app_timeout"),
+        ({"app_timeout": True}, "app_timeout"),
+    )
+
+    def test_a_bad_value_is_one_error_naming_its_key_and_no_agent_runs(self):
+        base = dict(self.cfg)
+        for overrides, key in self.REFUSED:
+            with self.subTest(**{k: repr(v) for k, v in overrides.items()}):
+                self.assertEqual(loop.app_problem(dict(loop.DEFAULTS, **overrides))[0], key)
+                log = self.work / ".loop" / "loop.log"
+                if log.exists():
+                    log.unlink()
+                self.cfg = dict(base, **overrides)
+                self.assertEqual(self.go(), 1)
+                errors = self.errors()
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("{} in loop.json: ".format(key), errors[0])
+                self.assertIn("so no issue is taken", errors[0])
+                self.assertFalse((self.state / "agents-started").exists())
+                self.assertFalse((self.state / "app-pids").exists())
+
+    def test_a_caller_project_that_sets_app_command_is_refused_naming_it(self):
+        for name in ("sandbox_problem", "reader_unheld", "bwrap_probe"):
+            held = mock.patch.object(loop, name, return_value=None)
+            held.start()
+            self.addCleanup(held.stop)
+        self.cfg.update(caller=True, acceptors=["Pat-Here"], account_tier="Claude Team", network_allow=[],
+                        max_issue_tokens=4_000_000, app_command="npm start", app_url="http://localhost:8000/")
+        self.assertIsNone(loop.caller_config_problem(self.cfg))
+        self.assertEqual(self.go(), 1)
+        errors = self.errors()
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("app_command in loop.json: ", errors[0])
+        self.assertFalse((self.state / "agents-started").exists())
+
+    def test_loopback_urls_are_not_refused(self):
+        for url in ("http://localhost:8000/", "http://127.0.0.2:9/", "http://[::1]:8000/"):
+            with self.subTest(url=url):
+                self.assertIsNone(loop.app_problem(dict(loop.DEFAULTS, app_command="npm start", app_url=url)))
+
+    # -- what a round does with it ----------------------------------------------
+
+    def test_an_app_that_answers_runs_in_the_worktree_and_the_round_goes_on_to_scale(self):
+        port = free_port()
+        self.cfg.update(app_command=self.app(port), app_url="http://127.0.0.1:{}/".format(port))
+        self.assertEqual(self.go(), 0)
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        self.assertEqual(Path((self.state / "app-cwd").read_text()).resolve(), tree.resolve())
+        self.assertTrue(self.created_pr())
+        self.assertEqual(len(self.app_lines()), 1, self.app_lines())
+        self.assertIn("answered", self.app_lines()[0])
+        self.assert_gone(self.app_pids())
+
+    def test_an_app_that_never_answers_sends_the_round_back_to_the_build_with_its_line(self):
+        command, url = self.app(), "http://127.0.0.1:{}/".format(free_port())
+        self.cfg.update(app_command=command, app_url=url, app_timeout=1)
+        self.go()
+        line = "app_command {} didn't answer at app_url {} within app_timeout 1s".format(command, url)
+        self.assertTrue(self.app_lines(), self.lines())
+        self.assertTrue(all(l.endswith(line) for l in self.app_lines()), self.app_lines())
+        # The review said PASS, and the round still failed: no pull request, and the next build was told why.
+        self.assertTrue(any("VALIDATE" in l and "round 1 tests passed review PASS" in l for l in self.lines()))
+        self.assertFalse(self.created_pr())
+        self.assertIn("BUILD", " ".join(l for l in self.lines() if "round 2" in l))
+        self.assertIn(line, (self.state / "build-prompt").read_text())
+        self.assertTrue(any("still failing after 2 rounds" in l for l in self.lines()), self.lines())
+        self.assert_gone(self.app_pids())
+
+    def test_a_ctrl_c_while_it_waits_stops_the_wait_and_the_app(self):
+        lp = loop.Loop(self.work, dict(self.cfg, app_command=self.app(),
+                                       app_url="http://127.0.0.1:{}/".format(free_port()), app_timeout=60))
+        tree = Path(self.tmp.name) / "tree"
+        tree.mkdir()
+
+        def interrupt():
+            deadline = time.monotonic() + 20
+            while len(self.app_pids()) < 2 and time.monotonic() < deadline:
+                time.sleep(0.05)
+            lp.interrupted.set()
+
+        threading.Thread(target=interrupt, daemon=True).start()
+        started = time.monotonic()
+        self.assertFalse(lp.app_up(tree))
+        self.assertLess(time.monotonic() - started, 30)
+        with self.assertRaises(loop.Interrupted):
+            lp.halt_if_interrupted()
+        self.assert_gone(self.app_pids())
+
+    def test_failing_tests_start_no_app(self):
+        self.cfg.update(test_command="false", app_command="npm start", app_url="http://localhost:8000/")
+        with mock.patch.object(loop.Loop, "app_up", autospec=True, return_value=True) as up:
+            self.go()
+        up.assert_not_called()
+        self.assertFalse(self.created_pr())
+
+    def test_a_review_fix_starts_no_app(self):
+        (self.state / "verdict").write_text("FIX")
+        self.cfg.update(app_command="npm start", app_url="http://localhost:8000/")
+        with mock.patch.object(loop.Loop, "app_up", autospec=True, return_value=True) as up:
+            self.go()
+        up.assert_not_called()
+        self.assertFalse(self.created_pr())
+
+    def test_stopping_the_app_leaves_a_process_outside_its_session_running(self):
+        bystander = subprocess.Popen(["sleep", "60"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+        self.bystanders.append(bystander)
+        port = free_port()
+        self.cfg.update(app_command=self.app(port), app_url="http://127.0.0.1:{}/".format(port))
+        self.assertEqual(self.go(), 0)
+        self.assert_gone(self.app_pids())
+        self.assertIsNone(bystander.poll())
+
+
 class TestForkKey(unittest.TestCase):
     """fork is a machine key: off by default, set only in the factory's loop.json, a project's entry first."""
 
