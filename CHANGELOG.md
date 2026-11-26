@@ -54,6 +54,48 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** nothing unless a project with `sandbox_strict` on has a test or build that makes a git repository inside its worktree. That now fails with `Operation not permitted`, so make it under `$TMPDIR` instead.
 
+## 2026-11-26: factory-floor redraws only as often as it changes
+
+The factory-floor pane does less work while it's open, to keep a VS Code or desktop window with it open on a working loop from slowing down over time. A List tick or a Crew poll that starts while the last one is still reading now does nothing, so slow answers no longer pile up, and one that never answers is given up on after about 15 seconds rather than stopping the pane for good. In VS Code and the desktop app the List view's pulsing dot and running clock redraw at most once a second, where before it was every half second; the terminal is unchanged. While the pane is behind another one, neither view redraws: both keep reading, notices still come, and what changed is drawn when the pane is shown again, so a Crew figure that moved meanwhile walks when it's shown rather than behind the other pane. Otherwise what the pane shows and how it looks are unchanged.
+
+**Needs:** 2026-11-09: Factory floor mod; 2026-11-09: Crew view in factory-floor; 2026-11-14: Factory floor on other machines; 2026-11-15: All loops in factory-floor; 2026-11-20: factory-floor shows test suite runs; 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
+
+Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), `CHANGELOG.md`.
+
+**Do:** run `/plugin update factory-floor@sanvio-factory`
+
+## 2026-11-26: A strict command's leftover processes are ended
+
+Under `sandbox_strict`, a project's `test_command`, `setup_command` and `generate_command` now run as a caller's do: with nothing on stdin, in a session of their own, and once one ends or times out the loop kills every process still in that session before its own git runs in the worktree. Before, a background child could outlive the command and put an index in place after the loop had checked it. This narrows that race rather than closing it: a process that starts a session of its own with `setsid`, one that moves to a process group of its own and keeps forking, and one handed outside the sandbox through launchd, `open` or a tmux server still aren't found. A command's output now keeps any `\r` it prints, as a caller's does. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-18: A caller's commands are held to their own folders; 2026-11-21: A strict sandbox for one project's commands; 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
+## 2026-11-26: A bad index stops the loop's git under sandbox_strict
+
+Under `sandbox_strict`, a worktree index the loop refuses now writes `git-tampered` in the project's state folder, as it does for a caller project, whether the loop finds it before its own git or before it removes a merged or closed pull request's worktree. While the file is there, the loop runs no git of its own in that project, in the clone or a worktree, with the caller's refusal line, even once the index is put right, until a person looks at the clone and its worktrees and deletes it. A worktree whose `.git` file or `commondir` the loop refuses still writes no mark. Projects without `sandbox_strict`, other projects in the same factory and caller projects work as before.
+
+**Needs:** 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
+## 2026-11-26: The cloud usage store's Grafana reads its bucket
+
+The cloud Grafana's DuckDB plugin now gets the task's environment, so it finds the task role's credentials and reads the bucket. Before this, Grafana passed the plugin almost none of its environment, the bucket's secret failed to create, and every panel and alert rule errored from the first deploy. The plugin now holds the two secrets too; the data source's lock keeps them from any query, and the cloud README's check 7 now tests that.
+
+Files: [`examples/usage-store/cloud/grafana.tf`](examples/usage-store/cloud/grafana.tf), [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md), `CHANGELOG.md`.
+
+**Do:** if you deployed the cloud store, apply it again, then run checks 4, 6 and 7. Its alert rules have errored since the first deploy, so none of its alerts has ever fired.
+
 ## 2026-11-25: The index is checked under sandbox_strict
 
 Under `sandbox_strict`, before any git of the loop's that reads or writes a worktree from its index, the loop checks that index, as it already does for a caller project. An entry whose path leaves the worktree, names a `.git` in any case, or is a submodule's means it runs no git there and the step fails, with the caller's refusal line naming the entry. A merged or closed pull request's worktree with such an index is kept, with one `ERROR` line. Unlike a caller project, no `git-tampered` mark is written. Projects without `sandbox_strict` and caller projects work as before.

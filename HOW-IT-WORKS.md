@@ -651,8 +651,23 @@ fails. So the loop's own commits in that project skip its git hooks. Before any
 git of the loop's that reads or writes the worktree from its index, it checks
 the index, as it does for a caller project: an entry whose path leaves the
 worktree, names a `.git` in any case, or is a submodule's means it runs no git
-there, and the step fails. A merged or closed pull request's worktree with such
-an index is kept, with one `ERROR` line naming the entry. Where the sandbox can't
+there, and the step fails. Finding one, there or in a merged or closed pull
+request's worktree before it removes it, writes `git-tampered` in the project's
+state folder, naming the entry, with one `ERROR` line naming the file, and the
+worktree is kept.
+From then on the loop runs no git of its own in that project, in the clone or a
+worktree, even once the index is put right, until a person looks at the clone
+and its worktrees and deletes the file. That check comes once,
+before git starts, so the three commands run with nothing on stdin, in a session
+of their own, as a caller's do: when one ends or times out, the loop kills every
+process still in its session before its own git runs in that worktree. That
+ends what a command leaves running in the background, and narrows the race
+rather than closing it. Three kinds of process aren't found and keep running:
+one that starts a session of its own with `setsid`, as for a caller's commands;
+one that moves to a process group of its own and keeps forking; and one handed
+to a process outside the sandbox, through launchd, `open` or a tmux server,
+since the strict profile doesn't yet deny those as the caller's does. Any of
+them could still put an index in place after the check. Where the sandbox can't
 apply, off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't
 apply a profile, `run`, `review` and `review --pr` stop with one `ERROR` line
 and take nothing, rather than run the commands without it. A cache a command fills outside the worktree, such as

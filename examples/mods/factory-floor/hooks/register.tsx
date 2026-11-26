@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ALL, PAGE,PROJECTS_DIR, TABS, TITLE, allActive, allHeader, changes, clip, clock, describe, dot, downOption, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
+import { ALL, PAGE,PROJECTS_DIR, TABS, TITLE, pulseDue, single, allActive, allHeader, changes, clip, clock, describe, dot, downOption, findRoot, firstTab, focusFile, focusName, header, isPulsing, lists, lockPid, loopButtonLabel, loopCounts, loopDir, loopOptions, loopValue, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, waitingOn } from './logic'
 import { issueButtons, loopButtons } from './buttons'
 import type { Down, Lists, Tagged, Tone } from './logic'
 import { PANE, crewShown, openCrew, renderCrew, stopCrew } from './crew'
@@ -22,6 +22,8 @@ const aliasToast = (name: string) => `/${name} is now /${COMMAND}. The old name 
 const POLL_MS = 2000
 // The pulse's half beat. The pane redraws this often only while a job's dot is pulsing.
 const TICK_MS = 500
+// A List tick that hasn't settled after this many ticks were turned away, 15 seconds, is given up on (#759).
+const GIVE_UP_TICKS = 30
 
 const launchAtom = atom({ plugin: 'factory-floor', key: 'launch' } as const, null)
 const seenAtom = atom({ plugin: 'factory-floor', key: 'seen' } as const, null)
@@ -35,6 +37,9 @@ const modeAtom = atom({ plugin: 'factory-floor', key: 'mode' } as const, 'list')
 // The view the pane last drew. Only that view's poll runs and asks for redraws: the other's values
 // wait until it's drawn again. Not an atom: a write would redraw the pane.
 let drawnView: Mode | null = null
+// The surface that last drew the List: a webview surface takes the pulse's and the clock's redraws at most
+// once a second (pulseDue, #759). Not an atom, like drawnView.
+let drawnSurface: string | null = null
 // A pick saving the focus: how many saves are under way, and a count bumped as each starts and ends.
 // Between a save's write and its read back, the file says what the pane already shows, and a read
 // landing there mustn't take it for a change.
@@ -46,6 +51,13 @@ let remoteShown: { down: Down[]; refusals: string[] } = { down: [], refusals: []
 // The test suite runs the last read found in .sanvio/tests/, or null before the first read since the pane
 // opened or the List was last drawn, so that read raises no notice. Not an atom, like remoteShown.
 let runsSeen: TestRun[] | null = null
+// A change in the runs that a read found while the pane was behind another, which the first read once it's
+// shown draws (#759).
+let runsMissed = false
+// The loops the last read told about in its notices, so a read behind another pane still raises them, and
+// raises none twice, while the loops on screen wait for the pane to be shown. Null after a reload or once
+// the Crew was drawn, when the loops on screen are what's compared. Not an atom, like runsSeen.
+let toldLoops: Seen[] | null = null
 
 const COLORS: Record<Tone, { color?: string; bold?: boolean; dimColor?: boolean }> = {
   now: { color: 'cyan', bold: true },
@@ -199,8 +211,9 @@ async function readRuns($: EngineInterface, root: string): Promise<TestRun[]> {
 // Look at every loop and show the picked one. Each loop is compared with its own last look: against
 // the one on screen, every switch would look like a change, and a loop off screen would never tell.
 // Other machines' loops come after this one's, as their last background read left them: nothing here
-// waits on ssh.
-async function refresh($: EngineInterface): Promise<void> {
+// waits on ssh. Behind another pane it reads and raises its notices, and writes nothing, since any write
+// would redraw the pane; the first read once it's shown writes what changed (#759).
+async function refresh($: EngineInterface, isShown = true): Promise<void> {
   const root = await rootOf($)
   if (!root) return
   const entries = await $.fs.list(`${root}/${PROJECTS_DIR}`).catch(() => [])
@@ -209,12 +222,24 @@ async function refresh($: EngineInterface): Promise<void> {
   const remote = remoteNow()
   // A run that has ended since the last read says so whichever loop is on screen.
   const runs = await readRuns($, root)
-  const sameRuns = runsSeen !== null && JSON.stringify(runs) === JSON.stringify(runsSeen)
+  const isNewRuns = runsSeen === null || JSON.stringify(runs) !== JSON.stringify(runsSeen)
   for (const line of runEnded(runsSeen, runs)) $.ui.toast(line)
   runsSeen = runs
   const loops = [factory, ...(await Promise.all(names.map(name => look($, root, name)))), ...remote.loops]
   const extras = { down: remote.down, refusals: remote.refusals }
   const was = (await read($, loopsAtom)) ?? []
+  const told = toldLoops ?? was
+  for (const loop of loops) {
+    const last = told.find(l => loopValue(l) === loopValue(loop))
+    for (const line of changes(last?.status ?? null, loop.status, loop.project, loop.machine)) $.ui.toast(line)
+  }
+  toldLoops = loops
+  if (!isShown) {
+    runsMissed ||= isNewRuns
+    return
+  }
+  const sameRuns = !isNewRuns && !runsMissed
+  runsMissed = false
   const before = await read($, seenAtom)
   const stored = await read($, pickedAtom)
   let picked = stored
@@ -251,10 +276,6 @@ async function refresh($: EngineInterface): Promise<void> {
   if ((stored === ALL ? ALL : before ? loopValue(before) : '') !== pick) await update($, viewAtom, () => null)
   await update($, loopsAtom, () => loops)
   await update($, seenAtom, () => shown)
-  for (const loop of loops) {
-    const last = was.find(l => loopValue(l) === loopValue(loop))
-    for (const line of changes(last?.status ?? null, loop.status, loop.project, loop.machine)) $.ui.toast(line)
-  }
   if (drawnView !== 'crew') $.ui.invalidate('ui.render')
 }
 
@@ -306,36 +327,50 @@ function startPolling($: EngineInterface): void {
   // every() hands back a timer, not a function: calling it threw, so the poll outlived the pane.
   // It ticks at the pulse's pace and reads the loop's files on every POLL_MS / TICK_MS-th tick.
   let ticks = 0
+  // The tick the pulse or the clock last redrew on, and whether the last tick found the pane behind another.
+  let pulsedAt: number | null = null
+  let wasHidden = false
+  // One tick's work at a time: a tick that fires while the last is still reading does nothing (#759).
+  const tick = single(async () => {
+    const pane = (await $.ui.panes()).find(p => p.id === PANE)
+    if (!pane) {
+      stopPolling?.()
+      stopPolling = null
+      resetRemote()
+      remoteShown = { down: [], refusals: [] }
+      runsSeen = null
+      return
+    }
+    const at = ticks++
+    // A pane just shown again reads at once, so what changed behind the other pane is drawn now.
+    const isRead = at % (POLL_MS / TICK_MS) === 0 || (pane.isShown && wasHidden)
+    wasHidden = !pane.isShown
+    if (isRead) {
+      // Other machines are read only from here, at most every 30 seconds each, in the background.
+      const root = await rootOf($)
+      if (root) await pollRemote($, root).catch(() => {})
+      await refresh($, pane.isShown)
+    }
+    // The dot and the running clock move between reads, so redraw for them while a job is on. The
+    // header's uptime moves too, so a live loop redraws at least at every read. Under All loops, any
+    // loop's job counts.
+    const seen = await read($, seenAtom)
+    const drawn = (await read($, pickedAtom)) === ALL ? ((await read($, loopsAtom)) ?? []) : seen ? [seen] : []
+    // A test run's dot pulses and its clock moves too, and a run that stops writing turns red at a read.
+    const runNow = runsSeen?.some(r => r.state === 'running') ? await clockNow($) : 0
+    const isRunPulsing = !!runsSeen?.some(r => runDot(r, runNow).isPulsing)
+    const hasRunning = !!runsSeen?.some(r => r.state === 'running')
+    const wants = drawn.some(isPulsing) || isRunPulsing || (isRead && (hasRunning || drawn.some(l => l.isLocked)))
+    if (drawnView === 'crew' || !wants) return
+    // Behind another pane, or sooner than its surface takes them, the pulse and the clock wait.
+    if (!pulseDue(drawnSurface, pane.isShown, pulsedAt, at)) return
+    pulsedAt = at
+    // The beat turns with each redraw, not each tick, so a dot redrawn once a second still pulses.
+    beat = !beat
+    $.ui.invalidate('ui.render')
+  }, GIVE_UP_TICKS)
   const timer = $.clock.every(TICK_MS, () => {
-    void (async () => {
-      const isUp = (await $.ui.panes()).some(pane => pane.id === PANE)
-      if (!isUp) {
-        stopPolling?.()
-        stopPolling = null
-        resetRemote()
-        remoteShown = { down: [], refusals: [] }
-        runsSeen = null
-        return
-      }
-      beat = !beat
-      const isRead = ticks++ % (POLL_MS / TICK_MS) === 0
-      if (isRead) {
-        // Other machines are read only from here, at most every 30 seconds each, in the background.
-        const root = await rootOf($)
-        if (root) await pollRemote($, root).catch(() => {})
-        await refresh($)
-      }
-      // The dot and the running clock move between reads, so redraw for them while a job is on. The
-      // header's uptime moves too, so a live loop redraws at least at every read. Under All loops, any
-      // loop's job counts.
-      const seen = await read($, seenAtom)
-      const drawn = (await read($, pickedAtom)) === ALL ? ((await read($, loopsAtom)) ?? []) : seen ? [seen] : []
-      // A test run's dot pulses and its clock moves too, and a run that stops writing turns red at a read.
-      const runNow = runsSeen?.some(r => r.state === 'running') ? await clockNow($) : 0
-      const isRunPulsing = !!runsSeen?.some(r => runDot(r, runNow).isPulsing)
-      const hasRunning = !!runsSeen?.some(r => r.state === 'running')
-      if (drawnView !== 'crew' && (drawn.some(isPulsing) || isRunPulsing || (isRead && (hasRunning || drawn.some(l => l.isLocked))))) $.ui.invalidate('ui.render')
-    })().catch(() => {})
+    void tick().catch(() => {})
   })
   stopPolling = () => timer.cancel()
 }
@@ -347,6 +382,8 @@ function stopList(): void {
   stopPolling?.()
   stopPolling = null
   runsSeen = null
+  runsMissed = false
+  toldLoops = null
 }
 
 // The Crew button: the loop the List has on screen, or All loops, in the Crew's lanes. The Crew reads it
@@ -399,6 +436,9 @@ async function openPane($: EngineInterface): Promise<{ text: string; isOpen: boo
     await update($, focusAtom, () => focus)
     await refresh($)
     const opened = await $.ui.open({ id: PANE, title: TITLE })
+    // A poll still up, as one whose tick never settled leaves it, starts again rather than being kept (#759).
+    stopPolling?.()
+    stopPolling = null
     startPolling($)
     return { text: opened.isPlaced ? 'Loop pane opened.' : 'Loop pane opened. Widen the terminal to see it.', isOpen: true }
   } catch {
@@ -503,6 +543,7 @@ export const register: Register = on => {
       return renderCrew($, e, modeButtons)
     }
     drawnView = 'list'
+    drawnSurface = e.surface
     stopCrew()
     // Standing in for the Crew on a narrow terminal, the List reads the loop itself.
     if (mode === 'crew') startPolling($)

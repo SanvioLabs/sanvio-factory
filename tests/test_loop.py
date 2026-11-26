@@ -6721,7 +6721,37 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertIn('(deny file-write-unlink (literal "{}"))'.format(loop.sbpl(git_dir.resolve())),
                               expected)
                 self.assertEqual(seen["env"]["GIT_CONFIG_GLOBAL"], os.devnull)
-                self.assertNotIn("held", seen["kwargs"])
+                # #753: held, as a caller's is, so nothing it started outlives it.
+                self.assertIs(seen["kwargs"].get("held"), True)
+
+    def test_under_strict_what_the_command_left_running_is_gone_when_it_returns(self):
+        # #753: a background child of a strict command could rename a planted index into place after the #721
+        # check, while the loop's own git runs outside the sandbox. A stand-in sandbox-exec drops -p and its
+        # profile, so this runs where a nested sandbox-exec can't, as inside the loop's own sandbox.
+        factory, own, tree = self.factory_project()
+        stub = self.root / "sandbox-exec"
+        stub.write_text('#!/bin/sh\nshift 2\nexec "$@"\n')
+        os.chmod(stub, 0o755)
+        pid_file = tree / "bg.pid"
+
+        def kill_it():
+            if pid_file.exists():
+                try:
+                    os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass
+
+        self.addCleanup(kill_it)
+        lp = loop.Loop(factory, dict(loop.DEFAULTS, sandbox_strict=True), project=own)
+        with mock.patch.object(loop, "SANDBOX_EXEC", str(stub)), \
+                mock.patch.object(lp, "sandboxed", return_value=True):
+            code, out = lp.own_command("sleep 60 >/dev/null 2>&1 & echo $! > bg.pid; echo done", tree)
+        self.assertEqual((code, out.strip()), (0, "done"))
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 5
+        while loop.pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(loop.pid_alive(pid), "a strict command's background child outlived it")
 
     def test_under_strict_a_sandbox_allow_of_gits_config_lifts_its_git_setting_too(self):
         factory, own, tree = self.factory_project()
@@ -6748,6 +6778,7 @@ class TestSandboxStrict(unittest.TestCase):
                                                loop.sandbox_profile(Path.home(), factory, allow=allow),
                                                "/bin/sh", "-c", "true"])
                 self.assertEqual(seen["env"], loop.sandbox_env(loop.env_for_tests(os.environ)))
+                self.assertNotIn("held", seen["kwargs"])
 
     def test_strict_for_one_project_leaves_another_projects_profile_alone(self):
         factory, own, tree = self.factory_project()
@@ -6964,8 +6995,9 @@ class TestSandboxStrict(unittest.TestCase):
                                       "there".format(bad))
                 self.assertFalse(os.path.lexists(str(tree.parent / "escape-721")))
                 self.assertFalse(os.path.lexists(str(tree / "sub")))
-                # No mark: strict's git never reads one, so its "until a person deletes it" wouldn't hold.
-                self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+                # The mark, as for a caller (#755). Deleted, so the next entry gets its own refusal.
+                self.assertTrue(lp.tampered_mark().is_file())
+                lp.tampered_mark().unlink()
         # An ordinary index goes through, and the check leaves it as it was. The reset runs with no global config,
         # so an fsmonitor of this machine's doesn't write an extension the loop's checkout then drops.
         subprocess.run(["git", "-C", str(tree), "reset", "-q"], check=True,
@@ -7002,7 +7034,7 @@ class TestSandboxStrict(unittest.TestCase):
         self.assertEqual(self.git_ran(loop.Loop(factory, cfg, project=site), site_tree, "checkout", "--", ".")[2],
                          [(["git", "checkout", "--", "."], None)])
 
-    def test_under_strict_tidy_keeps_a_worktree_whose_index_is_bad_and_logs_it_once(self):
+    def test_under_strict_tidy_marks_a_worktree_whose_index_is_bad_keeps_it_and_logs_the_mark_once(self):
         lp, own, tree = self.indexed_worktree()
         raw_index(own, tree, self.bad_entries(tree)[0][1])
         lp.status["issues"] = [{"number": 3, "state": "pr", "pr": "5"}]
@@ -7016,13 +7048,17 @@ class TestSandboxStrict(unittest.TestCase):
         with mock.patch.object(lp, "gh", return_value=(0, "MERGED abc")), mock.patch.object(lp, "git", git):
             lp.tidy()
             lp.tidy()
+            lp.tidy()
         self.assertEqual(removed, [])
         self.assertTrue(tree.is_dir())
+        mark = lp.tampered_mark()
+        self.assertTrue(mark.is_file())
+        self.assertIn("issue #3: the worktree's index: names ../escape-721", mark.read_text())
         errors = [l for l in (lp.dir / "loop.log").read_text().splitlines() if " ERROR " in l]
-        self.assertEqual(len(errors), 1, errors)
-        self.assertTrue(errors[0].endswith(" #3 ERROR the worktree's index names ../escape-721, so the loop runs no "
-                                           "git there"), errors[0])
-        self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+        self.assertEqual(len(errors), 2, errors)
+        self.assertTrue(errors[0].endswith(" #3 ERROR the loop runs no more git in this project until a person "
+                                           "deletes {}".format(mark)), errors[0])
+        self.assertTrue(errors[1].endswith(" #3 ERROR " + self.marked_refusal(lp)), errors[1])
 
     def test_under_strict_tidy_keeps_a_worktree_strict_git_env_refuses_and_logs_the_refusal_once(self):
         lp, own, tree = self.indexed_worktree()
@@ -7051,7 +7087,66 @@ class TestSandboxStrict(unittest.TestCase):
         self.assertTrue(errors[1].endswith(" #4 ERROR refused: {} is under the loop's checkouts but isn't a worktree "
                                            "the clone links back to, so the loop runs no git there".format(unlinked)),
                         errors[1])
+        # A refusal of the worktree's link isn't a bad index, so it leaves no mark.
         self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+
+    # -- the mark a bad index leaves under strict (#755) -----------------------
+
+    def marked_refusal(self, lp):
+        return ("refused: the loop runs no git in this project while {} is there. Look at the clone and its "
+                "worktrees, then delete it").format(lp.tampered_mark())
+
+    def test_under_strict_a_bad_index_found_once_leaves_the_mark_and_a_later_good_index_is_still_refused(self):
+        lp, own, tree = self.indexed_worktree()
+        raw_index(own, tree, self.bad_entries(tree)[0][1])
+        code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
+        self.assertEqual((code, out), (1, "refused: the worktree's index names ../escape-721, so the loop runs no git "
+                                          "there"))
+        mark = lp.tampered_mark()
+        self.assertTrue(mark.is_file())
+        self.assertIn("the worktree's index: names ../escape-721", mark.read_text())
+        last = (lp.dir / "loop.log").read_text().splitlines()[-1]
+        self.assertTrue(last.endswith(" - ERROR the loop runs no more git in this project until a person deletes "
+                                      "{}".format(mark)), last)
+        # The index is put back as it should be, and the loop's git still doesn't run, in the worktree or the clone.
+        subprocess.run(["git", "-C", str(tree), "reset", "-q"], check=True,
+                       env=dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1"))
+        for args, cwd in ((("checkout", "--", "."), tree), (("status", "--porcelain"), tree),
+                          (("fetch", "-q", "origin"), None)):
+            with self.subTest(args=args):
+                self.assertEqual(self.git_ran(lp, cwd, *args), (1, self.marked_refusal(lp), []))
+        # A person deletes the mark, and the loop's git runs again.
+        mark.unlink()
+        code, out = lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)
+        self.assertEqual(code, 0, out)
+
+    def test_off_a_mark_and_a_bad_index_change_nothing(self):
+        lp, own, tree = self.indexed_worktree(sandbox_strict=False)
+        raw_index(own, tree, self.bad_entries(tree)[0][1])
+        self.assertEqual(self.git_ran(lp, tree, "checkout", "--", ".")[2], [(["git", "checkout", "--", "."], None)])
+        self.assertFalse(os.path.lexists(str(lp.tampered_mark())))
+        lp.tampered_mark().parent.mkdir(parents=True, exist_ok=True)
+        lp.tampered_mark().write_text("by hand\n")
+        self.assertEqual(self.git_ran(lp, tree, "checkout", "--", ".")[2], [(["git", "checkout", "--", "."], None)])
+        self.assertEqual(lp.tampered_mark().read_text(), "by hand\n")
+
+    def test_under_strict_one_projects_mark_doesnt_stop_anothers_git(self):
+        lp, own, tree = self.indexed_worktree()
+        lp.tampered_mark().parent.mkdir(parents=True, exist_ok=True)
+        lp.tampered_mark().write_text("by hand\n")
+        factory = lp.root
+        site = factory / "projects" / "site"
+        site.mkdir()
+        for strict in (True, False):
+            with self.subTest(strict=strict):
+                (factory / "loop.json").write_text(json.dumps(
+                    {"projects": {"app": {"sandbox_strict": True}, "site": {"sandbox_strict": strict}}}))
+                cfg = dict(loop.load_project_config(factory, site), worktree_dir=lp.cfg["worktree_dir"])
+                other = loop.Loop(factory, cfg, project=site)
+                self.assertNotEqual(other.tampered_mark(), lp.tampered_mark())
+                self.assertEqual(self.git_ran(other, None, "status")[2],
+                                 [(["git", *(loop.CALLER_GIT_SAFE if strict else ()), "status"], None)])
+        self.assertEqual(self.git_ran(lp, None, "status"), (1, self.marked_refusal(lp), []))
 
     # -- the log when the loop starts ------------------------------------------
 
@@ -12358,7 +12453,7 @@ class TestCallerCommands(unittest.TestCase):
         self.assertEqual(lp.git(*loop.NO_HOOKS, "checkout", "--", ".", cwd=tree)[0], 0)
 
     def test_with_sandbox_strict_on_a_callers_bad_index_is_refused_and_marked_as_it_was(self):
-        # #721 checks a strict project's index too, without a mark; a caller's still gets one.
+        # #721 checks a strict project's index too, and #755 marks it as well; a caller's is marked as it was.
         caller = self.caller
         with mock.patch.object(self, "caller", lambda **entry: caller(sandbox_strict=True, **entry)):
             self.test_an_index_naming_a_path_outside_the_worktree_stops_the_loops_git_before_it_writes_there()

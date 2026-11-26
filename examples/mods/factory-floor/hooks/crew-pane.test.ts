@@ -481,6 +481,129 @@ group('the walk', () => {
   })
 })
 
+group('redraws (#759)', () => {
+  test("a poll that fires while the last one's read is held does nothing", async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, reads, flip, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    const count = () => reads.filter(r => r === STATUS).length
+    // One poll's reads of the status, unheld, as the measure of one poll.
+    const start = count()
+    await clock.advance(2000)
+    await drain()
+    const perPoll = count() - start
+    expect(perPoll).toBeGreaterThan(0)
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    const before = count()
+    // Six seconds is three polls; only the held one has started reading.
+    await clock.advance(6000)
+    await drain()
+    expect(count() - before).toBe(perPoll)
+    flip.hold = null
+    release()
+    await drain()
+    await clock.advance(2000)
+    await drain()
+    expect(count() - before).toBeGreaterThan(perPoll)
+    await ui.unmount()
+    await close()
+  })
+  test("behind another pane the desktop's moving time doesn't redraw, and does once it's shown", async ($, on) => {
+    const files = working(counting())
+    const { clock, invalidated, panes, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    await clock.advance(30_000)
+    await drain()
+    expect(invalidated.length).toBe(first)
+    // Shown again, the next poll draws what it missed, once.
+    panes[0]!.isShown = true
+    await clock.advance(2000)
+    await drain()
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+  test('behind another pane a change is held, and drawn once by the first poll after the pane is shown', async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, invalidated, panes, written, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    await clock.advance(2000)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    written.length = 0
+    files.set(STATUS, statusText(job(12, 'TEST')))
+    await clock.advance(6000)
+    await drain()
+    expect(written).toEqual([])
+    expect(invalidated.length).toBe(first)
+    panes[0]!.isShown = true
+    await clock.advance(2000)
+    await drain()
+    expect(written.length).toBeGreaterThan(0)
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+  test('a redraw missed behind another pane and a change found on showing it draw once between them', async ($, on) => {
+    const files = working(counting())
+    const { clock, invalidated, panes, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    // The moving time's redraw falls due behind the other pane, and the step changes there too.
+    await clock.advance(30_000)
+    await drain()
+    files.set(STATUS, statusText(counting({ step: 'TEST' })))
+    panes[0]!.isShown = true
+    await clock.advance(2000)
+    await drain()
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+  test('a poll that never settles is given up on, and the Crew reads again', async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, reads, flip, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    await clock.advance(2000)
+    await drain()
+    // Only the reads now held stay open; the reads after them would answer.
+    flip.hold = null
+    const count = () => reads.filter(r => r === STATUS).length
+    const before = count()
+    await clock.advance(10_000)
+    await drain()
+    expect(count()).toBe(before)
+    // Eight polls turned away, sixteen seconds, and the next one reads.
+    await clock.advance(10_000)
+    await drain()
+    expect(count()).toBeGreaterThan(before)
+    release()
+    await drain()
+    await ui.unmount()
+    await close()
+  })
+})
+
 group('walking out', () => {
   test('a row gone to pr walks off the end of its lane, asks for one redraw when it ends, and is gone', async ($, on) => {
     const files = working(job(12, 'BUILD'))
