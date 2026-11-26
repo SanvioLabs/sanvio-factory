@@ -517,29 +517,37 @@ export function sameSeen(a: Seen | null, b: Seen | null): boolean {
 
 // A timer's work that never runs twice at once: a call made while the last one is still running does
 // nothing. A tick fires on the clock whatever the last one is doing, so a surface slow to answer would
-// otherwise stack ticks up and slow itself down further (#759).
-export function single(work: () => Promise<void>): () => Promise<void> {
-  let isBusy = false
+// otherwise stack ticks up and slow itself down further (#759). A run that hasn't settled after
+// `giveUpAfter` calls have been turned away is given up on, so one host call that never answers can't
+// stop the timer's work for good: the next call runs, and the run given up on can't free its slot.
+// Counting calls, not reading a clock, keeps the guard from waiting on another host call.
+export function single(work: () => Promise<void>, giveUpAfter: number): () => Promise<void> {
+  let running: number | null = null
+  let runs = 0
+  let turnedAway = 0
   return async () => {
-    if (isBusy) return
-    isBusy = true
+    if (running !== null && ++turnedAway < giveUpAfter) return
+    const id = ++runs
+    running = id
+    turnedAway = 0
     try {
       await work()
     } finally {
-      isBusy = false
+      if (running === id) running = null
     }
   }
 }
 
-// The shortest gap between two redraws for a dot's pulse or a running clock, by the surface that last
-// drew the pane. VS Code and the desktop app carry each redraw out to a webview, so their dot pulses once
-// a second; the terminal draws its own frames and keeps the half beat (#759).
-export const PULSE_GAP_MS: Readonly<Record<string, number>> = { vscode: 1000, desktop: 1000 }
+// The fewest ticks between two redraws for a dot's pulse or a running clock, by the surface that last
+// drew the pane. VS Code and the desktop app carry each redraw out to a webview, so on a 500 ms tick
+// their dot pulses once a second; the terminal draws its own frames and keeps every tick (#759).
+export const PULSE_GAP_TICKS: Readonly<Record<string, number>> = { vscode: 2, desktop: 2 }
 
-// Whether a redraw for the pulse or the clock is due now: never while the pane is behind another, and on
-// a webview surface no sooner than PULSE_GAP_MS after the last. lastAt is that last redraw, or null.
-export function pulseDue(surface: string | null, isShown: boolean, lastAt: number | null, now: number): boolean {
+// Whether a redraw for the pulse or the clock is due on tick `at`: never while the pane is behind another,
+// and on a webview surface no sooner than PULSE_GAP_TICKS after the last. lastAt is that last redraw's
+// tick, or null. Ticks, not the wall clock, so a clock stepped back can't stop the pulse.
+export function pulseDue(surface: string | null, isShown: boolean, lastAt: number | null, at: number): boolean {
   if (!isShown) return false
-  const gap = (surface !== null && PULSE_GAP_MS[surface]) || 0
-  return lastAt === null || now - lastAt >= gap
+  const gap = (surface !== null && PULSE_GAP_TICKS[surface]) || 1
+  return lastAt === null || at - lastAt >= gap
 }

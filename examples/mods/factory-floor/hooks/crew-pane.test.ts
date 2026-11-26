@@ -523,10 +523,62 @@ group('redraws (#759)', () => {
     await clock.advance(30_000)
     await drain()
     expect(invalidated.length).toBe(first)
+    // Shown again, the next poll draws what it missed, once.
     panes[0]!.isShown = true
-    await clock.advance(30_000)
+    await clock.advance(2000)
     await drain()
     expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+  test('behind another pane a change is held, and drawn once by the first poll after the pane is shown', async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, invalidated, panes, written, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    await clock.advance(2000)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    written.length = 0
+    files.set(STATUS, statusText(job(12, 'TEST')))
+    await clock.advance(6000)
+    await drain()
+    expect(written).toEqual([])
+    expect(invalidated.length).toBe(first)
+    panes[0]!.isShown = true
+    await clock.advance(2000)
+    await drain()
+    expect(written.length).toBeGreaterThan(0)
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+  test('a poll that never settles is given up on, and the Crew reads again', async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, reads, flip, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    await clock.advance(2000)
+    await drain()
+    // Only the reads now held stay open; the reads after them would answer.
+    flip.hold = null
+    const count = () => reads.filter(r => r === STATUS).length
+    const before = count()
+    await clock.advance(10_000)
+    await drain()
+    expect(count()).toBe(before)
+    // Eight polls turned away, sixteen seconds, and the next one reads.
+    await clock.advance(10_000)
+    await drain()
+    expect(count()).toBeGreaterThan(before)
+    release()
+    await drain()
     await ui.unmount()
     await close()
   })
