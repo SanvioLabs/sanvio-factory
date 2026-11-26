@@ -52,6 +52,18 @@ Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-
 
 **Do:** run `/plugin update factory-floor@sanvio-factory`
 
+## 2026-11-26: A strict command's leftover processes are ended
+
+Under `sandbox_strict`, a project's `test_command`, `setup_command` and `generate_command` now run as a caller's do: with nothing on stdin, in a session of their own, and once one ends or times out the loop kills every process still in that session before its own git runs in the worktree. Before, a background child could outlive the command and put an index in place after the loop had checked it. This narrows that race rather than closing it: a process that starts a session of its own with `setsid`, one that moves to a process group of its own and keeps forking, and one handed outside the sandbox through launchd, `open` or a tmux server still aren't found. A command's output now keeps any `\r` it prints, as a caller's does. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-18: A caller's commands are held to their own folders; 2026-11-21: A strict sandbox for one project's commands; 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-26: A bad index stops the loop's git under sandbox_strict
 
 Under `sandbox_strict`, a worktree index the loop refuses now writes `git-tampered` in the project's state folder, as it does for a caller project, whether the loop finds it before its own git or before it removes a merged or closed pull request's worktree. While the file is there, the loop runs no git of its own in that project, in the clone or a worktree, with the caller's refusal line, even once the index is put right, until a person looks at the clone and its worktrees and deletes it. A worktree whose `.git` file or `commondir` the loop refuses still writes no mark. Projects without `sandbox_strict`, other projects in the same factory and caller projects work as before.

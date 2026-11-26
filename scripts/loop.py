@@ -3808,7 +3808,9 @@ class Loop:
                                       held=held, held_folders=[git_dir])
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             env = dict(sandbox_env(env, allow), TMPDIR=scratch)
-            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
+            # held: no stdin, no terminal, and nothing it started still running when the loop's own git runs in
+            # tree, outside the sandbox, where it could put an index in place after the #721 check (#753).
+            return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial, held=True)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -3838,7 +3840,7 @@ class Loop:
         the command printed so far, then the line saying it timed out. A failure's output goes through
         shown_url, since it's what the log, a status note and a blocked issue's comment quote: a git error
         can name origin's URL, token and all. What a command that worked printed is kept as it was.
-        held=True runs it as ran_held() says, for a caller's own commands.
+        held=True runs it as ran_held() says, for a caller's own commands and a strict one's.
         """
         code, out = self.ran(cmd, cwd, stdin, timeout, shell, stderr, env, partial, held)
         return code, out if code == 0 else shown_url(out)
@@ -3902,11 +3904,12 @@ class Loop:
         return done.returncode, (done.stdout or "") + ((done.stderr or "") if stderr else "")
 
     def ran_held(self, cmd, cwd, timeout, stderr, env, partial):
-        """ran() for a caller's own command, an argv list (#639). Nothing on stdin and a session of its own, so it
-        has no terminal and can't read what's typed in the loop's pane. Once it ends or times out, end_session()
-        kills whatever it left running, so nothing it started writes the worktree while the loop's own git reads
-        it, or makes its temp folder again after own_command() removes it. A child still holding the output open
-        then can't keep the loop waiting: what arrived within 10 seconds of the kill is what it printed."""
+        """ran() for a caller's own command or a strict one (#639, #753), an argv list. Nothing on stdin and a
+        session of its own, so it has no terminal and can't read what's typed in the loop's pane. Once it ends or
+        times out, end_session() kills whatever it left running, so nothing it started writes the worktree while
+        the loop's own git reads it, or makes its temp folder again after own_command() removes it. A child still
+        holding the output open then can't keep the loop waiting: what arrived within 10 seconds of the kill is
+        what it printed."""
         proc = subprocess.Popen(cmd, cwd=str(cwd or self.root), env=env, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try:
