@@ -514,3 +514,41 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
 export function sameSeen(a: Seen | null, b: Seen | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
+
+// A timer's work that never runs twice at once: a call made while the last one is still running does
+// nothing. A tick fires on the clock whatever the last one is doing, so a surface slow to answer would
+// otherwise stack ticks up and slow itself down further (#759). A run still unsettled at the
+// `giveUpAfter`-th call made while it runs is given up on, and that call starts a new run, so one host
+// call that never answers can't stop the timer's work for good. The run given up on can't free the new
+// run's slot when it does settle.
+// Counting calls, not reading a clock, keeps the guard from waiting on another host call.
+export function single(work: () => Promise<void>, giveUpAfter: number): () => Promise<void> {
+  let running: number | null = null
+  let runs = 0
+  let turnedAway = 0
+  return async () => {
+    if (running !== null && ++turnedAway < giveUpAfter) return
+    const id = ++runs
+    running = id
+    turnedAway = 0
+    try {
+      await work()
+    } finally {
+      if (running === id) running = null
+    }
+  }
+}
+
+// The fewest ticks between two redraws for a dot's pulse or a running clock, by the surface that last
+// drew the pane. VS Code and the desktop app carry each redraw out to a webview, so on a 500 ms tick
+// their dot pulses once a second; the terminal draws its own frames and keeps every tick (#759).
+export const PULSE_GAP_TICKS: Readonly<Record<string, number>> = { vscode: 2, desktop: 2 }
+
+// Whether a redraw for the pulse or the clock is due on tick `at`: never while the pane is behind another,
+// and on a webview surface no sooner than PULSE_GAP_TICKS after the last. lastAt is that last redraw's
+// tick, or null. Ticks, not the wall clock, so a clock stepped back can't stop the pulse.
+export function pulseDue(surface: string | null, isShown: boolean, lastAt: number | null, at: number): boolean {
+  if (!isShown) return false
+  const gap = (surface !== null && PULSE_GAP_TICKS[surface]) || 1
+  return lastAt === null || at - lastAt >= gap
+}

@@ -1,6 +1,6 @@
 import { describe as group, expect, test } from 'claude-code/testing'
 
-import { ALL, FINISHED_MS, allActive, allHeader, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopTag, loopValue, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
+import { ALL, FINISHED_MS, single, allActive, allHeader, attach, changes, clip, clock, describe, dot, duration, findRoot, firstTab, focusFile, focusName, header, headline, isPulsing, jobAttach, jobWatchFile, lists, lockPid, loopButtonLabel, loopDir, loopLabel, loopOptions, loopTag, loopValue, modelName, openingLoop, page, parseStatus, projectName, projectNames, sameSeen, usage, waiting, waitingOn, watch, watchCommand, workingCount } from './logic'
 import type { Row, Seen, Status } from '../types'
 
 const ROW: Row = {
@@ -561,5 +561,61 @@ group('the project in focus', () => {
   test("the file's text, trimmed, is what projectName accepts", () => {
     expect(focusName('acme\n')).toBe('acme')
     for (const text of ['', '../x', 'a/b', '.hidden']) expect(focusName(text)).toBeNull()
+  })
+})
+
+group('single (#759)', () => {
+  // Each run of the work, held until the test opens it.
+  function held() {
+    const opens: (() => void)[] = []
+    let started = 0
+    const work = async () => {
+      started++
+      await new Promise<void>(resolve => { opens.push(resolve) })
+    }
+    return { work, opens, started: () => started }
+  }
+  const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+
+  test('while a run is held, calls are turned away until the giveUpAfter-th starts a new run', async () => {
+    const { work, opens, started } = held()
+    const run = single(work, 4)
+    void run()
+    void run(); void run(); void run()
+    expect(started()).toBe(1)
+    void run()
+    expect(started()).toBe(2)
+    // The new run is held too, and its count starts over, so it turns calls away again.
+    void run(); void run()
+    expect(started()).toBe(2)
+    // The run given up on settles while its successor is held: that frees nothing.
+    opens[0]!()
+    await flush()
+    void run()
+    expect(started()).toBe(2)
+    opens[1]!()
+    await flush()
+    void run()
+    expect(started()).toBe(3)
+    opens[2]!()
+    await flush()
+  })
+
+  test('a run that settles lets the next call run, with its count started over', async () => {
+    const { work, opens, started } = held()
+    const run = single(work, 3)
+    void run()
+    void run()
+    opens[0]!()
+    await flush()
+    void run()
+    expect(started()).toBe(2)
+    // Two turned away from the fresh count, as from the first; the call left over from before doesn't count.
+    void run(); void run()
+    expect(started()).toBe(2)
+    void run()
+    expect(started()).toBe(3)
+    opens[1]!(); opens[2]!()
+    await flush()
   })
 })
