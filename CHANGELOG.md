@@ -42,6 +42,15 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-26: factory-floor redraws only as often as it changes
+
+The factory-floor pane does less work while it's open, to keep a VS Code or desktop window with it open on a working loop from slowing down over time. A List tick or a Crew poll that starts while the last one is still reading now does nothing, so slow answers no longer pile up, and one that never answers is given up on after about 15 seconds rather than stopping the pane for good. In VS Code and the desktop app the List view's pulsing dot and running clock redraw at most once a second, where before it was every half second; the terminal is unchanged. While the pane is behind another one, neither view redraws: both keep reading, notices still come, and what changed is drawn when the pane is shown again, so a Crew figure that moved meanwhile walks when it's shown rather than behind the other pane. Otherwise what the pane shows and how it looks are unchanged.
+
+**Needs:** 2026-11-09: Factory floor mod; 2026-11-09: Crew view in factory-floor; 2026-11-14: Factory floor on other machines; 2026-11-15: All loops in factory-floor; 2026-11-20: factory-floor shows test suite runs; 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
+
+Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), `CHANGELOG.md`.
+
+**Do:** run `/plugin update factory-floor@sanvio-factory`
 
 ## 2026-11-26: A strict command's leftover processes are ended
 
