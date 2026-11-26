@@ -481,6 +481,57 @@ group('the walk', () => {
   })
 })
 
+group('redraws (#759)', () => {
+  test("a poll that fires while the last one's read is held does nothing", async ($, on) => {
+    const files = working(job(12, 'BUILD'))
+    const { clock, reads, flip, close } = world(on, files)
+    await say($)
+    const ui = await $.ui.mount(WIDE())
+    await drain()
+    const count = () => reads.filter(r => r === STATUS).length
+    // One poll's reads of the status, unheld, as the measure of one poll.
+    const start = count()
+    await clock.advance(2000)
+    await drain()
+    const perPoll = count() - start
+    expect(perPoll).toBeGreaterThan(0)
+    let release = () => {}
+    flip.hold = new Promise<void>(resolve => { release = resolve })
+    const before = count()
+    // Six seconds is three polls; only the held one has started reading.
+    await clock.advance(6000)
+    await drain()
+    expect(count() - before).toBe(perPoll)
+    flip.hold = null
+    release()
+    await drain()
+    await clock.advance(2000)
+    await drain()
+    expect(count() - before).toBeGreaterThan(perPoll)
+    await ui.unmount()
+    await close()
+  })
+  test("behind another pane the desktop's moving time doesn't redraw, and does once it's shown", async ($, on) => {
+    const files = working(counting())
+    const { clock, invalidated, panes, close } = world(on, files)
+    const desk = pane(72, 40, 'desktop')
+    await say($, '', desk)
+    const ui = await $.ui.mount(desk)
+    await drain()
+    panes[0]!.isShown = false
+    const first = invalidated.length
+    await clock.advance(30_000)
+    await drain()
+    expect(invalidated.length).toBe(first)
+    panes[0]!.isShown = true
+    await clock.advance(30_000)
+    await drain()
+    expect(invalidated.length).toBe(first + 1)
+    await ui.unmount()
+    await close()
+  })
+})
+
 group('walking out', () => {
   test('a row gone to pr walks off the end of its lane, asks for one redraw when it ends, and is gone', async ($, on) => {
     const files = working(job(12, 'BUILD'))

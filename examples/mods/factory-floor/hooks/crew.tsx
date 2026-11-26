@@ -3,7 +3,7 @@ import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { ALL, DARK, LANE_ROWS, NOTHING, OUT_MS, PROJECTS_DIR, accentText, boardColumns, downOption, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, loopTag, loopValue, parseSpend, parseStatus, pickerOrder, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Placement } from './crew-logic'
-import { TITLE } from './logic'
+import { TITLE, single } from './logic'
 import type { Down } from './logic'
 import type { CrewSpend as Spend, Row, Seen } from '../types'
 import { buttonRows, buttonsWidth, issueButtons, loopButtons } from './buttons'
@@ -87,6 +87,11 @@ let isOnScreen = false
 // A function declaration, not an arrow bound to a const: the validator follows $ into the first only.
 async function paneIsUp($: EngineInterface): Promise<boolean> {
   return (await $.ui.panes()).some(pane => pane.id === PANE)
+}
+
+// Up and not behind another pane: what a redraw is worth drawing for (#759).
+async function paneIsShown($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
 }
 
 // The placement to draw for one loop on screen. Before any read, a draw gets one that walks nobody and
@@ -399,22 +404,24 @@ async function follow($: EngineInterface): Promise<void> {
 // Poll only while the pane is up, so a session that never opens it reads nothing.
 function startPolling($: EngineInterface): void {
   if (stopPolling) return
+  // One poll's work at a time: a poll that fires while the last is still reading does nothing (#759).
+  const poll = single(async () => {
+    if (await paneIsUp($)) {
+      // Other machines are read only from here and the List's poll, at most every 30 seconds each, in
+      // the background.
+      const root = await rootOf($)
+      if (root) await pollRemote($, root).catch(() => {})
+      await follow($).catch(() => {})
+      return refresh($)
+    }
+    stopPolling?.()
+    stopPolling = null
+    drawn = null
+    endRedraws()
+    resetRemote()
+  })
   const timer = $.clock.every(POLL_MS, () => {
-    void (async () => {
-      if (await paneIsUp($)) {
-        // Other machines are read only from here and the List's poll, at most every 30 seconds each, in
-        // the background.
-        const root = await rootOf($)
-        if (root) await pollRemote($, root).catch(() => {})
-        await follow($).catch(() => {})
-        return refresh($)
-      }
-      stopPolling?.()
-      stopPolling = null
-      drawn = null
-      endRedraws()
-      resetRemote()
-    })().catch(() => {})
+    void poll().catch(() => {})
   })
   stopPolling = () => timer.cancel()
 }
@@ -432,6 +439,8 @@ function startRedraw($: EngineInterface): void {
   const timer = $.clock.every(REDRAW_MS, () => {
     void (async () => {
       if (!(await paneIsUp($))) return endRedraws()
+      // Behind another pane, a moving time waits until it's shown again.
+      if (!(await paneIsShown($))) return
       const { isAll, seens } = await shownLoops($)
       const now = await $.clock.now()
       if (onScreen(seens, isAll, now).some(s => isCounting(s.lane))) $.ui.invalidate('ui.render')

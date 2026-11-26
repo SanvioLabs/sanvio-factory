@@ -633,7 +633,9 @@ group('project loops', () => {
     const session = focus.session ?? { id: null }
     let idsAsked = 0
     const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-    const flip = { closeFails: false, rootGone: false, writesFail: false, held: null as Promise<void> | null }
+    const flip = { closeFails: false, rootGone: false, writesFail: false, held: null as Promise<void> | null, readHeld: null as Promise<void> | null }
+    // Each redraw the mod asks for, by the event it names.
+    const invalidated: string[] = []
     on('session.root', async () => ({ value: ROOT }))
     on('session.id', async () => {
       idsAsked++
@@ -642,6 +644,8 @@ group('project loops', () => {
     on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
     on('fs.read', async (_$, e) => {
       reads.push(e.path)
+      // A held read of the factory's status stays open until the test lets it go.
+      if (flip.readHeld && e.path === `${HARNESS}/status.json`) await flip.readHeld
       const text = files.get(e.path)
       return text === undefined ? { deny: `no ${e.path}` } : { value: text }
     })
@@ -688,6 +692,10 @@ group('project loops', () => {
       return { value: undefined }
     })
     on('ui.panes', async () => ({ value: [...panes] }) as never)
+    on('ui.invalidate', async (_$, e, next) => {
+      invalidated.push(e.event)
+      return next(e)
+    })
     on('ui.toast', async (_$, e) => {
       toasts.push(e.text)
       return { value: undefined }
@@ -698,7 +706,7 @@ group('project loops', () => {
       await clock.advance(500)
     }
     return {
-      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes,
+      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes, invalidated,
       idsAsked: () => idsAsked,
       opened: () => ran.filter(argv => argv[0] === 'open'),
     }
@@ -727,6 +735,63 @@ group('project loops', () => {
   const pickOptions = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
     ((await ui.find({ key: 'loop-pick' })) as { props: { options: { value: string; label: string }[] } }).props.options
 
+  // #759: the redraws a working job asks for, by surface, and none piled up or drawn for a hidden pane.
+  const workingHere = () => new Map([
+    [`${HARNESS}/status.json`, statusText('factory job', { issues: [JOB] })],
+    [`${HARNESS}/lock`, '4242'],
+  ])
+  const renders = (invalidated: string[]) => invalidated.filter(e => e === 'ui.render').length
+  for (const [surface, most] of [['terminal', 10], ['vscode', 5], ['desktop', 5]] as const) {
+    test(`with a job working, the List on ${surface} redraws for its pulse ${most} times in 5 seconds`, async ($, on) => {
+      const { clock, close, invalidated } = world(on, workingHere())
+      await open($ as unknown as Dollar)
+      const ui = await $.ui.mount({ ...PANE, surface })
+      await clock.advance(POLL)
+      invalidated.length = 0
+      for (let i = 0; i < 10; i++) await clock.advance(500)
+      expect(renders(invalidated)).toBe(most)
+      await ui.unmount()
+      await close()
+    })
+  }
+  test('behind another pane the List redraws for nothing, and still reads', async ($, on) => {
+    const { clock, close, invalidated, panes, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    panes[0]!.isShown = false
+    invalidated.length = 0
+    const before = reads.filter(r => r === `${HARNESS}/status.json`).length
+    for (let i = 0; i < 10; i++) await clock.advance(500)
+    expect(renders(invalidated)).toBe(0)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length).toBeGreaterThan(before)
+    // Shown again, it redraws on the next tick.
+    panes[0]!.isShown = true
+    await clock.advance(500)
+    expect(renders(invalidated)).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  test("a tick that fires while the last one's read is held does nothing", async ($, on) => {
+    const { clock, close, flip, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    let release = () => {}
+    flip.readHeld = new Promise<void>(resolve => { release = resolve })
+    const before = reads.filter(r => r === `${HARNESS}/status.json`).length
+    // Six seconds is three reads' worth of ticks; the held one is the only read that starts.
+    for (let i = 0; i < 12; i++) await clock.advance(500)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length - before).toBe(1)
+    flip.readHeld = null
+    release()
+    await drain()
+    // Let go, the ticks read again.
+    await clock.advance(POLL)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length - before).toBeGreaterThan(1)
+    await ui.unmount()
+    await close()
+  })
   test('/factory-floor closing the pane in the Crew view opens it on the List next time', async ($, on) => {
     const { close } = world(on, twoLoops())
     await open($ as unknown as Dollar)

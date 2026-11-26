@@ -514,3 +514,32 @@ export async function findRoot(from: string, exists: (path: string) => Promise<b
 export function sameSeen(a: Seen | null, b: Seen | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
+
+// A timer's work that never runs twice at once: a call made while the last one is still running does
+// nothing. A tick fires on the clock whatever the last one is doing, so a surface slow to answer would
+// otherwise stack ticks up and slow itself down further (#759).
+export function single(work: () => Promise<void>): () => Promise<void> {
+  let isBusy = false
+  return async () => {
+    if (isBusy) return
+    isBusy = true
+    try {
+      await work()
+    } finally {
+      isBusy = false
+    }
+  }
+}
+
+// The shortest gap between two redraws for a dot's pulse or a running clock, by the surface that last
+// drew the pane. VS Code and the desktop app carry each redraw out to a webview, so their dot pulses once
+// a second; the terminal draws its own frames and keeps the half beat (#759).
+export const PULSE_GAP_MS: Readonly<Record<string, number>> = { vscode: 1000, desktop: 1000 }
+
+// Whether a redraw for the pulse or the clock is due now: never while the pane is behind another, and on
+// a webview surface no sooner than PULSE_GAP_MS after the last. lastAt is that last redraw, or null.
+export function pulseDue(surface: string | null, isShown: boolean, lastAt: number | null, now: number): boolean {
+  if (!isShown) return false
+  const gap = (surface !== null && PULSE_GAP_MS[surface]) || 0
+  return lastAt === null || now - lastAt >= gap
+}
