@@ -629,14 +629,20 @@ command that commits or fetches in the worktree fails. In git's folder for the
 worktree, the index, `HEAD`, `logs/` and `refs/` stay writable, but `commondir`,
 `gitdir`, `config`, `config.worktree` and `hooks/` don't, and neither does the
 worktree's `.git` file, nor can the folder itself be renamed aside. Nor can
-they write a `.git` anywhere else in the worktree, at any depth and in any
-case, so a test or a build that makes a repository inside its worktree fails
-under `sandbox_strict`. The loop's
+they make a `.git` by that name anywhere else in the worktree, at any depth and
+in any case, so a test or a build that makes a repository inside its worktree
+fails under `sandbox_strict`. That rule checks names, not what a folder holds:
+a repository, or a `.git` file, made in the temp folder or git's folder for
+the worktree and moved in under another name still lands. Caller mode backs
+its rule with a search for a nested `.git` around each command and each build
+and tester session; strict mode doesn't search yet, so an agent's own Claude Code session, which
+runs git in the worktree when it starts, can still meet one. The loop's
 own git in such a worktree finds that folder from the clone's side, never from
 the `.git` file, and runs with no hooks, no fsmonitor and no replace refs, and,
 as in a caller project, its `git status` and `git diff` with
 `--ignore-submodules=all`, and its `git diff` with no external diff program and
-no textconv, so it never looks inside a submodule's folder. Where
+no textconv, so the loop's own git never looks inside a submodule's folder.
+Where
 the `.git` file names any other folder, `commondir` names anything but the
 clone's `.git` (a hard link made in the worktree could rewrite either), or a
 folder under the loop's checkouts
