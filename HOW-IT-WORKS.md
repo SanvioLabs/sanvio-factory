@@ -639,8 +639,13 @@ fails. So the loop's own commits in that project skip its git hooks. Before any
 git of the loop's that reads or writes the worktree from its index, it checks
 the index, as it does for a caller project: an entry whose path leaves the
 worktree, names a `.git` in any case, or is a submodule's means it runs no git
-there, and the step fails. A merged or closed pull request's worktree with such
-an index is kept, with one `ERROR` line naming the entry. That check comes once,
+there, and the step fails. Finding one, there or in a merged or closed pull
+request's worktree before it removes it, writes `git-tampered` in the project's
+state folder, naming the entry, with one `ERROR` line naming the file, and the
+worktree is kept.
+From then on the loop runs no git of its own in that project, in the clone or a
+worktree, even once the index is put right, until a person looks at the clone
+and its worktrees and deletes the file. That check comes once,
 before git starts, so the three commands run with nothing on stdin, in a session
 of their own, as a caller's do: when one ends or times out, the loop kills every
 process still in its session before its own git runs in that worktree. That
