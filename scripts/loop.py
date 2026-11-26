@@ -1325,7 +1325,7 @@ def sandbox_env(env, allow=()):
 
 
 def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, writable=(), network="any", held=(),
-                    held_folders=()):
+                    held_folders=(), no_git_under=()):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
@@ -1351,11 +1351,12 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
     strict is sandbox_strict (#696). Off, the profile is the one above, whatever writable and network say. On,
     after (allow default) come, in order: writing denied everywhere; writing allowed back on each path in
     writable (resolved, a ~/ one under home) and on SANDBOX_DEVICES; then writing denied again on each path in
-    held, resolved the same way, and unlinking each folder in held_folders, which renaming it needs (#714); then,
-    for a network other than "any", every outbound connection denied, unix sockets included, and for "local"
-    loopback addresses allowed back. Any value but "any" and "local" is treated as "none". The denials above
-    come last, so no allow outranks them: sandbox-exec takes the last rule that matches. Off, held and
-    held_folders change nothing either."""
+    held, resolved the same way, and unlinking each folder in held_folders, which renaming it needs (#714); then
+    writing a .git, in any case, as a Mac's disk ignores it, anywhere under each folder in no_git_under, itself
+    included (#754); then, for a network other than "any", every outbound connection denied, unix sockets
+    included, and for "local" loopback addresses allowed back. Any value but "any" and "local" is treated as
+    "none". The denials above come last, so no allow outranks them: sandbox-exec takes the last rule that
+    matches. Off, held, held_folders and no_git_under change nothing either."""
     denied, folders = sandbox_denials(home, root, environ, extra, allow)
     rules = ["(version 1)(allow default)"]
     if strict:
@@ -1368,6 +1369,8 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
         rules.append("(allow file-write* {})".format(" ".join(SANDBOX_DEVICES)))
         rules += ['(deny file-write* (subpath "{}"))'.format(sbpl(real(path))) for path in held]
         rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(real(path))) for path in held_folders]
+        rules += ['(deny file-write* (regex #"^{}/(.*/)?\\.[Gg][Ii][Tt](/|$)"))'.format(sbpl_regex(real(folder)))
+                  for folder in no_git_under]
         if network != "any":
             rules.append("(deny network-outbound)")
         if network == "local":
@@ -3781,7 +3784,8 @@ class Loop:
         tree, each path sandbox_allow lets through, so it can still write them, and sandbox_write_allow; and the
         network as sandbox_network says. A sandbox_write_allow the loop refuses at start makes nothing more
         writable here, and a sandbox_network it refuses connects to nothing. In git's folder, STRICT_GIT_HELD
-        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714)."""
+        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714). Nor is a .git, in
+        any case, anywhere in tree (#754)."""
         home = Path.home()
         extra = [] if sandbox_strict_problem(self.cfg) else list(self.cfg.get("sandbox_write_allow") or ())
         let = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
@@ -3796,7 +3800,7 @@ class Loop:
             held = [git_dir / name for name in STRICT_GIT_HELD] + [Path(tree) / ".git"]
             profile = sandbox_profile(home, self.root, allow=allow, strict=True, writable=writable,
                                       network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]),
-                                      held=held, held_folders=[git_dir])
+                                      held=held, held_folders=[git_dir], no_git_under=[tree])
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             env = dict(sandbox_env(env, allow), TMPDIR=scratch)
             return self.sh(argv, cwd=tree, timeout=timeout, env=env, partial=partial)
@@ -3837,8 +3841,9 @@ class Loop:
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
         """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE before its
         subcommand, CALLER_GIT_FLAGS after it and every driver turned off, and doesn't run at all once the project
-        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE and strict_git_env() alone (#714), and
-        one in INDEX_READERS in a worktree doesn't run while index_problem() finds anything there (#721)."""
+        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE before its subcommand, CALLER_GIT_FLAGS
+        after it (#754) and strict_git_env() (#714), but no driver turned off, and one in INDEX_READERS in a
+        worktree doesn't run while index_problem() finds anything there (#721)."""
         if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
             mark = self.tampered_mark()
             if mark.exists() or mark.is_symlink():
@@ -3869,7 +3874,12 @@ class Loop:
                 why = self.index_problem(cwd, env)
                 if why:
                     return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
-            cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
+            # A strict command can leave a submodule entry, a .gitmodules that overrides diff.ignoreSubmodules and a
+            # repository of its own there, whose filters git status and git diff would run outside the sandbox (#754).
+            args = list(cmd[1:])
+            if at is not None and args[at] in CALLER_GIT_FLAGS:
+                args[at + 1:at + 1] = CALLER_GIT_FLAGS[args[at]]
+            cmd = [cmd[0], *CALLER_GIT_SAFE, *args]
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)

@@ -628,9 +628,15 @@ written there would be run by the loop's own git, outside the sandbox. So a
 command that commits or fetches in the worktree fails. In git's folder for the
 worktree, the index, `HEAD`, `logs/` and `refs/` stay writable, but `commondir`,
 `gitdir`, `config`, `config.worktree` and `hooks/` don't, and neither does the
-worktree's `.git` file, nor can the folder itself be renamed aside. The loop's
+worktree's `.git` file, nor can the folder itself be renamed aside. Nor can
+they write a `.git` anywhere else in the worktree, at any depth and in any
+case, so a test or a build that makes a repository inside its worktree fails
+under `sandbox_strict`. The loop's
 own git in such a worktree finds that folder from the clone's side, never from
-the `.git` file, and runs with no hooks, no fsmonitor and no replace refs. Where
+the `.git` file, and runs with no hooks, no fsmonitor and no replace refs, and,
+as in a caller project, its `git status` and `git diff` with
+`--ignore-submodules=all`, and its `git diff` with no external diff program and
+no textconv, so it never looks inside a submodule's folder. Where
 the `.git` file names any other folder, `commondir` names anything but the
 clone's `.git` (a hard link made in the worktree could rewrite either), or a
 folder under the loop's checkouts
