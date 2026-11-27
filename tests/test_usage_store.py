@@ -62,7 +62,7 @@ class Fixture(unittest.TestCase):
         self.addCleanup(patcher.stop)
         (self.repo / ".sanvio").mkdir()
         (self.repo / ".sanvio" / "export.json").write_text(json.dumps(
-            {"store": {"kind": "folder", "path": str(self.store)}, "node": "bench", "auto": True}))
+            {"send": True, "store": {"kind": "folder", "path": str(self.store)}, "node": "bench", "auto": True}))
         (self.repo / "loop.json").write_text(json.dumps({"max_issue_tokens": 10000}))
         write_lines(usage_log.log_path(self.repo), [
             {"ts": "2026-11-20T09:00:00Z", "session": "a", "event": "skill", "name": "review-pr"},

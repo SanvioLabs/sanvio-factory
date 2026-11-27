@@ -84,6 +84,7 @@ class Sending(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def config(self, **cfg):
+        cfg.setdefault("send", True)
         path = self.root / ".sanvio" / "export.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(cfg))
@@ -143,6 +144,7 @@ class Sending(unittest.TestCase):
         self.assertIn("/detailed/", keys[0])
 
     def test_with_no_store_nothing_opens_a_connection_or_a_process(self):
+        self.config()
         path = self.bundle_file()
         def refuse(*args, **kwargs):
             raise AssertionError("opened a connection or a process")
@@ -151,6 +153,36 @@ class Sending(unittest.TestCase):
             code, _, err = run_main(self.root, str(path))
         self.assertEqual(code, 1)
         self.assertIn("no store is configured", err)
+
+    def test_sending_off_sends_nothing_from_any_entry_point(self):
+        """The send flag: absent or false, nothing leaves the machine, whatever the store says."""
+        for flag in ({"send": False}, {"send": None}, {"send": "true"}, {}):
+            with self.subTest(flag=flag):
+                path = self.root / ".sanvio" / "export.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(dict({"store": {"kind": "s3", "bucket": "b", "profile": "p"},
+                                                 "node": "bench", "auto": True}, **flag)))
+                bundle = self.bundle_file()
+                def refuse(*args, **kwargs):
+                    raise AssertionError("opened a connection or a process")
+                with mock.patch.object(socket, "socket", refuse), mock.patch.object(subprocess, "run", refuse), \
+                        mock.patch.object(subprocess, "Popen", refuse):
+                    for args, code in (((str(bundle),), 1), (("--auto",), 0), (("--heartbeat",), 0)):
+                        got, out, err = run_main(self.root, *args)
+                        self.assertEqual(got, code, args)
+                        self.assertIn("sending is off", out + err)
+                    with self.assertRaises(send_usage.Off):
+                        send_usage.send_file(self.root, bundle)
+                self.assertEqual(self.log_events(), [], "a machine switched off logs no refusal")
+
+    def test_sending_on_with_a_folder_store_sends(self):
+        self.folder()
+        keys = send_usage.send_file(self.root, self.bundle_file())
+        self.assertEqual(len(keys), 1)
+        self.config(store={"kind": "folder", "path": str(self.store)}, node="bench", send=False)
+        with self.assertRaises(send_usage.Off):
+            send_usage.send_file(self.root, self.bundle_file())
+        self.assertEqual(len(self.sent()), 1)
 
     def test_auto_needs_the_switch_and_sends_two_general_days(self):
         self.folder()

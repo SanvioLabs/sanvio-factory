@@ -1203,7 +1203,9 @@ Where the owner runs a usage store, the numbers can go there too, so the team's
 are read in one place. [`scripts/send_usage.py`](scripts/send_usage.py) sends
 the bundle [`scripts/export.py`](scripts/export.py) wrote, once its sender has
 read it, and only what the shape in
-[`scripts/usage_shape.py`](scripts/usage_shape.py) names. A machine nobody
+[`scripts/usage_shape.py`](scripts/usage_shape.py) names. Nothing leaves a
+machine until its `.sanvio/export.json` says `"send": true`, and only a person
+can set that, since the guard keeps agents out of that file. A machine nobody
 watches sends its general numbers and a heartbeat on its own, never more.
 Detailed mode adds the shell commands agents ran, scrubbed before they're
 written down, and each person turns it on for themselves for 14 days; only the
