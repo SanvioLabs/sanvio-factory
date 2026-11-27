@@ -60,8 +60,15 @@ variable "public_subnet_ids" {
 }
 
 variable "private_subnet_ids" {
-  description = "Subnets for Grafana itself, with a route out for sign-in and DuckDB's extensions"
+  description = "Subnets for Grafana itself, with a route out for sign-in and DuckDB's extensions. Unused with grafana_public_ip"
   type        = list(string)
+  default     = []
+}
+
+variable "grafana_public_ip" {
+  description = "Run Grafana in the public subnets with its own public address instead of the private ones, so the network needs no NAT gateway (about $33 a month in us-east-1, against about $4 for the address). Only the load balancer can reach it either way"
+  type        = bool
+  default     = false
 }
 
 variable "certificate_arn" {

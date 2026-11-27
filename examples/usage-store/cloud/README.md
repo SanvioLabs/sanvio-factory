@@ -26,7 +26,9 @@ pipeline. Nothing in it names an account: every value is a variable, set in a `*
 - **Two secrets in your secret store**, named by ARN: the identity provider's client secret for Grafana's
   sign-in, and the webhook address alerts go to. Their values never appear in this Terraform or its state.
 - **A network**: a VPC, public subnets for the load balancer, private subnets with a route out for Grafana,
-  and a TLS certificate for its address.
+  and a TLS certificate for its address. Or set `grafana_public_ip` and leave out the private subnets: Grafana
+  then runs in the public ones with its own address, and the network needs no NAT gateway, which is the
+  biggest line in its cost. Its security group takes traffic only from the load balancer either way.
 
 ## The image
 

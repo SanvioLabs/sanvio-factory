@@ -219,10 +219,13 @@ resource "aws_ecs_service" "grafana" {
   task_definition = aws_ecs_task_definition.grafana.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+  # With grafana_public_ip the task sits in the public subnets with an address of its own and reaches sign-in
+  # and DuckDB's extensions through the internet gateway, so the network needs no NAT. Its security group
+  # still takes traffic only from the load balancer.
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = var.grafana_public_ip ? var.public_subnet_ids : var.private_subnet_ids
     security_groups  = [aws_security_group.grafana.id]
-    assign_public_ip = false
+    assign_public_ip = var.grafana_public_ip
   }
   load_balancer {
     target_group_arn = aws_lb_target_group.grafana.arn
