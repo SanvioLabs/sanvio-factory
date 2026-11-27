@@ -519,13 +519,22 @@ doesn't answer in time, the log gets one `APP` line, `app_command <command>
 didn't answer at app_url <url> within app_timeout <n>s`. The same line goes at
 the end of the round's test output, which the next build reads. The round then
 counts as failed, like a failing test, and the review's PASS stays recorded as
-its verdict. Either way, the script then stops the app and everything it
-started. A process the app moved into a session of its own, with `setsid`,
-isn't found.
+its verdict. An answer counts only while the app itself is still running, so
+something else on that port doesn't stand in for it. Either way, the script
+then stops the app and everything it started: at `app_timeout` whatever the
+app is doing, so an answer that never finishes can't hold the round past it,
+and at a Ctrl-C, a `SIGTERM` or a `SIGHUP` too. A process the app moved into a
+session of its own, with `setsid`, or into a process group of its own that
+keeps forking, or one it handed to launchd or `open`, as a dev server that
+opens a browser does, isn't found.
 
-The app runs only on this machine, never against a deployed environment.
-`app_url` has to be `http` or `https` on `localhost` or a loopback address
-(`127.0.0.0/8` or `::1`). The script asks it with no proxy and doesn't follow
+The script checks the app only on this machine, never against a deployed
+environment. `app_url` has to be `http` or `https` on `localhost` or a
+loopback address (`127.0.0.0/8` or `::1`). That holds the URL the script
+asks, not where the app listens: many dev servers listen on every interface
+by default, and nothing stops them, so another machine on the network can
+reach the app, and whatever it serves from the worktree, while it runs. Give
+`app_command` the flag or setting that binds the app to `127.0.0.1`. The script asks it with no proxy and doesn't follow
 redirects, and it doesn't check an `https` certificate. The app runs under the
 same sandbox as `test_command`, with no input and its output thrown away.
 Under `sandbox_strict`, `sandbox_network` limits what the app can connect to,

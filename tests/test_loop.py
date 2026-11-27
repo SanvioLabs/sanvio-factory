@@ -11126,9 +11126,25 @@ class TestApp(unittest.TestCase):
                                        app_url="http://127.0.0.1:{}/".format(port), app_timeout=2))
         tree = Path(self.tmp.name) / "tree"
         tree.mkdir()
-        started = time.monotonic()
-        self.assertFalse(lp.app_up(tree))
-        self.assertLess(time.monotonic() - started, 10)
+
+        started = []  # read before tearDown removes the state folder, so a stuck app is still found
+
+        def kill_left():
+            for pid in started:
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+
+        self.addCleanup(kill_left)
+        answered = []
+        waiting = threading.Thread(target=lambda: answered.append(lp.app_up(tree)), daemon=True)
+        waiting.start()
+        # Without the deadline, the ask never returns: a bound here, so a regression fails instead of hanging.
+        waiting.join(15)
+        started.extend(self.app_pids())
+        self.assertFalse(waiting.is_alive(), "app_up() was still waiting on an answer past app_timeout")
+        self.assertEqual(answered, [False])
         self.assert_gone(self.app_pids())
 
     def test_another_process_answering_at_app_url_doesnt_count_once_the_app_has_ended(self):
