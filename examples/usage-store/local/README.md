@@ -46,6 +46,8 @@ From nothing to the dashboard, with Docker and nothing else.
 
 5. **Stop it** with `USAGE_STORE=~/usage-store docker compose -f local/compose.yaml down`: the compose file
    needs the store's folder named even to stop. The store is untouched, since Grafana mounts it read-only.
+   Grafana's own database, which remembers which alerts it has already sent, stays in a Docker volume, so
+   the next `up` doesn't send them again. `down -v` removes that volume too.
 
 ## Reading a cloud store here
 

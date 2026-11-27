@@ -103,3 +103,9 @@ variable "alert_webhook_secret_arn" {
   description = "The secret holding the address alerts are posted to (SEC-005). Read by name, never put in a file"
   type        = string
 }
+
+variable "secret_key_secret_arn" {
+  description = "The secret holding Grafana's secret_key, which encrypts what its database stores, such as people's sign-in tokens. Its database now persists, so set this; left null, Grafana falls back to its public default key"
+  type        = string
+  default     = null
+}

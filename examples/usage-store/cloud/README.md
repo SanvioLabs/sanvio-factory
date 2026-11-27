@@ -23,8 +23,15 @@ pipeline. Nothing in it names an account: every value is a variable, set in a `*
 - **People's roles**, `people_principal_arns`, if people send from laptops. Each person's role must carry a
   `usage_node` session tag set by your identity provider. The person can write only under
   `incoming/<that tag>/`, so their prefix is exactly as firm as that attribute.
-- **Two secrets in your secret store**, named by ARN: the identity provider's client secret for Grafana's
-  sign-in, and the webhook address alerts go to. Their values never appear in this Terraform or its state.
+- **Three secrets in your secret store**, named by ARN:
+  - the identity provider's client secret for Grafana's sign-in
+  - the webhook address alerts go to
+  - a random `secret_key` for Grafana, as `secret_key_secret_arn`, at least 32 characters
+
+  Their values never appear in this Terraform or its state. Grafana keeps its database on EFS, so it
+  outlives each task, and the key encrypts what it stores there, such as people's sign-in tokens. Left out,
+  Grafana uses its public default key. Change the key only with an empty database: Grafana can't read what
+  it encrypted with the old one.
 - **A network**: a VPC, public subnets for the load balancer, private subnets with a route out for Grafana,
   and a TLS certificate for its address. Or set `grafana_public_ip` and leave out the private subnets: Grafana
   then runs in the public ones with its own address, and the network needs no NAT gateway, which is the
@@ -50,6 +57,13 @@ For a node, that profile is the signing helper's:
 [profile usage-sender]
 credential_process = aws_signing_helper credential-process --certificate <cert> --private-key <key> --trust-anchor-arn <trust_anchor_arn> --profile-arn <profile_arn> --role-arn <role_arn>
 ```
+
+## Deploys and restarts
+
+Grafana's database, with its alert state and the record of what it has already notified, is on EFS, so a new
+task picks up where the last one stopped and doesn't send a firing alert again. ECS stops the old task
+before it starts the new one, so two Grafanas never run at once, which would send each alert twice and have
+both writing the one SQLite file. Each deploy leaves a minute or two in which Grafana doesn't answer.
 
 ## Taking a newer factory
 
