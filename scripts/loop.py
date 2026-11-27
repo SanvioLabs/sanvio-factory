@@ -3621,8 +3621,11 @@ class Loop:
             return False
         url, wait = self.cfg["app_url"].strip(), self.cfg.get("app_timeout", DEFAULTS["app_timeout"])
         with self.launch(self.cfg["app_command"], tree, env_for_tests(os.environ)) as (cmd, shell, env):
-            proc = subprocess.Popen(cmd, cwd=str(tree), env=env, shell=shell, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            # shell=True only where launch() runs no sandbox, as for test_command: app_command is the factory's own
+            # configured command, a machine key a project can't set, meant to run as shell text.
+            proc = subprocess.Popen(cmd, cwd=str(tree), env=env, shell=shell,  # nosec B602
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
             self.apps.add(proc)
             timer = threading.Timer(wait, end_app, [proc])
             timer.daemon = True
