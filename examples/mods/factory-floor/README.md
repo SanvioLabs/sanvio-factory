@@ -43,7 +43,8 @@ to the second line; the header always takes two, so nothing under it moves.
 While the loop is on a job, the dot before **Running** pulses with the jobs' dots.
 
 The dot beside a job the loop is on pulses, bright then dim, about once a
-second, and the clock beside it counts up. If the loop dies mid-step, the dot
+second in the terminal, and about once every two seconds in VS Code and Claude
+Desktop, and the clock beside it counts up. If the loop dies mid-step, the dot
 stops and turns red with the row. A job that has ended keeps a still dot in its
 result's colour, green for a pull request and red for a block, and says how
 long it took. A job started by a loop.py older than this one has no clock.
@@ -251,7 +252,9 @@ in the Crew view.
 
 Only the view on screen reads the loop's files: the list's two-second read
 stops while the Crew is drawn, and the Crew's reads and its animation stop
-while the list is.
+while the list is. While the pane is behind another pane, neither view
+redraws: the reads go on, and what changed is drawn once the pane is shown
+again, so a Crew figure that moved meanwhile walks then.
 
 ## Other machines
 

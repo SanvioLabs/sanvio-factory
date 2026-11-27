@@ -66,5 +66,49 @@ class OtherMachines(unittest.TestCase):
         self.assertFalse(ignored("examples/mods/factory-floor/machines.example.json"))
 
 
+README = MOD / "README.md"
+
+
+def paragraphs():
+    """The README's paragraphs, split on blank lines, each with its whitespace collapsed to single spaces."""
+    return [" ".join(block.split()) for block in re.split(r"\n\s*\n", README.read_text()) if block.strip()]
+
+
+def paragraph(test, phrase, start=False):
+    """The one paragraph that holds `phrase`, or starts with it when `start` is set."""
+    found = [p for p in paragraphs() if (p.startswith(phrase) if start else phrase in p)]
+    test.assertEqual(len(found), 1, phrase)
+    return found[0]
+
+
+class Readme(unittest.TestCase):
+    """The README says how fast a job's dot pulses on each surface, and what a pane behind another pane does."""
+
+    DOT = "The dot beside a job the loop is on pulses"
+    SCREEN = "Only the view on screen reads the loop's files"
+
+    def test_the_dot_names_both_pulse_rates(self):
+        text = paragraph(self, self.DOT)
+        self.assertIn("about once a second in the terminal", text)
+        self.assertIn("about once every two seconds in VS Code and Claude Desktop", text)
+
+    def test_a_hidden_pane_does_not_redraw(self):
+        text = paragraph(self, self.SCREEN, start=True)
+        self.assertIn("behind another pane, neither view redraws", text)
+        self.assertIn("the reads go on", text)
+        self.assertIn("walks then", text)
+
+    def test_the_dot_paragraph_keeps_the_rest(self):
+        self.assertIn("If the loop dies mid-step", paragraph(self, self.DOT))
+
+    def test_the_screen_paragraph_keeps_the_rest(self):
+        self.assertIn("the list's two-second read", paragraph(self, self.SCREEN, start=True))
+
+    def test_the_rate_is_stated_once(self):
+        rated = [p for p in paragraphs() if re.search(r"once (?:a second|every)", p)]
+        self.assertEqual(len(rated), 1, rated)
+        self.assertIn(self.DOT, rated[0])
+
+
 if __name__ == "__main__":
     unittest.main()
