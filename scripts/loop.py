@@ -499,6 +499,18 @@ def kill_tree(proc):
         os.killpg(proc.pid, signal.SIGKILL)
 
 
+def end_app(proc):
+    """End app_up()'s app and everything in its session, before it's reaped (#756): at app_timeout, at a Ctrl-C,
+    and once app_up() is done with it. Ending it twice, or one gone already, is the same outcome."""
+    try:
+        if on_windows():
+            kill_tree(proc)
+        else:
+            end_session(proc.pid)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def end_session(leader, sweeps=5):
     """SIGKILL every process left in the session leader started (#639): its process group, then any process that
     moved to another group in the session, found by asking os.getsid of each process ps lists, since macOS's pgrep
@@ -1253,7 +1265,11 @@ def app_problem(cfg):
         return "app_command", "unset, and app_url needs the command that starts the app"
     if not url.strip():
         return None
-    parts = urllib.parse.urlsplit(url.strip())
+    try:
+        parts = urllib.parse.urlsplit(url.strip())
+        parts.hostname  # noqa: B018 (raises ValueError for a netloc that isn't one)
+    except ValueError:
+        return "app_url", "{} isn't a URL".format(repr(url)[:100])
     if parts.scheme not in ("http", "https"):
         return "app_url", "{} isn't an http or https URL".format(repr(url)[:100])
     try:
@@ -1272,25 +1288,32 @@ def app_problem(cfg):
     return None
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    """A redirect isn't followed, so app_up()'s ask stays on the loopback URL it was given: the 3xx comes back as
-    an HTTPError, which app_answers() counts as the app answering."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def app_answers(opener, url, timeout):
-    """Whether url answered through opener within timeout seconds, with any HTTP status: an HTTPError is a status
-    that came back. No connection, a reset, a timeout or a reply that isn't HTTP is no answer yet."""
+def app_answers(url, timeout):
+    """Whether url answered within timeout seconds, with any HTTP status, a 3xx, 4xx or 5xx included. No
+    connection, a reset, a timeout or a reply that isn't HTTP is no answer yet. A plain http.client connection to
+    url's own host and port, so no proxy from the environment is used and no redirect is followed, and the ask
+    never leaves the loopback address app_problem() holds url to. timeout bounds each socket step, not the whole
+    ask: app_up() ends the app at app_timeout, which ends an answer that never finishes (#756). A loopback app's
+    certificate is usually its own, and the ask carries nothing, so https doesn't check it."""
+    parts = urllib.parse.urlsplit(url)
+    path = (parts.path or "/") + ("?" + parts.query if parts.query else "")
     try:
-        with opener.open(url, timeout=timeout):
-            return True
-    except urllib.error.HTTPError as err:  # before URLError, which it subclasses
-        err.close()
-        return True
-    except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+        if parts.scheme == "https":
+            context = ssl.create_default_context()
+            context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+            conn = http.client.HTTPSConnection(parts.hostname, parts.port, timeout=timeout, context=context)
+        else:
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
+    except ValueError:
         return False
+    try:
+        conn.request("GET", path)
+        conn.getresponse().close()
+        return True
+    except (OSError, http.client.HTTPException, ValueError):
+        return False
+    finally:
+        conn.close()
 
 
 def reader_unheld(cfg, which):
@@ -3322,6 +3345,7 @@ class Loop:
         # last mark() pops before lesson() runs on a pass.
         self.outcomes = {}
         self.agents = set()  # the agents stream() is running, so a Ctrl-C can end them
+        self.apps = set()  # the apps app_up() is running, so a Ctrl-C can end them too (#756)
         self.interrupted = threading.Event()  # set by a Ctrl-C: workers then stop without touching GitHub
         self.deadline = None  # with --for, the time.time() after which nothing new starts
         self.for_text = None  # and --for as it was typed, for the log
@@ -3559,8 +3583,9 @@ class Loop:
             # Under sandbox_strict, held: no stdin, no terminal, and nothing it started still running when the loop's
             # own git runs in tree, outside the sandbox, where it could put an index in place after the #721 check
             # (#753). app_up() starts its app in a session of its own and ends it the same way.
-            return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial,
-                           held=self.cfg.get("sandbox_strict") is True)
+            if self.cfg.get("sandbox_strict") is True:
+                return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial, held=True)
+            return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial)
 
     @contextlib.contextmanager
     def launch(self, command, tree, env):
@@ -3585,36 +3610,37 @@ class Loop:
         """Start app_command in tree, under test_command's sandbox (launch()), and ask app_url until it answers or
         app_timeout runs out: True once any HTTP status comes back, a 3xx, 4xx or 5xx included, False when none did
         in time or a Ctrl-C (interrupted) stopped the wait. No proxy from the environment and no redirect, so the
-        ask never leaves loopback (app_problem() holds app_url there). The app gets no stdin, its output goes
+        ask never leaves loopback (app_problem() holds app_url there). An answer counts only while the app is still
+        running, so another process on that port doesn't stand in for it. The app gets no stdin, its output goes
         nowhere, so a server nobody reads can't block on a full pipe, and it runs in a session of its own, which
-        end_session() kills, with all it started, before this returns. A caller project's app never starts: work()
-        refuses one with app_command set, and this holds for any path that reaches here anyway."""
+        end_app() ends, with all it started, before this returns. At app_timeout a timer ends it too, so an answer
+        that never finishes can't hold the wait past it, and a Ctrl-C in work() ends every app in self.apps. A
+        caller project's app never starts: work() refuses one with app_command set, and this holds for any path that
+        reaches here anyway."""
         if self.caller() or not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
             return False
         url, wait = self.cfg["app_url"].strip(), self.cfg.get("app_timeout", DEFAULTS["app_timeout"])
-        # A loopback app's certificate is usually its own: the ask is whether it's up, and it carries nothing.
-        context = ssl.create_default_context()
-        context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
-                                             urllib.request.HTTPSHandler(context=context))
         with self.launch(self.cfg["app_command"], tree, env_for_tests(os.environ)) as (cmd, shell, env):
             proc = subprocess.Popen(cmd, cwd=str(tree), env=env, shell=shell, stdin=subprocess.DEVNULL,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self.apps.add(proc)
+            timer = threading.Timer(wait, end_app, [proc])
+            timer.daemon = True
+            timer.start()
             try:
                 deadline = time.monotonic() + wait
                 while not self.interrupted.is_set():
                     left = deadline - time.monotonic()
                     if left <= 0:
                         return False
-                    if app_answers(opener, url, min(1.0, left)):
+                    if app_answers(url, min(1.0, left)) and proc.poll() is None:
                         return True
                     self.interrupted.wait(max(0.0, min(0.25, deadline - time.monotonic())))
                 return False
             finally:
-                if on_windows():
-                    kill_tree(proc)
-                else:
-                    end_session(proc.pid)
+                timer.cancel()
+                self.apps.discard(proc)
+                end_app(proc)
                 if proc.poll() is None:
                     proc.kill()
                 proc.wait()
@@ -6414,6 +6440,10 @@ class Loop:
                     kill_tree(proc)
                 except (ProcessLookupError, PermissionError):
                     pass  # it ended on its own meanwhile
+            # An app runs in a session of its own, so the Ctrl-C never reached it either, and its worker, a daemon
+            # thread, may not get to its own clean-up before the loop exits (#756).
+            for proc in list(self.apps):
+                end_app(proc)
             running.clear()
             self.claims.clear()
             raise

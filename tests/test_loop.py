@@ -6763,13 +6763,13 @@ class TestSandboxStrict(unittest.TestCase):
         seen, ended = {}, []
 
         class Proc:
-            pid = 424242
+            pid, code = 424242, None  # running until it's killed
 
             def poll(self):
-                return 0
+                return self.code
 
             def kill(self):
-                pass
+                self.code = -9
 
             def wait(self, timeout=None):
                 return 0
@@ -10914,6 +10914,22 @@ class TestAppIsAMachineKey(unittest.TestCase):
 # The script TestApp starts as the app: it writes the folder it started in, forks a child that sleeps, writes both
 # pids, then serves HTTP on 127.0.0.1 at the port it's given, or with no port never listens. BaseHTTPRequestHandler
 # answers a GET with 501, which counts as an answer.
+# An app that takes the loop's ask and never finishes its answer: 100 Continue, over and over (#756).
+STALLING_APP = r"""
+import os, socket, sys, time
+state, port = sys.argv[1], int(sys.argv[2])
+with open(os.path.join(state, "app-pids"), "a") as f:
+    f.write("{}\n".format(os.getpid()))
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(("127.0.0.1", port))
+server.listen(1)
+conn, _ = server.accept()
+while True:
+    conn.sendall(b"HTTP/1.1 100 Continue\r\n\r\n")
+    time.sleep(0.2)
+"""
+
 APP = r"""
 import http.server, os, sys, time
 state = sys.argv[1]
@@ -11005,6 +11021,8 @@ class TestApp(unittest.TestCase):
         ({"app_command": "npm start"}, "app_url"),
         ({"app_url": "http://localhost:8000/"}, "app_command"),
         ({"app_command": "npm start", "app_url": "ftp://localhost"}, "app_url"),
+        # One urlsplit can't read is one ERROR too, not a traceback.
+        ({"app_command": "npm start", "app_url": "http://[::1"}, "app_url"),
         ({"app_command": "npm start", "app_url": "http://example.com"}, "app_url"),
         ({"app_command": "npm start", "app_url": "http://10.0.0.5"}, "app_url"),
         ({"app_command": "npm start", "app_url": "http://localhost.example.com"}, "app_url"),
@@ -11097,6 +11115,58 @@ class TestApp(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 30)
         with self.assertRaises(loop.Interrupted):
             lp.halt_if_interrupted()
+        self.assert_gone(self.app_pids())
+
+    def test_an_answer_that_never_finishes_is_cut_off_at_app_timeout(self):
+        port = free_port()
+        script = Path(self.tmp.name) / "stall.py"
+        script.write_text(STALLING_APP)
+        command = " ".join(shlex.quote(w) for w in (sys.executable, str(script), str(self.state), str(port)))
+        lp = loop.Loop(self.work, dict(self.cfg, app_command=command,
+                                       app_url="http://127.0.0.1:{}/".format(port), app_timeout=2))
+        tree = Path(self.tmp.name) / "tree"
+        tree.mkdir()
+        started = time.monotonic()
+        self.assertFalse(lp.app_up(tree))
+        self.assertLess(time.monotonic() - started, 10)
+        self.assert_gone(self.app_pids())
+
+    def test_another_process_answering_at_app_url_doesnt_count_once_the_app_has_ended(self):
+        # Something else on the port, such as another worker's app, answers; the app itself has already exited.
+        lp = loop.Loop(self.work, dict(self.cfg, app_command=shlex.quote(sys.executable) + " -c pass",
+                                       app_url="http://127.0.0.1:{}/".format(free_port()), app_timeout=2))
+        tree = Path(self.tmp.name) / "tree"
+        tree.mkdir()
+        real_popen = subprocess.Popen
+
+        def popen(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            proc.wait()
+            return proc
+
+        with mock.patch.object(loop, "app_answers", return_value=True), \
+                mock.patch.object(loop.subprocess, "Popen", popen):
+            self.assertFalse(lp.app_up(tree))
+
+    def test_a_ctrl_c_in_run_ends_the_app_from_the_main_thread(self):
+        self.cfg.update(app_command=self.app(), app_url="http://127.0.0.1:{}/".format(free_port()), app_timeout=60)
+        original, real_end, ended = loop.Loop.reap, loop.end_app, []
+
+        def reap(this, running, timeout=0):
+            if len(self.app_pids()) >= 2:
+                raise KeyboardInterrupt
+            return original(this, running, 0.05)
+
+        def end_app(proc):
+            ended.append(threading.current_thread() is threading.main_thread())
+            real_end(proc)
+
+        with mock.patch.object(loop.Loop, "reap", reap), mock.patch.object(loop, "end_app", end_app), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                loop.Loop(self.work, self.cfg).run(once=True)
+        # The worker, a daemon thread, may never reach its own clean-up: the handler ends the app itself.
+        self.assertIn(True, ended)
         self.assert_gone(self.app_pids())
 
     def test_failing_tests_start_no_app(self):
