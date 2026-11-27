@@ -15,6 +15,9 @@ services:
       - "../grafana/local/datasources/detailed.yaml:/etc/grafana/provisioning/datasources/detailed.yaml:ro"
       - "../grafana/local/dashboards/usage.yaml:/etc/grafana/provisioning/dashboards/detailed.yaml:ro"
       - "../grafana/local/dashboards/detailed.json:/etc/grafana/local-dashboards/detailed.json:ro"
+      # Grafana's own database: its alert state and what it has already notified, so a recreated container
+      # doesn't send every firing alert again. `down -v` removes it.
+      - "grafana-data:/var/lib/grafana"
     environment:
       USAGE_ROOT: /store
       # Where alerts go. Unset, it's a local port nothing listens on: the rules still fire, in Grafana's own
@@ -23,3 +26,6 @@ services:
       # On loopback only, so anyone at this machine reads the dashboards without a login, and nobody else can.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+
+volumes:
+  grafana-data:
