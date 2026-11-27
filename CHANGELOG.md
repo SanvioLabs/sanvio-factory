@@ -42,6 +42,15 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: The usage store's Grafana remembers what it sent
+
+Grafana's own database, which holds its alert state and the record of what it has already notified, now outlives the Grafana task. In the cloud it's on EFS, and locally it's in a Docker volume. Before this, every deploy or restart started Grafana with an empty database, so it sent each alert that was still firing again. A rolling deploy also ran two Grafanas side by side for several minutes, so an alert that started in that window was sent twice. ECS now stops the old task before starting the new one, so each deploy leaves Grafana unavailable for a minute or two. The load balancer's drain is cut to 15 seconds. A new, optional `secret_key_secret_arn` gives Grafana its own key for what it encrypts in that database. Left out, Grafana uses its public default. This fixes SPEC-004's F24.
+
+
+Files: [`examples/usage-store/cloud/grafana.tf`](examples/usage-store/cloud/grafana.tf), [`examples/usage-store/cloud/variables.tf`](examples/usage-store/cloud/variables.tf), [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md), [`examples/usage-store/local/compose.yaml`](examples/usage-store/local/compose.yaml), [`examples/usage-store/local/README.md`](examples/usage-store/local/README.md), `CHANGELOG.md`.
+
+**Do:** if you run the cloud store, put a random key of 32 characters or more in a new secret, set `secret_key_secret_arn` to it, and apply. The apply adds EFS and replaces Grafana's task once. The first start on EFS begins with an empty database, so alerts still firing are sent one more time.
+
 ## 2026-11-27: Grafana without a NAT gateway
 
 The cloud usage store's Terraform has a new variable, `grafana_public_ip`. Set it to `true` and Grafana runs in the public subnets with a public address of its own, reaching sign-in and DuckDB's extensions through the internet gateway, so the network needs no NAT gateway: about $33 a month in us-east-1, against about $4 for the address. Its security group still takes traffic only from the load balancer. `private_subnet_ids` is now optional, and unused when the variable is on. Left at its default, `false`, nothing changes.

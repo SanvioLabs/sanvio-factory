@@ -47,7 +47,7 @@ resource "aws_iam_role_policy_attachment" "grafana_execution" {
 data "aws_iam_policy_document" "grafana_secrets" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.oauth.client_secret_arn, var.alert_webhook_secret_arn]
+    resources = compact([var.oauth.client_secret_arn, var.alert_webhook_secret_arn, var.secret_key_secret_arn])
   }
 }
 
@@ -87,6 +87,94 @@ resource "aws_iam_role_policy" "grafana_task" {
   policy = data.aws_iam_policy_document.grafana_task.json
 }
 
+locals {
+  # Where the task runs, and so where its database's mount targets go.
+  grafana_subnets = var.grafana_public_ip ? var.public_subnet_ids : var.private_subnet_ids
+}
+
+# Grafana's own database, which holds its alert state and what it has already notified. On the task's disk it
+# was lost with each new task, so every deploy or restart sent each firing alert again (REQ-015 says once).
+# On EFS it outlives the task. Only the Grafana task mounts it, through one access point, as Grafana's user.
+resource "aws_efs_file_system" "grafana" {
+  creation_token = "${var.name}-grafana"
+  encrypted      = true
+  tags           = { Name = "${var.name}-grafana" }
+}
+
+resource "aws_efs_access_point" "grafana" {
+  file_system_id = aws_efs_file_system.grafana.id
+  posix_user {
+    uid = 472
+    gid = 0
+  }
+  root_directory {
+    path = "/grafana"
+    creation_info {
+      owner_uid   = 472
+      owner_gid   = 0
+      permissions = "0750"
+    }
+  }
+}
+
+data "aws_iam_policy_document" "grafana_efs" {
+  statement {
+    sid       = "GrafanaMountsThroughItsAccessPoint"
+    actions   = ["elasticfilesystem:ClientMount", "elasticfilesystem:ClientWrite"]
+    resources = [aws_efs_file_system.grafana.arn]
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.grafana_task.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "elasticfilesystem:AccessPointArn"
+      values   = [aws_efs_access_point.grafana.arn]
+    }
+  }
+  statement {
+    sid       = "EncryptedInTransitOnly"
+    effect    = "Deny"
+    actions   = ["*"]
+    resources = [aws_efs_file_system.grafana.arn]
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_efs_file_system_policy" "grafana" {
+  file_system_id = aws_efs_file_system.grafana.id
+  policy         = data.aws_iam_policy_document.grafana_efs.json
+}
+
+resource "aws_security_group" "grafana_efs" {
+  name   = "${var.name}-grafana-efs"
+  vpc_id = var.vpc_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "grafana_efs" {
+  security_group_id            = aws_security_group.grafana_efs.id
+  referenced_security_group_id = aws_security_group.grafana.id
+  ip_protocol                  = "tcp"
+  from_port                    = 2049
+  to_port                      = 2049
+}
+
+# One mount target in each subnet the task can run in, one subnet per availability zone.
+resource "aws_efs_mount_target" "grafana" {
+  count           = length(local.grafana_subnets)
+  file_system_id  = aws_efs_file_system.grafana.id
+  subnet_id       = local.grafana_subnets[count.index]
+  security_groups = [aws_security_group.grafana_efs.id]
+}
+
 resource "aws_ecs_task_definition" "grafana" {
   family                   = "${var.name}-grafana"
   requires_compatibilities = ["FARGATE"]
@@ -98,6 +186,17 @@ resource "aws_ecs_task_definition" "grafana" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+  volume {
+    name = "grafana-data"
+    efs_volume_configuration {
+      file_system_id     = aws_efs_file_system.grafana.id
+      transit_encryption = "ENABLED"
+      authorization_config {
+        access_point_id = aws_efs_access_point.grafana.id
+        iam             = "ENABLED"
+      }
+    }
   }
   container_definitions = jsonencode([{
     name         = "grafana"
@@ -133,10 +232,13 @@ resource "aws_ecs_task_definition" "grafana" {
       { name = "GF_AUTH_GENERIC_OAUTH_SCOPES", value = "openid email profile" },
       { name = "GF_USERS_AUTO_ASSIGN_ORG_ROLE", value = "Viewer" },
     ]
-    secrets = [
+    mountPoints = [{ sourceVolume = "grafana-data", containerPath = "/var/lib/grafana", readOnly = false }]
+    secrets = concat([
       { name = "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET", valueFrom = var.oauth.client_secret_arn },
       { name = "USAGE_ALERT_WEBHOOK", valueFrom = var.alert_webhook_secret_arn },
-    ]
+      ], var.secret_key_secret_arn == null ? [] : [
+      { name = "GF_SECURITY_SECRET_KEY", valueFrom = var.secret_key_secret_arn },
+    ])
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -180,6 +282,12 @@ resource "aws_security_group" "grafana" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  egress {
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [aws_security_group.grafana_efs.id]
+  }
 }
 
 resource "aws_lb" "grafana" {
@@ -196,6 +304,8 @@ resource "aws_lb_target_group" "grafana" {
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = var.vpc_id
+  # The old task stops before the new one starts (see the service), so its drain is the outage: keep it short.
+  deregistration_delay = 15
   health_check {
     path = "/api/health"
   }
@@ -219,11 +329,15 @@ resource "aws_ecs_service" "grafana" {
   task_definition = aws_ecs_task_definition.grafana.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+  # Stop the old task before starting the new one. Two Grafanas at once would each send the same alert, and
+  # would both write the one SQLite database on EFS. The cost is a minute or two without Grafana per deploy.
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 100
   # With grafana_public_ip the task sits in the public subnets with an address of its own and reaches sign-in
   # and DuckDB's extensions through the internet gateway, so the network needs no NAT. Its security group
   # still takes traffic only from the load balancer.
   network_configuration {
-    subnets          = var.grafana_public_ip ? var.public_subnet_ids : var.private_subnet_ids
+    subnets          = local.grafana_subnets
     security_groups  = [aws_security_group.grafana.id]
     assign_public_ip = var.grafana_public_ip
   }
