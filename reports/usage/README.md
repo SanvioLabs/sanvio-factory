@@ -52,13 +52,21 @@ bundle that isn't in it.
 ## Sending it
 
 [`scripts/send_usage.py`](../../scripts/send_usage.py) sends a bundle to the store your factory's owner
-runs, and nothing at all until `.sanvio/export.json` names one. This repo
-ships none. The store is a folder (one on this machine, for a store you run
-locally) or a bucket reached through the cloud CLI's named profile:
+runs, and nothing at all until `.sanvio/export.json` says `"send": true` and
+names a store. This repo ships neither. The store is a folder (one on this
+machine, for a store you run locally) or a bucket reached through the cloud
+CLI's named profile:
 
 ```json
-{"store": {"kind": "folder", "path": "~/usage-store"}, "node": "my-laptop"}
+{"send": true, "store": {"kind": "folder", "path": "~/usage-store"}, "node": "my-laptop"}
 ```
+
+`"send"` is this machine's switch. Set it to `false`, or leave it out, and
+nothing is sent from here, by hand or on a schedule. The store's settings
+stay where they are, so turning it back on is one word. A scheduled `--auto`
+or `--heartbeat` run on a machine that's switched off says so and exits 0, so
+it doesn't read as a failure. A machine that's switched off stops sending
+heartbeats too, so the store's silent-machine alert fires for it once.
 
 ```
 python3 scripts/export.py --out reports/usage/export.json   # write it, then read it

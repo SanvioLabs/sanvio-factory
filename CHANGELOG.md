@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: A switch for sending usage
+
+`.sanvio/export.json` now has one switch for whether this machine sends usage at all: `"send": true`. Leave it out, or set it to `false`, and nothing is sent: no bundle by hand, no `--auto`, no `--heartbeat`. The store's settings stay put, so turning sending back on is one word. When sending is off, a scheduled run says so and exits 0. Sending a file by hand exits 1. The guard already keeps agents out of that file, so only a person can turn sending on.
+
+Files: [`scripts/send_usage.py`](scripts/send_usage.py), [`tests/test_send_usage.py`](tests/test_send_usage.py), [`tests/test_usage_store.py`](tests/test_usage_store.py), [`reports/usage/README.md`](reports/usage/README.md), [`examples/usage-store/cloud/export.example.json`](examples/usage-store/cloud/export.example.json), [`examples/usage-store/local/README.md`](examples/usage-store/local/README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** if a machine of yours sends usage, add `"send": true` to its `.sanvio/export.json`, or it stops sending when you take this.
+
 ## 2026-11-26: No nested .git under sandbox_strict
 
 Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can't make a `.git` by that name anywhere in their worktree, at any depth and in any case. A repository made elsewhere and moved in under another name still lands, and strict mode doesn't yet search for one as caller mode does, so an agent's Claude Code session starting in that worktree can still meet it. The loop's own `git status` and `git diff` there run with `--ignore-submodules=all`, and its `git diff` with no external diff program and no textconv, as in a caller project. Before, a strict command could leave a submodule entry, a `.gitmodules` saying never to ignore it and a repository of its own at its path, and the loop's `git status` would run that repository's filters outside the sandbox. Projects without `sandbox_strict` and caller projects work as before.
