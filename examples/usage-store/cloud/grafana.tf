@@ -335,6 +335,9 @@ resource "aws_ecs_service" "grafana" {
   deployment_maximum_percent         = 100
   # ECS turns this on for new services, and it refuses a maximum of 100%. One task has nothing to rebalance.
   availability_zone_rebalancing = "DISABLED"
+  # Grafana's first start on an empty database runs its migrations over NFS, which took over two minutes, and
+  # the load balancer's checks stopped that task before it answered. Later starts are faster.
+  health_check_grace_period_seconds = 300
   # With grafana_public_ip the task sits in the public subnets with an address of its own and reaches sign-in
   # and DuckDB's extensions through the internet gateway, so the network needs no NAT. Its security group
   # still takes traffic only from the load balancer.
