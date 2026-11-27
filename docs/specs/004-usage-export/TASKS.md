@@ -216,6 +216,10 @@ python3 -m unittest tests.test_usage_shape tests.test_usage_scrub tests.test_exp
     - **Check 7: pass.**
       - In the cloud Grafana, these were all refused: `read_text('/proc/self/environ')`, `read_text('/proc/1/environ')`, `glob('/proc/*')`, `getenv(...)` (no such function), `duckdb_secrets(redact=false)`, `ATTACH`, and `SET enable_external_access = true` (the configuration is locked).
       - The API returned 401 to basic auth and to no auth.
+    - **F24's fix, 2026-11-27**, in the cloud with a second test node and an invented heartbeat two hours old:
+      - The silent-node and stopped-loop alerts each reached the webhook once.
+      - Two forced redeployments followed, each stopping the old task before starting the new one (about two minutes without Grafana each time). Each new task loaded 3 alert states from the database on EFS and sent nothing again, so the total stayed at two.
+      - The first start on the empty EFS database ran migrations for over two minutes, logged SQLite `database is locked` retries while it did, and failed the load balancer's checks before it answered. ECS replaced it, and the replacement started on the migrated database. No later start logged a lock. #776 adds a 5-minute health-check grace period for that first start.
 - [x] T027 Phase 4's CHANGELOG entry, and the pull request
   - Depends on: T021 to T026, T030, T032, T033
 
@@ -300,4 +304,4 @@ review-spec, 2026-11-21, on `usage-export/phase-5` against `main`. Lenses run: c
 | F21 | LOW | Minor behaviour: the cloud example's `projects/app` label is dropped without an error; `send_usage.py`'s docstring says key alias where the ARN is needed; extra workers' budgets aren't in the heartbeat; a node with no loops drops out of RQ-5; RQ-3 uses the latest sender's version; stray `.part` files are never pruned | several | probe | partly fixed: the docstring and the example's label. The rest stay |
 | F22 | INFO | `local/compose.yaml` says an empty webhook means nowhere; its default is a dead local port | `local/compose.yaml` | cto | fixed |
 | F23 | CRITICAL | The cloud Grafana never read its bucket. Grafana gives a backend plugin only an allowlist of its environment, so the DuckDB plugin never saw the task role's credentials, and every panel and alert rule errored. A smoke test of `/api/health` passed anyway | `cloud/grafana.tf` | first cloud deployment | fixed: `GF_PLUGINS_FORWARD_HOST_ENV_VARS` for that one plugin (#762); check 7 covers what it then holds |
-| F24 | MEDIUM | Alert state lives in the task's own database. A new task re-sends every alert still firing, and during a rolling deployment the draining task keeps evaluating, so an alert that starts in that window is sent twice. REQ-015 says once | `cloud/grafana.tf` | first cloud deployment | open |
+| F24 | MEDIUM | Alert state lives in the task's own database. A new task re-sends every alert still firing, and during a rolling deployment the draining task keeps evaluating, so an alert that starts in that window is sent twice. REQ-015 says once | `cloud/grafana.tf` | first cloud deployment | fixed: Grafana's database on EFS, stop-before-start deploys (#774, #775); verified in the cloud 2026-11-27, see T026 |
