@@ -110,6 +110,12 @@ resource "aws_ecs_task_definition" "grafana" {
       # the image put them in, never fetched, and a secret that takes the task role's credentials from the
       # environment. It names no key.
       { name = "USAGE_INIT", value = "SET autoinstall_known_extensions = false; SET extension_directory = '/opt/duckdb-extensions'; LOAD httpfs; LOAD aws; CREATE OR REPLACE SECRET usage_store (TYPE s3, PROVIDER credential_chain, REGION '${var.region}');" },
+      # Grafana gives a plugin almost none of its own environment, so without this the DuckDB plugin never
+      # sees the task role's credentials and the secret above fails to create: every panel and alert errors.
+      # It forwards the whole environment to that one plugin, the two secrets included. The data source's
+      # lock (queries/lock.sql) is what keeps them there: no file outside the store, no getenv, no unlock.
+      # The cloud README's check 7 is the test.
+      { name = "GF_PLUGINS_FORWARD_HOST_ENV_VARS", value = "motherduck-duckdb-datasource" },
       { name = "GF_SERVER_ROOT_URL", value = var.grafana_url },
       # Sign-in through the identity provider only: no login form, no basic auth on the API, and no
       # built-in admin account whose default password could still work.

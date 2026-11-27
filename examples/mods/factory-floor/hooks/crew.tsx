@@ -3,7 +3,7 @@ import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import { ALL, DARK, LANE_ROWS, NOTHING, OUT_MS, PROJECTS_DIR, accentText, boardColumns, downOption, findRoot, focusFile, focusName, hasSpend, headCells, headSvg, inkFor, isCounting, laneAlt, laneCells, laneFit, laneSvg, laneWords, lanesOf, isListed, lockPid, loopDir, loopOptions, loopTag, loopValue, parseSpend, parseStatus, pickerOrder, place, projectNames, scene, showsBoard, svgColumns } from './crew-logic'
 import type { Ink, Lane, Placement } from './crew-logic'
-import { TITLE } from './logic'
+import { TITLE, single } from './logic'
 import type { Down } from './logic'
 import type { CrewSpend as Spend, Row, Seen } from '../types'
 import { buttonRows, buttonsWidth, issueButtons, loopButtons } from './buttons'
@@ -17,6 +17,8 @@ import { pollRemote, remoteLoop, remoteNow, remoteUsage, resetRemote } from './r
 const PANE = 'factory-floor'
 export { PANE }
 const POLL_MS = 2000
+// A poll that hasn't settled after this many polls were turned away, 16 seconds, is given up on (#759).
+const GIVE_UP_POLLS = 8
 // 12.5 a second: with the header and at most MAX_LANES lanes that's 112.5 blits a second at most, under
 // the 120 the engine takes. A blit that didn't land is sent again in its key's turn, not as well.
 const TICK_MS = 80
@@ -83,6 +85,20 @@ let drawn: { shown: string; lanes: Map<string, Set<number>> } | null = null
 // Whether the pane's last drawing was this view. Only then does a read of the Crew's ask for a redraw:
 // the List's drawing reads none of these values.
 let isOnScreen = false
+// A redraw the Crew would have asked for while the pane was behind another, which the first poll once it's
+// shown asks for instead (#759). Whether a read since the poll began asked for one, so that poll asks once.
+let missedRedraw = false
+let askedRedraw = false
+
+// The Crew's own redraws: only for a pane on show, and remembered for one behind another pane.
+function redraw($: EngineInterface, isShown = true): void {
+  if (!isShown) {
+    missedRedraw = true
+    return
+  }
+  askedRedraw = true
+  $.ui.invalidate('ui.render')
+}
 
 // A function declaration, not an arrow bound to a const: the validator follows $ into the first only.
 async function paneIsUp($: EngineInterface): Promise<boolean> {
@@ -275,7 +291,9 @@ function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placeme
     if (already.has(out.row.number)) continue
     $.clock.after(OUT_MS, () => {
       void (async () => {
-        if (open === opens && isOnScreen && (await paneIsUp($))) $.ui.invalidate('ui.render')
+        if (open !== opens || !isOnScreen) return
+        const pane = (await $.ui.panes()).find(p => p.id === PANE)
+        if (pane) redraw($, pane.isShown)
       })().catch(() => {})
     })
   }
@@ -289,15 +307,16 @@ function endWalkOuts($: EngineInterface, known: Placement | null, fresh: Placeme
 // before the seen comparison and a change in either asks for one redraw between them. A switch on a
 // pane already up doesn't wait: a slow read of another loop doesn't hold up the pane, and the picker
 // follows with its own redraw when it differs. While the List is on screen nothing here asks for a
-// redraw: the values are kept for when the Crew is drawn.
-async function refresh($: EngineInterface, isOpening = false): Promise<void> {
+// redraw: the values are kept for when the Crew is drawn. Behind another pane it reads and writes nothing,
+// since a write would redraw the pane; the first read once it's shown writes what changed (#759).
+async function refresh($: EngineInterface, isOpening = false, isShown = true): Promise<void> {
   const root = await rootOf($)
   if (!root) return
   let name = await read($, shownAtom)
   // Another machine's loop that's no longer listed or answering falls back to the factory, as the List's does.
   if (name.includes('/') && !remoteLoop(name)) {
     name = ''
-    await update($, shownAtom, () => name)
+    if (isShown) await update($, shownAtom, () => name)
   }
   const at = ++loopReads
   const reading = readLoops($, root)
@@ -305,9 +324,9 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   // back to the factory, as the List's does.
   if (name === ALL) {
     const loops = await reading
-    if (isListed(loops, ALL)) return refreshAll($, root, at, loops, isOpening)
+    if (isListed(loops, ALL)) return isShown ? refreshAll($, root, at, loops, isOpening) : undefined
     name = ''
-    await update($, shownAtom, () => name)
+    if (isShown) await update($, shownAtom, () => name)
   }
   const isSwitch = isOpening && (await paneIsUp($))
   if (isSwitch) {
@@ -317,6 +336,7 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
       .catch(() => {})
   }
   const [shown, loops] = await Promise.all([lookShown($, root, name), isSwitch ? null : reading])
+  if (!isShown) return
   const now = await $.clock.now()
   if ((await read($, shownAtom)) !== name || !shown) return
   const next = shown
@@ -336,7 +356,7 @@ async function refresh($: EngineInterface, isOpening = false): Promise<void> {
   const loopsKept = loops !== null && (await storeLoops($, at, loops))
   const seenChanged = JSON.stringify(await read($, seenAtom)) !== JSON.stringify(next)
   if (seenChanged) await update($, seenAtom, () => next)
-  if ((seenChanged || loopsKept) && isOnScreen) $.ui.invalidate('ui.render')
+  if ((seenChanged || loopsKept) && isOnScreen) redraw($)
 }
 
 // refresh under All loops, with every loop read: each loop is placed against its own last placement, so a
@@ -362,7 +382,7 @@ async function refreshAll($: EngineInterface, root: string, at: number, loops: S
   }
   placed = { shown: ALL, placements }
   const kept = await storeLoops($, at, loops)
-  if ((kept || isOpening) && isOnScreen) $.ui.invalidate('ui.render')
+  if ((kept || isOpening) && isOnScreen) redraw($)
 }
 
 // Show a loop, by its picker value: a project's name, '' for the factory, ssh:<i>/… for another
@@ -399,22 +419,31 @@ async function follow($: EngineInterface): Promise<void> {
 // Poll only while the pane is up, so a session that never opens it reads nothing.
 function startPolling($: EngineInterface): void {
   if (stopPolling) return
+  // One poll's work at a time: a poll that fires while the last is still reading does nothing (#759).
+  const poll = single(async () => {
+    const pane = (await $.ui.panes()).find(p => p.id === PANE)
+    if (pane) {
+      // Other machines are read only from here and the List's poll, at most every 30 seconds each, in
+      // the background.
+      const root = await rootOf($)
+      if (root) await pollRemote($, root).catch(() => {})
+      // Behind another pane the focus isn't followed either: a pick would write and redraw.
+      if (!pane.isShown) return refresh($, false, false)
+      await follow($).catch(() => {})
+      askedRedraw = false
+      await refresh($)
+      if (missedRedraw && !askedRedraw && isOnScreen) $.ui.invalidate('ui.render')
+      missedRedraw = false
+      return
+    }
+    stopPolling?.()
+    stopPolling = null
+    drawn = null
+    endRedraws()
+    resetRemote()
+  }, GIVE_UP_POLLS)
   const timer = $.clock.every(POLL_MS, () => {
-    void (async () => {
-      if (await paneIsUp($)) {
-        // Other machines are read only from here and the List's poll, at most every 30 seconds each, in
-        // the background.
-        const root = await rootOf($)
-        if (root) await pollRemote($, root).catch(() => {})
-        await follow($).catch(() => {})
-        return refresh($)
-      }
-      stopPolling?.()
-      stopPolling = null
-      drawn = null
-      endRedraws()
-      resetRemote()
-    })().catch(() => {})
+    void poll().catch(() => {})
   })
   stopPolling = () => timer.cancel()
 }
@@ -431,10 +460,12 @@ function startRedraw($: EngineInterface): void {
   if (stopRedraw) return
   const timer = $.clock.every(REDRAW_MS, () => {
     void (async () => {
-      if (!(await paneIsUp($))) return endRedraws()
+      const pane = (await $.ui.panes()).find(p => p.id === PANE)
+      if (!pane) return endRedraws()
       const { isAll, seens } = await shownLoops($)
       const now = await $.clock.now()
-      if (onScreen(seens, isAll, now).some(s => isCounting(s.lane))) $.ui.invalidate('ui.render')
+      // Behind another pane, a moving time waits until it's shown again.
+      if (onScreen(seens, isAll, now).some(s => isCounting(s.lane))) redraw($, pane.isShown)
     })().catch(() => {})
   })
   stopRedraw = () => timer.cancel()
@@ -510,6 +541,7 @@ export function stopCrew(): void {
   mounted = null
   drawn = null
   isOnScreen = false
+  missedRedraw = false
 }
 
 // The pane's drawing in the Crew view, loop-crew's ui.render as it stood. `modes` is register.tsx's List

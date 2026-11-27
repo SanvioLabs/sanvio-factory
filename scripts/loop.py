@@ -366,7 +366,8 @@ GIT_VALUE_OPTIONS = ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--c
 CALLER_DRIVER_OFF = {"filter": (("clean", ""), ("smudge", ""), ("process", ""), ("required", "false")),
                      "diff": (("textconv", ""), ("command", "")), "merge": (("driver", ""),)}
 # In a caller project's state folder: once it's there, the loop runs no git in that project, and run takes no
-# issue from it, until a person looks at the clone and the worktrees and deletes it (#640).
+# issue from it, until a person looks at the clone and the worktrees and deletes it (#640). A sandbox_strict
+# project's bad index writes it too, and the loop's git there stops the same way (#755).
 GIT_TAMPERED = "git-tampered"
 
 
@@ -1402,7 +1403,7 @@ def sandbox_env(env, allow=()):
 
 
 def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, writable=(), network="any", held=(),
-                    held_folders=()):
+                    held_folders=(), no_git_under=()):
     """sandbox-exec's profile: everything allowed, then reading and writing denied for each path in
     SANDBOX_HOME_DENIED under home and SANDBOX_ROOT_DENIED under root, and for the folders environ moves some
     of them to: each .config/ entry under XDG_CONFIG_HOME, and GH_CONFIG_DIR itself, where either is an
@@ -1428,11 +1429,12 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
     strict is sandbox_strict (#696). Off, the profile is the one above, whatever writable and network say. On,
     after (allow default) come, in order: writing denied everywhere; writing allowed back on each path in
     writable (resolved, a ~/ one under home) and on SANDBOX_DEVICES; then writing denied again on each path in
-    held, resolved the same way, and unlinking each folder in held_folders, which renaming it needs (#714); then,
-    for a network other than "any", every outbound connection denied, unix sockets included, and for "local"
-    loopback addresses allowed back. Any value but "any" and "local" is treated as "none". The denials above
-    come last, so no allow outranks them: sandbox-exec takes the last rule that matches. Off, held and
-    held_folders change nothing either."""
+    held, resolved the same way, and unlinking each folder in held_folders, which renaming it needs (#714); then
+    writing a .git, in any case, as a Mac's disk ignores it, anywhere under each folder in no_git_under, itself
+    included (#754); then, for a network other than "any", every outbound connection denied, unix sockets
+    included, and for "local" loopback addresses allowed back. Any value but "any" and "local" is treated as
+    "none". The denials above come last, so no allow outranks them: sandbox-exec takes the last rule that
+    matches. Off, held, held_folders and no_git_under change nothing either."""
     denied, folders = sandbox_denials(home, root, environ, extra, allow)
     rules = ["(version 1)(allow default)"]
     if strict:
@@ -1445,6 +1447,8 @@ def sandbox_profile(home, root, environ=None, extra=(), allow=(), strict=False, 
         rules.append("(allow file-write* {})".format(" ".join(SANDBOX_DEVICES)))
         rules += ['(deny file-write* (subpath "{}"))'.format(sbpl(real(path))) for path in held]
         rules += ['(deny file-write-unlink (literal "{}"))'.format(sbpl(real(path))) for path in held_folders]
+        rules += ['(deny file-write* (regex #"^{}/(.*/)?\\.[Gg][Ii][Tt](/|$)"))'.format(sbpl_regex(real(folder)))
+                  for folder in no_git_under]
         if network != "any":
             rules.append("(deny network-outbound)")
         if network == "local":
@@ -3552,7 +3556,11 @@ class Loop:
         with self.launch(command, tree, env) as (cmd, shell, run_env):
             if shell:
                 return self.sh(cmd, cwd=tree, shell=True, timeout=timeout, env=run_env, partial=partial)
-            return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial)
+            # Under sandbox_strict, held: no stdin, no terminal, and nothing it started still running when the loop's
+            # own git runs in tree, outside the sandbox, where it could put an index in place after the #721 check
+            # (#753). app_up() starts its app in a session of its own and ends it the same way.
+            return self.sh(cmd, cwd=tree, timeout=timeout, env=run_env, partial=partial,
+                           held=self.cfg.get("sandbox_strict") is True)
 
     @contextlib.contextmanager
     def launch(self, command, tree, env):
@@ -3773,6 +3781,14 @@ class Loop:
         write that folder, and its agents are held away from it."""
         return self.dir / GIT_TAMPERED
 
+    def marked_refusal(self):
+        """The refusal ran() gives every git of the loop's while tampered_mark() is there, or None without it."""
+        mark = self.tampered_mark()
+        if mark.exists() or mark.is_symlink():
+            return ("refused: the loop runs no git in this project while {} is there. Look at the clone and its "
+                    "worktrees, then delete it").format(mark)
+        return None
+
     def tampered(self, number, err):
         """Block the issue a GitTampered came from, and mark the project, so the loop runs no git in its clone or
         worktrees again, in this run or the next, until a person looks and deletes the mark (#640). The next
@@ -3911,8 +3927,9 @@ class Loop:
         tree, each path sandbox_allow lets through, so it can still write them, and sandbox_write_allow; and the
         network as sandbox_network says. A sandbox_write_allow the loop refuses at start makes nothing more
         writable here, and a sandbox_network it refuses connects to nothing. In git's folder, STRICT_GIT_HELD
-        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714). Yields (argv, False,
-        env), and the temp folder goes when the with block ends."""
+        isn't writable, nor is tree's .git file, and the folder can't be renamed aside (#714). Nor is a .git, in
+        any case, anywhere in tree (#754). Yields (argv, False, env), and the temp folder goes when the with block
+        ends."""
         home = Path.home()
         extra = [] if sandbox_strict_problem(self.cfg) else list(self.cfg.get("sandbox_write_allow") or ())
         let = ["~/" + name if name in SANDBOX_HOME_DENIED else str(self.root / name) for name in allow]
@@ -3927,7 +3944,7 @@ class Loop:
             held = [git_dir / name for name in STRICT_GIT_HELD] + [Path(tree) / ".git"]
             profile = sandbox_profile(home, self.root, allow=allow, strict=True, writable=writable,
                                       network=self.cfg.get("sandbox_network", DEFAULTS["sandbox_network"]),
-                                      held=held, held_folders=[git_dir])
+                                      held=held, held_folders=[git_dir], no_git_under=[tree])
             argv = [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command]
             yield argv, False, dict(sandbox_env(env, allow), TMPDIR=scratch)
         finally:
@@ -3959,7 +3976,7 @@ class Loop:
         the command printed so far, then the line saying it timed out. A failure's output goes through
         shown_url, since it's what the log, a status note and a blocked issue's comment quote: a git error
         can name origin's URL, token and all. What a command that worked printed is kept as it was.
-        held=True runs it as ran_held() says, for a caller's own commands.
+        held=True runs it as ran_held() says, for a caller's own commands and a strict one's.
         """
         code, out = self.ran(cmd, cwd, stdin, timeout, shell, stderr, env, partial, held)
         return code, out if code == 0 else shown_url(out)
@@ -3967,13 +3984,14 @@ class Loop:
     def ran(self, cmd, cwd, stdin, timeout, shell, stderr, env, partial, held=False):
         """sh's command, its output as it came. In a caller project a git command gets CALLER_GIT_SAFE before its
         subcommand, CALLER_GIT_FLAGS after it and every driver turned off, and doesn't run at all once the project
-        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE and strict_git_env() alone (#714), and
-        one in INDEX_READERS in a worktree doesn't run while index_problem() finds anything there (#721)."""
+        is marked (tampered()). Under strict_git() it gets CALLER_GIT_SAFE before its subcommand, CALLER_GIT_FLAGS
+        after it (#754) and strict_git_env() (#714), but no driver turned off. One in INDEX_READERS in a worktree
+        doesn't run where index_problem() finds anything (#721), and finding it marks the project, so no git runs
+        once the project is marked, as for a caller (#755)."""
         if not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.caller():
-            mark = self.tampered_mark()
-            if mark.exists() or mark.is_symlink():
-                return 1, ("refused: the loop runs no git in this project while {} is there. Look at the clone "
-                           "and its worktrees, then delete it").format(mark)
+            marked = self.marked_refusal()
+            if marked:
+                return 1, marked
             args = list(cmd[1:])
             at = git_subcommand(args)
             if at is not None and args[at] in CALLER_GIT_FLAGS:
@@ -3989,17 +4007,27 @@ class Loop:
                     self.mark_tampered("the worktree's index: " + why)
                     return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
         elif not shell and isinstance(cmd, list) and cmd and Path(cmd[0]).name == "git" and self.strict_git():
+            # Before anything else, in the clone as in a worktree: a bad index found once stops all of it (#755).
+            marked = self.marked_refusal()
+            if marked:
+                return 1, marked
             refused, env = self.strict_git_env(cwd, env)
             if refused:
                 return 1, refused
-            # A strict command writes its worktree's index, so it's checked as a caller's is (#721), but no mark is
-            # written: this branch never reads one, and the refusal stands while the entry does.
+            # A strict command writes its worktree's index, so it's checked and marked as a caller's is (#721,
+            # #755). A refusal of the worktree's link above is no bad index, and leaves no mark.
             at = git_subcommand(cmd[1:])
             if at is not None and cmd[1:][at] in INDEX_READERS and self.caller_worktree(cwd):
                 why = self.index_problem(cwd, env)
                 if why:
+                    self.mark_tampered("the worktree's index: " + why)
                     return 1, "refused: the worktree's index {}, so the loop runs no git there".format(why)
-            cmd = [cmd[0], *CALLER_GIT_SAFE, *cmd[1:]]
+            # A strict command can leave a submodule entry, a .gitmodules that overrides diff.ignoreSubmodules and a
+            # repository of its own there, whose filters git status and git diff would run outside the sandbox (#754).
+            args = list(cmd[1:])
+            if at is not None and args[at] in CALLER_GIT_FLAGS:
+                args[at + 1:at + 1] = CALLER_GIT_FLAGS[args[at]]
+            cmd = [cmd[0], *CALLER_GIT_SAFE, *args]
         try:
             if held:
                 return self.ran_held(cmd, cwd, timeout, stderr, env, partial)
@@ -4018,11 +4046,12 @@ class Loop:
         return done.returncode, (done.stdout or "") + ((done.stderr or "") if stderr else "")
 
     def ran_held(self, cmd, cwd, timeout, stderr, env, partial):
-        """ran() for a caller's own command, an argv list (#639). Nothing on stdin and a session of its own, so it
-        has no terminal and can't read what's typed in the loop's pane. Once it ends or times out, end_session()
-        kills whatever it left running, so nothing it started writes the worktree while the loop's own git reads
-        it, or makes its temp folder again after own_command() removes it. A child still holding the output open
-        then can't keep the loop waiting: what arrived within 10 seconds of the kill is what it printed."""
+        """ran() for a caller's own command or a strict one (#639, #753), an argv list. Nothing on stdin and a
+        session of its own, so it has no terminal and can't read what's typed in the loop's pane. Once it ends or
+        times out, end_session() kills whatever it left running, so nothing it started writes the worktree while
+        the loop's own git reads it, or makes its temp folder again after own_command() removes it. A child still
+        holding the output open then can't keep the loop waiting: what arrived within 10 seconds of the kill is
+        what it printed."""
         proc = subprocess.Popen(cmd, cwd=str(cwd or self.root), env=env, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try:
@@ -5728,11 +5757,18 @@ class Loop:
                     continue
             elif self.strict_git():
                 # git worktree remove runs a status of its own, from an index a strict command can write (#721).
-                # No mark: the worktree is kept, and every git of the loop's that reads the index refuses there.
+                # A bad one marks the project, as a caller's does (#755); while the mark stands, each poll keeps
+                # the worktree and says so once a run. A refusal of the worktree's link leaves no mark.
+                marked = self.marked_refusal()
+                if marked:
+                    self.log_once("ERROR", marked, number)
+                    continue
                 why, env = self.strict_git_env(path, None)
                 if not why:
                     found = self.index_problem(path, env)
-                    why = "the worktree's index {}, so the loop runs no git there".format(found) if found else None
+                    if found:
+                        self.mark_tampered("the worktree's index: " + found, number)
+                        continue
                 if why:
                     self.log_once("ERROR", why, number)
                     continue

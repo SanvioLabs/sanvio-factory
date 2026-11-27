@@ -5,7 +5,7 @@ From nothing to the dashboard, with Docker and nothing else.
 1. **Pick a folder for the store** and point your own `.sanvio/export.json` at it:
 
    ```json
-   {"store": {"kind": "folder", "path": "~/usage-store"}, "node": "my-laptop"}
+   {"send": true, "store": {"kind": "folder", "path": "~/usage-store"}, "node": "my-laptop"}
    ```
 
    A teammate can point theirs at the same folder if it's shared with them, a mounted drive say.

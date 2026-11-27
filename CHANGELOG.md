@@ -42,17 +42,79 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
-## 2026-11-26: The loop starts the app and checks it answers
+## 2026-11-27: The loop starts the app and checks it answers
 
 Three new keys, `app_command`, `app_url` and `app_timeout` (default 60 seconds), have the loop start a project's app in the worktree once a round's tests pass and its review says PASS. The loop then asks `app_url` until the app answers, with any HTTP status. The app runs under the same sandbox as `test_command`, and only on this machine: `app_url` has to be `http` or `https` on `localhost` or a loopback address. If the app doesn't answer within `app_timeout`, the loop logs one `APP` line saying so, the next build reads that line with the test output, and the round counts as failed. The loop stops the app and everything it started either way. Only the factory's `loop.json` sets these keys. The loop refuses to start, with one `ERROR` line, when only one of `app_command` and `app_url` is set, when `app_url` isn't on loopback, when `app_timeout` isn't a number above 0, or when a caller project sets `app_command`. Off by default, so nothing changes until you set them.
 
-**Needs:** 2026-11-21: A strict sandbox for one project's commands
+**Needs:** 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-13: The sandbox denies more and can't be stepped around; 2026-11-20: Let named paths through the command sandbox; 2026-11-21: A strict sandbox for one project's commands; 2026-11-21: sandbox_allow of git's config lifts its overrides; 2026-11-26: A strict command's leftover processes are ended; 2026-11-26: No nested .git under sandbox_strict
 
 **Controls:** AC-5
 
 Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
 
 **Do:** to turn it on for a project, set `app_command` and `app_url` under `"projects"` in the factory's `loop.json`, such as `"projects": {"app": {"app_command": "npm start", "app_url": "http://localhost:3000/"}}`.
+
+## 2026-11-27: A switch for sending usage
+
+`.sanvio/export.json` now has one switch for whether this machine sends usage at all: `"send": true`. Leave it out, or set it to `false`, and nothing is sent: no bundle by hand, no `--auto`, no `--heartbeat`. The store's settings stay put, so turning sending back on is one word. When sending is off, a scheduled run says so and exits 0. Sending a file by hand exits 1. The guard already keeps agents out of that file, so only a person can turn sending on.
+
+Files: [`scripts/send_usage.py`](scripts/send_usage.py), [`tests/test_send_usage.py`](tests/test_send_usage.py), [`tests/test_usage_store.py`](tests/test_usage_store.py), [`reports/usage/README.md`](reports/usage/README.md), [`examples/usage-store/cloud/export.example.json`](examples/usage-store/cloud/export.example.json), [`examples/usage-store/local/README.md`](examples/usage-store/local/README.md), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** if a machine of yours sends usage, add `"send": true` to its `.sanvio/export.json`, or it stops sending when you take this.
+
+## 2026-11-26: No nested .git under sandbox_strict
+
+Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can't make a `.git` by that name anywhere in their worktree, at any depth and in any case. A repository made elsewhere and moved in under another name still lands, and strict mode doesn't yet search for one as caller mode does, so an agent's Claude Code session starting in that worktree can still meet it. The loop's own `git status` and `git diff` there run with `--ignore-submodules=all`, and its `git diff` with no external diff program and no textconv, as in a caller project. Before, a strict command could leave a submodule entry, a `.gitmodules` saying never to ignore it and a repository of its own at its path, and the loop's `git status` would run that repository's filters outside the sandbox. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-25: The index is checked under sandbox_strict; 2026-11-21: A strict command can't plant git config the loop's git reads; 2026-11-21: A strict sandbox for one project's commands
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing unless a project with `sandbox_strict` on has a test or build that makes a git repository inside its worktree. That now fails with `Operation not permitted`, so make it under `$TMPDIR` instead.
+
+## 2026-11-26: factory-floor redraws only as often as it changes
+
+The factory-floor pane does less work while it's open, to keep a VS Code or desktop window with it open on a working loop from slowing down over time. A List tick or a Crew poll that starts while the last one is still reading now does nothing, so slow answers no longer pile up, and one that never answers is given up on after about 15 seconds rather than stopping the pane for good. In VS Code and the desktop app the List view's pulsing dot and running clock redraw at most once a second, where before it was every half second; the terminal is unchanged. While the pane is behind another one, neither view redraws: both keep reading, notices still come, and what changed is drawn when the pane is shown again, so a Crew figure that moved meanwhile walks when it's shown rather than behind the other pane. Otherwise what the pane shows and how it looks are unchanged.
+
+**Needs:** 2026-11-09: Factory floor mod; 2026-11-09: Crew view in factory-floor; 2026-11-14: Factory floor on other machines; 2026-11-15: All loops in factory-floor; 2026-11-20: factory-floor shows test suite runs; 2026-11-20: The dashboard clears on a range switch, and both panes take their mod's name
+
+Files: [`examples/mods/factory-floor/hooks/register.tsx`](examples/mods/factory-floor/hooks/register.tsx), [`examples/mods/factory-floor/hooks/crew.tsx`](examples/mods/factory-floor/hooks/crew.tsx), [`examples/mods/factory-floor/hooks/logic.ts`](examples/mods/factory-floor/hooks/logic.ts), [`examples/mods/factory-floor/hooks/pane.test.ts`](examples/mods/factory-floor/hooks/pane.test.ts), [`examples/mods/factory-floor/hooks/crew-pane.test.ts`](examples/mods/factory-floor/hooks/crew-pane.test.ts), [`examples/mods/factory-floor/hooks/tests-section.test.ts`](examples/mods/factory-floor/hooks/tests-section.test.ts), [`examples/mods/factory-floor/.claude-plugin/plugin.json`](examples/mods/factory-floor/.claude-plugin/plugin.json), `CHANGELOG.md`.
+
+**Do:** run `/plugin update factory-floor@sanvio-factory`
+
+## 2026-11-26: A strict command's leftover processes are ended
+
+Under `sandbox_strict`, a project's `test_command`, `setup_command` and `generate_command` now run as a caller's do: with nothing on stdin, in a session of their own, and once one ends or times out the loop kills every process still in that session before its own git runs in the worktree. Before, a background child could outlive the command and put an index in place after the loop had checked it. This narrows that race rather than closing it: a process that starts a session of its own with `setsid`, one that moves to a process group of its own and keeps forking, and one handed outside the sandbox through launchd, `open` or a tmux server still aren't found. A command's output now keeps any `\r` it prints, as a caller's does. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-18: A caller's commands are held to their own folders; 2026-11-21: A strict sandbox for one project's commands; 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
+## 2026-11-26: A bad index stops the loop's git under sandbox_strict
+
+Under `sandbox_strict`, a worktree index the loop refuses now writes `git-tampered` in the project's state folder, as it does for a caller project, whether the loop finds it before its own git or before it removes a merged or closed pull request's worktree. While the file is there, the loop runs no git of its own in that project, in the clone or a worktree, with the caller's refusal line, even once the index is put right, until a person looks at the clone and its worktrees and deletes it. A worktree whose `.git` file or `commondir` the loop refuses still writes no mark. Projects without `sandbox_strict`, other projects in the same factory and caller projects work as before.
+
+**Needs:** 2026-11-25: The index is checked under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
+## 2026-11-26: The cloud usage store's Grafana reads its bucket
+
+The cloud Grafana's DuckDB plugin now gets the task's environment, so it finds the task role's credentials and reads the bucket. Before this, Grafana passed the plugin almost none of its environment, the bucket's secret failed to create, and every panel and alert rule errored from the first deploy. The plugin now holds the two secrets too; the data source's lock keeps them from any query, and the cloud README's check 7 now tests that.
+
+Files: [`examples/usage-store/cloud/grafana.tf`](examples/usage-store/cloud/grafana.tf), [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md), `CHANGELOG.md`.
+
+**Do:** if you deployed the cloud store, apply it again, then run checks 4, 6 and 7. Its alert rules have errored since the first deploy, so none of its alerts has ever fired.
 
 ## 2026-11-25: The index is checked under sandbox_strict
 

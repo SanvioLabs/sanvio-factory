@@ -74,7 +74,7 @@ function world(on: On, files: Map<string, string>) {
     panes.length = 0
     await clock.advance(500)
   }
-  return { clock, toasts, close }
+  return { clock, toasts, panes, close }
 }
 
 type Dollar = { command: { run: (i: object) => Promise<unknown> } }
@@ -131,6 +131,30 @@ group('the Tests section', () => {
     await clock.advance(POLL)
     expect(await ui.find({ key: 'tests' })).toBeDefined()
     expect(await jobs()).toBeLessThan(without)
+    await ui.unmount()
+    await close()
+  })
+
+  test('a run that ends behind another pane raises its toast there, and shows as ended once the pane is shown (#759)', async ($, on) => {
+    const files = new Map([
+      [`${HARNESS}/status.json`, statusText('factory job')],
+      [`${TESTS}/now.json`, runText(NOW)],
+    ])
+    const { clock, toasts, panes, close } = world(on, files)
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    const running = await text(ui, 'tests')
+    panes[0]!.isShown = false
+    files.set(`${TESTS}/now.json`, passedText(NOW + POLL))
+    await clock.advance(2 * POLL)
+    expect(toasts.length).toBe(1)
+    // Behind the other pane nothing was drawn, so the section is as it was.
+    expect(await text(ui, 'tests')).toBe(running)
+    panes[0]!.isShown = true
+    await clock.advance(500)
+    expect(await text(ui, 'tests')).not.toBe(running)
+    expect(toasts.length).toBe(1)
     await ui.unmount()
     await close()
   })

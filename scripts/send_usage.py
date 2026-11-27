@@ -7,8 +7,10 @@
     python3 scripts/send_usage.py --opt-in detailed           # record your sessions' shell commands, scrubbed
     python3 scripts/send_usage.py --opt-out                   # stop now
 
-Nothing is sent until .sanvio/export.json names a store, and this repo ships none, so a copy of the factory
-never sends anywhere its owner didn't choose. The store is one of:
+Nothing is sent until .sanvio/export.json says "send": true and names a store, and this repo ships neither, so
+a copy of the factory never sends anywhere its owner didn't choose. "send": false, or no "send" at all, stops
+every send from this machine and leaves the store's settings where they are: the scheduled --auto and
+--heartbeat runs then say so and exit 0, and sending a file by hand exits 1. The store is one of:
 
     {"store": {"kind": "folder", "path": "~/usage-store"}}
     {"store": {"kind": "s3", "bucket": "<bucket>", "prefix": "<team>", "profile": "<cli profile>",
@@ -71,12 +73,18 @@ class Refused(Exception):
     """Nothing was sent, and the message says why."""
 
 
+class Off(Refused):
+    """Sending is off on this machine: a choice, not a failure."""
+
+
 def safe(part):
     return usage_shape.safe_name(part)
 
 
 def store_of(cfg):
-    """The configured store, checked, or Refused saying how to set one up."""
+    """The configured store, checked, or Refused saying how to set one up. Off first, when sending is off."""
+    if cfg.get("send") is not True:
+        raise Off('sending is off on this machine. "send": true in .sanvio/export.json turns it on')
     store = cfg.get("store")
     if not isinstance(store, dict):
         raise Refused("no store is configured. Add one to .sanvio/export.json, as python3 scripts/send_usage.py "
@@ -328,6 +336,10 @@ def main(argv=None, root=ROOT):
             keys = send_auto(root)
         else:
             keys = send_file(root, args.file)
+    except Off as err:
+        # A scheduled run on a machine that's switched off has done what it was asked: say so, and don't fail.
+        print("Not sent: {}.".format(str(err).rstrip(".")), file=sys.stdout if args.auto or args.heartbeat else sys.stderr)
+        return 0 if args.auto or args.heartbeat else 1
     except (Refused, ValueError) as err:
         print("Not sent: {}.".format(str(err).rstrip(".")), file=sys.stderr)
         return 1

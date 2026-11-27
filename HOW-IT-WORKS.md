@@ -667,9 +667,21 @@ written there would be run by the loop's own git, outside the sandbox. So a
 command that commits or fetches in the worktree fails. In git's folder for the
 worktree, the index, `HEAD`, `logs/` and `refs/` stay writable, but `commondir`,
 `gitdir`, `config`, `config.worktree` and `hooks/` don't, and neither does the
-worktree's `.git` file, nor can the folder itself be renamed aside. The loop's
+worktree's `.git` file, nor can the folder itself be renamed aside. Nor can
+they make a `.git` by that name anywhere else in the worktree, at any depth and
+in any case, so a test or a build that makes a repository inside its worktree
+fails under `sandbox_strict`. That rule checks names, not what a folder holds:
+a repository, or a `.git` file, made in the temp folder or git's folder for
+the worktree and moved in under another name still lands. Caller mode backs
+its rule with a search for a nested `.git` around each command and each build
+and tester session; strict mode doesn't search yet, so an agent's own Claude Code session, which
+runs git in the worktree when it starts, can still meet one. The loop's
 own git in such a worktree finds that folder from the clone's side, never from
-the `.git` file, and runs with no hooks, no fsmonitor and no replace refs. Where
+the `.git` file, and runs with no hooks, no fsmonitor and no replace refs, and,
+as in a caller project, its `git status` and `git diff` with
+`--ignore-submodules=all`, and its `git diff` with no external diff program and
+no textconv, so the loop's own git never looks inside a submodule's folder.
+Where
 the `.git` file names any other folder, `commondir` names anything but the
 clone's `.git` (a hard link made in the worktree could rewrite either), or a
 folder under the loop's checkouts
@@ -678,8 +690,23 @@ fails. So the loop's own commits in that project skip its git hooks. Before any
 git of the loop's that reads or writes the worktree from its index, it checks
 the index, as it does for a caller project: an entry whose path leaves the
 worktree, names a `.git` in any case, or is a submodule's means it runs no git
-there, and the step fails. A merged or closed pull request's worktree with such
-an index is kept, with one `ERROR` line naming the entry. Where the sandbox can't
+there, and the step fails. Finding one, there or in a merged or closed pull
+request's worktree before it removes it, writes `git-tampered` in the project's
+state folder, naming the entry, with one `ERROR` line naming the file, and the
+worktree is kept.
+From then on the loop runs no git of its own in that project, in the clone or a
+worktree, even once the index is put right, until a person looks at the clone
+and its worktrees and deletes the file. That check comes once,
+before git starts, so the three commands run with nothing on stdin, in a session
+of their own, as a caller's do: when one ends or times out, the loop kills every
+process still in its session before its own git runs in that worktree. That
+ends what a command leaves running in the background, and narrows the race
+rather than closing it. Three kinds of process aren't found and keep running:
+one that starts a session of its own with `setsid`, as for a caller's commands;
+one that moves to a process group of its own and keeps forking; and one handed
+to a process outside the sandbox, through launchd, `open` or a tmux server,
+since the strict profile doesn't yet deny those as the caller's does. Any of
+them could still put an index in place after the check. Where the sandbox can't
 apply, off a Mac, with `sandbox_commands` false, or where `sandbox-exec` can't
 apply a profile, `run`, `review` and `review --pr` stop with one `ERROR` line
 and take nothing, rather than run the commands without it. A cache a command fills outside the worktree, such as
@@ -1215,7 +1242,9 @@ Where the owner runs a usage store, the numbers can go there too, so the team's
 are read in one place. [`scripts/send_usage.py`](scripts/send_usage.py) sends
 the bundle [`scripts/export.py`](scripts/export.py) wrote, once its sender has
 read it, and only what the shape in
-[`scripts/usage_shape.py`](scripts/usage_shape.py) names. A machine nobody
+[`scripts/usage_shape.py`](scripts/usage_shape.py) names. Nothing leaves a
+machine until its `.sanvio/export.json` says `"send": true`, and only a person
+can set that, since the guard keeps agents out of that file. A machine nobody
 watches sends its general numbers and a heartbeat on its own, never more.
 Detailed mode adds the shell commands agents ran, scrubbed before they're
 written down, and each person turns it on for themselves for 14 days; only the

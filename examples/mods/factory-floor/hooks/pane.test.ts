@@ -633,7 +633,11 @@ group('project loops', () => {
     const session = focus.session ?? { id: null }
     let idsAsked = 0
     const panes: { id: string; isShown: boolean; isPlaced: boolean }[] = []
-    const flip = { closeFails: false, rootGone: false, writesFail: false, held: null as Promise<void> | null }
+    const flip = { closeFails: false, rootGone: false, writesFail: false, held: null as Promise<void> | null, readHeld: null as Promise<void> | null }
+    // Each redraw the mod asks for, by the event it names, and each value it stores, as plugin/key: a
+    // stored value redraws the pane too.
+    const invalidated: string[] = []
+    const written: string[] = []
     on('session.root', async () => ({ value: ROOT }))
     on('session.id', async () => {
       idsAsked++
@@ -642,6 +646,8 @@ group('project loops', () => {
     on('fs.exists', async (_$, e) => ({ value: (e.path === `${ROOT}/scripts/loop.py` && !flip.rootGone) || files.has(e.path) }))
     on('fs.read', async (_$, e) => {
       reads.push(e.path)
+      // A held read of the factory's status stays open until the test lets it go.
+      if (flip.readHeld && e.path === `${HARNESS}/status.json`) await flip.readHeld
       const text = files.get(e.path)
       return text === undefined ? { deny: `no ${e.path}` } : { value: text }
     })
@@ -688,9 +694,18 @@ group('project loops', () => {
       return { value: undefined }
     })
     on('ui.panes', async () => ({ value: [...panes] }) as never)
+    on('ui.invalidate', async (_$, e, next) => {
+      invalidated.push(e.event)
+      return next(e)
+    })
     on('ui.toast', async (_$, e) => {
       toasts.push(e.text)
       return { value: undefined }
+    })
+    on('state.set', async (_$, e, next) => {
+      const at = e as unknown as { plugin: string; key: string }
+      written.push(`${at.plugin}/${at.key}`)
+      return next(e)
     })
     // Closes the pane, so the poll stops itself and the next test can start its own.
     const close = async () => {
@@ -698,7 +713,7 @@ group('project loops', () => {
       await clock.advance(500)
     }
     return {
-      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes,
+      clock, toasts, panes, flip, close, reads, stats, writes, session, ran, sshes, invalidated, written,
       idsAsked: () => idsAsked,
       opened: () => ran.filter(argv => argv[0] === 'open'),
     }
@@ -727,6 +742,149 @@ group('project loops', () => {
   const pickOptions = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
     ((await ui.find({ key: 'loop-pick' })) as { props: { options: { value: string; label: string }[] } }).props.options
 
+  // #759: the redraws a working job asks for, by surface, and none piled up or drawn for a hidden pane.
+  const workingHere = () => new Map([
+    [`${HARNESS}/status.json`, statusText('factory job', { issues: [JOB] })],
+    [`${HARNESS}/lock`, '4242'],
+  ])
+  const renders = (invalidated: string[]) => invalidated.filter(e => e === 'ui.render').length
+  for (const [surface, most] of [['terminal', 10], ['vscode', 5], ['desktop', 5]] as const) {
+    test(`with a job working, the List on ${surface} redraws for its pulse ${most} times in 5 seconds`, async ($, on) => {
+      const { clock, close, invalidated } = world(on, workingHere())
+      await open($ as unknown as Dollar)
+      const ui = await $.ui.mount({ ...PANE, surface })
+      await clock.advance(POLL)
+      invalidated.length = 0
+      for (let i = 0; i < 10; i++) await clock.advance(500)
+      expect(renders(invalidated)).toBe(most)
+      await ui.unmount()
+      await close()
+    })
+  }
+  test('on vscode, redrawn once a second, the job\'s dot still alternates bright and dim', async ($, on) => {
+    const { clock, close } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+    await clock.advance(POLL)
+    type Node = { props?: Record<string, unknown>; children?: (Node | string)[] }
+    const first = (n: Node | string | undefined): Node => (n as Node).children![0] as Node
+    const dotProps = async () => JSON.stringify(first(first((await ui.find({ key: 'issue-12' })) as unknown as Node)).props)
+    const seen: string[] = []
+    for (let i = 0; i < 4; i++) {
+      await clock.advance(1000)
+      seen.push(await dotProps())
+    }
+    // Each redraw turns the beat, so one redraw's dot differs from the last.
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1])
+    await ui.unmount()
+    await close()
+  })
+  test('behind another pane the List redraws for nothing, and still reads', async ($, on) => {
+    const { clock, close, invalidated, panes, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    panes[0]!.isShown = false
+    invalidated.length = 0
+    const before = reads.filter(r => r === `${HARNESS}/status.json`).length
+    for (let i = 0; i < 10; i++) await clock.advance(500)
+    expect(renders(invalidated)).toBe(0)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length).toBeGreaterThan(before)
+    // Shown again, it redraws on the next tick.
+    panes[0]!.isShown = true
+    await clock.advance(500)
+    expect(renders(invalidated)).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  test("a tick that fires while the last one's read is held does nothing", async ($, on) => {
+    const { clock, close, flip, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    let release = () => {}
+    flip.readHeld = new Promise<void>(resolve => { release = resolve })
+    const before = reads.filter(r => r === `${HARNESS}/status.json`).length
+    // Six seconds is three reads' worth of ticks; the held one is the only read that starts.
+    for (let i = 0; i < 12; i++) await clock.advance(500)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length - before).toBe(1)
+    flip.readHeld = null
+    release()
+    await drain()
+    // Let go, the ticks read again.
+    await clock.advance(POLL)
+    expect(reads.filter(r => r === `${HARNESS}/status.json`).length - before).toBeGreaterThan(1)
+    await ui.unmount()
+    await close()
+  })
+  test('behind another pane a change is held, its notice still comes once, and it is drawn once the pane is shown', async ($, on) => {
+    const files = workingHere()
+    const { clock, close, invalidated, panes, toasts, written } = world(on, files)
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    panes[0]!.isShown = false
+    invalidated.length = 0
+    written.length = 0
+    files.set(`${HARNESS}/status.json`, statusText('factory job', { issues: [{ ...JOB, state: 'pr', pr: 'https://x/pull/2' }] }))
+    // Nine ticks, so the tick after them isn't one of the List's every-fourth reads.
+    for (let i = 0; i < 9; i++) await clock.advance(500)
+    // Nothing stored and nothing asked for, so nothing redraws, and the pane still shows the job working.
+    expect(written).toEqual([])
+    expect(renders(invalidated)).toBe(0)
+    expect(JSON.stringify(await ui.find({ key: 'issue-12' }))).not.toContain('pull request')
+    expect(toasts.length).toBe(1)
+    expect(toasts[0]).toContain('#12 has a pull request')
+    // Shown again, the next tick reads and draws the change, and says nothing twice.
+    panes[0]!.isShown = true
+    await clock.advance(500)
+    expect(written.length).toBeGreaterThan(0)
+    expect(toasts.length).toBe(1)
+    await ui.unmount()
+    await close()
+  })
+  test('a tick that never settles is given up on, and the List reads again', async ($, on) => {
+    const { clock, close, flip, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    const ui = await $.ui.mount(PANE)
+    await clock.advance(POLL)
+    let release = () => {}
+    flip.readHeld = new Promise<void>(resolve => { release = resolve })
+    await clock.advance(POLL)
+    // Only the read now held stays open; the reads after it would answer.
+    flip.readHeld = null
+    const count = () => reads.filter(r => r === `${HARNESS}/status.json`).length
+    const before = count()
+    for (let i = 0; i < 20; i++) await clock.advance(500)
+    expect(count()).toBe(before)
+    // Thirty ticks turned away, fifteen seconds, and the next one reads.
+    for (let i = 0; i < 20; i++) await clock.advance(500)
+    expect(count()).toBeGreaterThan(before)
+    release()
+    await drain()
+    await ui.unmount()
+    await close()
+  })
+  test('closing and opening the pane while a tick hangs starts the List reading again', async ($, on) => {
+    const { clock, close, flip, panes, reads } = world(on, workingHere())
+    await open($ as unknown as Dollar)
+    await clock.advance(POLL)
+    let release = () => {}
+    flip.readHeld = new Promise<void>(resolve => { release = resolve })
+    await clock.advance(POLL)
+    flip.readHeld = null
+    panes.length = 0
+    await clock.advance(1000)
+    await open($ as unknown as Dollar)
+    const count = () => reads.filter(r => r === `${HARNESS}/status.json`).length
+    const before = count()
+    // Well inside the fifteen seconds a stuck tick is given: the reopened pane reads on its own poll.
+    for (let i = 0; i < 8; i++) await clock.advance(500)
+    expect(count()).toBeGreaterThan(before)
+    release()
+    await drain()
+    await close()
+  })
   test('/factory-floor closing the pane in the Crew view opens it on the List next time', async ($, on) => {
     const { close } = world(on, twoLoops())
     await open($ as unknown as Dollar)
