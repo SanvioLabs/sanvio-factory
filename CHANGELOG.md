@@ -54,6 +54,14 @@ Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_l
 
 **Do:** to turn it on for a project, set `app_command` and `app_url` under `"projects"` in the factory's `loop.json`, such as `"projects": {"app": {"app_command": "npm start", "app_url": "http://localhost:3000/"}}`.
 
+## 2026-11-27: Grafana without a NAT gateway
+
+The cloud usage store's Terraform has a new variable, `grafana_public_ip`. Set it to `true` and Grafana runs in the public subnets with a public address of its own, reaching sign-in and DuckDB's extensions through the internet gateway, so the network needs no NAT gateway: about $33 a month in us-east-1, against about $4 for the address. Its security group still takes traffic only from the load balancer. `private_subnet_ids` is now optional, and unused when the variable is on. Left at its default, `false`, nothing changes.
+
+Files: [`examples/usage-store/cloud/grafana.tf`](examples/usage-store/cloud/grafana.tf), [`examples/usage-store/cloud/variables.tf`](examples/usage-store/cloud/variables.tf), [`examples/usage-store/cloud/README.md`](examples/usage-store/cloud/README.md), `CHANGELOG.md`.
+
+**Do:** nothing. To drop the NAT, set `grafana_public_ip = true`, apply, then remove the NAT gateway and its route from your network.
+
 ## 2026-11-27: A switch for sending usage
 
 `.sanvio/export.json` now has one switch for whether this machine sends usage at all: `"send": true`. Leave it out, or set it to `false`, and nothing is sent: no bundle by hand, no `--auto`, no `--heartbeat`. The store's settings stay put, so turning sending back on is one word. When sending is off, a scheduled run says so and exits 0. Sending a file by hand exits 1. The guard already keeps agents out of that file, so only a person can turn sending on.
