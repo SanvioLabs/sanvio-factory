@@ -402,14 +402,22 @@ class BanditScan(unittest.TestCase):
         self.assertEqual(len(setup), 1, "no single setup-uv step in checks")
         self.assertLess(self.steps.index(setup[0]), self.steps.index(self.step))
 
-    def test_the_loops_one_nosec_names_its_test_at_the_shell_call(self):
+    def test_the_loops_two_nosecs_name_their_test_at_the_shell_calls(self):
         lines = (ROOT / "scripts" / "loop.py").read_text(encoding="utf-8").splitlines()
         marked = [i for i, line in enumerate(lines) if "nosec" in line]
-        self.assertEqual(len(marked), 1, "scripts/loop.py should have exactly one nosec")
-        line = lines[marked[0]]
-        self.assertRegex(line, r"subprocess\.run\(.*shell=shell.*# nosec B602\s*$")
-        # It sits in ran(), the body of sh(), the one place the loop runs shell text.
-        defs = [i for i, text in enumerate(lines[:marked[0]]) if re.match(r"\s*def ", text)]
+        self.assertEqual(len(marked), 2, "scripts/loop.py should have exactly two nosecs")
+
+        def inside(i):
+            return [j for j, text in enumerate(lines[:i]) if re.match(r"\s*def ", text)]
+
+        # The loop runs shell text in two places and no others. app_up() starts app_command, which runs
+        # while the loop asks app_url, so it can't go through sh(), which waits for its command to end.
+        app, run = sorted(marked, key=lambda i: lines[inside(i)[-1]].strip())
+        self.assertRegex(lines[app], r"subprocess\.Popen\(.*shell=shell.*# nosec B602\s*$")
+        self.assertRegex(lines[inside(app)[-1]], r"^\s*def app_up\(")
+        # The other sits in ran(), the body of sh(), where every other shell command runs.
+        self.assertRegex(lines[run], r"subprocess\.run\(.*shell=shell.*# nosec B602\s*$")
+        defs = inside(run)
         self.assertRegex(lines[defs[-1]], r"^\s*def ran\(")
         self.assertRegex(lines[defs[-2]], r"^\s*def sh\(")
         self.assertIn("self.ran(", "\n".join(lines[defs[-2]:defs[-1]]))

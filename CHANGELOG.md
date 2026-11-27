@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: The loop starts the app and checks it answers
+
+Three new keys, `app_command`, `app_url` and `app_timeout` (default 60 seconds), have the loop start a project's app in the worktree once a round's tests pass and its review says PASS. The loop then asks `app_url` until the app answers, with any HTTP status. The app runs under the same sandbox as `test_command`, and the loop asks it only on this machine: `app_url` has to be `http` or `https` on `localhost` or a loopback address. That doesn't stop the app listening on every interface, as many dev servers do by default, so give `app_command` the setting that binds it to `127.0.0.1`. If the app doesn't answer within `app_timeout`, the loop logs one `APP` line saying so, the next build reads that line with the test output, and the round counts as failed. The loop stops the app and everything it started either way, at `app_timeout` and at a Ctrl-C too. Only the factory's `loop.json` sets these keys. The loop refuses to start, with one `ERROR` line, when only one of `app_command` and `app_url` is set, when `app_url` isn't on loopback, when `app_timeout` isn't a number above 0, or when a caller project sets `app_command`. Off by default, so nothing changes until you set them. Starting the app is the loop's second place to run shell text, beside `sh()`, since the app keeps running while the loop asks it: its call carries `# nosec B602` too, and the Bandit test now holds the loop to those two.
+
+**Needs:** 2026-11-11: Bandit scans the factory's Python on every change; 2026-11-12: The loop's own commands run in a sandbox on a Mac; 2026-11-13: The sandbox denies more and can't be stepped around; 2026-11-20: Let named paths through the command sandbox; 2026-11-21: A strict sandbox for one project's commands; 2026-11-21: sandbox_allow of git's config lifts its overrides; 2026-11-26: A strict command's leftover processes are ended; 2026-11-26: No nested .git under sandbox_strict
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`tests/test_ci_example.py`](tests/test_ci_example.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** to turn it on for a project, set `app_command` and `app_url` under `"projects"` in the factory's `loop.json`, such as `"projects": {"app": {"app_command": "npm start", "app_url": "http://localhost:3000/"}}`.
+
 ## 2026-11-27: The usage store's Grafana remembers what it sent
 
 Grafana's own database, which holds its alert state and the record of what it has already notified, now outlives the Grafana task. In the cloud it's on EFS, and locally it's in a Docker volume. Before this, every deploy or restart started Grafana with an empty database, so it sent each alert that was still firing again. A rolling deploy also ran two Grafanas side by side for several minutes, so an alert that started in that window was sent twice. ECS now stops the old task before starting the new one, so each deploy leaves Grafana unavailable for a minute or two. Availability-zone rebalancing, which ECS turns on for new services and which refuses that setting, is off: one task has nothing to rebalance. The load balancer's drain is cut to 15 seconds. A new, optional `secret_key_secret_arn` gives Grafana its own key for what it encrypts in that database. Left out, Grafana uses its public default. This fixes SPEC-004's F24.
