@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-26: No nested .git under sandbox_strict
+
+Under `sandbox_strict`, a project's `test_command`, `generate_command` and `setup_command` can't make a `.git` by that name anywhere in their worktree, at any depth and in any case. A repository made elsewhere and moved in under another name still lands, and strict mode doesn't yet search for one as caller mode does, so an agent's Claude Code session starting in that worktree can still meet it. The loop's own `git status` and `git diff` there run with `--ignore-submodules=all`, and its `git diff` with no external diff program and no textconv, as in a caller project. Before, a strict command could leave a submodule entry, a `.gitmodules` saying never to ignore it and a repository of its own at its path, and the loop's `git status` would run that repository's filters outside the sandbox. Projects without `sandbox_strict` and caller projects work as before.
+
+**Needs:** 2026-11-25: The index is checked under sandbox_strict; 2026-11-21: A strict command can't plant git config the loop's git reads; 2026-11-21: A strict sandbox for one project's commands
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing unless a project with `sandbox_strict` on has a test or build that makes a git repository inside its worktree. That now fails with `Operation not permitted`, so make it under `$TMPDIR` instead.
+
 ## 2026-11-26: factory-floor redraws only as often as it changes
 
 The factory-floor pane does less work while it's open, to keep a VS Code or desktop window with it open on a working loop from slowing down over time. A List tick or a Crew poll that starts while the last one is still reading now does nothing, so slow answers no longer pile up, and one that never answers is given up on after about 15 seconds rather than stopping the pane for good. In VS Code and the desktop app the List view's pulsing dot and running clock redraw at most once a second, where before it was every half second; the terminal is unchanged. While the pane is behind another one, neither view redraws: both keep reading, notices still come, and what changed is drawn when the pane is shown again, so a Crew figure that moved meanwhile walks when it's shown rather than behind the other pane. Otherwise what the pane shows and how it looks are unchanged.

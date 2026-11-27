@@ -6674,6 +6674,21 @@ class TestSandboxStrict(unittest.TestCase):
                                               held=["/nowhere-639/w/.git", "/nowhere-639/g/config"],
                                               held_folders=["/nowhere-639/g"]), NON_CALLER_PROFILE)
 
+    def test_on_no_git_is_written_under_the_worktree_after_every_write_allow_and_off_it_changes_nothing(self):
+        home, root, tree = self.root / "home", self.root / "factory", self.root / "tree"
+        lines = loop.sandbox_profile(home, root, {}, strict=True, writable=[tree], network="none",
+                                     held=[tree / ".git"], no_git_under=[tree]).splitlines()
+        rule = '(deny file-write* (regex #"^{}/(.*/)?\\.[Gg][Ii][Tt](/|$)"))'.format(loop.sbpl_regex(tree.resolve()))
+        self.assertEqual(lines.count(rule), 1)
+        last_allow = max(i for i, l in enumerate(lines) if l.startswith("(allow file-write*"))
+        self.assertGreater(lines.index(rule), last_allow)
+        self.assertLess(lines.index(rule), lines.index("(deny network-outbound)"))
+        self.assertNotIn(rule, loop.sandbox_profile(home, root, {}, strict=True, writable=[tree]))
+        # Off, it changes nothing: byte for byte the profile TestCallerSandbox pins.
+        self.assertEqual(loop.sandbox_profile("/nowhere-639/home", "/nowhere-639/home/work/factory", {}, strict=False,
+                                              writable=["/nowhere-639/w"], network="none",
+                                              no_git_under=["/nowhere-639/w"]), NON_CALLER_PROFILE)
+
     # -- what own_command runs -------------------------------------------------
 
     def test_own_command_under_strict_writes_its_worktree_temp_and_git_folder_and_what_the_lists_let(self):
@@ -6695,8 +6710,11 @@ class TestSandboxStrict(unittest.TestCase):
                 expected = loop.sandbox_profile(Path.home(), factory, allow=allow, strict=True,
                                                 writable=[tree, str(scratch), git_dir] + more,
                                                 network=cfg.get("sandbox_network", "any"), held=held,
-                                                held_folders=[git_dir])
+                                                held_folders=[git_dir], no_git_under=[tree])
                 self.assertEqual(seen["cmd"], [loop.SANDBOX_EXEC, "-p", expected, "/bin/sh", "-c", "true"])
+                # #754: no .git anywhere in the worktree.
+                self.assertIn('(deny file-write* (regex #"^{}/(.*/)?\\.[Gg][Ii][Tt](/|$)"))'.format(
+                    loop.sbpl_regex(tree.resolve())), expected)
                 # #714: what the loop's own git reads in git's folder, and the folder itself, are held.
                 for path in held:
                     self.assertIn('(deny file-write* (subpath "{}"))'.format(loop.sbpl(path.resolve())), expected)
@@ -6827,7 +6845,8 @@ class TestSandboxStrict(unittest.TestCase):
                 self.assertEqual(code, 0, out)
                 self.assertEqual(len(calls), 1)
                 cmd, env = calls[0]
-                self.assertEqual(cmd, ["git", *loop.CALLER_GIT_SAFE, "status", "--porcelain"])
+                self.assertEqual(cmd, ["git", *loop.CALLER_GIT_SAFE, "status", "--ignore-submodules=all",
+                                       "--porcelain"])
                 self.assertEqual(env["GIT_DIR"], str(folder))
                 self.assertEqual(env["GIT_WORK_TREE"], os.path.realpath(str(tree)))
 
@@ -6835,8 +6854,24 @@ class TestSandboxStrict(unittest.TestCase):
         lp, tree, folder = self.linked_by_hand(project=False, sandbox_strict=True)
         code, out, calls = self.git_ran(lp, tree, "status")
         self.assertEqual(code, 0, out)
-        self.assertEqual(calls[0][0], ["git", *loop.CALLER_GIT_SAFE, "status"])
+        self.assertEqual(calls[0][0], ["git", *loop.CALLER_GIT_SAFE, "status", "--ignore-submodules=all"])
         self.assertEqual(calls[0][1]["GIT_DIR"], str(folder))
+
+    def test_under_strict_status_and_diff_get_the_callers_flags_after_the_subcommand_and_off_nothing_does(self):
+        # #754: a .gitmodules a strict command writes can override diff.ignoreSubmodules, but not these.
+        lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
+        diff = ["diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "a"]
+        for args, expected in ((("diff", "a"), diff),
+                               (("-C", ".", "status"), ["-C", ".", "status", "--ignore-submodules=all"]),
+                               (("log", "-1"), ["log", "-1"])):
+            with self.subTest(args=args):
+                code, out, calls = self.git_ran(lp, tree, *args)
+                self.assertEqual(code, 0, out)
+                self.assertEqual([cmd for cmd, _ in calls], [["git", *loop.CALLER_GIT_SAFE, *expected]])
+        lp, tree, folder = self.linked_by_hand(project=False)
+        for args in (("diff", "a"), ("status", "--porcelain"), ("log", "-1")):
+            with self.subTest(strict=False, args=args):
+                self.assertEqual([cmd for cmd, _ in self.git_ran(lp, tree, *args)[2]], [["git", *args]])
 
     def test_under_strict_a_git_file_naming_another_folder_runs_no_git(self):
         lp, tree, folder = self.linked_by_hand(sandbox_strict=True)
@@ -6978,7 +7013,8 @@ class TestSandboxStrict(unittest.TestCase):
         raw_index(own, tree, self.bad_entries(tree)[0][1])
         code, out, calls = self.git_ran(lp, tree, "status", "--porcelain")
         self.assertEqual(code, 0, out)
-        self.assertEqual([cmd for cmd, _ in calls], [["git", *loop.CALLER_GIT_SAFE, "status", "--porcelain"]])
+        self.assertEqual([cmd for cmd, _ in calls],
+                         [["git", *loop.CALLER_GIT_SAFE, "status", "--ignore-submodules=all", "--porcelain"]])
         # An index reader asks ls-files first, the same as for a caller.
         calls = self.git_ran(lp, tree, "checkout", "--", ".")[2]
         self.assertEqual([cmd for cmd, _ in calls], [["git", *loop.CALLER_GIT_SAFE, "ls-files", "--stage", "-z"],
@@ -7109,7 +7145,8 @@ class TestSandboxStrict(unittest.TestCase):
                 other = loop.Loop(factory, cfg, project=site)
                 self.assertNotEqual(other.tampered_mark(), lp.tampered_mark())
                 self.assertEqual(self.git_ran(other, None, "status")[2],
-                                 [(["git", *(loop.CALLER_GIT_SAFE if strict else ()), "status"], None)])
+                                 [(["git", *(loop.CALLER_GIT_SAFE if strict else ()), "status",
+                                    *(loop.CALLER_GIT_FLAGS["status"] if strict else ())], None)])
         self.assertEqual(self.git_ran(lp, None, "status"), (1, self.marked_refusal(lp), []))
 
     # -- the log when the loop starts ------------------------------------------
@@ -7359,6 +7396,61 @@ class TestSandboxStrict(unittest.TestCase):
                 shutil.rmtree(str(lp.root))
                 shutil.rmtree(str(home))
                 shutil.rmtree(str(self.root / "tree"))
+
+    # -- a repository a strict command nests in its worktree (#754) ------------
+
+    def test_under_strict_the_loops_git_never_looks_inside_a_repo_nested_in_the_worktree(self):
+        # What a strict command could leave there: a submodule entry in the index, a .gitmodules saying never to
+        # ignore it, and a repository of its own at its path whose config names a clean filter. Written here
+        # directly, outside any sandbox, so this runs on any machine with git.
+        home, lp, tree, git_dir = self.strict_worktree()
+        quiet = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        marker, sub = self.root / "filter-ran", tree / "vendor" / "x"
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+        with mock.patch.dict(os.environ, quiet):
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(tree), capture_output=True, text=True,
+                                  check=True).stdout.strip()
+            subprocess.run(["git", "update-index", "--add", "--cacheinfo", "160000,{},vendor/x".format(head)],
+                           cwd=str(tree), check=True)
+            (tree / ".gitmodules").write_text('[submodule "x"]\n\tpath = vendor/x\n\turl = ./x\n\tignore = none\n')
+            subprocess.run(["git", "init", "-q", str(sub)], check=True)
+            (sub / "f").write_text("x\n")
+            subprocess.run(git + ["add", "f"], cwd=str(sub), check=True)
+            subprocess.run(git + ["commit", "-qm", "f"], cwd=str(sub), check=True)
+            subprocess.run(["git", "config", "filter.x.clean", "touch {}; cat".format(shlex.quote(str(marker)))],
+                           cwd=str(sub), check=True)
+            (sub / ".gitattributes").write_text("* filter=x\n")
+            for at, args in enumerate((("status", "--porcelain"), ("diff",))):
+                with self.subTest(args=args), self.at_home(home):
+                    # A new time each run, so git has to read f again, through the filter, to see whether it changed.
+                    os.utime(str(sub / "f"), (1000 + 2 * at, 1000 + 2 * at))
+                    marker.unlink(missing_ok=True)
+                    code, out = lp.git(*args, cwd=tree)
+                    self.assertEqual(code, 0, out)
+                    self.assertFalse(marker.exists(), "the loop's git ran the nested repository's filter")
+                    # The control: the same git with only what strict gave it before #754 runs the filter, so the
+                    # fixture is the bug's.
+                    os.utime(str(sub / "f"), (1001 + 2 * at, 1001 + 2 * at))
+                    env = lp.strict_git_env(tree, None)[1]
+                    subprocess.run(["git", *loop.CALLER_GIT_SAFE, *args], cwd=str(tree), env=env,
+                                   capture_output=True)
+                    self.assertTrue(marker.exists(), "the fixture didn't reproduce the bug")
+
+    def test_on_a_real_mac_a_strict_command_cant_make_a_git_anywhere_in_its_worktree(self):
+        self.real_sandbox()
+        home, tree, lp = self.strict_loop()
+        with self.at_home(home):
+            for name in (".git", ".GIT"):
+                with self.subTest(name=name):
+                    code, out = lp.own_command("mkdir -p vendor && mkdir vendor/" + name, tree)
+                    self.assertNotEqual(code, 0, out)
+                    self.assertIn("Operation not permitted", out)
+                    self.assertFalse([p.name for p in (tree / "vendor").iterdir()], name)
+            # Names that only start with .git are left alone.
+            code, out = lp.own_command("mkdir -p vendor/ok && touch vendor/ok/f .gitignore vendor/.gitx", tree)
+            self.assertEqual(code, 0, out)
+            for path in ("vendor/ok/f", ".gitignore", "vendor/.gitx"):
+                self.assertTrue((tree / path).exists(), path)
 
 
 # A line from each file of the harness's rules, to find in the prompts. None is a phrase the stand-in agent looks for.
