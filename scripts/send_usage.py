@@ -27,7 +27,8 @@ What it sends:
 - --auto: needs "auto": true in the config. Yesterday's and today's general bundles, each one day, for a
   machine nobody watches. Never detailed mode, whatever it's asked for.
 - --heartbeat: one record per loop on this machine (the factory's own, and each project's under .loop/):
-  whether its process is alive and how many issues wait. For the factory's loop and a project
+  whether its process is alive, whether a loop that isn't was stopped on purpose (stopped, its --for ran out,
+  or it never ran; not killed, and not ended on an error), and how many issues wait. For the factory's loop and a project
   export_projects lists, also the issue in progress, its tokens so far and its budget. Another project shows
   under a hashed label with neither, so a heartbeat never names a project you didn't list. No titles ever.
 
@@ -251,6 +252,15 @@ def lock_alive(folder):
     return loop.pid_alive(pid)
 
 
+def on_purpose(folder, status, alive):
+    """True when a loop isn't running because someone stopped it, its --for ran out, it finished, or it never
+    ran: its run left no lock behind and didn't record an error. A loop killed without a chance to clean up
+    leaves its lock, and one that ended on an ERROR or an exception says error, so neither counts."""
+    if alive or (folder / "lock").exists():
+        return False
+    return status.get("ended") != "error"
+
+
 def beat(folder, label, budget, detail):
     """One loop's heartbeat record. Without detail, only whether it's alive and how many issues wait."""
     try:
@@ -267,8 +277,8 @@ def beat(folder, label, budget, detail):
         if row is not None:
             issue = export.whole(row.get("number"))
             tokens = export.whole(row.get("tokens"))
-    return {"label": label, "alive": alive, "waiting": len(queue), "issue": issue, "tokens": tokens,
-            "budget": (budget or None) if detail else None}
+    return {"label": label, "alive": alive, "on_purpose": on_purpose(folder, status, alive), "waiting": len(queue),
+            "issue": issue, "tokens": tokens, "budget": (budget or None) if detail else None}
 
 
 def heartbeat(root, now=None):

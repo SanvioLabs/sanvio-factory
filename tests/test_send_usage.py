@@ -296,8 +296,8 @@ class Heartbeat(unittest.TestCase):
             got = send_usage.heartbeat(self.root)
         self.assertEqual(send_usage.usage_shape.problems(got), [])
         loops = {l["label"]: l for l in got["loops"]}
-        self.assertEqual(loops["factory"], {"label": "factory", "alive": True, "waiting": 1, "issue": 7,
-                                            "tokens": 1200, "budget": 5000})
+        self.assertEqual(loops["factory"], {"label": "factory", "alive": True, "on_purpose": False, "waiting": 1,
+                                            "issue": 7, "tokens": 1200, "budget": 5000})
         self.assertEqual(loops["web-app"]["alive"], False)
         self.assertIsNone(loops["web-app"]["issue"])
         hidden = [l for label, l in loops.items() if label.startswith("project-")]
@@ -306,6 +306,43 @@ class Heartbeat(unittest.TestCase):
         text = json.dumps(got)
         for leak in ("payments", "secret-client", "acme"):
             self.assertNotIn(leak, text)
+
+    def test_only_a_loop_that_died_is_not_on_purpose(self):
+        """A lock left behind, or an ended error, is a death; a stop, a --for, a finish or no run at all isn't."""
+        cases = {"killed": ("lock", None), "error": (None, "error"), "stopped": (None, "stop"),
+                 "for": (None, "for"), "done": (None, "done"), "older": (None, None), "never": ("none", None)}
+        projects = self.root / ".loop" / "projects"
+        for name, (lock, ended) in cases.items():
+            folder = projects / name
+            folder.mkdir(parents=True)
+            if lock != "none":
+                status = {"queue": [], "issues": []}
+                if ended:
+                    status["ended"] = ended
+                (folder / "status.json").write_text(json.dumps(status))
+            if lock == "lock":
+                (folder / "lock").write_text("999999")
+        (self.root / ".sanvio").mkdir()
+        (self.root / ".sanvio" / "export.json").write_text(json.dumps(
+            {"node": "pi-1", "export_projects": {name: name for name in cases}}))
+        import loop
+        with mock.patch.object(loop, "pid_alive", lambda pid: False):
+            got = send_usage.heartbeat(self.root)
+        self.assertEqual(send_usage.usage_shape.problems(got), [])
+        loops = {l["label"]: l for l in got["loops"]}
+        self.assertEqual({name: loops[name]["on_purpose"] for name in cases},
+                         {"killed": False, "error": False, "stopped": True, "for": True, "done": True,
+                          "older": True, "never": True})
+        self.assertTrue(all(loops[name]["alive"] is False for name in cases))
+
+    def test_a_heartbeat_from_before_on_purpose_still_passes(self):
+        beat = {"v": send_usage.usage_shape.V, "kind": "heartbeat", "node": "pi-1", "ts": "2026-11-27T10:00:00Z",
+                "factory": {"commit": None, "changelog": None},
+                "loops": [{"label": "factory", "alive": False, "waiting": 0, "issue": None, "tokens": None,
+                           "budget": None}]}
+        self.assertEqual(send_usage.usage_shape.problems(beat), [])
+        beat["loops"][0]["on_purpose"] = "yes"
+        self.assertTrue(send_usage.usage_shape.problems(beat))
 
 
 if __name__ == "__main__":

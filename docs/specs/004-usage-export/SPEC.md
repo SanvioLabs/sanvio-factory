@@ -199,7 +199,7 @@ Not Affected:
 | AC-008 | REQ-011 | `--auto` with detailed asked for sends general, and says so | Unit test |
 | AC-009 | REQ-012 | A heartbeat from a node with one live loop and one dead one reports both correctly, and holds no issue title | Unit test over a fixture `status.json` |
 | AC-010 | REQ-013, REQ-014, REQ-016 | In a test account, a sender can't read its own prefix back, can't write another's, an off-shape bundle lands in `rejected/`, a detailed bundle can't be read by the general readers' role, and a chain gap is marked | A live run of [`examples/usage-store/`](../../../examples/usage-store/), recorded in TASKS.md |
-| AC-011 | REQ-015 | Stopping a test node's loop raises one alert inside its window, and one alert only; a run pushed past 80% of its budget raises one | A live run, recorded in TASKS.md |
+| AC-011 | REQ-015 | A test node's loop that dies (killed, or ended on an error) raises one alert inside its window, and one alert only, and one stopped on purpose or that never ran raises none (ruled 2026-11-27); a run pushed past 80% of its budget raises one | A live run, recorded in TASKS.md |
 | AC-012 | The questions the store answers | Every key in the v2 shape maps to at least one RQ in a table the tests read; adding a key with no mapping fails | Unit test |
 | AC-013 | REQ-017 | The detailed-mode message names what's recorded, who reads it, and the end date | Reading, at review |
 | AC-014 | REQ-018 | `factory-trends` shows the bundle and sends nothing when the person says no | Reading, plus a test of the skill's send step with a stand-in sender |

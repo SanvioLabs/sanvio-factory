@@ -82,7 +82,9 @@ A machine nobody watches, one that runs loops, sets `"auto": true` and runs
 two commands on a schedule: `--auto` sends yesterday's and today's general
 bundles, never detailed, and `--heartbeat` sends whether each of its loops is
 alive and how many issues wait, so a stopped loop shows as stopped rather than
-quiet. A project you haven't listed under `export_projects` shows in a
+quiet. A loop that died, killed or ended on an error, raises the store's alert;
+one you stopped, whose `--for` ran out, or that never ran on this machine
+doesn't. A project you haven't listed under `export_projects` shows in a
 heartbeat under a hashed label, with no issue, tokens or budget.
 
 The store's silent-machine alert fires after 30 minutes without a heartbeat,

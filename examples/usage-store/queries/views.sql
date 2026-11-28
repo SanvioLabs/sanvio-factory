@@ -63,7 +63,7 @@ CREATE OR REPLACE VIEW heartbeats AS
 SELECT node, ts, factory, loops FROM read_json('${USAGE_ROOT}/accepted/*/heartbeat/*.json', ignore_errors = true, columns = {
     'v': 'INTEGER', 'kind': 'VARCHAR', 'node': 'VARCHAR', 'ts': 'TIMESTAMPTZ',
     'factory': 'STRUCT("commit" VARCHAR, changelog VARCHAR)',
-    'loops': 'STRUCT(label VARCHAR, alive BOOLEAN, waiting INTEGER, issue BIGINT, tokens BIGINT, budget BIGINT)[]'
+    'loops': 'STRUCT(label VARCHAR, alive BOOLEAN, on_purpose BOOLEAN, waiting INTEGER, issue BIGINT, tokens BIGINT, budget BIGINT)[]'
 })
 WHERE kind = 'heartbeat';
 

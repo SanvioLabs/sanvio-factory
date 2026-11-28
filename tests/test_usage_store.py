@@ -407,14 +407,27 @@ class Queries(Fixture):
         got = {(r["kind"], r["name"]): r["times"] for r in self.rows("rq-1.sql")}
         self.assertEqual(got[("skill", "review-pr")], 2)
 
-    def test_a_stopped_loop_on_a_live_machine_raises_the_dead_loop_alert(self):
+    def test_a_loop_that_died_on_a_live_machine_raises_the_dead_loop_alert(self):
         (self.repo / ".loop" / "status.json").write_text(json.dumps({"queue": [], "issues": []}))
-        send_usage.send_heartbeat(self.repo)  # no lock file: the loop isn't running, the machine is
+        (self.repo / ".loop" / "lock").write_text("999999")  # its lock left behind: killed, not stopped
+        import loop
+        with mock.patch.object(loop, "pid_alive", lambda pid: False):
+            send_usage.send_heartbeat(self.repo)
         validator.sort_all(validator.FolderStore(self.store))
         (row,) = self.rows("alert-dead-loop.sql")
         self.assertEqual((row["loop"], row["stopped"]), ("bench/factory", 1))
         (silent,) = self.rows("alert-silent-node.sql")
         self.assertLess(silent["minutes_silent"], 5)  # the silent-node rule alone wouldn't have fired
+
+    def test_a_loop_stopped_on_purpose_shows_in_rq5_and_raises_nothing(self):
+        (self.repo / ".loop" / "status.json").write_text(json.dumps({"queue": [], "issues": [], "ended": "stop"}))
+        (self.repo / ".loop" / "lock").unlink(missing_ok=True)
+        send_usage.send_heartbeat(self.repo)
+        validator.sort_all(validator.FolderStore(self.store))
+        (row,) = self.rows("alert-dead-loop.sql")
+        self.assertEqual((row["loop"], row["stopped"]), ("bench/factory", 0))
+        (node,) = self.rows("rq-5.sql")
+        self.assertEqual((node["loops_alive"], node["loops_stopped_on_purpose"]), (0, 1))
 
     def test_a_node_name_with_a_space_is_accepted_under_its_safe_name(self):
         cfg = json.loads((self.repo / ".sanvio" / "export.json").read_text())

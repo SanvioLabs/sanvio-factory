@@ -6335,12 +6335,15 @@ class Loop:
             print("The loop is already running here (see {}).".format(self.dir / "lock"), file=sys.stderr)
             return 1
         code = None
+        # Why this run ended, in status.json for a heartbeat to read: stop (a stop file or Ctrl-C), for (--for
+        # reached), done (work() returned 0), or error (an ERROR line's 1, or an exception). Only error alerts.
+        ended = "error"
         try:
             (self.dir / "STOP").unlink(missing_ok=True)  # no other loop holds the lock, so an old stop is stale
             (self.dir / "watch.command").unlink(missing_ok=True)  # and so is a killed run's
             tmux = self.session = self.tmux_session()
             # started is UTC with its offset, unlike the rest of the file, so the pane's uptime needs no zone.
-            self.save_status(running=True, pid=os.getpid(), tmux=tmux,
+            self.save_status(running=True, pid=os.getpid(), tmux=tmux, ended=None,
                              started=datetime.now(timezone.utc).isoformat(timespec="seconds"))
             if tmux:
                 prog = multiplexer()
@@ -6397,13 +6400,19 @@ class Loop:
                 self.log("UNTIL", "{} (--for {})".format(
                     datetime.fromtimestamp(self.deadline).strftime("%Y-%m-%d %H:%M"), self.for_text))
             code = self.start_checks() or work()
+            ended = "error" if code else "done"
             if self.stopped():
                 self.log("STOPPED", "stop file found")
                 (self.dir / "STOP").unlink()
+                ended = "stop"
             elif self.expired():
                 self.log("END", "--for {} reached".format(self.for_text))
+                ended = "for"
+        except KeyboardInterrupt:
+            ended = "stop"
+            raise
         finally:
-            self.save_status(running=False, pid=None, tmux=None, started=None, reviewing=None)
+            self.save_status(running=False, pid=None, tmux=None, started=None, reviewing=None, ended=ended)
             (self.dir / "watch.command").unlink(missing_ok=True)
             (self.dir / "lock").unlink(missing_ok=True)
         return code or 0
