@@ -172,7 +172,10 @@ class Provisioning(unittest.TestCase):
 
     def test_every_panel_and_rule_runs_a_query_file_unchanged(self):
         texts = "".join(path.read_text() for path in render.files())
-        for name in ["rq-{}.sql".format(n) for n in range(1, 8)] + [a[0] for a in render.ALERTS]:
+        names = [p[0] for p in render.PANELS + render.DETAILED_PANELS + render.ACTIVITY_PANELS]
+        self.assertEqual(sorted(set(names) - {p[0] for p in render.ACTIVITY_PANELS}),
+                         sorted("rq-{}.sql".format(n) for n in range(1, 8)))
+        for name in names + [a[0] for a in render.ALERTS]:
             body = render.sql(name).splitlines()[-1].strip()
             self.assertIn(body, texts, name)
 

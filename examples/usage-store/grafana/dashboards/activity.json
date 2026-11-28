@@ -1,0 +1,256 @@
+{
+  "uid": "factory-activity",
+  "title": "Factory activity",
+  "editable": false,
+  "schemaVersion": 39,
+  "timezone": "utc",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Loop runs started each hour",
+      "description": "Times are each node's own clock, as the loop wrote them.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- Activity: loop runs started each hour, every node together. A run's start is its node's own clock, as the\n-- loop writes it, with no time zone.\nSELECT date_trunc('hour', CAST(started AS TIMESTAMP)) AS time, count(*) AS runs\nFROM loop_runs\nGROUP BY 1\nORDER BY 1;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": false,
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Average loop runs by hour of day, on each node's clock",
+      "description": "Times are each node's own clock, as the loop wrote them.",
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- Activity: loop runs started at each hour of the day, on the node's own clock, averaged over every weekday\n-- and every weekend day from the first run in the store to the last, quiet days included.\nWITH r AS (SELECT CAST(started AS TIMESTAMP) AS t FROM loop_runs),\nspan AS (SELECT unnest(generate_series(lo, hi, INTERVAL 1 DAY)) AS day\n         FROM (SELECT CAST(min(t) AS DATE) AS lo, CAST(max(t) AS DATE) AS hi FROM r) WHERE lo IS NOT NULL),\nd AS (SELECT count(*) FILTER (WHERE dayofweek(day) NOT IN (0, 6)) AS weekdays,\n             count(*) FILTER (WHERE dayofweek(day) IN (0, 6)) AS weekend_days FROM span)\nSELECT lpad(CAST(h.hour AS VARCHAR), 2, '0') AS hour,\n       round(count(r.t) FILTER (WHERE dayofweek(r.t) NOT IN (0, 6)) / nullif(any_value(d.weekdays), 0), 2) AS weekday,\n       round(count(r.t) FILTER (WHERE dayofweek(r.t) IN (0, 6)) / nullif(any_value(d.weekend_days), 0), 2) AS weekend\nFROM range(24) h(hour) CROSS JOIN d LEFT JOIN r ON hour(r.t) = h.hour\nGROUP BY h.hour\nORDER BY h.hour;",
+          "format": 1,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "hour",
+        "orientation": "vertical",
+        "showValue": "never",
+        "groupWidth": 0.8,
+        "barWidth": 0.9,
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Tokens each day, by node",
+      "description": "Times are each node's own clock, as the loop wrote them.",
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 9
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- Activity: the loop's tokens each day, a series for each node.\nSELECT date_trunc('day', CAST(started AS TIMESTAMP)) AS time, node, CAST(sum(tokens) AS DOUBLE) AS tokens\nFROM loop_runs\nGROUP BY 1, 2\nORDER BY 1, 2;",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byType",
+              "options": "number"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "${__field.labels.node}"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Last 7 days, loop runs each hour by node",
+      "description": "Times are each node's own clock, as the loop wrote them.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "motherduck-duckdb-datasource",
+        "uid": "usage"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "motherduck-duckdb-datasource",
+            "uid": "usage"
+          },
+          "rawSql": "-- Activity: loop runs started each hour over the last week, a series for each node. Eight days, so a node\n-- whose clock is ahead of the viewer's still shows its whole week.\nSELECT date_trunc('hour', CAST(started AS TIMESTAMP)) AS time, node, count(*) AS runs\nFROM loop_runs\nWHERE CAST(started AS TIMESTAMP) > now() - INTERVAL 8 DAY\nGROUP BY 1, 2\nORDER BY 1, 2;",
+          "format": 0,
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "barAlignment": 0,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byType",
+              "options": "number"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "${__field.labels.node}"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "timeFrom": "7d"
+    }
+  ],
+  "tags": [
+    "sanvio-factory",
+    "usage"
+  ]
+}
