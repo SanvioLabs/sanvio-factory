@@ -115,6 +115,16 @@ class Maybe(Check):
             self.inner.check(value, path, out)
 
 
+class Optional(Check):
+    """A key Obj lets be absent, so a sender from before the key existed still passes."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def check(self, value, path, out):
+        self.inner.check(value, path, out)
+
+
 class OneOf(Check):
     def __init__(self, *values):
         self.values = values
@@ -167,7 +177,8 @@ class Obj(Check):
             out.append("{}{}: not a key this shape allows".format(prefix, name))
         for name, rule in self.keys.items():
             if name not in value:
-                out.append("{}{}: missing".format(prefix, name))
+                if not isinstance(rule, Optional):
+                    out.append("{}{}: missing".format(prefix, name))
             else:
                 rule.check(value[name], prefix + name, out)
 
@@ -192,7 +203,7 @@ BUNDLE_KEYS = {
 }
 DETAILED_KEYS = {"commands": ListOf(COMMAND)}  # in a detailed bundle only, and required there
 
-LOOP_BEAT = Obj({"label": LABEL, "alive": BOOL, "waiting": INT, "issue": Maybe(INT), "tokens": Maybe(INT),
+LOOP_BEAT = Obj({"label": LABEL, "alive": BOOL, "on_purpose": Optional(BOOL), "waiting": INT, "issue": Maybe(INT), "tokens": Maybe(INT),
                  "budget": Maybe(INT)})
 HEARTBEAT_KEYS = {"v": OneOf(V), "kind": OneOf("heartbeat"), "node": NAME, "ts": TS, "factory": FACTORY,
                   "loops": ListOf(LOOP_BEAT)}
@@ -219,7 +230,7 @@ SERVES = {
     "usage.guard_deny": ["RQ-4"], "usage.guard_ask": ["RQ-4"], "usage.ask_approved": ["RQ-4"],
     "commands": ["RQ-6"], "commands.ts": ["RQ-6"], "commands.session": ["RQ-6"],
     "commands.verdict": ["RQ-6"], "commands.text": ["RQ-6"], "commands.redactions": ["RQ-6"],
-    "loops": ["RQ-5"], "loops.label": ["RQ-5"], "loops.alive": ["RQ-5"], "loops.waiting": ["RQ-5"],
+    "loops": ["RQ-5"], "loops.label": ["RQ-5"], "loops.alive": ["RQ-5"], "loops.on_purpose": ["RQ-5"], "loops.waiting": ["RQ-5"],
     "loops.issue": ["RQ-5"], "loops.tokens": ["RQ-5", "RQ-2"], "loops.budget": ["RQ-5"],
 }
 

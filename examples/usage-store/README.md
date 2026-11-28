@@ -44,9 +44,10 @@ week's runs each hour by node. The loop writes a run's start in its node's own c
 so the dashboard shows times in UTC, which leaves them as written. Nodes in different time zones share
 one axis.
 
-Three alert rules come with it: a node whose last heartbeat is over 30 minutes old, a loop that stopped on
-a machine still sending heartbeats, and a run past 80% of its token budget. Each node's or run's alert goes once to the webhook in `USAGE_ALERT_WEBHOOK`, once more
-when it recovers, and not again while it stays down.
+Three alert rules come with it: a node whose last heartbeat is over 30 minutes old, a loop that died
+(killed, or ended on an error) on a machine still sending heartbeats, and a run past 80% of its token budget. Each node's or run's alert goes once to the webhook in `USAGE_ALERT_WEBHOOK`, once more
+when it recovers, and not again while it stays down. A loop stopped on purpose (`loop.py stop`, or its
+`--for` ran out), or one that never ran there, shows as stopped in RQ-5 and sends nothing.
 
 ## Checking the SQL
 
