@@ -1235,10 +1235,10 @@ class OutsideTheClone(unittest.TestCase):
     def test_every_hook_command_names_a_script_the_tests_know(self):
         named = {re.search(r"hooks/(\w+)\.py", hook["command"]).group(1) for blocks in self.hooks.values()
                  for block in blocks for hook in block["hooks"]}
-        self.assertEqual(named, {"guard", "usage_log", "session_start", "session_retro"})
+        self.assertEqual(named, {"guard", "usage_log", "session_start", "session_retro", "until_done"})
 
     def test_the_loggers_skip_where_their_script_isnt(self):
-        for script in ("usage_log.py", "session_retro.py"):
+        for script in ("usage_log.py", "session_retro.py", "until_done.py"):
             for command in self.commands(script):
                 with self.subTest(command=command):
                     done = self.run_hook(command, self.elsewhere)

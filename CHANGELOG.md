@@ -42,6 +42,14 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: Keep going until it's done
+
+A 🟢 or 🟡 Go line no longer ends the agent's turn: it takes its own `Next:`, and stops only on a 🔴, a step the person takes, or a met acceptance check. In Claude Code a new Stop hook holds it to that when you ask it to keep going until something is done. Armed with `python3 .claude/hooks/until_done.py --set --spec <number>` (done when the spec's `TASKS.md` has no open box) or `--check "<command>"` (done on exit 0), it refuses to end the turn and hands back the check's output until it passes. It lets a 🔴 through and stays armed, never reads a check that couldn't run as a pass, and hands back after three continuations that change nothing, at `--max` (40), or at `--max-tokens` (10M, 0 for none) counted the way the loop counts `max_issue_tokens`. Off unless armed, per session in `local-data/until-done/`, and never in a headless run.
+
+Files: [`.claude/hooks/until_done.py`](.claude/hooks/until_done.py), [`.claude/settings.json`](.claude/settings.json), [`steering/response-style.md`](steering/response-style.md), [`tests/test_until_done.py`](tests/test_until_done.py), [`tests/test_agent_hooks.py`](tests/test_agent_hooks.py), [`README.md`](README.md), `CHANGELOG.md`.
+
+**Do:** nothing to take it. Start a new session to load the hook, then tell the agent to keep going until a spec or check is done.
+
 ## 2026-11-27: A dashboard of when the loop works
 
 The usage store's Grafana has a second dashboard, *Factory activity*, of bar charts:
