@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: The evaluator's report in the loop's pull request
+
+With `app_browser_command` set, the pull request the loop opens carries the evaluator's report under `## Evaluation`, straight after the review and before the plan's Decisions, with its mentions made harmless. When the description is over its cap, the report is cut after the plan and before the review, with a line saying where the full `evaluation.md` is. A report left over from a run with the browser on is ignored once it's off, and a blank one adds no heading, so with the key unset the description is the same as before, with one change: in a description over its cap, a short plan, review or Decisions section is now left whole, where before it was replaced by a cut note longer than itself. The comment on the issue doesn't change.
+
+**Needs:** 2026-11-27: An evaluator checks the issue in the running app
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-27: An evaluator checks the issue in the running app
 
 A new key, `app_browser_command`, names an installed Playwright MCP server, such as `playwright-mcp`. Set it beside `app_command` and `app_url`, and once a round's tests pass, its review says PASS and the app answers, a fresh `reader_agent` session checks each of the issue's acceptance criteria in the running app through a headless browser. It's told the criteria and `app_url` and nothing else from the round. It gets Read, Grep and Glob plus fourteen browser tools, and every other tool the server has is denied by name, file upload, running code in the page, tabs and installing a browser among them. It writes PASS or FAIL for each criterion and a `VERDICT:` line. A FAIL anywhere, no verdict or a non-zero exit sends the round back to the build, with the report quoted and capped under `## Evaluator's report`; the log gets the loop's own words, never the report's. What the evaluator changed in the worktree is thrown away. The loop starts the server itself, under `test_command`'s sandbox, from a config it passes as text rather than a file the app could rewrite, outside the worktree, without the sign-in variables, with pages' own tools turned off, the app's origin alone, and nothing downloaded at run time. The loop refuses to start, with one `ERROR` line, when the key is set without the app keys, with a `reader_agent` that isn't claude, or for a caller project, and a project's own `loop.json` can't set it. The loop now reads the last round's `review.md`, `test-output.txt` and `evaluation.md` only where each is a plain file, not a link. Off by default, so nothing changes until you set it.

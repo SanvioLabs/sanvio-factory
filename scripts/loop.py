@@ -2766,7 +2766,8 @@ def test_counts(text):
     return [summary for _, summary in sorted(found, key=lambda pair: pair[0])][:TEST_COUNTS_CAP]
 
 
-def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=None, tests_first=(), merges=None):
+def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=None, tests_first=(), merges=None,
+            evaluation=None):
     """The pull request's description: what a reviewer on GitHub needs without this machine.
 
     numstat is `git diff --numstat` of the branch, or None when git couldn't read it. plan, review
@@ -2775,16 +2776,19 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     agent's tests are in; with none, there is no section for them. merges is auto_merge's min_grade while it's
     on, and None while it's off: who_merges() says which. A plan's Decisions section also
     shows above the folded plan. The Tests section leads with test_counts()'s lines, then the last
-    PR_TEST_LINES lines of the output. The agents' text goes out with its mentions made harmless. Over
-    PR_BODY_CAP, the plan is cut first, then the review, then the Decisions.
+    PR_TEST_LINES lines of the output. evaluation is the evaluator's report (#779), or None while
+    app_browser_command is off; a blank one adds no section. The agents' text goes out with its mentions made
+    harmless. Over PR_BODY_CAP, the plan is cut first, then the evaluation, then the review, then the Decisions,
+    each only where the cut is shorter than what it replaces.
     """
     def missing(name):
         return "`{}` wasn't there.".format(name)
 
     def clip(text, room, name):
         keep = max(room - 200, 0)  # room for the line that says where the rest is
-        return text[:keep] + ("\n\nCut at {:,} characters. The full file is `.loop/issue-{}/{}` on the "
-                              "machine that ran the loop.").format(keep, number, name)
+        cut = text[:keep] + ("\n\nCut at {:,} characters. The full file is `.loop/issue-{}/{}` on the "
+                             "machine that ran the loop.").format(keep, number, name)
+        return cut if len(cut) < len(text) else text  # a short section is left whole: its cut would be longer
 
     if numstat is None:
         files = "The diff couldn't be read."
@@ -2819,15 +2823,20 @@ def pr_body(number, rounds, numstat, test_command, plan, review, tests, usage=No
     review_text = missing("review.md") if review is None else safe_to_post(review.strip())
     plan_text = missing("plan.md") if plan is None else safe_to_post(plan.strip())
     decisions_text = safe_to_post(plan_decisions(plan))
+    evaluation_text = safe_to_post(evaluation.strip()) if evaluation is not None and evaluation.strip() else ""
 
     def body():
+        evaluated = "## Evaluation\n\n{}\n\n".format(evaluation_text) if evaluation_text else ""
         decisions = "## Decisions\n\n{}\n\n".format(decisions_text) if decisions_text else ""
-        return "{}## Review\n\n{}\n\n{}<details><summary>Plan</summary>\n\n{}\n\n</details>\n".format(
-            head, review_text, decisions, plan_text)
+        return "{}## Review\n\n{}\n\n{}{}<details><summary>Plan</summary>\n\n{}\n\n</details>\n".format(
+            head, review_text, evaluated, decisions, plan_text)
 
     over = len(body()) - PR_BODY_CAP
     if over > 0 and plan is not None:
         plan_text = clip(plan_text, len(plan_text) - over, "plan.md")
+    over = len(body()) - PR_BODY_CAP
+    if over > 0 and evaluation_text:
+        evaluation_text = clip(evaluation_text, len(evaluation_text) - over, "evaluation.md")
     over = len(body()) - PR_BODY_CAP
     if over > 0 and review is not None:
         review_text = clip(review_text, len(review_text) - over, "review.md")
@@ -5935,9 +5944,13 @@ class Loop:
         folder = self.dir / "issue-{}".format(number)
         saved = {name: (folder / name).read_text(encoding="utf-8") if (folder / name).exists() else None
                  for name in ("plan.md", "review.md", "test-output.txt")}
+        # Only with the browser on: a report left from a run with it on doesn't change the body once it's off. The
+        # file is there only after an evaluator PASS, since Validate deletes it each round (#779).
+        evaluation = (plain_text(folder / "evaluation.md")
+                      if (self.cfg.get("app_browser_command") or "").strip() else None)
         body = pr_body(number, rounds, numstat if code == 0 else None, self.cfg["test_command"],
                        saved["plan.md"], saved["review.md"], saved["test-output.txt"], self.usage(number), fixed,
-                       merges=self.merge_grade())
+                       merges=self.merge_grade(), evaluation=evaluation)
         code, out = self.gh("pr", "create", "--base", self.cfg["base"], "--head", self.head_ref(branch),
                             "--title", "{} (#{})".format(issue["title"], number), "--body", body)
         if code != 0:
