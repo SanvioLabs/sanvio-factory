@@ -161,6 +161,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/until_done.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\" --stop",
+            "timeout": 900
+          }
+        ]
+      }
     ]
   },
   "extraKnownMarketplaces": {

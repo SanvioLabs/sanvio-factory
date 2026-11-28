@@ -56,6 +56,18 @@ go. A step that commits money, takes a legal position, changes production or
 goes outbound is a no-go while anything under it is undecided. `Next:` names an
 action, not a status.
 
+**A 🟢 or 🟡 is a callout, not a stop.** Write the two lines, then take `Next:`
+in the same turn. End the turn on a 🔴, on a step the person takes (a merge, a
+deploy, anything outbound, money or a legal commitment, each one a 🔴 that
+names it), or when the work meets its acceptance check. Ending on a 🟢 to wait
+for "continue" hands back a decision the flag already made.
+
+When the person asks you to keep going until something is done, and you're
+Claude Code, arm the check that proves it: `python3 .claude/hooks/until_done.py --set --spec <number>`
+for a spec's `TASKS.md`, `--check "<command>"` for anything else, or both. The
+Stop hook then refuses to end the turn until it passes, lets a 🔴 through, and
+hands back at its token ceiling (`--max-tokens`, 10M unless set).
+
 ## Corrections
 
 When something was wrong, state the right answer. Don't apologise, don't open
