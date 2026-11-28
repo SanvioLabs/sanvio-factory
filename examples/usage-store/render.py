@@ -5,7 +5,7 @@
     python3 examples/usage-store/render.py --check   # change nothing, exit 1 if any is out of date
 
 The SQL files are the one copy: the data sources' init SQL is views.sql (and views-detailed.sql for the
-owner's), each dashboard panel's query is an rq-N.sql, and each alert rule's query is an alert-*.sql. This
+owner's), each dashboard panel's query is an rq-N.sql or an activity-*.sql, and each alert rule's query is an alert-*.sql. This
 writes them into the files Grafana reads at start, so a fresh Grafana comes up with all of them, and
 tests/test_usage_store.py fails when one is stale.
 
@@ -22,7 +22,7 @@ QUERIES = HERE / "queries"
 GRAFANA = HERE / "grafana"
 PLUGIN = "motherduck-duckdb-datasource"
 GENERAL, DETAILED = "usage", "usage-detailed"
-TABLE = 1  # the plugin's query format, a number: 0 is a time series, 1 a table
+TABLE, SERIES = 1, 0  # the plugin's query formats: a time series turns long rows into a series per label
 
 PANELS = [
     ("rq-1.sql", "RQ-1 Skills, agents and commands used", GENERAL),
@@ -33,6 +33,19 @@ PANELS = [
     ("rq-7.sql", "RQ-7 All-in cost of an issue that reached a pull request, by project", GENERAL),
 ]
 DETAILED_PANELS = [("rq-6.sql", "RQ-6 Shell commands agents ran", DETAILED)]
+
+# The activity dashboard: when the loop works, as bar charts. Each is (query file, title, panel type, query
+# format, stacked bars, x, y, width, height, extra panel settings). The loop writes a run's start in its
+# node's own clock with no time zone, so the dashboard shows times in UTC, which leaves them as written.
+ACTIVITY_PANELS = [
+    ("activity-runs-per-hour.sql", "Loop runs started each hour", "timeseries", TABLE, False, 0, 0, 24, 9, {}),
+    ("activity-hour-of-day.sql", "Average loop runs by hour of day, on each node's clock", "barchart", TABLE,
+     False, 0, 9, 14, 9, {}),
+    ("activity-tokens-per-day.sql", "Tokens each day, by node", "timeseries", SERIES, True, 14, 9, 10, 9, {}),
+    ("activity-last-week.sql", "Last 7 days, loop runs each hour by node", "timeseries", SERIES, True, 0, 18,
+     24, 8, {"timeFrom": "7d"}),
+]
+ACTIVITY_NOTE = "Times are each node's own clock, as the loop wrote them."
 
 ALERTS = [
     ("alert-silent-node.sql", "usage-silent-node", "A node stopped sending heartbeats", "minutes_silent", 30),
@@ -70,6 +83,39 @@ def dashboard(uid, title, panels):
     return json.dumps({"uid": uid, "title": title, "editable": False, "schemaVersion": 39, "time":
                        {"from": "now-30d", "to": "now"}, "panels": out, "tags": ["sanvio-factory", "usage"]},
                       indent=2) + "\n"
+
+
+def target(name, ds, fmt):
+    return {"refId": "A", "datasource": {"type": PLUGIN, "uid": ds}, "rawSql": sql(name), "format": fmt,
+            "editorMode": "code", "rawQuery": True}
+
+
+def activity():
+    out = []
+    for i, (name, title, kind, fmt, stacked, x, y, w, h, extra) in enumerate(ACTIVITY_PANELS):
+        panel = {"id": i + 1, "type": kind, "title": title, "description": ACTIVITY_NOTE,
+                 "gridPos": {"h": h, "w": w, "x": x, "y": y}, "datasource": {"type": PLUGIN, "uid": GENERAL},
+                 "targets": [target(name, GENERAL, fmt)]}
+        if kind == "barchart":
+            panel["fieldConfig"] = {"defaults": {"unit": "short", "decimals": 1}, "overrides": []}
+            panel["options"] = {"xField": "hour", "orientation": "vertical", "showValue": "never",
+                                "groupWidth": 0.8, "barWidth": 0.9,
+                                "legend": {"showLegend": True, "placement": "bottom"}}
+        else:
+            panel["fieldConfig"] = {"defaults": {"unit": "short", "custom": {
+                "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "barAlignment": 0, "showPoints": "never",
+                "stacking": {"mode": "normal" if stacked else "none", "group": "A"}}}, "overrides": []}
+            if fmt == SERIES:  # name each series by its node alone, not "tokens {node=...}"
+                panel["fieldConfig"]["overrides"] = [{"matcher": {"id": "byType", "options": "number"},
+                                                      "properties": [{"id": "displayName",
+                                                                      "value": "${__field.labels.node}"}]}]
+            panel["options"] = {"legend": {"showLegend": fmt == SERIES, "placement": "bottom"},
+                                "tooltip": {"mode": "multi" if fmt == SERIES else "single"}}
+        panel.update(extra)
+        out.append(panel)
+    return json.dumps({"uid": "factory-activity", "title": "Factory activity", "editable": False,
+                       "schemaVersion": 39, "timezone": "utc", "time": {"from": "now-90d", "to": "now"},
+                       "panels": out, "tags": ["sanvio-factory", "usage"]}, indent=2) + "\n"
 
 
 def rules():
@@ -141,6 +187,7 @@ def files():
         GRAFANA / "provisioning" / "alerting" / "rules.yaml": rules(),
         GRAFANA / "provisioning" / "alerting" / "contact.yaml": CONTACT,
         GRAFANA / "dashboards" / "usage.json": dashboard("factory-usage", "Factory usage", PANELS),
+        GRAFANA / "dashboards" / "activity.json": activity(),
         GRAFANA / "local" / "datasources" / "detailed.yaml":
             datasource(DETAILED, "Usage, detailed", ["views.sql", "views-detailed.sql"], False),
         GRAFANA / "local" / "dashboards" / "usage.yaml": DASHBOARD_PROVIDER.format(name="usage-detailed", path="/etc/grafana/local-dashboards"),

@@ -50,6 +50,20 @@ Files: [`.claude/hooks/until_done.py`](.claude/hooks/until_done.py), [`.claude/s
 
 **Do:** nothing to take it. Start a new session to load the hook, then tell the agent to keep going until a spec or check is done.
 
+## 2026-11-27: A dashboard of when the loop works
+
+The usage store's Grafana has a second dashboard, *Factory activity*, of bar charts:
+- loop runs started each hour over 90 days
+- the average runs at each hour of the day, weekdays and weekends apart, counting quiet days
+- tokens each day, by node
+- the last week's runs each hour, by node
+
+Its SQL is in `queries/activity-*.sql`, and [`render.py`](examples/usage-store/render.py) writes it like the others. The loop records a run's start on its node's own clock, with no time zone, so the dashboard shows times in UTC, which leaves them as recorded. Nodes in different time zones share one axis.
+
+Files: [`examples/usage-store/render.py`](examples/usage-store/render.py), `examples/usage-store/queries/activity-*.sql`, [`examples/usage-store/grafana/dashboards/activity.json`](examples/usage-store/grafana/dashboards/activity.json), [`examples/usage-store/README.md`](examples/usage-store/README.md), [`examples/usage-store/local/README.md`](examples/usage-store/local/README.md), [`tests/test_usage_store.py`](tests/test_usage_store.py), `CHANGELOG.md`.
+
+**Do:** in the cloud, build and push a new image and apply. The dashboard is in the image.
+
 ## 2026-11-27: The loop starts the app and checks it answers
 
 Three new keys, `app_command`, `app_url` and `app_timeout` (default 60 seconds), have the loop start a project's app in the worktree once a round's tests pass and its review says PASS. The loop then asks `app_url` until the app answers, with any HTTP status. The app runs under the same sandbox as `test_command`, and the loop asks it only on this machine: `app_url` has to be `http` or `https` on `localhost` or a loopback address. That doesn't stop the app listening on every interface, as many dev servers do by default, so give `app_command` the setting that binds it to `127.0.0.1`. If the app doesn't answer within `app_timeout`, the loop logs one `APP` line saying so, the next build reads that line with the test output, and the round counts as failed. The loop stops the app and everything it started either way, at `app_timeout` and at a Ctrl-C too. Only the factory's `loop.json` sets these keys. The loop refuses to start, with one `ERROR` line, when only one of `app_command` and `app_url` is set, when `app_url` isn't on loopback, when `app_timeout` isn't a number above 0, or when a caller project sets `app_command`. Off by default, so nothing changes until you set them. Starting the app is the loop's second place to run shell text, beside `sh()`, since the app keeps running while the loop asks it: its call carries `# nosec B602` too, and the Bandit test now holds the loop to those two.

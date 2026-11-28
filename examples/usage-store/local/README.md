@@ -39,8 +39,8 @@ From nothing to the dashboard, with Docker and nothing else.
    USAGE_STORE=~/usage-store docker compose -f local/compose.yaml up -d --build
    ```
 
-   Then open <http://127.0.0.1:3000>. *Factory usage* has RQ-1 to RQ-5, and *Factory usage, detailed* has
-   RQ-6. It listens on `127.0.0.1` only, so anyone at this machine can read it without signing in, and
+   Then open <http://127.0.0.1:3000>. *Factory usage* has RQ-1 to RQ-5 and RQ-7, *Factory activity* has the
+   loop's runs and tokens over time, and *Factory usage, detailed* has RQ-6. It listens on `127.0.0.1` only, so anyone at this machine can read it without signing in, and
    nobody else can reach it. To get the alerts somewhere, set `USAGE_ALERT_WEBHOOK` to a webhook's address
    in the same command; without it they still show in Grafana's own alert list.
 
