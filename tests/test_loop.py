@@ -1023,6 +1023,42 @@ class TestPureParts(unittest.TestCase):
         self.assertIn("## Decisions\n\nKeep this call.\n\n<details>", body)
         self.assertIn("`.loop/issue-12/review.md`", self.above_the_fold(body))
 
+    def test_the_evaluation_follows_the_review_and_pings_nobody(self):
+        body = self.body(evaluation="Checked @someone.\nVERDICT: PASS")
+        self.assertLess(body.index("## Review"), body.index("## Evaluation"))
+        self.assertLess(body.index("## Evaluation"), body.index("<details>"))
+        self.assertNotIn("@someone", body)
+        self.assertIn("## Evaluation\n\nChecked @​someone.\nVERDICT: PASS\n\n", body)
+
+    def test_no_evaluation_makes_the_pull_request_it_always_did(self):
+        self.assertEqual(self.body(), self.body(evaluation=None))
+        plan = "## Decisions\n\nX."
+        self.assertEqual(self.body(plan=plan), self.body(plan=plan, evaluation=None))
+        self.assertNotIn("## Evaluation", self.body())
+
+    def test_a_blank_evaluation_adds_no_heading(self):
+        for evaluation in ("", "   ", "\n\n"):
+            self.assertNotIn("## Evaluation", self.body(evaluation=evaluation), repr(evaluation))
+            self.assertEqual(self.body(), self.body(evaluation=evaluation))
+
+    def test_a_long_evaluation_is_cut_after_the_plan_and_before_the_review(self):
+        review = "R" * 5000 + "\nVERDICT: PASS"
+        body = self.body(plan="P" * 70_000, evaluation="E" * 70_000, review=review)
+        self.assertLessEqual(len(body), loop.PR_BODY_CAP)
+        self.assertIn(review, body)
+        self.assertIn("`.loop/issue-12/evaluation.md`", body)
+        self.assertIn("`.loop/issue-12/plan.md`", body)
+
+    def test_a_long_evaluation_is_cut_before_the_review_and_a_short_plan_stays(self):
+        review = "R" * 5000
+        body = self.body(plan="Plan.", evaluation="E" * 70_000, review=review)
+        self.assertLessEqual(len(body), loop.PR_BODY_CAP)
+        self.assertIn("## Review\n\n{}\n\n".format(review), body)
+        self.assertIn("`.loop/issue-12/evaluation.md`", body)
+        self.assertNotIn("E" * 70_000, body)
+        self.assertIn("<details><summary>Plan</summary>\n\nPlan.\n\n</details>\n", body)
+        self.assertNotIn("`.loop/issue-12/plan.md`", body)
+
 
 # How a stand-in claude answers `claude plugin list --json`, which the loop asks once a start (#743), before it
 # reads a prompt or records anything, so it's never counted as an agent run. It prints plugins.json from the state
@@ -2871,6 +2907,32 @@ class TestAPass(unittest.TestCase):
         with mock.patch.object(loop.Loop, "scale", scale):
             self.go()
         self.assertIn("`plan.md` wasn't there.", self.pr_create_body())
+        self.assertEqual(self.status()["issues"][0]["state"], "pr")
+
+    def scale_with_evaluation(self, text, browser):
+        real = loop.Loop.scale
+
+        def scale(runner, issue, *args, **kwargs):
+            (runner.dir / "issue-{}".format(issue["number"]) / "evaluation.md").write_text(text)
+            if browser:
+                runner.cfg["app_browser_command"] = browser
+            return real(runner, issue, *args, **kwargs)
+        return mock.patch.object(loop.Loop, "scale", scale)
+
+    def test_an_evaluation_left_over_is_not_in_the_pull_request_with_the_browser_off(self):
+        with self.scale_with_evaluation("PLANTED report\nVERDICT: PASS", browser=""):
+            self.go()
+        body = self.pr_create_body()
+        self.assertNotIn("## Evaluation", body)
+        self.assertNotIn("PLANTED", body)
+
+    def test_the_evaluators_report_is_in_the_pull_request_and_not_on_the_issue(self):
+        with self.scale_with_evaluation("Saw it. @someone\nVERDICT: PASS", browser="x"):
+            self.go()
+        body = self.pr_create_body()
+        self.assertIn("## Evaluation\n\nSaw it. @​someone", body)
+        self.assertLess(body.index("## Review"), body.index("## Evaluation"))
+        self.assertFalse(any("Saw it" in comment for comment in self.comments()))
         self.assertEqual(self.status()["issues"][0]["state"], "pr")
 
     def test_a_blocked_issue_says_why_and_how_to_retry(self):

@@ -590,7 +590,10 @@ no verdict, exits non-zero, or writes FAIL on any line, even under a
 run and goes back the same way. The report goes to
 `.loop/issue-N/evaluation.md`, and the next build reads it under
 `## Evaluator's report`, quoted, capped at 8,000 characters, and marked as a
-report rather than instructions, since the app's pages shaped it. The log gets
+report rather than instructions, since the app's pages shaped it. On a PASS,
+the pull request's description carries the report under `## Evaluation`, after
+the review, with its mentions made harmless. When the description is too long,
+the report is cut after the plan and before the review. The log gets
 one `EVAL` line a round in the loop's own words, such as `2 FAIL lines in
 evaluation.md`, never the report's. Once the app has stopped, the loop throws
 away what the evaluator changed or added in the worktree, though not files git

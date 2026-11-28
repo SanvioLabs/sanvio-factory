@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: The evaluator's report in the loop's pull request
+
+With `app_browser_command` set, the pull request the loop opens carries the evaluator's report under `## Evaluation`, straight after the review and before the plan's Decisions, with its mentions made harmless. When the description is over its cap, the report is cut after the plan and before the review, with a line saying where the full `evaluation.md` is. A report left over from a run with the browser on is ignored once it's off, and a blank one adds no heading, so with the key unset the description is the same as before, with one change: in a description over its cap, a short plan, review or Decisions section is now left whole, where before it was replaced by a cut note longer than itself. The comment on the issue doesn't change.
+
+**Needs:** 2026-11-27: An evaluator checks the issue in the running app
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** nothing
+
 ## 2026-11-27: Only a loop that died raises the stopped-loop alert
 
 The usage store's stopped-loop alert now fires only for a loop that died: killed with no chance to clean up, or ended on an `ERROR` or an exception. A loop someone stopped with `loop.py stop` or Ctrl-C, one whose `--for` ran out, or one that never ran on that machine, such as a project's old folder after its loop moved to another machine, still shows as stopped in RQ-5 and sends nothing. [`scripts/loop.py`](scripts/loop.py) records why each run ended as `ended` in its `status.json`, and each heartbeat's loop carries a new `on_purpose`, which the shape lets be absent so an older sender still passes. RQ-5 counts `loops_stopped_on_purpose`.
