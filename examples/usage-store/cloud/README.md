@@ -96,7 +96,7 @@ AC-011, AC-015 and AC-017.
    the same chain head and other counts gets a mark under `marks/`.
 3. **Detailed stays the owner's.** With Grafana's task role, `get-object` on an accepted detailed bundle is
    refused; with the owner's role it decrypts. A general bundle put under the detailed key is refused.
-4. **Alerts.** Stop a test node's loop: one stopped-loop alert. Stop its heartbeats: one silent-node alert
+4. **Alerts.** Kill a test node's loop (`kill -9`): one stopped-loop alert. Stop another with `loop.py stop`: none. Stop its heartbeats: one silent-node alert
    inside 31 minutes. Push a run past 80% of its budget: one budget alert. None repeats while it stays down.
 5. **A revoked node is locked out.** Revoke the test node's certificate and import the list: its next
    sign-in is refused. It holds no access key on disk at any point.

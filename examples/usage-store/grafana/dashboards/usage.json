@@ -141,7 +141,7 @@
             "type": "motherduck-duckdb-datasource",
             "uid": "usage"
           },
-          "rawSql": "-- RQ-5: Is every node's loop running, and when did each last report?\nSELECT node, max(ts) AS last_heartbeat, date_diff('minute', max(ts), now()) AS minutes_since,\n       count(*) FILTER (WHERE alive) AS loops_alive, count(*) AS loops, CAST(sum(waiting) AS BIGINT) AS waiting\nFROM loop_beats\nGROUP BY node\nORDER BY minutes_since DESC, node;",
+          "rawSql": "-- RQ-5: Is every node's loop running, and when did each last report?\nSELECT node, max(ts) AS last_heartbeat, date_diff('minute', max(ts), now()) AS minutes_since,\n       count(*) FILTER (WHERE alive) AS loops_alive,\n       count(*) FILTER (WHERE NOT alive AND coalesce(on_purpose, false)) AS loops_stopped_on_purpose, count(*) AS loops, CAST(sum(waiting) AS BIGINT) AS waiting\nFROM loop_beats\nGROUP BY node\nORDER BY minutes_since DESC, node;",
           "format": 1,
           "editorMode": "code",
           "rawQuery": true

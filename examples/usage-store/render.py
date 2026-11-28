@@ -50,7 +50,7 @@ ACTIVITY_NOTE = "Times are each node's own clock, as the loop wrote them."
 ALERTS = [
     ("alert-silent-node.sql", "usage-silent-node", "A node stopped sending heartbeats", "minutes_silent", 30),
     ("alert-budget.sql", "usage-budget", "A run passed 80% of its token budget", "percent_of_budget", 80),
-    ("alert-dead-loop.sql", "usage-dead-loop", "A loop stopped while its machine still reports", "stopped", 0),
+    ("alert-dead-loop.sql", "usage-dead-loop", "A loop died while its machine still reports", "stopped", 0),
 ]
 
 
