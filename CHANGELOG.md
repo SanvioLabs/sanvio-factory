@@ -42,6 +42,18 @@ Write it whenever the review-pr skill's `Controls touched:` line isn't `none`. T
 
 **When a copy takes an entry, it keeps the entry's heading text in its own log**, in whatever format it uses.
 
+## 2026-11-27: An evaluator checks the issue in the running app
+
+A new key, `app_browser_command`, names an installed Playwright MCP server, such as `playwright-mcp`. Set it beside `app_command` and `app_url`, and once a round's tests pass, its review says PASS and the app answers, a fresh `reader_agent` session checks each of the issue's acceptance criteria in the running app through a headless browser. It's told the criteria and `app_url` and nothing else from the round. It gets Read, Grep and Glob plus fourteen browser tools, and every other tool the server has is denied by name, file upload, running code in the page, tabs and installing a browser among them. It writes PASS or FAIL for each criterion and a `VERDICT:` line. A FAIL anywhere, no verdict or a non-zero exit sends the round back to the build, with the report quoted and capped under `## Evaluator's report`; the log gets the loop's own words, never the report's. What the evaluator changed in the worktree is thrown away. The loop starts the server itself, under `test_command`'s sandbox, from a config it passes as text rather than a file the app could rewrite, outside the worktree, without the sign-in variables, with pages' own tools turned off, the app's origin alone, and nothing downloaded at run time. The loop refuses to start, with one `ERROR` line, when the key is set without the app keys, with a `reader_agent` that isn't claude, or for a caller project, and a project's own `loop.json` can't set it. The loop now reads the last round's `review.md`, `test-output.txt` and `evaluation.md` only where each is a plain file, not a link. Off by default, so nothing changes until you set it.
+
+**Needs:** 2026-11-27: The loop starts the app and checks it answers; 2026-11-22: A bug's plan lists its suspects and the build reproduces it first; 2026-11-11: The loop's files and guard on Windows; 2026-10-30: Loop retro classifies its lessons
+
+**Controls:** AC-5
+
+Files: [`scripts/loop.py`](scripts/loop.py), [`tests/test_loop.py`](tests/test_loop.py), [`HOW-IT-WORKS.md`](HOW-IT-WORKS.md), `CHANGELOG.md`.
+
+**Do:** to turn it on, install the server and its browser (`npm i -g @playwright/mcp`, then `npx playwright install chromium`), and set `"app_browser_command": "playwright-mcp"` beside a project's `app_command` and `app_url` under `"projects"` in the factory's `loop.json`. Use the installed command, never `npx @playwright/mcp`.
+
 ## 2026-11-27: Keep going until it's done
 
 A 🟢 or 🟡 Go line no longer ends the agent's turn: it takes its own `Next:`, and stops only on a 🔴, a step the person takes, or a met acceptance check. In Claude Code a new Stop hook holds it to that when you ask it to keep going until something is done. Armed with `python3 .claude/hooks/until_done.py --set --spec <number>` (done when the spec's `TASKS.md` has no open box) or `--check "<command>"` (done on exit 0), it refuses to end the turn and hands back the check's output until it passes. It lets a 🔴 through and stays armed, never reads a check that couldn't run as a pass, and hands back after three continuations that change nothing, at `--max` (40), or at `--max-tokens` (10M, 0 for none) counted the way the loop counts `max_issue_tokens`. Off unless armed, per session in `local-data/until-done/`, and never in a headless run.
