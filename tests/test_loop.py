@@ -1055,7 +1055,8 @@ if "--output-format" in sys.argv and sys.argv[sys.argv.index("--output-format") 
         real.flush()
     atexit.register(emit)
 # Which command started, by the words after the script, and for which step.
-step = ("retro" if "You are reading a finished run" in prompt else "plan" if "You are planning" in prompt
+step = ("retro" if "You are reading a finished run" in prompt else "evaluate" if "You are the evaluator" in prompt
+        else "plan" if "You are planning" in prompt
         else "test" if "You are writing the tests" in prompt
         else "review" if "You are the reviewer" in prompt else "build")
 had_feature = os.path.exists("feature.txt")  # for build-says-again: a build after one that wrote it
@@ -1122,6 +1123,20 @@ if step == "retro":
         sys.exit(3)
     if os.path.exists(os.path.join(state, "retro-says")):
         print(open(os.path.join(state, "retro-says")).read())
+elif step == "evaluate":
+    # The evaluator (#757): its mcp.json and where it was, kept, since the loop removes its temp folder after.
+    if "--mcp-config" in sys.argv:
+        _config = sys.argv[sys.argv.index("--mcp-config") + 1]
+        open(os.path.join(state, "evaluate-mcp.json"), "w").write(open(_config).read())
+        open(os.path.join(state, "evaluate-mcp-path"), "w").write(_config)
+    if os.path.exists(os.path.join(state, "evaluator-edits")):
+        open("eval-sneaky.txt", "w").write("x")
+    if os.path.exists(os.path.join(state, "evaluator-then-review-fix")):  # every later review says FIX
+        open(os.path.join(state, "verdict"), "w").write("FIX")
+    if os.path.exists(os.path.join(state, "evaluator-fails")):
+        sys.exit(3)
+    says = os.path.join(state, "evaluator-says")
+    print(open(says).read() if os.path.exists(says) else "PASS: opened the app and saw the thing.\\nVERDICT: PASS")
 elif "You are planning" in prompt:
     open(os.path.join(state, "plan-cwd"), "w").write(os.getcwd())
     # Every planner prompt, one JSON string a line, for a replan's prompt beside the first (#715).
@@ -11209,6 +11224,361 @@ class TestApp(unittest.TestCase):
         self.assertEqual(self.go(), 0)
         self.assert_gone(self.app_pids())
         self.assertIsNone(bystander.poll())
+
+
+class TestAppBrowserIsAMachineKey(unittest.TestCase):
+    """A project's own loop.json can't set app_browser_command: only the factory's may (#757)."""
+
+    setUp, tearDown, commit, harness_config, on_github, main = (
+        TestProject.setUp, TestProject.tearDown, TestProject.commit, TestProject.harness_config,
+        TestProject.on_github, TestProject.main)
+
+    def test_it_is_a_machine_key_and_empty_by_default(self):
+        self.assertEqual(loop.DEFAULTS["app_browser_command"], "")
+        self.assertIn("app_browser_command", loop.MACHINE_KEYS)
+        self.assertNotIn("app_browser_command", loop.PROJECT_KEYS)
+
+    def test_a_project_whose_loop_json_sets_it_is_refused_naming_it(self):
+        site = self.on_github("site")
+        (site / "loop.json").write_text(json.dumps({"test_command": PROJECT_TESTS,
+                                                    "app_browser_command": "playwright-mcp"}))
+        code, err, built = self.main("run", "--project", str(site))
+        self.assertEqual(code, 1)
+        self.assertTrue(err.startswith("ERROR "), err)
+        self.assertIn("app_browser_command", err)
+        built.assert_not_called()
+
+
+# The issue the evaluator's tests take: one acceptance criterion, which its prompt has to carry.
+EVAL_BODY = "## Objective\n\nAdd the thing.\n\n## Acceptance Criteria\n\n- [ ] CRITERION-SENTINEL: the page shows it.\n"
+# The fourteen browser tools the evaluator may use, written out here so a change to loop.EVAL_TOOLS shows.
+EVAL_ALLOWED = ["mcp__browser__" + name for name in (
+    "browser_navigate", "browser_navigate_back", "browser_snapshot", "browser_click", "browser_type",
+    "browser_fill_form", "browser_select_option", "browser_press_key", "browser_hover", "browser_wait_for",
+    "browser_handle_dialog", "browser_console_messages", "browser_network_requests", "browser_take_screenshot")]
+EVAL_BANNED = ("browser_file_upload", "browser_evaluate", "browser_run_code_unsafe", "browser_tabs", "browser_install")
+
+
+@unittest.skipIf(sys.platform == "win32", "the app forks, and its session is ended with killpg")
+class TestEvaluator(unittest.TestCase):
+    """app_browser_command (#757): once a round's tests pass, its review says PASS and the app answers, an evaluator
+    checks each acceptance criterion in the running app through a browser MCP server, held to fourteen browser tools
+    and the read tools. A FIX sends the round back to the build with the evaluator's report."""
+
+    lines, raw_lines, calls, go, tearDown, claude_agents, settings_for, started_steps = (
+        TestAPass.lines, TestAPass.raw_lines, TestAPass.calls, TestAPass.go, TestAPass.tearDown,
+        TestAPass.claude_agents, TestAPass.settings_for, TestAPass.started_steps)
+    app, app_pids, assert_gone, errors, created_pr = (
+        TestApp.app, TestApp.app_pids, TestApp.assert_gone, TestApp.errors, TestApp.created_pr)
+
+    URL = "http://127.0.0.1:8000/"
+
+    def setUp(self):
+        TestAPass.setUp(self)
+        self.claude_agents()
+        (self.state / "issues.json").write_text(json.dumps([dict(issue(12), body=EVAL_BODY)]))
+        self.cfg.update(app_command="npm start", app_url=self.URL, app_browser_command="playwright-mcp")
+
+    def app_answers(self):
+        """app_up() as a mock whose app always answers, calling while_up as the real one does."""
+        def up(this, tree, while_up=None):
+            if while_up is not None:
+                while_up()
+            return True
+        return mock.patch.object(loop.Loop, "app_up", autospec=True, side_effect=up)
+
+    def argv(self, step):
+        return json.loads((self.state / (step + "-argv")).read_text())
+
+    def eval_lines(self):
+        return [line for line in self.lines() if line.split()[2] == "EVAL"]
+
+    def build_prompt(self):
+        return (self.state / "build-prompt").read_text()
+
+    # -- what loop.json may say --------------------------------------------------
+
+    def refused(self, why=None):
+        self.assertEqual(self.go(), 1)
+        errors = self.errors()
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("app_browser_command in loop.json: ", errors[0])
+        self.assertIn("so no issue is taken", errors[0])
+        if why:
+            self.assertIn(why, errors[0])
+        self.assertFalse((self.state / "agents-started").exists())
+
+    def test_a_bad_value_is_one_error_naming_it_and_no_agent_runs(self):
+        reader = "{} {}".format(sys.executable, Path(self.tmp.name) / "bin" / "agent")
+        base = dict(self.cfg)
+        for overrides, why in (({"app_browser_command": ["playwright-mcp"]}, "isn't a string"),
+                               ({"app_command": "", "app_url": ""}, "without app_command and app_url"),
+                               ({"app_url": ""}, "without app_command and app_url"),
+                               ({"app_command": ""}, "without app_command and app_url"),
+                               ({"reader_agent": reader}, "isn't a claude command"),
+                               ({"reader_agent": "ollama:qwen3:8b"}, "isn't a claude command")):
+            with self.subTest(**{k: repr(v) for k, v in overrides.items()}):
+                self.assertEqual(loop.app_problem(dict(loop.DEFAULTS, **dict(base, **overrides)))[0],
+                                 "app_browser_command")
+                log = self.work / ".loop" / "loop.log"
+                if log.exists():
+                    log.unlink()
+                self.cfg = dict(base, **overrides)
+                self.refused(why)
+
+    def test_a_caller_project_that_sets_it_is_refused_naming_it(self):
+        for name in ("sandbox_problem", "reader_unheld", "bwrap_probe"):
+            held = mock.patch.object(loop, name, return_value=None)
+            held.start()
+            self.addCleanup(held.stop)
+        self.cfg.update(caller=True, acceptors=["Pat-Here"], account_tier="Claude Team", network_allow=[],
+                        max_issue_tokens=4_000_000, app_command="", app_url="")
+        self.assertIsNone(loop.caller_config_problem(self.cfg))
+        self.refused("set for a caller project")
+
+    def test_set_with_the_app_and_a_claude_reader_it_is_not_refused(self):
+        self.assertIsNone(loop.app_problem(dict(loop.DEFAULTS, **self.cfg)))
+        self.assertIsNone(loop.app_problem(dict(loop.DEFAULTS, app_browser_command="playwright-mcp",
+                                                app_command="npm start", app_url=self.URL)))
+
+    # -- what the evaluator runs with ---------------------------------------------
+
+    def test_it_is_held_to_the_fourteen_browser_tools_and_the_read_tools(self):
+        with self.app_answers(), mock.patch.dict(os.environ, TestAPass.SECRETS):
+            self.assertEqual(self.go(), 0)
+        self.assertEqual(self.started_steps().count("evaluate"), 1)
+        argv = self.argv("evaluate")
+        self.assertEqual(argv.count("--allowedTools"), 1)
+        self.assertEqual(argv[argv.index("--allowedTools") + 1].split(","), EVAL_ALLOWED)
+        words = " ".join(argv)
+        for banned in EVAL_BANNED:
+            self.assertNotIn(banned, words)
+        for flag in ("--permission-mode", "--dangerously-skip-permissions", "--resume", "--continue", "--caps"):
+            self.assertFalse([w for w in argv if w == flag or w.startswith(flag + "=")], flag)
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertIn("--restricted", argv)
+        self.assertEqual(argv[argv.index("--tools") + 1], "Read,Grep,Glob")
+        self.assertEqual(argv.count("--mcp-config"), 1)
+
+    def test_its_mcp_json_names_the_browser_server_alone_with_the_loops_flags(self):
+        with self.app_answers(), mock.patch.dict(os.environ, TestAPass.SECRETS):
+            self.assertEqual(self.go(), 0)
+        config = json.loads((self.state / "evaluate-mcp.json").read_text())
+        self.assertEqual(list(config), ["mcpServers"])
+        self.assertEqual(list(config["mcpServers"]), ["browser"])
+        server = config["mcpServers"]["browser"]
+        # With the sandbox off, launch() gives shell text, so the server runs under /bin/sh -c.
+        self.assertEqual((server["command"], server["args"][0]), ("/bin/sh", "-c"))
+        words = shlex.split(server["args"][1])
+        self.assertEqual(words[0], "playwright-mcp")
+        self.assertIn("--isolated", words)
+        self.assertIn("--headless", words)
+        self.assertNotIn("--caps", words)
+        self.assertEqual(words[words.index("--allowed-origins") + 1], "http://127.0.0.1:8000")
+        output = Path(words[words.index("--output-dir") + 1])
+        # The run's temp folder: the one mcp.json was in, of its own, and gone once the run ended.
+        self.assertEqual(Path((self.state / "evaluate-mcp-path").read_text()).parent, output)
+        self.assertTrue(output.name.startswith("sanvio-eval-"), output)
+        self.assertFalse(output.exists())
+        for secret in ("GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "ANTHROPIC_API_KEY"):
+            self.assertNotIn(secret, server["env"])
+
+    def test_under_the_sandbox_the_server_runs_as_launch_runs_it(self):
+        lp = loop.Loop(self.work, self.cfg)
+        tree, output = Path(self.tmp.name) / "tree", Path(self.tmp.name) / "out"
+        tree.mkdir()
+        output.mkdir()
+        text = "playwright-mcp " + " ".join(shlex.quote(f) for f in loop.eval_server_flags(self.URL, output))
+        with mock.patch.object(lp, "sandboxed", return_value=True):
+            with lp.evaluator_mcp(tree, output) as path:
+                server = json.loads(path.read_text())["mcpServers"]["browser"]
+            with lp.launch(text, tree, loop.env_for_tests(os.environ)) as (cmd, shell, env):
+                self.assertFalse(shell)
+                self.assertEqual(cmd[0], loop.SANDBOX_EXEC)
+                self.assertEqual([server["command"]] + server["args"], cmd)
+                self.assertEqual(server["env"], env)
+
+    def test_it_uses_reader_agent_even_with_review_agent_set(self):
+        self.cfg.update(review_agent="claude -p --model reviewer-model")
+        with self.app_answers():
+            self.assertEqual(self.go(), 0)
+        self.assertIn("reviewer-model", self.argv("review"))
+        self.assertNotIn("reviewer-model", self.argv("evaluate"))
+        self.assertEqual(self.argv("evaluate")[0], "-p")  # reader_agent's claude -p, the stand-in's own name dropped
+
+    def test_the_build_agents_argv_and_settings_are_as_they_are_without_it(self):
+        with self.app_answers():
+            self.assertEqual(self.go(), 0)
+        with_it = self.argv("build")
+        (self.state / "issues.json").write_text(json.dumps([dict(issue(13), body=EVAL_BODY)]))
+        self.cfg["app_browser_command"] = ""
+        with self.app_answers():
+            self.assertEqual(self.go(), 0)
+        self.assertEqual(with_it, self.argv("build"))
+        self.assertNotIn("mcp__browser", " ".join(with_it))
+        self.assertNotIn("--mcp-config", with_it)
+
+    # -- what it's told -----------------------------------------------------------
+
+    def test_its_prompt_holds_the_criteria_and_app_url_and_nothing_of_the_round(self):
+        (self.state / "plan-says").write_text("Plan: add feature.txt. PLAN-SENTINEL")
+        (self.state / "build-files").write_text(json.dumps({"diff.txt": "DIFF-SENTINEL\n"}))
+        (self.state / "build-says").write_text("REPLY-SENTINEL")
+        self.cfg["test_command"] = "echo TESTS-SENTINEL; test -f feature.txt"
+        with self.app_answers():
+            self.assertEqual(self.go(), 0)
+        review = (self.state / "review-prompt").read_text()
+        for planted in ("PLAN-SENTINEL", "DIFF-SENTINEL", "TESTS-SENTINEL"):
+            self.assertIn(planted, review)  # each reached the round, so its absence below means something
+        prompt = (self.state / "evaluate-prompt").read_text()
+        self.assertIn("CRITERION-SENTINEL: the page shows it.", prompt)
+        self.assertIn(self.URL, prompt)
+        for planted in ("PLAN-SENTINEL", "DIFF-SENTINEL", "TESTS-SENTINEL", "REPLY-SENTINEL"):
+            self.assertNotIn(planted, prompt)
+
+    # -- when it runs ---------------------------------------------------------------
+
+    def test_it_runs_once_after_the_app_answers_and_before_the_app_ends(self):
+        port = free_port()
+        self.cfg.update(app_command=self.app(port), app_url="http://127.0.0.1:{}/".format(port))
+        events, alive = [], []
+        real_answers, real_end, real_evaluate = loop.app_answers, loop.end_app, loop.Loop.evaluate
+
+        def answers(url, timeout):
+            got = real_answers(url, timeout)
+            if got:
+                events.append("answered")
+            return got
+
+        def end(proc):
+            events.append("end")
+            real_end(proc)
+
+        def running(pid):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            return True
+
+        def evaluate(this, *args, **kwargs):
+            events.append("evaluate")
+            alive.append(bool(self.app_pids()) and all(running(pid) for pid in self.app_pids()))
+            return real_evaluate(this, *args, **kwargs)
+
+        with mock.patch.object(loop, "app_answers", answers), mock.patch.object(loop, "end_app", end), \
+                mock.patch.object(loop.Loop, "evaluate", evaluate):
+            self.assertEqual(self.go(), 0)
+        self.assertEqual(events.count("evaluate"), 1, events)
+        self.assertLess(events.index("answered"), events.index("evaluate"))
+        self.assertLess(events.index("evaluate"), events.index("end"))
+        self.assertEqual(alive, [True])
+        self.assertEqual(self.started_steps().count("evaluate"), 1)
+        self.assertTrue(self.created_pr())
+        self.assertEqual(len(self.eval_lines()), 1, self.eval_lines())
+        self.assertIn("round 1 evaluator PASS", self.eval_lines()[0])
+        self.assert_gone(self.app_pids())
+
+    def test_unset_the_agents_and_the_reviewers_argv_are_as_without_it(self):
+        self.cfg["app_browser_command"] = ""
+        with self.app_answers() as up, mock.patch.object(loop.Loop, "evaluate", autospec=True) as evaluate:
+            self.assertEqual(self.go(), 0)
+        evaluate.assert_not_called()
+        self.assertIsNone(up.call_args.kwargs.get("while_up"))
+        self.assertEqual(self.started_steps(), ["plan", "build", "review"])
+        review = self.argv("review")
+        self.assertNotIn("--mcp-config", review)
+        self.assertNotIn("--allowedTools", review)
+        self.assertEqual(self.eval_lines(), [])
+        self.assertFalse((self.work / ".loop" / "issue-12" / "evaluation.md").exists())
+
+    def test_failing_tests_run_no_evaluator(self):
+        self.cfg["test_command"] = "false"
+        with self.app_answers(), mock.patch.object(loop.Loop, "evaluate", autospec=True) as evaluate:
+            self.go()
+        evaluate.assert_not_called()
+        self.assertNotIn("evaluate", self.started_steps())
+
+    def test_a_review_fix_runs_no_evaluator(self):
+        (self.state / "verdict").write_text("FIX")
+        with self.app_answers(), mock.patch.object(loop.Loop, "evaluate", autospec=True) as evaluate:
+            self.go()
+        evaluate.assert_not_called()
+        self.assertNotIn("evaluate", self.started_steps())
+
+    def test_an_app_that_never_answers_runs_no_evaluator(self):
+        self.cfg.update(app_command=self.app(), app_url="http://127.0.0.1:{}/".format(free_port()), app_timeout=1)
+        with mock.patch.object(loop.Loop, "evaluate", autospec=True) as evaluate:
+            self.go()
+        evaluate.assert_not_called()
+        self.assertNotIn("evaluate", self.started_steps())
+        self.assertFalse(self.created_pr())
+        self.assert_gone(self.app_pids())
+
+    # -- what its verdict does ------------------------------------------------------
+
+    def assert_sent_back(self, said):
+        """The round went back to the build, whose prompt holds the report under its heading, and no pull request
+        was opened."""
+        with self.app_answers():
+            self.go()
+        self.assertFalse(self.created_pr())
+        self.assertTrue(any("round 1 evaluator FIX" in line for line in self.eval_lines()), self.lines())
+        prompt = self.build_prompt()
+        self.assertIn("## Evaluator's report", prompt)
+        self.assertIn(said, prompt[prompt.index("## Evaluator's report"):])
+        self.assertTrue(any("still failing after 2 rounds" in line for line in self.lines()), self.lines())
+
+    def test_a_fail_line_is_a_fix_even_under_a_pass_verdict(self):
+        (self.state / "evaluator-says").write_text("FAIL: clicked Save, and nothing was saved.\nVERDICT: PASS")
+        self.assert_sent_back("FAIL: clicked Save, and nothing was saved.")
+
+    def test_no_verdict_is_a_fix(self):
+        (self.state / "evaluator-says").write_text("PASS: it looked fine.")
+        self.assert_sent_back("PASS: it looked fine.")
+
+    def test_an_evaluator_that_fails_is_a_fix(self):
+        (self.state / "evaluator-fails").write_text("")
+        self.assert_sent_back("The evaluator exited 3.")
+
+    def test_a_later_rounds_build_gets_no_stale_report(self):
+        # Round 1: the evaluator says FIX, and every review after it does too, so round 2 runs no evaluator.
+        self.cfg["max_rounds"] = 3
+        (self.state / "evaluator-says").write_text("FAIL: no page.\nVERDICT: FIX")
+        (self.state / "evaluator-then-review-fix").write_text("")
+        with self.app_answers():
+            self.go()
+        self.assertEqual(self.started_steps().count("evaluate"), 1)
+        self.assertNotIn("## Evaluator's report", self.build_prompt())  # round 3's
+        self.assertFalse((self.work / ".loop" / "issue-12" / "evaluation.md").exists())
+
+    def test_an_issue_with_no_acceptance_criteria_is_a_fix_with_no_evaluator_run(self):
+        (self.state / "issues.json").write_text(json.dumps([issue(12)]))
+        with self.app_answers():
+            self.go()
+        self.assertNotIn("evaluate", self.started_steps())
+        self.assertFalse(self.created_pr())
+        self.assertIn("no ## Acceptance Criteria", self.build_prompt())
+
+    def test_what_the_evaluator_writes_in_the_worktree_is_discarded(self):
+        (self.state / "evaluator-edits").write_text("")
+        with self.app_answers():
+            self.assertEqual(self.go(), 0)
+        self.assertTrue(any("evaluator edited files; discarded" in line for line in self.eval_lines()), self.lines())
+        tree = Path(self.cfg["worktree_dir"]) / "issue-12"
+        self.assertFalse((tree / "eval-sneaky.txt").exists())
+        listed = git(self.work, "ls-tree", "-r", "--name-only", "loop/issue-12").stdout.split()
+        self.assertNotIn("eval-sneaky.txt", listed)
+
+    def test_the_verdict_rules(self):
+        for code, report, verdict in ((0, "PASS: saw it.\nVERDICT: PASS", "PASS"),
+                                      (0, "PASS: saw it.\nVERDICT: FIX", "FIX"),
+                                      (0, "FAIL: no page.\nVERDICT: PASS", "FIX"),
+                                      (0, "PASS: saw it.", "FIX"),
+                                      (0, "", "FIX"),
+                                      (3, "PASS: saw it.\nVERDICT: PASS", "FIX")):
+            with self.subTest(code=code, report=report):
+                self.assertEqual(loop.evaluation_verdict(code, report)[0], verdict)
 
 
 class TestForkKey(unittest.TestCase):

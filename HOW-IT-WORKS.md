@@ -553,6 +553,80 @@ to start, with one `ERROR` line and before it takes any issue, when:
 
 `review` never starts the app.
 
+**Whether the app does what the issue asks.** With `app_browser_command` set,
+an evaluator checks each line of the issue's `## Acceptance Criteria` in the
+running app, through a browser, once the app has answered:
+
+| Key | Default | Means |
+|---|---|---|
+| `app_browser_command` | `""` | The command that starts a browser MCP server, such as `playwright-mcp` after `npm i -g @playwright/mcp`. Empty runs no evaluator |
+
+It's worth its cost for an app people use through a browser, where the
+criteria say what someone sees or does ("the form shows an error for an empty
+email") and no test encodes that. Each round that reaches it runs one more
+agent session, with a browser, so it adds tokens and minutes. For a library,
+an API or a command-line tool, leave it empty and put the proof in
+`test_command`.
+
+The evaluator is a fresh `reader_agent` session, never `review_agent`'s. It's
+held as the planner is, to Read, Grep and Glob, plus fourteen of the server's
+tools: `browser_navigate`, `browser_navigate_back`, `browser_snapshot`,
+`browser_click`, `browser_type`, `browser_fill_form`, `browser_select_option`,
+`browser_press_key`, `browser_hover`, `browser_wait_for`,
+`browser_handle_dialog`, `browser_console_messages`,
+`browser_network_requests` and `browser_take_screenshot`. It never gets
+`browser_file_upload`, `browser_evaluate`, `browser_run_code_unsafe`,
+`browser_tabs` or the tool that installs a browser, and runs with no permission
+mode, so `claude -p` denies every tool it isn't given. It's told the acceptance
+criteria and `app_url`, and nothing of the plan, the diff, the tests or the
+build's reply. It writes one line for each criterion, PASS or FAIL with what
+it did and saw, and ends with `VERDICT: PASS` or `VERDICT: FIX`.
+
+The round goes back to the build when the evaluator says `VERDICT: FIX`, gives
+no verdict, exits non-zero, or writes FAIL on any line, even under a
+`VERDICT: PASS`. An issue with no `## Acceptance Criteria` gets no evaluator
+run and goes back the same way. The report goes to
+`.loop/issue-N/evaluation.md`, and the next build reads it under
+`## Evaluator's report`. The log gets one `EVAL` line a round, and anything the
+evaluator wrote in the worktree is thrown away once the app has stopped. Each
+round's Validate clears the last report, so a later build never reads a stale
+one. While the evaluator runs, `app_timeout` no longer stops the app:
+`agent_timeout` bounds the session, and the app stops when it ends.
+
+The script starts the server itself, from an `mcp.json` in a temp folder of
+the run's own, removed when the run ends. It adds `--isolated`, so the
+browser's profile is kept in memory and dropped after, `--headless`,
+`--allowed-origins` with `app_url`'s origin, and `--output-dir` with that temp
+folder. It never adds `--caps`, which would give the server more tools. The
+server runs as `app_command` does, under `test_command`'s sandbox, with the
+test environment less anything named like a secret.
+
+Install the server and the browser it drives on the machine before you set
+the key: `npm i -g @playwright/mcp`, then the browser its `--browser` flag
+picks, with `npx playwright install <browser>`. Flags of your own, such as
+`--browser`, go in `app_browser_command` ahead of the loop's. Nothing is
+downloaded at run time, and the evaluator can't use the install tool.
+
+Two limits to know:
+
+- **The browser's network isn't held to loopback.** `app_url` is, but a page
+  the app serves can load scripts, images or fonts from anywhere, and the
+  browser fetches them. Under `sandbox_strict`, `sandbox_network` limits the
+  server and its browser as it limits the app: `"local"` keeps them on
+  loopback, and `"none"` stops the browser reaching the app at all.
+- **`--allowed-origins` isn't a security boundary.** The server uses it to
+  refuse other sites' pages, and Playwright MCP's own documentation says it
+  isn't a boundary. What holds the browser's writes is the sandbox. Under `sandbox_strict` the server can write
+  only where `test_command` can, which leaves out the evaluator's temp folder,
+  so screenshots fail there unless `sandbox_write_allow` names the folder the
+  loop's temp folders go in. The snapshot tool still works.
+
+`app_browser_command` belongs to the factory's `loop.json`, like
+`app_command`, and a project's own `loop.json` that sets it is refused. The
+loop refuses to start, with one `ERROR` line, when it isn't a string, when
+it's set without both `app_command` and `app_url`, when `reader_agent` isn't a
+claude command, and for a caller project.
+
 **Coverage, if you want it.** Put it in `test_command`, for instance
 `"test_command": "uv run pytest --cov --cov-fail-under=80"`. The number is
 the project's to choose, and a round below it fails like any other test

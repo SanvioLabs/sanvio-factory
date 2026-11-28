@@ -145,6 +145,12 @@ DEFAULTS = {
     "app_url": "",
     # Seconds the app has to answer at app_url. One that doesn't is a round that failed, like a failing test.
     "app_timeout": 60,
+    # The command that starts a browser MCP server, such as playwright-mcp after npm i -g @playwright/mcp, for an
+    # evaluator that checks each of the issue's acceptance criteria in the app once it answers at app_url (#757).
+    # Empty means no evaluator runs. Set with app_command and app_url, and a claude reader_agent, whose session the
+    # evaluator is. The loop adds the server's flags (EVAL_SERVER_FLAGS) and runs it under test_command's sandbox. A
+    # machine key, like app_command: a clone anyone can push to mustn't choose what runs here. Not for a caller.
+    "app_browser_command": "",
     # What a caller project's test_command, generate_command and setup_command may read under the home folder,
     # the factory and the loop's checkouts, besides their clone, worktree and the run's own temp folder: each an
     # absolute or ~ path, a folder with all it holds, or a file. The default is where version managers and uv
@@ -1249,11 +1255,27 @@ def app_problem(cfg):
     issue is taken, as caller_config_problem() is. app_command and app_url are strings, set together or not at all;
     app_url is http or https on localhost or an address ipaddress calls loopback (127.0.0.0/8, ::1), so the app the
     loop starts is never one already deployed somewhere; app_timeout is a number above 0, a bool not counting; and a
-    caller project sets no app_command, since its app would be the caller's code listening on this machine."""
+    caller project sets no app_command, since its app would be the caller's code listening on this machine.
+    app_browser_command is a string too, and when set needs app_command and app_url, a reader_agent confined() can
+    hold, and a project that isn't a caller's (#757)."""
     command_text, url = cfg.get("app_command", ""), cfg.get("app_url", "")
-    for key, value in (("app_command", command_text), ("app_url", url)):
+    browser = cfg.get("app_browser_command", "")
+    for key, value in (("app_command", command_text), ("app_url", url), ("app_browser_command", browser)):
         if not isinstance(value, str):
             return key, "{} isn't a string".format(repr(value)[:100])
+    # Before the checks below, which return early for a project with no app (#757).
+    if browser.strip():
+        if cfg.get("caller") is True:
+            return "app_browser_command", "set for a caller project, and the loop runs no evaluator for a caller"
+        if not (command_text.strip() and url.strip()):
+            return "app_browser_command", "set without app_command and app_url, and the evaluator needs the app"
+        try:
+            reader = command(cfg, "reader_agent")[0] if "reader_agent" in cfg else None
+        except (ValueError, AttributeError, TypeError):  # a quote shlex can't close, or a value that isn't text
+            reader = None
+        if confined(reader) is None:
+            return "app_browser_command", ("set with a reader_agent that isn't a claude command, and only claude "
+                                           "can be held to the browser tools the evaluator may use")
     wait = cfg.get("app_timeout", DEFAULTS["app_timeout"])
     if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not wait > 0:
         return "app_timeout", "{} isn't a number of seconds above 0".format(repr(wait)[:100])
@@ -2053,12 +2075,13 @@ def diagnosis_steps(plan, last_code=None, bug=False, fresh=False, test_command="
 
 
 def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed=(), test_command="",
-                 last_code=None, bug=False, fresh=False):
+                 last_code=None, bug=False, fresh=False, evaluation=""):
     """Everything goes in the prompt: an agent in a worktree can't read the loop's own folder.
 
     fixed is the files a separate agent's tests are in, when one wrote them first. test_command is set
     when the build agent may run the tests itself (builder_runs_tests). last_code, bug and fresh matter only
-    to a bug whose plan has a ## Diagnosis: diagnosis_steps() says what they add.
+    to a bug whose plan has a ## Diagnosis: diagnosis_steps() says what they add. evaluation is the last
+    round's evaluation.md, the evaluator's report on the running app (#757), under its own heading.
     """
     held = (" A separate agent already wrote these tests, and they are fixed: {}. Don't change or delete them. "
             "The job is to make them pass. You may add other test files.".format(", ".join(fixed))) if fixed else ""
@@ -2075,12 +2098,76 @@ def build_prompt(number, plan, review="", tests="", rules="", generate="", fixed
                         "again after you.".format(test_command) if test_command
                         else "Don't run the test suite: the loop runs it."),
              generate=generated(generate, "Don't run it, and don't write its files by hand."))
-    if review or tests:
+    if review or tests or evaluation.strip():
         prompt += (
             "\nAn earlier round failed. Fix exactly what it says.\n\n"
             "REVIEW OF THE LAST ROUND:\n{review}\n\nTEST OUTPUT OF THE LAST ROUND:\n{tests}\n"
         ).format(review=review.strip(), tests=tail(tests))
+    if evaluation.strip():
+        prompt += "\n## Evaluator's report\n\n{}\n".format(evaluation.strip())
     return prompt
+
+
+# The browser tools the evaluator may use, each as mcp__browser__<name> (#757). Never browser_file_upload,
+# browser_evaluate, browser_run_code_unsafe, browser_tabs or the browser install tool: they reach files, run code
+# in the page or fetch a browser at run time. The server is named browser in mcp.json, so the names are exact.
+EVAL_TOOLS = ("browser_navigate", "browser_navigate_back", "browser_snapshot", "browser_click", "browser_type",
+              "browser_fill_form", "browser_select_option", "browser_press_key", "browser_hover", "browser_wait_for",
+              "browser_handle_dialog", "browser_console_messages", "browser_network_requests",
+              "browser_take_screenshot")
+EVAL_SERVER = "browser"
+# A FAIL on any line but the verdict's makes the evaluation FIX, whatever the verdict says.
+EVAL_FAIL = re.compile(r"\bFAIL\b")
+
+
+def eval_server_flags(url, output):
+    """The flags the loop adds to app_browser_command: a profile kept in memory and dropped after (--isolated), no
+    window (--headless), the app's origin alone (--allowed-origins, which the server enforces, not the sandbox) and
+    output, the run's own temp folder, for what it writes. Never --caps, which would add tools."""
+    parts = urllib.parse.urlsplit(url.strip())
+    origin = "{}://{}".format(parts.scheme, parts.netloc.rpartition("@")[2])
+    return ["--isolated", "--headless", "--allowed-origins", origin, "--output-dir", str(output)]
+
+
+def acceptance_criteria(body):
+    """The text under the issue's ## Acceptance Criteria heading, in any case, stripped; "" when there's none."""
+    for heading, text in SECTION.findall((body or "").replace("\r\n", "\n")):
+        if heading.strip().lower() == "acceptance criteria" and text.strip():
+            return text.strip()
+    return ""
+
+
+def evaluator_prompt(criteria, url):
+    """What the evaluator is told: the issue's acceptance criteria and app_url, and nothing of the plan, the diff,
+    the tests or the build's reply, so it judges the app as a person would, from what it does."""
+    return (
+        "You are the evaluator, in a fresh context. Do not edit any file.\n"
+        "The project's app is running at {url}. Check each acceptance criterion below in the running app with the "
+        "browser tools: open the app, do what the criterion describes, and look at what happens. Stay on the "
+        "app's own pages. Judge only by what the app shows you.\n"
+        "Write one line for each criterion: PASS or FAIL, what you did, and what you saw. A criterion you couldn't "
+        "check in the app is a FAIL, saying why. Then end with a last line of exactly VERDICT: PASS when every "
+        "criterion passed, or VERDICT: FIX when any didn't.\n\n"
+        "ACCEPTANCE CRITERIA:\n{criteria}\n"
+    ).format(url=url, criteria=criteria)
+
+
+def evaluation_verdict(code, report):
+    """(PASS or FIX, why) from an evaluator run's exit code and report. FIX for a non-zero exit, no VERDICT line,
+    a VERDICT: FIX, or any other line with FAIL in it, even under a VERDICT: PASS. why is "" for a PASS."""
+    if code != 0:
+        said = next((line.strip() for line in (report or "").splitlines() if line.strip()), "")
+        return "FIX", "the evaluator exited {}{}".format(code, ": " + said[:200] if said else "")
+    lines = [line.strip() for line in (report or "").splitlines() if line.strip()]
+    verdicts = [VERDICT.match(line).group(1).upper() for line in lines if VERDICT.match(line)]
+    failed = [line for line in lines if not VERDICT.match(line) and EVAL_FAIL.search(line)]
+    if failed:
+        return "FIX", " / ".join(failed[:3])[:300]
+    if not verdicts:
+        return "FIX", "the evaluator gave no VERDICT line"
+    if "FIX" in verdicts:
+        return "FIX", "VERDICT: FIX"
+    return "PASS", ""
 
 
 def controls_line(found):
@@ -3606,7 +3693,7 @@ class Loop:
         profile = sandbox_profile(Path.home(), self.root, allow=allow)
         yield [SANDBOX_EXEC, "-p", profile, "/bin/sh", "-c", command], False, sandbox_env(env, allow)
 
-    def app_up(self, tree):
+    def app_up(self, tree, while_up=None):
         """Start app_command in tree, under test_command's sandbox (launch()), and ask app_url until it answers or
         app_timeout runs out: True once any HTTP status comes back, a 3xx, 4xx or 5xx included, False when none did
         in time or a Ctrl-C (interrupted) stopped the wait. No proxy from the environment and no redirect, so the
@@ -3616,7 +3703,9 @@ class Loop:
         end_app() ends, with all it started, before this returns. At app_timeout a timer ends it too, so an answer
         that never finishes can't hold the wait past it, and a Ctrl-C in work() ends every app in self.apps. A
         caller project's app never starts: work() refuses one with app_command set, and this holds for any path that
-        reaches here anyway."""
+        reaches here anyway. while_up, when given, is called once the app has answered and is still running, before
+        it's ended: the evaluator's run (#757). The app_timeout timer is cancelled first, so the app lasts the run,
+        which agent_timeout bounds; a Ctrl-C still ends it, since it stays in self.apps."""
         if self.caller() or not isinstance(self.cfg.get("sandbox_commands", DEFAULTS["sandbox_commands"]), bool):
             return False
         url, wait = self.cfg["app_url"].strip(), self.cfg.get("app_timeout", DEFAULTS["app_timeout"])
@@ -3637,6 +3726,9 @@ class Loop:
                     if left <= 0:
                         return False
                     if app_answers(url, min(1.0, left)) and proc.poll() is None:
+                        if while_up is not None:
+                            timer.cancel()
+                            while_up()
                         return True
                     self.interrupted.wait(max(0.0, min(0.25, deadline - time.monotonic())))
                 return False
@@ -3647,6 +3739,62 @@ class Loop:
                 if proc.poll() is None:
                     proc.kill()
                 proc.wait()
+
+    @contextlib.contextmanager
+    def evaluator_mcp(self, tree, tmp):
+        """Yields tmp/mcp.json, the evaluator's one MCP server (#757): app_browser_command with eval_server_flags(),
+        each shell-quoted, run as launch() runs app_command, so under test_command's sandbox where that's on. The
+        server is named EVAL_SERVER, and its command and args are launch()'s argv, or /bin/sh -c and the text where
+        launch() runs no sandbox. Its env is the test environment, less anything named like a secret. What launch()
+        made for it, such as sandbox_strict's temp folder, stays until the with block ends."""
+        flags = eval_server_flags(self.cfg["app_url"], tmp)
+        text = self.cfg["app_browser_command"].strip() + " " + " ".join(shlex.quote(flag) for flag in flags)
+        with self.launch(text, tree, env_for_tests(os.environ)) as (cmd, shell, env):
+            argv = ["/bin/sh", "-c", cmd] if shell else list(cmd)
+            path = Path(tmp) / "mcp.json"
+            path.write_text(json.dumps({"mcpServers": {EVAL_SERVER: {"command": argv[0], "args": argv[1:],
+                                                                     "env": env}}}), encoding="utf-8")
+            yield path
+
+    def evaluate(self, issue, tree, number, round_no):
+        """The evaluator's run, which Validate hands app_up() as while_up, so it runs while the app is up (#757):
+        reader_agent held as confined() holds it, Read, Grep and Glob alone, plus the EVAL_TOOLS of the one server
+        evaluator_mcp() names, with no permission mode, so in -p every other tool is denied. It runs through agent(),
+        for its usage under step "evaluate", in a temp folder of its own, the server's --output-dir, removed after.
+        It's told the issue's acceptance criteria and app_url alone (evaluator_prompt()). Returns (exit code, its
+        report), or (REFUSED, why) with no run for an issue with no acceptance criteria, a caller project or a
+        reader_agent that isn't claude. Validate's evaluation() does the rest once the app has ended, so the loop's
+        own git doesn't run in tree while the app does."""
+        criteria = acceptance_criteria(issue.get("body"))
+        if not criteria:
+            return REFUSED, "The issue has no ## Acceptance Criteria section, so the evaluator had nothing to check."
+        if self.caller():
+            # work() refuses a caller with app_browser_command set; this holds for any path that reaches here anyway.
+            return REFUSED, "A caller project runs no evaluator."
+        if confined(command(self.cfg, "reader_agent")[0]) is None:
+            return REFUSED, "reader_agent isn't a claude command, so it can't be held to the browser tools."
+        tmp = tempfile.mkdtemp(prefix="sanvio-eval-")
+        try:
+            with self.evaluator_mcp(tree, tmp) as config:
+                allowed = ",".join("mcp__{}__{}".format(EVAL_SERVER, name) for name in EVAL_TOOLS)
+                return self.agent("reader_agent", evaluator_prompt(criteria, self.cfg["app_url"].strip()), tree,
+                                  confine=True, number=number, step="evaluate", round_no=round_no,
+                                  extra=["--mcp-config", str(config), "--allowedTools", allowed])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def evaluation(self, tree, folder, number, round_no, ran):
+        """(PASS or FIX, why) for the evaluator's run, once the app has ended: anything it wrote in tree goes,
+        its report goes to folder/evaluation.md, where the next round's build reads it, and evaluation_verdict()
+        judges it. ran is what evaluate() returned, in a list app_up() filled; empty, it never ran, which is FIX."""
+        self.discard_edits(tree, "EVAL", "evaluator", number)
+        code, report = ran[0] if ran else (REFUSED, "The evaluator didn't run.")
+        text = report if code == 0 else "The evaluator exited {}.\n\n{}".format(code, report or "")
+        (folder / "evaluation.md").write_text(text, encoding="utf-8")
+        verdict, why = evaluation_verdict(code, report)
+        self.log("EVAL", "round {} evaluator {}{}".format(round_no, verdict, ": " + why if why else "")[:300],
+                 number)
+        return verdict, why
 
     def git_state(self, tree):
         """What the loop's own git reads in a caller's checkout, as {name: digest}: the clone's .git/config,
@@ -4246,8 +4394,11 @@ class Loop:
         return "tester_agent" if self.cfg.get("tester_agent") else "agent"
 
     def agent(self, which, prompt, cwd, untrusted=False, confine=False, stderr=True, number=None,
-              step="", round_no=0):
+              step="", round_no=0, extra=()):
         """Run a fresh agent session. Returns (exit code, what it said).
+
+        extra goes at the end of the command argv() gives, as the evaluator's --mcp-config and --allowedTools do
+        (#757). Empty, the command is as it always was.
 
         stderr=False keeps its warnings and traces out of what it said, for text that gets posted.
         With number, each line it says is also appended to .loop/issue-N/agent.log as it comes, and
@@ -4267,6 +4418,7 @@ class Loop:
         if cmd is None:
             self.record_usage(number, step, round_no, None, configured_model(self.cfg, which))
             return REFUSED, why
+        cmd = cmd + list(extra)
         builder = which in ("agent", "tester_agent") and not (untrusted or confine)
         hold = (lambda run: self.held_git("the {} agent".format("build" if which == "agent" else "tester"), cwd,
                                           run)) if builder else (lambda run: run())
@@ -5327,6 +5479,7 @@ class Loop:
 
             last_review = (folder / "review.md").read_text(encoding="utf-8") if (folder / "review.md").exists() else ""
             last_tests = (folder / "test-output.txt").read_text(encoding="utf-8") if (folder / "test-output.txt").exists() else ""
+            last_evaluation = (folder / "evaluation.md").read_text(encoding="utf-8") if (folder / "evaluation.md").exists() else ""
             # No earlier work: round 1, or the round after a replan, which threw away round 1's work, with no
             # open pull request, no tester's commit and nothing ahead of the base.
             # A git that fails proves nothing, so it isn't fresh.
@@ -5338,7 +5491,8 @@ class Loop:
             code, said = self.agent("agent", build_prompt(number, plan, last_review, last_tests, self.rules, generate,
                                                           fixed, self.cfg["test_command"]
                                                           if self.builder_runs_tests() else "",
-                                                          last_code=last_code, bug=bug, fresh=fresh),
+                                                          last_code=last_code, bug=bug, fresh=fresh,
+                                                          evaluation=last_evaluation),
                                     tree, number=number, step="build", round_no=round_no)
             if code == OVER_BUDGET:
                 return self.stop_over_budget(number, tree, "build", round_no)
@@ -5433,6 +5587,8 @@ class Loop:
             if round_no > 1 and not changed:
                 return self.block(number, "the build added nothing in round {}".format(round_no), said=said)
             self.mark(number, step="VALIDATE")
+            # An earlier round's evaluator report is answered or stale by now: only this round's may reach a build.
+            (folder / "evaluation.md").unlink(missing_ok=True)
             reviewed = self.git("rev-parse", "HEAD", cwd=tree)[1].strip() if self.caller() else None
 
             tcode, tout = self.own_command(self.cfg["test_command"], tree)
@@ -5490,7 +5646,17 @@ class Loop:
             # Only once the tests pass and the review says PASS: an app that doesn't answer sends the round back to
             # the build, its line where the next build reads the test output. The review's PASS stays its verdict.
             if passed and (self.cfg.get("app_command") or "").strip():
-                up = self.app_up(tree)
+                # With app_browser_command set, the evaluator checks the acceptance criteria in the app while it's
+                # up (#757). Its verdict comes after the app has ended, so its edits are discarded with nothing
+                # running in tree; a FIX sends the round back to the build with its report in evaluation.md.
+                browser = bool((self.cfg.get("app_browser_command") or "").strip())
+                ran = []
+                if browser:
+                    why = self.over_budget(number)
+                    if why:
+                        return self.block(number, why)
+                up = self.app_up(tree, while_up=(lambda ran=ran, round_no=round_no: ran.append(
+                    self.evaluate(issue, tree, number, round_no))) if browser else None)
                 self.halt_if_interrupted()  # a Ctrl-C stopped the wait, which isn't an app that didn't answer
                 if up:
                     self.log("APP", "round {} app_url {} answered".format(round_no, self.cfg["app_url"]), number)
@@ -5502,6 +5668,11 @@ class Loop:
                         tout, "\n" if tout and not tout.endswith("\n") else "", line)[-OUTPUT_CAP:])
                     problems.append("round {}: {}".format(round_no, line))
                     continue
+                if browser:
+                    evaluated, reason = self.evaluation(tree, folder, number, round_no, ran)
+                    if evaluated != "PASS":
+                        problems.append("round {}: evaluator: {}".format(round_no, reason))
+                        continue
             if passed:
                 return self.scale(issue, branch, round_no, problems, fixed, reviewed=reviewed)
             problems.append("round {}: {}".format(
