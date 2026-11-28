@@ -576,8 +576,10 @@ tools: `browser_navigate`, `browser_navigate_back`, `browser_snapshot`,
 `browser_handle_dialog`, `browser_console_messages`,
 `browser_network_requests` and `browser_take_screenshot`. It never gets
 `browser_file_upload`, `browser_evaluate`, `browser_run_code_unsafe`,
-`browser_tabs` or the tool that installs a browser, and runs with no permission
-mode, so `claude -p` denies every tool it isn't given. It's told the acceptance
+`browser_tabs` or the tool that installs a browser. Its command names every
+other tool the server has in `--disallowedTools`, which no allow rule in a
+settings file outranks, and sets `--permission-mode default`, so `claude -p`
+denies every tool it isn't given. It's told the acceptance
 criteria and `app_url`, and nothing of the plan, the diff, the tests or the
 build's reply. It writes one line for each criterion, PASS or FAIL with what
 it did and saw, and ends with `VERDICT: PASS` or `VERDICT: FIX`.
@@ -587,25 +589,36 @@ no verdict, exits non-zero, or writes FAIL on any line, even under a
 `VERDICT: PASS`. An issue with no `## Acceptance Criteria` gets no evaluator
 run and goes back the same way. The report goes to
 `.loop/issue-N/evaluation.md`, and the next build reads it under
-`## Evaluator's report`. The log gets one `EVAL` line a round, and anything the
-evaluator wrote in the worktree is thrown away once the app has stopped. Each
+`## Evaluator's report`, quoted, capped at 8,000 characters, and marked as a
+report rather than instructions, since the app's pages shaped it. The log gets
+one `EVAL` line a round in the loop's own words, such as `2 FAIL lines in
+evaluation.md`, never the report's. Once the app has stopped, the loop throws
+away what the evaluator changed or added in the worktree, though not files git
+ignores. Each
 round's Validate clears the last report, so a later build never reads a stale
 one. While the evaluator runs, `app_timeout` no longer stops the app:
 `agent_timeout` bounds the session, and the app stops when it ends.
 
-The script starts the server itself, from an `mcp.json` in a temp folder of
-the run's own, removed when the run ends. It adds `--isolated`, so the
-browser's profile is kept in memory and dropped after, `--headless`,
-`--allowed-origins` with `app_url`'s origin, and `--output-dir` with that temp
-folder. It never adds `--caps`, which would give the server more tools. The
-server runs as `app_command` does, under `test_command`'s sandbox, with the
-test environment less anything named like a secret.
+The script starts the server itself. It hands `claude` the server's config as
+text on its command line, never as a file, so the running app can't rewrite it.
+It adds `--isolated`, so the browser's profile is kept in memory and dropped
+after, `--headless`, `--no-webmcp`, so a page can't add tools of its own,
+`--allowed-origins` with `app_url`'s origin, and `--output-dir` with a temp
+folder of the run's own, removed when the run ends, or under `sandbox_strict`
+the temp folder the sandbox lets it write. It never adds `--caps`, which would
+give the server more tools. The server runs as `app_command` does, under
+`test_command`'s sandbox. It starts in its output folder, not the worktree, and
+without the sign-in variables, `agent_env`'s names or anything named like a
+secret, which it would otherwise get from `claude`.
 
 Install the server and the browser it drives on the machine before you set
 the key: `npm i -g @playwright/mcp`, then the browser its `--browser` flag
-picks, with `npx playwright install <browser>`. Flags of your own, such as
-`--browser`, go in `app_browser_command` ahead of the loop's. Nothing is
-downloaded at run time, and the evaluator can't use the install tool.
+picks, with `npx playwright install <browser>`. Set `app_browser_command` to
+the installed command, such as `playwright-mcp`, never `npx @playwright/mcp`:
+`npx` can run a copy the build put in the worktree, or fetch one. Flags of your
+own, such as `--browser`, go in `app_browser_command` ahead of the loop's.
+Nothing is downloaded at run time, and the evaluator can't use the install
+tool. The evaluator runs on macOS and Linux, not Windows.
 
 Two limits to know:
 
@@ -616,10 +629,10 @@ Two limits to know:
   loopback, and `"none"` stops the browser reaching the app at all.
 - **`--allowed-origins` isn't a security boundary.** The server uses it to
   refuse other sites' pages, and Playwright MCP's own documentation says it
-  isn't a boundary. What holds the browser's writes is the sandbox. Under `sandbox_strict` the server can write
-  only where `test_command` can, which leaves out the evaluator's temp folder,
-  so screenshots fail there unless `sandbox_write_allow` names the folder the
-  loop's temp folders go in. The snapshot tool still works.
+  isn't a boundary. What holds the browser's writes is the sandbox, and only
+  `sandbox_strict` limits writes: under it the server writes only where
+  `test_command` can. Under the default sandbox it can write wherever
+  `app_command` can, which is most of your home folder.
 
 `app_browser_command` belongs to the factory's `loop.json`, like
 `app_command`, and a project's own `loop.json` that sets it is refused. The
